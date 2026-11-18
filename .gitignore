@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Outputs and private server data -- never commit these
+server-report.html
+*.sqlite
+sync-output/
+servers/
+*.mcpr

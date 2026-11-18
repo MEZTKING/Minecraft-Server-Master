@@ -1,0 +1,180 @@
+"""Builds a small but realistic fake server on disk for the tests.
+
+Server time zone is UTC+02:00 (as if hosted in central Europe in summer),
+which the advancement files reveal via their ``+0200`` suffix.
+
+Timeline (server local time):
+
+2024-05-01  (logs/2024-05-01-1.log.gz, vanilla format)
+  19:59:50  server start 1.20.4
+  20:00:10  Steve logs in / joins at (10.5, 64, -3.5)
+  20:05:00  <Steve> hello world
+  20:06:00  Alex joins
+  20:10:00  Steve has made the advancement [Stone Age]   (matches advancement JSON 20:10:00 +0200)
+  20:20:00  Alex was slain by Zombie
+  20:30:00  Alex left the game
+  23:59:50  <Steve> almost midnight
+2024-05-02  (same file continues past midnight -> file named for 05-02)
+  00:00:10  <Steve> past midnight
+  00:05:00  Stopping server
+
+logs/latest.log  (Fabric format, mtime 2024-05-03 22:00 local)
+  2024-05-03 20:00:00  server start
+  20:00:30  Steve joins
+  20:01:00  Steve fell from a high place
+  20:02:00  <Steve> gg
+  20:03:00  Steve has reached the goal [Sky's the Limit]
+  (no stop -> session ends at log end 20:03:00)
+
+Replay recordings/players/Steve/2024-05-03.mcpr: starts 2024-05-03 18:00:00 UTC
+(= 20:00:00 local), 10 minutes long, one marker at 90 s.
+"""
+
+from __future__ import annotations
+
+import gzip
+import json
+import math
+import os
+import struct
+import time
+import wave
+import zipfile
+from datetime import datetime, timezone
+
+from mcsm import nbt
+from mcsm.nbt import TAG_FLOAT, TAG_LONG, TAG_SHORT, Typed
+
+STEVE = "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+ALEX = "853c80ef-3c37-49fd-aa49-938b674adae6"
+
+LOG1 = """\
+[19:59:50] [Server thread/INFO]: Starting minecraft server version 1.20.4
+[19:59:55] [Server thread/INFO]: Done (4.512s)! For help, type "help"
+[20:00:10] [Server thread/INFO]: Steve[/203.0.113.5:51234] logged in with entity id 12 at (10.5, 64.0, -3.5)
+[20:00:10] [Server thread/INFO]: Steve joined the game
+[20:05:00] [Server thread/INFO]: <Steve> hello world
+[20:06:00] [Server thread/INFO]: Alex joined the game
+[20:07:00] [Server thread/WARN]: Steve moved too quickly! 12.3,0.0,4.5
+[20:08:00] [Server thread/INFO]: [Steve: Set the time to 1000]
+[20:10:00] [Server thread/INFO]: Steve has made the advancement [Stone Age]
+[20:20:00] [Server thread/INFO]: Alex was slain by Zombie
+[20:25:00] [Server thread/INFO]: [Server] Restarting soon
+[20:30:00] [Server thread/INFO]: Alex lost connection: Disconnected
+[20:30:00] [Server thread/INFO]: Alex left the game
+[23:59:50] [Server thread/INFO]: <Steve> almost midnight
+[00:00:10] [Server thread/INFO]: <Steve> past midnight
+[00:05:00] [Server thread/INFO]: Stopping server
+"""
+
+LATEST = """\
+[20:00:00] [main/INFO] (Minecraft) Starting minecraft server version 1.20.4
+[20:00:30] [Server thread/INFO] (Minecraft) Steve joined the game
+[20:01:00] [Server thread/INFO] (Minecraft) Steve fell from a high place
+[20:02:00] [Server thread/INFO] (Minecraft) [Not Secure] <Steve> gg
+[20:03:00] [Server thread/INFO] (Minecraft) Steve has reached the goal [Sky's the Limit]
+"""
+
+REPLAY_START_MS = int(datetime(2024, 5, 3, 18, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def _write(path: str, text: str | bytes, mode: str = "w") -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as fh:
+        fh.write(text)
+
+
+def build_server(root: str) -> str:
+    """Create the fake server under *root* and return *root*."""
+    _write(os.path.join(root, "server.properties"),
+           "#Minecraft server properties\nlevel-name=world\nmotd=Friends SMP\nmax-players=20\n"
+           "rcon.password=hunter2\ndifficulty=hard\n")
+    _write(os.path.join(root, "eula.txt"), "eula=true\n")
+    _write(os.path.join(root, "usercache.json"), json.dumps([
+        {"name": "Steve", "uuid": STEVE, "expiresOn": "2024-06-01 00:00:00 +0200"},
+        {"name": "Alex", "uuid": ALEX, "expiresOn": "2024-06-01 00:00:00 +0200"}]))
+    _write(os.path.join(root, "ops.json"), json.dumps([{"uuid": STEVE, "name": "Steve", "level": 4}]))
+
+    # logs
+    _write(os.path.join(root, "logs", "2024-05-02-1.log.gz"), gzip.compress(LOG1.encode()), "wb")
+    latest = os.path.join(root, "logs", "latest.log")
+    _write(latest, LATEST)
+    ts = time.mktime(datetime(2024, 5, 3, 22, 0, 0).timetuple())
+    os.utime(latest, (ts, ts))
+    _write(os.path.join(root, "logs", "debug.log"), "noise\n")
+
+    # world
+    w = os.path.join(root, "world")
+    _write(os.path.join(w, "level.dat"), nbt.dumps({"Data": {
+        "LevelName": "Friends SMP", "Time": Typed(TAG_LONG, 20 * 3600 * 5), "DayTime": Typed(TAG_LONG, 24000 * 7 + 100),
+        "SpawnX": 0, "SpawnY": 64, "SpawnZ": 0, "Difficulty": Typed(1, 3), "GameType": 0, "hardcore": Typed(1, 0),
+        "Version": {"Name": "1.20.4", "Id": 3700}, "DataVersion": 3700,
+        "WorldGenSettings": {"seed": Typed(TAG_LONG, -123456789012345)},
+        "GameRules": {"keepInventory": "true"},
+    }}), "wb")
+    _write(os.path.join(w, "region", "r.0.0.mca"), b"\0" * 8192, "wb")
+    _write(os.path.join(w, "DIM-1", "region", "r.0.0.mca"), b"\0" * 4096, "wb")
+
+    _write(os.path.join(w, "stats", f"{STEVE}.json"), json.dumps({"stats": {
+        "minecraft:custom": {"minecraft:play_time": 72000 * 3, "minecraft:deaths": 1, "minecraft:jump": 321,
+                             "minecraft:walk_one_cm": 1234567, "minecraft:mob_kills": 12},
+        "minecraft:mined": {"minecraft:stone": 500, "minecraft:diamond_ore": 3}}, "DataVersion": 3700}))
+    _write(os.path.join(w, "stats", f"{ALEX}.json"), json.dumps({  # legacy pre-1.13 format
+        "stat.playOneMinute": 36000, "stat.deaths": 1, "stat.mineBlock.minecraft.stone": 40}))
+
+    _write(os.path.join(w, "advancements", f"{STEVE}.json"), json.dumps({
+        "minecraft:story/mine_stone": {"criteria": {"get_stone": "2024-05-01 20:10:00 +0200"}, "done": True},
+        "minecraft:recipes/misc/torch": {"criteria": {"has_coal": "2024-05-01 20:09:00 +0200"}, "done": True},
+        "minecraft:adventure/sleep_in_bed": {"criteria": {"slept": "2024-05-03 20:00:40 +0200"}, "done": True},
+        "DataVersion": 3700}))
+
+    _write(os.path.join(w, "playerdata", f"{STEVE}.dat"), nbt.dumps({
+        "Pos": [12.25, 70.0, -8.75], "Dimension": "minecraft:overworld", "Health": Typed(TAG_FLOAT, 20.0),
+        "foodLevel": 18, "XpLevel": 30, "playerGameType": 0,
+        "Inventory": [{"id": "minecraft:diamond_pickaxe", "count": 1, "Slot": Typed(1, 0)},
+                      {"id": "minecraft:torch", "count": 64, "Slot": Typed(1, 1)},
+                      {"id": "minecraft:torch", "count": 10, "Slot": Typed(1, 2)}],
+        "EnderItems": [{"id": "minecraft:elytra", "Count": Typed(1, 1), "Slot": Typed(1, 0)}],
+        "LastDeathLocation": {"dimension": "minecraft:the_nether", "pos": Typed(11, [1, 2, 3])},
+        "abilities": {"flying": Typed(1, 0)}, "Air": Typed(TAG_SHORT, 300),
+    }), "wb")
+
+    # replay
+    rp = os.path.join(root, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
+    os.makedirs(os.path.dirname(rp), exist_ok=True)
+    with zipfile.ZipFile(rp, "w") as zf:
+        zf.writestr("metaData.json", json.dumps({
+            "singleplayer": False, "serverName": "Friends SMP", "duration": 600_000, "date": REPLAY_START_MS,
+            "mcversion": "1.20.4", "fileFormat": "MCPR", "fileFormatVersion": 14, "protocol": 765,
+            "generator": "ServerReplay v1.1.0", "selfId": -1, "players": [STEVE]}))
+        zf.writestr("markers.json", json.dumps([{"realTimestamp": 90_000, "value": {"name": "Cool moment"}}]))
+        zf.writestr("recording.tmcpr", b"")
+
+    # crash report
+    _write(os.path.join(root, "crash-reports", "crash-2024-05-02_00.10.00-server.txt"),
+           "---- Minecraft Crash Report ----\nTime: whenever\nDescription: Ticking entity\n")
+    return root
+
+
+def write_click_track(path: str, bpm: float = 120.0, first_beat: float = 0.25, seconds: float = 12.0,
+                      rate: int = 22050) -> None:
+    """A mono WAV with a short decaying click on every beat (accent on the bar)."""
+    n = int(seconds * rate)
+    samples = [0.0] * n
+    period = 60.0 / bpm
+    k = 0
+    while True:
+        t = first_beat + k * period
+        if t >= seconds:
+            break
+        start = int(t * rate)
+        amp = 0.9 if k % 4 == 0 else 0.6
+        for i in range(int(0.03 * rate)):
+            if start + i < n:
+                samples[start + i] += amp * math.exp(-i / (0.005 * rate)) * math.sin(2 * math.pi * 1000 * i / rate)
+        k += 1
+    with wave.open(path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, s)) * 32767)) for s in samples))

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcsm"
+version = "0.1.0"
+description = "Parse a downloaded Minecraft server: statistics dashboard, event timeline, and replay/video/music sync."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# Only needed on Windows, where Python has no built-in time-zone database.
+windows = ["tzdata"]
+
+[project.scripts]
+mcsm = "mcsm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mcsm*"]
