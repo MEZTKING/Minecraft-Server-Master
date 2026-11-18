@@ -294,3 +294,43 @@ class TestCLI(ServerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _have_display() -> bool:
+    try:
+        import tkinter
+        r = tkinter.Tk()
+        r.destroy()
+        return True
+    except Exception:  # noqa: BLE001 - no tkinter or no display
+        return False
+
+
+@unittest.skipUnless(_have_display(), "needs tkinter and a display")
+class TestGUI(ServerTestCase):
+    def test_load_and_sync(self):
+        import time
+        import tkinter as tk
+        from mcsm import gui
+        gui.open_path = lambda p: None
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.server_var.set(self.root)
+            app._load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertIsNotNone(app.data)
+            self.assertIn("Steve", app.replay_combo.get())
+            out = os.path.join(self.tmp, "gui-sync")
+            app.outdir_var.set(out)
+            app.bpm_var.set("120")
+            app._sync()
+            while app.busy and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertTrue(os.path.exists(os.path.join(out, "2024-05-03--18-00-00.srt")))
+        finally:
+            root.destroy()

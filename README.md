@@ -14,14 +14,16 @@ into:
    your cuts land on the music.
 4. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
 
-It needs **only Python 3.10+**: no packages to install, no internet, nothing leaves your
-computer.
+It comes as a **Windows installer** with a normal app window (nothing else to install),
+or as a Python package for the command line. Everything runs on your computer: no
+internet, nothing is uploaded.
 
 ---
 
 ## Contents
 
-- [Quick start](#quick-start)
+- [Install on Windows (installer)](#install-on-windows)
+- [Quick start (command line)](#quick-start)
 - [Getting the files from PebbleHost](#getting-the-files-from-pebblehost)
 - [Commands](#commands)
 - [Video sync in 60 seconds](#video-sync-in-60-seconds)
@@ -33,7 +35,24 @@ computer.
 
 ---
 
+## Install on Windows
+
+1. Download `MinecraftServerMaster-Setup-<version>.exe` from the **Releases** page, or from
+   the newest *Build installer* run in the **Actions** tab (under *Artifacts*).
+2. Run it. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**:
+   the installer works but isn't code-signed.
+3. Open **Minecraft Server Master** from the Start menu, click **Zip file…**, and pick your
+   server download.
+
+The window has three tabs: **Statistics report**, **Video & music sync** and **Export
+data**. The full guide, including building the installer yourself, is in
+**[docs/INSTALLER.md](docs/INSTALLER.md)**.
+
+---
+
 ## Quick start
+
+The command line works on Windows, macOS and Linux with Python 3.10+.
 
 ```bash
 git clone https://github.com/meztking/Minecraft-Server-Master.git
@@ -43,7 +62,8 @@ git clone https://github.com/meztking/Minecraft-Server-Master.git
 cd Minecraft-Server-Master
 ```
 
-Install it as a command (optional – you can also run `python -m mcsm` from this folder):
+Install it as a command (optional – you can also run `python -m mcsm` from this folder).
+This also installs `mcsm-gui`, which opens the same window as the Windows app:
 
 ```bash
 pip install .
@@ -208,6 +228,7 @@ The HTML report always shows times in **your** browser's time zone.
 
 | Document | Contents |
 |---|---|
+| [docs/INSTALLER.md](docs/INSTALLER.md) | Installing and using the Windows app; how the installer is built and released |
 | [docs/PEBBLEHOST.md](docs/PEBBLEHOST.md) | Downloading the right files from PebbleHost (and other hosts) |
 | [docs/VIDEO_SYNC.md](docs/VIDEO_SYNC.md) | How replay ↔ log syncing works, all options, editor import steps, troubleshooting |
 | [docs/MUSIC_SYNC.md](docs/MUSIC_SYNC.md) | Beat detection, beat grids, alignment, snapping, worked examples |
@@ -224,4 +245,8 @@ python -m pytest tests
 ```
 
 (or `python -m unittest discover tests` without pytest). The tests build a complete fake
-server on the fly – see `tests/fixtures.py` – so no real server files are needed.
+server on the fly – see `tests/fixtures.py` – so no real server files are needed. The GUI
+test runs only where tkinter and a display are available.
+
+Build the Windows installer with `installer\build_windows.ps1` (see
+[docs/INSTALLER.md](docs/INSTALLER.md)); GitHub Actions does this automatically on every push.

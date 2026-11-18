@@ -16,7 +16,9 @@
 mcsm/
   __init__.py        version
   __main__.py        `python -m mcsm`
-  cli.py             argument parsing and the commands
+  cli.py             argument parsing and the commands (run_* functions take loaded data)
+  gui.py             tkinter desktop window; calls the same run_* functions as the CLI
+  assets/icon.png    window icon
   source.py          open a folder or .zip, find the server root inside it
   analyzer.py        runs all parsers, merges results into ServerData
   models.py          dataclasses: ServerData, Event, Session, PlayerProfile, Replay, ...
@@ -36,6 +38,8 @@ tests/
   fixtures.py        builds a complete fake server (and a click-track WAV)
   test_mcsm.py       unit + end-to-end tests
 docs/                user and developer documentation
+installer/           Windows packaging: PyInstaller spec, Inno Setup script, build script, icon
+.github/workflows/   CI: tests + Windows installer build/release
 ```
 
 ## Data flow
@@ -77,6 +81,12 @@ line is only a death when it starts with a known player followed by a vanilla de
 be shared by sending one file. All aggregation that depends on the viewer's time zone
 (per-day totals, the heatmap) runs in the browser. Embedded data has `</` escaped so chat
 text can never break out of the `<script>` tag.
+
+**The GUI is a thin shell over the CLI.** Each button builds the argument list the
+command line would receive, parses it with the same `argparse` parser, and calls the
+matching `cli.run_*` function with the already-loaded `ServerData`, streaming its printed
+output into the window. New CLI options are therefore available to the GUI just by adding a
+field, and the two can never disagree.
 
 **Markers are format-agnostic.** `sync.Marker` holds position/label/type; each output format
 is a small function in `exporters/markers.py`.

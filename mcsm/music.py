@@ -151,8 +151,10 @@ def _ffmpeg_to_wav(path: str) -> str:
             "or pass --bpm (and --beat-offset) instead of --music.")
     fd, out = tempfile.mkstemp(suffix=".wav", prefix="mcsm-")
     os.close(fd)
+    # CREATE_NO_WINDOW stops a console window flashing up when run from the desktop app.
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.run([exe, "-v", "error", "-y", "-i", path, "-ac", "1", "-ar", str(TARGET_RATE),
-                    "-sample_fmt", "s16", out], check=True)
+                    "-sample_fmt", "s16", out], check=True, creationflags=flags)
     return out
 
 

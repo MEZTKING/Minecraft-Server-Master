@@ -79,7 +79,10 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_summary(args) -> int:
-    data = _load(args)
+    return run_summary(_load(args), args)
+
+
+def run_summary(data: m.ServerData, args=None) -> int:
     w = data.world
     print(f"Server root : {data.root}")
     print(f"World       : {w.get('level_name') or w.get('folder')}  ({w.get('version_name') or '?'})")
@@ -105,8 +108,11 @@ def cmd_summary(args) -> int:
 
 
 def cmd_report(args) -> int:
+    return run_report(_load(args), args)
+
+
+def run_report(data: m.ServerData, args) -> int:
     from .exporters.report import write_report
-    data = _load(args)
     out = args.output or "server-report.html"
     write_report(data, out, args.title)
     _print_warnings(data)
@@ -118,7 +124,11 @@ def cmd_export(args) -> int:
     from .exporters import data as dx
     if not (args.json or args.sqlite or args.csv):
         args.sqlite = "server.sqlite"
-    data = _load(args)
+    return run_export(_load(args), args)
+
+
+def run_export(data: m.ServerData, args) -> int:
+    from .exporters import data as dx
     if args.json:
         dx.write_json(data, args.json); print(f"JSON   -> {args.json}")
     if args.sqlite:
@@ -181,10 +191,14 @@ def _resolve_replay(data: m.ServerData, spec: str) -> m.Replay:
 
 
 def cmd_sync(args) -> int:
+    return run_sync(_load(args), args)
+
+
+def run_sync(data: m.ServerData, args) -> int:
+    """The body of ``mcsm sync``, usable with already-loaded data (the GUI calls this)."""
     from . import music, sync
     from .exporters import markers as mx
 
-    data = _load(args)
     speed = args.speed
     render_start = parse_duration(args.render_start) if args.render_start else 0.0
     length = parse_duration(args.length) if args.length else None
@@ -376,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

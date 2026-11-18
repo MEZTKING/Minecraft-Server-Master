@@ -17,5 +17,11 @@ windows = ["tzdata"]
 [project.scripts]
 mcsm = "mcsm.cli:main"
 
+[project.gui-scripts]
+mcsm-gui = "mcsm.gui:main"
+
 [tool.setuptools.packages.find]
 include = ["mcsm*"]
+
+[tool.setuptools.package-data]
+mcsm = ["assets/*.png"]
