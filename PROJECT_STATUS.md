@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19 (release workflow).
+`CLAUDE.md`). Last updated: 2026-11-19 (real-server findings; multi-backup request).
 
 ## What this project is
 
@@ -62,6 +62,62 @@ More features "like these" are planned, listed under **Backlog** below.
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
+
+### 0. Real-server findings (owner's report, 2026-11-19) — fix first
+
+The owner ran the report on their real server (**Minecraft 26.1.2, Fabric, ServerReplay 3.4.1,
+11 players, 266 logs, 762 Flashback replays, 14.7 GB world**). Logs parsed well (7,595 events).
+Problems found:
+
+1. **Stats, advancements and playerdata all empty.** Minecraft 26.1 moved these out of
+   `<world>/stats|advancements|playerdata` (dimensions also moved to
+   `<world>/dimensions/minecraft/<dim>/region`). Fix: auto-discover these folders anywhere in the
+   world (uuid-named files), so future layout changes keep working. Same for terrain region dirs.
+2. **Time zone unknown** (follows from 1: offsets come from advancement files). Also consider
+   other offset sources.
+3. **All Flashback replays: duration 50 ms, start only from the file name, no markers.**
+   ServerReplay 3.4.1's Flashback output differs from what Flashback master writes. Needs a sample
+   replay (`metadata.json` + `c0.flashback`) from the owner → fix the reader.
+4. Player folders are named `Recordings for_ NAME (uuid)` (custom `player_recording_name`):
+   extract the uuid/name.
+5. `level.dat` in 26.1: spawn, difficulty and day time not found (fields moved). Needs a sample.
+6. Two players without uuid (`5ou1s`, `InsidiousCrow`): not in usercache (likely Bedrock via
+   Geyser, or expired cache).
+7. Whole-zip extraction does not scale (14.7 GB world): read backups selectively.
+
+### 0b. Unified multi-backup archive + recordings map (requested 2026-11-19)
+
+**The ask (owner's words):** "make a system so that i can see and combine multiple minecraft
+backups with different version with their recording to make one unified glorious section where
+i can easily view edit and anaylze anything. also how are you meant to view recordings etc, and
+make a live map using the recording files, to do the same thing as above so i can see everything
+in my backup file as if its one recording"
+
+**Proposed design:**
+- **Phase 1: merge backups into one dataset/report** (`mcsm report BACKUP1 BACKUP2 ...`, and an
+  app list of backups):
+  - read each backup (zip or folder, any version) *selectively*: logs, player files, level.dat,
+    replay metadata only; never unpack region files;
+  - logs: union, de-duplicated by (time, type, player, text), since the same archive appears in
+    several backups and an old `latest.log` reappears later as a dated archive;
+  - per-player stats/advancements/inventory: newest backup wins, and **each backup is kept as a
+    snapshot**, giving progress over time (play time, blocks mined… per backup date);
+  - replays: union, de-duplicated by replay uuid / file name;
+  - a **Backups tab**: timeline of backups with game version, world size, seed and level name (a
+    new world = new section), plus version changes.
+- **Phase 2: "everything as one recording" 3D time-machine viewer**: a time slider across
+  the whole history. Player paths, events pinned in 3D, sessions, replays as coverage bars. Click
+  to open or sync the replay at that moment. Terrain from the nearest backup (switching backups
+  shows the world changing). Position sources, in order:
+  - live-map track recordings (exact, exists);
+  - **positions decoded from the replay recordings** (needs packet decoding; per-protocol,
+    research);
+  - coarse points from logs (join positions, death locations) and playerdata per backup.
+- **How to view recordings** (answer given): the replays themselves play inside Flashback /
+  ReplayMod in game; `mcsm` lines them up with logs, adds markers, and (Phase 2) shows where and
+  when they happened on the map.
+- Open questions: what "edit" should mean in the unified view (notes and annotations? marking
+  highlights for video? merging/renaming players?); how many backups and what size.
 
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
