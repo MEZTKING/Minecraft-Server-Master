@@ -45,6 +45,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Windows installer (PyInstaller + Inno Setup, CI build + install test) | ✅ Done | `installer/`, `.github/workflows/` | `docs/INSTALLER.md` |
 | Live 3D map over RCON (terrain from download, trails, follow, demo mode, track recording) | ✅ Done, not yet tried on a real server | `mcsm/live.py`, `rcon.py`, `terrain.py`, `assets/web/live.html` | `docs/LIVE_MAP.md` |
 | Activity-aware fixed-camera timelapse | 📝 Designed, awaiting owner's choice | n/a | see Backlog #1 |
+| Flashback editor integration (markers into replay copy; timelapse keyframes) | 📝 Designed; 2b needs research | n/a | see Backlog #2 |
 
 ## Backlog (feature requests and ideas, in priority order)
 
@@ -99,7 +100,32 @@ structured timestamps.
 already use, low risk), then Phase B for the block-by-block look. Treat Phase C as
 research. **Waiting for the owner to confirm** the order and answer the open question.
 
-### 2. Other ideas (not yet requested in detail; confirm before building)
+**Update 2026-11-19: the owner likes Flashback's in-game editor.** They asked whether the
+tool uses it. Answer given: not yet. `mcsm` only *reads* Flashback replays and writes files for
+external editors (SRT/EDL/CSV). Revised recommendation: make the timelapse **Flashback-first**
+(Phase A output goes into Flashback), keeping the Resolve EDL as a fallback. See backlog #2.
+
+### 2. Flashback editor integration (raised 2026-11-19)
+
+**The ask (owner's words):** "I know that Flashback, you can edit stuff in Flashback, and I
+really like that editor. Is it using that method?"
+
+**Proposed design:**
+- **2a. Write markers into a copy of a Flashback replay (feasible now).** The `metadata.json`
+  marker format is known (see `mcsm/replays.py` docstring): `"markers": {"<tick>": {"colour":
+  int RGB, "position": {"position": [x,y,z], "dimension": "minecraft:..."}, "description": str}}`,
+  with tick = (event time - replay start) / 50 ms. Add e.g. `mcsm sync --flashback-markers OUT.zip`,
+  which copies the replay zip with merged markers (deaths, chat, advancements, joins, and later
+  "entered area X" / activity start/end). **Never modify the original file.** Colour per event
+  type, matching `sync.TYPE_COLOURS`. Verify that Flashback opens the copy and shows the markers
+  (owner test).
+- **2b. Generate a Flashback editor timelapse setup (research needed).** A fixed camera keyframe
+  over the area, plus speed/time keyframes that skip idle periods and slow down during activity.
+  **Unknown:** how and where Flashback stores editor state (keyframes, tracks). Next step: read
+  the Flashback source (editor state / keyframe classes and serialization) before promising it.
+- Open question for the owner: Flashback version they use (format details may differ).
+
+### 3. Other ideas (not yet requested in detail; confirm before building)
 
 - Play back recorded tracks in the 3D viewer (time slider, speed control), e.g. "show
   last Saturday's session".
@@ -123,6 +149,7 @@ research. **Waiting for the owner to confirm** the order and answer the open que
 | 2026-11-18 | Windows-first installer (Inno Setup), built in CI | Owner is on Windows; no Windows machine in the dev container |
 | 2026-11-19 | Live map uses RCON + downloaded terrain instead of a server plugin | No mods needed; fits the app. BlueMap documented as the polished alternative |
 | 2026-11-19 | Flashback start time decoded from the first `real_time_clock_optional` action | Flashback `metadata.json` has no start time |
+| 2026-11-19 | Timelapse to target Flashback's editor first (pending owner confirmation) | Owner prefers editing in Flashback |
 
 ## Known gaps and unverified assumptions
 
@@ -139,6 +166,7 @@ research. **Waiting for the owner to confirm** the order and answer the open que
 
 ## Changelog
 
+- **2026-11-19:** Backlog: Flashback editor integration (#2); timelapse revised to Flashback-first.
 - **2026-11-19:** Live 3D map (`mcsm live`, app tab, demo mode, track recording); Flashback
   replays; unfinished ReplayMod/Flashback recordings; UUID-named ServerReplay folders show
   player names; this status document and `CLAUDE.md`.
