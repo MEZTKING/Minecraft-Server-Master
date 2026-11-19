@@ -133,6 +133,7 @@ class App(ttk.Frame):
         nb.add(self._tab_report(nb), text="Statistics report")
         nb.add(self._tab_sync(nb), text="Video & music sync")
         nb.add(self._tab_export(nb), text="Export data")
+        nb.add(self._tab_flashback(nb), text="Flashback")
         nb.add(self._tab_live(nb), text="Live map")
 
     def _button(self, parent, text, command, **grid) -> ttk.Button:
@@ -277,6 +278,155 @@ class App(ttk.Frame):
         self._button(out, "Create markers", self._sync, row=0, column=3, padx=(8, 0))
         return holder
 
+    def _tab_flashback(self, nb) -> ttk.Frame:
+        from .flashback import find_flashback_dir
+        holder, f = self._scrollable(nb)
+        f.columnconfigure(1, weight=1)
+        ttk.Label(f, text="Work in Flashback's own editor. The app makes a COPY of a Flashback replay (your original is "
+                          "never changed) with server events as markers, or with a ready-made fixed-camera timelapse "
+                          "of an area. Details: docs/FLASHBACK.md and docs/TIMELAPSE.md.",
+                  wraplength=660, justify="left").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text="Flashback replay:").grid(row=1, column=0, sticky="w", pady=(8, 2))
+        self.fb_combo = ttk.Combobox(f, state="readonly")
+        self.fb_combo.grid(row=1, column=1, columnspan=2, sticky="ew", padx=4, pady=(8, 2))
+        ttk.Label(f, text="Flashback folder:").grid(row=2, column=0, sticky="w")
+        self.fb_dir_var = tk.StringVar(value=find_flashback_dir() or "")
+        ttk.Entry(f, textvariable=self.fb_dir_var).grid(row=2, column=1, sticky="ew", padx=4)
+        ttk.Button(f, text="Browse…", command=lambda: self._pick_dir(self.fb_dir_var)).grid(row=2, column=2)
+        ttk.Label(f, text="<.minecraft>/flashback – for Prism/Modrinth/CurseForge pick the instance's .minecraft/flashback",
+                  foreground="gray").grid(row=3, column=1, columnspan=2, sticky="w")
+        self.fb_install_var = tk.BooleanVar(value=bool(self.fb_dir_var.get()))
+        ttk.Checkbutton(f, text="Install the copy into Flashback (otherwise saved to Documents/mcsm-flashback)",
+                        variable=self.fb_install_var).grid(row=4, column=0, columnspan=3, sticky="w", pady=(2, 6))
+
+        mk = ttk.LabelFrame(f, text="1. Markers", padding=8)
+        mk.grid(row=5, column=0, columnspan=3, sticky="ew", pady=4)
+        ttk.Label(mk, text="Uses the event types and players ticked on the 'Video & music sync' tab.",
+                  foreground="gray").pack(side="left")
+        self._button(mk, "Copy replay with markers", self._fb_markers).pack(side="right")
+
+        tl = ttk.LabelFrame(f, text="2. Timelapse of an area (plays only while someone is there)", padding=8)
+        tl.grid(row=6, column=0, columnspan=3, sticky="ew", pady=4)
+        tl.columnconfigure(1, weight=1)
+        self.tl_name_var, self.tl_area_var = tk.StringVar(value="Base"), tk.StringVar()
+        self.tl_dim_var = tk.StringVar(value="minecraft:overworld")
+        self.tl_tracks_var = tk.StringVar(value=os.path.join(_documents_dir(), "mcsm-live-tracks"))
+        self.tl_mode_var, self.tl_length_var, self.tl_speed_var = tk.StringVar(value="length"), tk.StringVar(value="3:00"), tk.StringVar(value="60")
+        self.tl_camera_var = tk.StringVar()
+        r = 0
+        for label, var, hint in (("Area name", self.tl_name_var, ""),
+                                 ("Area box", self.tl_area_var, "x1,z1,x2,z2  (optional ,y1,y2) – F3 coordinates of two opposite corners")):
+            ttk.Label(tl, text=label + ":").grid(row=r, column=0, sticky="w", pady=2)
+            ttk.Entry(tl, textvariable=var).grid(row=r, column=1, sticky="ew", padx=4)
+            ttk.Label(tl, text=hint, foreground="gray").grid(row=r, column=2, sticky="w")
+            r += 1
+        ttk.Label(tl, text="Dimension:").grid(row=r, column=0, sticky="w", pady=2)
+        ttk.Combobox(tl, textvariable=self.tl_dim_var, state="readonly", width=22,
+                     values=["minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"]).grid(row=r, column=1, sticky="w", padx=4)
+        r += 1
+        ttk.Label(tl, text="Position recordings:").grid(row=r, column=0, sticky="w", pady=2)
+        ttk.Entry(tl, textvariable=self.tl_tracks_var).grid(row=r, column=1, sticky="ew", padx=4)
+        ttk.Button(tl, text="Browse…", command=lambda: self._pick_dir(self.tl_tracks_var)).grid(row=r, column=2, sticky="w")
+        r += 1
+        ttk.Label(tl, text="Made by Live map → 'Save positions'. Empty/missing: uses log sessions (anyone online, coarse).",
+                  foreground="gray", wraplength=520).grid(row=r, column=1, columnspan=2, sticky="w")
+        r += 1
+        lenrow = ttk.Frame(tl)
+        lenrow.grid(row=r, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Radiobutton(lenrow, text="Fit into", variable=self.tl_mode_var, value="length").pack(side="left")
+        ttk.Entry(lenrow, textvariable=self.tl_length_var, width=7).pack(side="left", padx=(4, 16))
+        ttk.Radiobutton(lenrow, text="Fixed speed ×", variable=self.tl_mode_var, value="speed").pack(side="left")
+        ttk.Entry(lenrow, textvariable=self.tl_speed_var, width=6).pack(side="left", padx=4)
+        r += 1
+        ttk.Label(tl, text="Camera (optional):").grid(row=r, column=0, sticky="w", pady=2)
+        ttk.Entry(tl, textvariable=self.tl_camera_var).grid(row=r, column=1, sticky="ew", padx=4)
+        ttk.Label(tl, text="x,y,z,yaw,pitch – blank = automatic", foreground="gray").grid(row=r, column=2, sticky="w")
+        r += 1
+        brow = ttk.Frame(tl)
+        brow.grid(row=r, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._button(brow, "Preview plan", lambda: self._fb_timelapse(dry=True)).pack(side="left")
+        self._button(brow, "Create timelapse", lambda: self._fb_timelapse(dry=False)).pack(side="left", padx=6)
+        return holder
+
+    def _fb_common(self, cmd: str) -> list[str] | None:
+        idx = self.fb_combo.current()
+        reps = getattr(self, "_fb_replays", [])
+        if idx < 0 or idx >= len(reps):
+            messagebox.showinfo(APP_NAME, "Load a server whose download contains Flashback replays, then pick one.")
+            return None
+        argv = [cmd, *self._common_argv(), "--replay", str(self.data.replays.index(reps[idx]) + 1)]
+        fb_dir = self.fb_dir_var.get().strip()
+        if fb_dir:
+            argv += ["--flashback-dir", fb_dir]
+        if self.fb_install_var.get():
+            if not fb_dir:
+                messagebox.showinfo(APP_NAME, "Choose the Flashback folder to install into, or untick 'Install'.")
+                return None
+            argv.append("--install")
+        else:
+            out_dir = os.path.join(_documents_dir(), "mcsm-flashback")
+            os.makedirs(out_dir, exist_ok=True)
+            suffix = " (mcsm)" if cmd == "flashback" else " (timelapse)"
+            stem = os.path.splitext(os.path.basename(reps[idx].path.rstrip("/")))[0]
+            out = os.path.join(out_dir, cli._safe_name(stem + suffix) + ".zip")
+            n = 2
+            while os.path.exists(out):
+                out = os.path.join(out_dir, cli._safe_name(f"{stem}{suffix} {n}") + ".zip")
+                n += 1
+            argv += ["-o", out]
+        return argv
+
+    def _parse(self, argv: list[str]):
+        """Parse like the command line; on a bad value show argparse's own message."""
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(buf):
+                return cli.parse_args(argv)
+        except SystemExit:
+            msg = buf.getvalue().strip().splitlines()
+            messagebox.showerror(APP_NAME, (msg[-1] if msg else "Invalid value").split("error: ")[-1])
+            return None
+
+    def _fb_markers(self):
+        argv = self._fb_common("flashback")
+        if argv is None:
+            return
+        types = [t for t, v in self.type_vars.items() if v.get()]
+        if types:
+            argv += ["--types", ",".join(types)]
+        if self.players_var.get().strip():
+            argv += ["--players", self.players_var.get().strip()]
+        args = self._parse(argv)
+        if args is None:
+            return
+        self._run("Flashback markers", lambda d: cli.run_flashback(d, args))
+
+    def _fb_timelapse(self, dry: bool):
+        argv = self._fb_common("timelapse")
+        if argv is None:
+            return
+        if not self.tl_area_var.get().strip():
+            messagebox.showinfo(APP_NAME, "Type the area box: x1,z1,x2,z2 (two opposite corners, from F3).")
+            return
+        argv += ["--area", self.tl_area_var.get().strip(), "--area-name", self.tl_name_var.get().strip() or "Base",
+                 "--dimension", self.tl_dim_var.get(),
+                 "--extras-dir", os.path.join(_documents_dir(), "mcsm-flashback")]
+        tracks = self.tl_tracks_var.get().strip()
+        if tracks and os.path.exists(tracks):
+            argv += ["--tracks", tracks]
+        if self.tl_mode_var.get() == "speed":
+            argv += ["--speed", self.tl_speed_var.get().strip() or "60"]
+        else:
+            argv += ["--length", self.tl_length_var.get().strip() or "3:00"]
+        if self.tl_camera_var.get().strip():
+            argv += ["--camera", self.tl_camera_var.get().strip()]
+        if dry:
+            argv.append("--dry-run")
+        args = self._parse(argv)
+        if args is None:
+            return
+        self._run("Timelapse plan" if dry else "Flashback timelapse", lambda d: cli.run_timelapse(d, args))
+
     def _tab_live(self, nb) -> ttk.Frame:
         f = ttk.Frame(nb, padding=12)
         f.columnconfigure(1, weight=1)
@@ -335,7 +485,7 @@ class App(ttk.Frame):
         if self.live_record_var.get():
             argv += ["--record", self.live_record_dir.get().strip()]
         try:
-            args = cli.build_parser().parse_args(argv)
+            args = cli.parse_args(argv)
         except SystemExit:
             messagebox.showerror(APP_NAME, "Check the RCON port and update interval are numbers.")
             return
@@ -511,6 +661,14 @@ class App(ttk.Frame):
             items.append(f"{i}. {when}  ({format_hms(r.duration_ms / 1000)})  {who}  –  {kind}  –  "
                          f"{os.path.basename(r.path.rstrip('/'))}")
         self.replay_combo["values"] = items
+        self._fb_replays = [r for r in (self.data.replays if self.data else [])
+                            if r.format == "flashback" and not r.unfinished]
+        fb_items = [items[self.data.replays.index(r)] for r in self._fb_replays]
+        self.fb_combo["values"] = fb_items
+        if fb_items:
+            self.fb_combo.current(0)
+        else:
+            self.fb_combo.set("No finished Flashback replays in this download")
         if items:
             self.replay_combo.current(min(select, len(items) - 1))
             self.mode_var.set("replay")
@@ -567,7 +725,7 @@ class App(ttk.Frame):
         argv = ["report", *self._common_argv(), "-o", out]
         if self.title_var.get().strip():
             argv += ["--title", self.title_var.get().strip()]
-        args = cli.build_parser().parse_args(argv)
+        args = cli.parse_args(argv)
         self._run("Statistics report", lambda d: cli.run_report(d, args),
                   after=lambda _r: webbrowser.open("file:///" + os.path.abspath(out).replace(os.sep, "/").lstrip("/")))
 
@@ -580,7 +738,7 @@ class App(ttk.Frame):
                                                initialfile="server" + ext)
         if not out:
             return
-        args = cli.build_parser().parse_args(["export", *self._common_argv(), f"--{kind}", out])
+        args = cli.parse_args(["export", *self._common_argv(), f"--{kind}", out])
         self._run(f"Export {kind}", lambda d: cli.run_export(d, args),
                   after=lambda _r: open_path(out if kind == "csv" else os.path.dirname(out)))
 
@@ -616,7 +774,7 @@ class App(ttk.Frame):
             argv += ["--music-align", f"{song}={target}"]
         argv += ["--snap", self.snap_var.get(), "--beat-markers", self.beatmk_var.get()]
         try:
-            args = cli.build_parser().parse_args(argv)
+            args = cli.parse_args(argv)
         except SystemExit:
             messagebox.showerror(APP_NAME, "One of the values is not valid (check speed and FPS are numbers).")
             return
@@ -631,7 +789,7 @@ class App(ttk.Frame):
             song = self.music_var.get().strip()
             if not song:
                 return
-        args = cli.build_parser().parse_args(["music", song])
+        args = cli.parse_args(["music", song])
 
         self._run("Beat detection", lambda _d: cli.cmd_music(args))
 

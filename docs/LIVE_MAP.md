@@ -113,8 +113,9 @@ With `--record` (or the **Save positions** tick box), each update is appended to
   "dimension": "minecraft:overworld", "health": 20.0, "food": 20, "xp_level": 30, "game_mode": "survival"}]}
 ```
 
-`t` is Unix milliseconds (UTC). These files are the planned input for activity-aware
-timelapses and heatmaps (see `PROJECT_STATUS.md`).
+`t` is Unix milliseconds (UTC). These files feed the **activity-aware timelapse**
+([TIMELAPSE.md](TIMELAPSE.md)): keep recording on while people play so the timelapse knows
+who was at your base, and when.
 
 ## Troubleshooting
 

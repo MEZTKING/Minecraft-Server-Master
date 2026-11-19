@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19.
+`CLAUDE.md`). Last updated: 2026-11-19 (Flashback markers + timelapse).
 
 ## What this project is
 
@@ -44,8 +44,9 @@ More features "like these" are planned, listed under **Backlog** below.
 | Desktop app (tkinter) | ✅ Done | `mcsm/gui.py` | `docs/INSTALLER.md` |
 | Windows installer (PyInstaller + Inno Setup, CI build + install test) | ✅ Done | `installer/`, `.github/workflows/` | `docs/INSTALLER.md` |
 | Live 3D map over RCON (terrain from download, trails, follow, demo mode, track recording) | ✅ Done, not yet tried on a real server | `mcsm/live.py`, `rcon.py`, `terrain.py`, `assets/web/live.html` | `docs/LIVE_MAP.md` |
-| Activity-aware fixed-camera timelapse | 📝 Designed, awaiting owner's choice | n/a | see Backlog #1 |
-| Flashback editor integration (markers into replay copy; timelapse keyframes) | 📝 Designed; 2b needs research | n/a | see Backlog #2 |
+| Flashback markers: replay copy with server events in its timeline | ✅ Done, not yet tried in a real Flashback | `mcsm/flashback.py`, `mcsm flashback`, app Flashback tab | `docs/FLASHBACK.md` |
+| Activity-aware area timelapse in Flashback (Phase A): fixed camera + timelapse keyframes, 3:00 target or fixed speed, date/time SRT, chapters | ✅ Done, not yet tried in a real Flashback | `mcsm/timelapse.py`, `mcsm timelapse`, app Flashback tab | `docs/TIMELAPSE.md` |
+| Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
 
@@ -100,6 +101,12 @@ structured timestamps.
 already use, low risk), then Phase B for the block-by-block look. Treat Phase C as
 research. **Waiting for the owner to confirm** the order and answer the open question.
 
+**Owner decisions 2026-11-19:** go **Flashback-first**; target length **3 minutes as an option**
+(fixed speed also offered). **Phase A is done** (see `docs/TIMELAPSE.md`): areas, activity windows
+from live-map tracks (fallback: log sessions), target-length/fixed-speed plan, Flashback copy with
+activity markers + editor timeline (camera HOLD keyframe + TIMELAPSE track, export range), real
+date/time SRT and chapters. Next: owner tests in Flashback; then Phase B.
+
 **Update 2026-11-19: the owner likes Flashback's in-game editor.** They asked whether the
 tool uses it. Answer given: not yet. `mcsm` only *reads* Flashback replays and writes files for
 external editors (SRT/EDL/CSV). Revised recommendation: make the timelapse **Flashback-first**
@@ -111,7 +118,10 @@ external editors (SRT/EDL/CSV). Revised recommendation: make the timelapse **Fla
 really like that editor. Is it using that method?"
 
 **Proposed design:**
-- **2a. Write markers into a copy of a Flashback replay (feasible now).** The `metadata.json`
+**Status:** 2a ✅ done (`mcsm flashback`); 2b ✅ done as part of the timelapse (editor-state
+format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback test by the owner.
+
+- **2a. Write markers into a copy of a Flashback replay.** The `metadata.json`
   marker format is known (see `mcsm/replays.py` docstring): `"markers": {"<tick>": {"colour":
   int RGB, "position": {"position": [x,y,z], "dimension": "minecraft:..."}, "description": str}}`,
   with tick = (event time - replay start) / 50 ms. Add e.g. `mcsm sync --flashback-markers OUT.zip`,
@@ -119,11 +129,12 @@ really like that editor. Is it using that method?"
   "entered area X" / activity start/end). **Never modify the original file.** Colour per event
   type, matching `sync.TYPE_COLOURS`. Verify that Flashback opens the copy and shows the markers
   (owner test).
-- **2b. Generate a Flashback editor timelapse setup (research needed).** A fixed camera keyframe
+- **2b. Generate a Flashback editor timelapse setup.** A fixed camera keyframe
   over the area, plus speed/time keyframes that skip idle periods and slow down during activity.
   **Unknown:** how and where Flashback stores editor state (keyframes, tracks). Next step: read
   the Flashback source (editor state / keyframe classes and serialization) before promising it.
-- Open question for the owner: Flashback version they use (format details may differ).
+- Open questions for the owner: Flashback and Minecraft versions in use (formats verified against
+  Flashback master, Nov 2026); a test replay to confirm the markers/timeline load.
 
 ### 3. Other ideas (not yet requested in detail; confirm before building)
 
@@ -149,9 +160,19 @@ really like that editor. Is it using that method?"
 | 2026-11-18 | Windows-first installer (Inno Setup), built in CI | Owner is on Windows; no Windows machine in the dev container |
 | 2026-11-19 | Live map uses RCON + downloaded terrain instead of a server plugin | No mods needed; fits the app. BlueMap documented as the polished alternative |
 | 2026-11-19 | Flashback start time decoded from the first `real_time_clock_optional` action | Flashback `metadata.json` has no start time |
-| 2026-11-19 | Timelapse to target Flashback's editor first (pending owner confirmation) | Owner prefers editing in Flashback |
+| 2026-11-19 | Timelapse targets Flashback's editor first (owner confirmed) | Owner prefers editing in Flashback |
+| 2026-11-19 | Flashback outputs are always a *copy* with a new replay uuid; never overwrite an editor_states file | Protects the owner's original replay and existing edits |
+| 2026-11-19 | Timelapse default: fit 3:00, each idle gap 0.5 s, never slower than real time | Owner asked for "3 minutes as an option" |
+| 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
+
+- **Flashback files not yet opened in a real Flashback.** The marker and editor-state formats
+  were verified by reading Flashback's source (master, Nov 2026), not by running it. If a
+  timeline doesn't load, Flashback logs `Error loading editor state`.
+- Timelapse over many days fast-forwards idle time at very high tick rates; Flashback export of
+  such spans may be slow (not measured).
+- Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
 
 - **Not yet tested by the owner on real data:** log formats from their server, the
   installer's GUI wizard on a real Windows desktop, the live map against the real server
@@ -166,6 +187,9 @@ really like that editor. Is it using that method?"
 
 ## Changelog
 
+- **2026-11-19:** `mcsm flashback` (markers into a Flashback replay copy) and `mcsm timelapse`
+  (activity-aware area timelapse set up in Flashback's editor; 3:00 target or fixed speed; date/time
+  overlay; chapters); app Flashback tab; negative-value option fix; docs FLASHBACK.md, TIMELAPSE.md.
 - **2026-11-19:** Backlog: Flashback editor integration (#2); timelapse revised to Flashback-first.
 - **2026-11-19:** Live 3D map (`mcsm live`, app tab, demo mode, track recording); Flashback
   replays; unfinished ReplayMod/Flashback recordings; UUID-named ServerReplay folders show

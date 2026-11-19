@@ -8,6 +8,8 @@ export    write JSON / SQLite / CSV files
 events    search events from the terminal
 replays   list replay recordings found on the server
 sync      make video markers/subtitles for a replay (+ music beat sync)
+flashback copy a Flashback replay with server events as markers in its timeline
+timelapse activity-aware timelapse of an area, set up in Flashback
 live      live 3D map of players (RCON)
 music     detect the tempo (BPM) of a song
 
@@ -20,7 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta  # noqa: F401
 
 from . import __version__, models as m
 from .analyzer import analyze
@@ -374,6 +376,193 @@ def cmd_live(args) -> int:
     return 0
 
 
+def _flashback_replay(data: m.ServerData, spec: str) -> m.Replay:
+    r = _resolve_replay(data, spec)
+    if r.format != "flashback":
+        raise SystemExit(f"{r.path} is a ReplayMod replay; this needs a Flashback replay (.zip). "
+                         "ReplayMod users: use 'mcsm sync' for editor markers.")
+    if r.unfinished:
+        raise SystemExit(f"{r.path} is an unfinished recording folder; Flashback can only open finished .zip replays")
+    if r.start is None:
+        raise SystemExit(f"{r.path} has no usable start time")
+    return r
+
+
+def _replay_file(data: m.ServerData, r: m.Replay) -> str:
+    p = r.path if os.path.isabs(r.path) else os.path.join(data.root, r.path)
+    return os.path.normpath(p)
+
+
+def _safe_name(text: str) -> str:
+    return "".join(c if c.isalnum() or c in " -_()" else "_" for c in text).strip() or "replay"
+
+
+def _flashback_output(args, r: m.Replay, suffix: str) -> tuple[str, str | None]:
+    """(output zip path, flashback dir or None)."""
+    from . import flashback as fbm
+    fb_dir = fbm.find_flashback_dir(args.flashback_dir)
+    if args.install and not fb_dir:
+        raise SystemExit("Flashback folder not found. Pass --flashback-dir (e.g. "
+                         "C:/Users/<you>/AppData/Roaming/.minecraft/flashback, or your launcher instance's .minecraft/flashback)")
+    base = _safe_name(os.path.splitext(os.path.basename(r.path.rstrip("/")))[0] + suffix) + ".zip"
+    if args.output:
+        out = args.output
+    elif args.install:
+        out = os.path.join(fb_dir, "replays", base)
+    else:
+        out = base
+    if os.path.exists(out):
+        raise SystemExit(f"{out} already exists; choose another --output")
+    return out, fb_dir
+
+
+def cmd_flashback(args) -> int:
+    return run_flashback(_load(args), args)
+
+
+def run_flashback(data: m.ServerData, args) -> int:
+    from . import flashback as fbm, sync
+    r = _flashback_replay(data, args.replay)
+    out, fb_dir = _flashback_output(args, r, " (mcsm)")
+    types = args.types.split(",") if args.types else None
+    if types == ["all"]:
+        types = [t for t in m.ALL_EVENT_TYPES if t != m.EV_REPLAY_MARKER]
+    types = [t for t in (types or DEFAULT_SYNC_TYPES) if t != m.EV_REPLAY_MARKER]  # the replay's own markers are kept anyway
+    players = args.players.split(",") if args.players else None
+    tl = sync.timeline_from_replay(r)
+    events = sync.build_markers(data.events, tl, types, players)
+    markers = [fbm.FlashbackMarker(fbm.tick_of(mk.seconds), mk.label, fbm.MARKER_COLOURS.get(mk.type, 0xFF5555))
+               for mk in events]
+    meta = fbm.write_replay_copy(_replay_file(data, r), out, markers, " (mcsm)")
+    print(f"Replay      : {r.path}  (start {_local(r.start)}, via {r.start_source})")
+    print(f"Markers     : {meta['_markers_added']} added")
+    print(f"Copy        : {os.path.abspath(out)}")
+    if args.install and fb_dir and fbm.copy_editor_state(fb_dir, meta.get("original_uuid_mcsm"), meta["uuid"]):
+        print("Editor      : your existing Flashback timeline for this replay was copied over")
+    if not args.install:
+        print("Next        : put the copy in Flashback's replays folder (or re-run with --install), open it in Flashback")
+    else:
+        print("Next        : open Flashback -> Replays and choose the copy (name ends with '(mcsm)')")
+    _print_warnings(data)
+    return 0
+
+
+def cmd_timelapse(args) -> int:
+    return run_timelapse(_load(args), args)
+
+
+def run_timelapse(data: m.ServerData, args) -> int:
+    import json as _json
+    from . import flashback as fbm, timelapse as tlm
+    r = _flashback_replay(data, args.replay)
+    area = tlm.Area.parse(args.area, args.area_name, args.dimension)
+    start, end = r.start, r.end
+    merge_gap = parse_duration(args.merge_gap)
+    if args.tracks:
+        samples = tlm.load_tracks(args.tracks)
+        windows = tlm.windows_from_tracks(samples, area, start, end, merge_gap, args.pad)
+        source = f"{len(samples)} track samples"
+    else:
+        windows = tlm.windows_from_sessions(data.sessions, start, end, merge_gap, args.pad)
+        source = "log sessions (anyone online counts -- record tracks with 'mcsm live --record' for real area detection)"
+    if not windows:
+        raise SystemExit(f"Nobody was in {area.name} during this replay (source: {source}).")
+    plan = tlm.plan(windows, None if args.speed else parse_duration(args.length), args.speed, args.gap_seconds)
+    print(f"Replay      : {r.path}  ({_local(start)} -> {_local(end)})")
+    print(f"Area        : {area.name} x {area.x1:g}..{area.x2:g}, z {area.z1:g}..{area.z2:g} ({area.dimension})")
+    print(f"Activity    : {len(windows)} period{'s' if len(windows) != 1 else ''} from {source}")
+    print(f"Output      : {format_hms(plan.total_seconds)} at {plan.active_speed:.0f}x while active")
+    for line in tlm.describe(plan):
+        print("   " + line)
+    if args.dry_run:
+        return 0
+
+    keys = tlm.timelapse_keyframes(plan, start)
+    if args.camera:
+        try:
+            cam = [float(v) for v in args.camera.split(",")]
+            assert len(cam) == 5
+        except (ValueError, AssertionError):
+            raise SystemExit("--camera needs X,Y,Z,YAW,PITCH (e.g. 120,110,260,180,35)")
+    else:
+        cam = list(tlm.auto_camera(area))
+    out, fb_dir = _flashback_output(args, r, " (timelapse)")
+    markers = []
+    for s in plan.segments:
+        if s.kind == "active":
+            who = ", ".join(sorted(s.players)) or "Someone"
+            markers.append(fbm.FlashbackMarker(fbm.tick_of((s.real_start - start).total_seconds()),
+                                               f"{who} at {area.name}", fbm.MARKER_COLOURS["activity_start"]))
+            markers.append(fbm.FlashbackMarker(fbm.tick_of((s.real_end - start).total_seconds()),
+                                               f"{area.name}: activity ends", fbm.MARKER_COLOURS["activity_end"]))
+    meta = fbm.write_replay_copy(_replay_file(data, r), out, markers, " (timelapse)")
+    state = fbm.editor_state(f"Timelapse: {area.name}", fbm.camera_keyframe(*cam), keys, (keys[0][0], keys[-1][0]))
+    if args.install:
+        state_path = fbm.install_editor_state(fb_dir, meta["uuid"], state)
+    else:
+        state_path = os.path.join(os.path.dirname(os.path.abspath(out)), f"{meta['uuid']}.json")
+        with open(state_path, "w", encoding="utf-8") as fh:
+            _json.dump(state, fh, separators=(",", ":"))
+    # Overlay/chapters go next to the output -- or, when installing, in the current folder
+    # (Flashback's replays folder should only hold replays).
+    stem = os.path.splitext(os.path.basename(out))[0]
+    if args.extras_dir:
+        os.makedirs(args.extras_dir, exist_ok=True)
+        base = os.path.join(args.extras_dir, stem)
+    else:
+        base = stem if args.install and not args.output else os.path.splitext(out)[0]
+    _write_timelapse_overlays(plan, area, base)
+    print(f"Copy        : {os.path.abspath(out)}")
+    print(f"Timeline    : {state_path}")
+    print(f"Overlay     : {os.path.abspath(base)}.time.srt  (real date/time, for your editor)")
+    print(f"Chapters    : {os.path.abspath(base)}.chapters.txt")
+    if args.install:
+        print("Next        : open Flashback -> Replays -> the '(timelapse)' copy; the camera and timelapse are on the timeline. "
+              "Export the scene as a video.")
+    else:
+        print(f"Next        : copy the .zip to <.minecraft>/flashback/replays/ and {os.path.basename(state_path)} to "
+              "<.minecraft>/flashback/editor_states/ (or re-run with --install), then open it in Flashback.")
+    _print_warnings(data)
+    return 0
+
+
+def _write_timelapse_overlays(plan, area, base: str) -> None:
+    """Real-date/time subtitle (updates every output second) and YouTube-style chapters."""
+    from .exporters.markers import _srt_time
+    lines, n = [], 0
+    for s in plan.segments:
+        if s.kind == "gap":
+            hours = (s.real_end - s.real_start).total_seconds() / 3600
+            mins = round(hours * 60)
+            text = (f"{hours:.0f} hours later" if hours >= 1.5
+                    else "1 minute later" if mins <= 1 else f"{mins} minutes later")
+            n += 1
+            lines.append(f"{n}\n{_srt_time(s.out_start)} --> {_srt_time(s.out_end)}\n{text}\n")
+            continue
+        t = s.out_start
+        while t < s.out_end - 1e-6:
+            nxt = min(s.out_end, t + 1.0)
+            real = s.real_start + timedelta(seconds=(t - s.out_start) * s.speed)
+            n += 1
+            lines.append(f"{n}\n{_srt_time(t)} --> {_srt_time(nxt)}\n"
+                         f"{real.astimezone().strftime('%a %d %b %Y  %H:%M')}\n")
+            t = nxt
+    with open(base + ".time.srt", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(lines))
+    chapters, last = [], -999.0
+    for s in plan.segments:
+        if s.kind != "active":
+            continue
+        at = 0.0 if not chapters else s.out_start
+        if at - last < 10 and chapters:
+            continue
+        who = ", ".join(sorted(s.players)) or "activity"
+        chapters.append(f"{format_hms(at)} {s.real_start.astimezone().strftime('%a %d %b %H:%M')} - {who}")
+        last = at
+    with open(base + ".chapters.txt", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(chapters) + "\n")
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -455,6 +644,46 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also write beat or bar markers (default: bar)")
     p.set_defaults(func=cmd_sync)
 
+    p = sub.add_parser("flashback", help="copy a Flashback replay with server events as markers",
+                       description="Writes a COPY of a Flashback replay whose timeline shows server events "
+                                   "(deaths, chat, joins, advancements) as markers. The original is never changed. "
+                                   "See docs/FLASHBACK.md.")
+    _add_common(p)
+    p.add_argument("--replay", required=True, help="Flashback replay: number from 'mcsm replays', file path, or part of its name")
+    p.add_argument("-o", "--output", help="output .zip (default: '<name> (mcsm).zip' in the current folder)")
+    p.add_argument("--install", action="store_true", help="put the copy straight into Flashback's replays folder")
+    p.add_argument("--flashback-dir", help="Flashback data folder (default: <.minecraft>/flashback; set this for Prism/Modrinth/CurseForge instances)")
+    p.add_argument("--types", help=f"comma list or 'all' (default: {','.join(DEFAULT_SYNC_TYPES)})")
+    p.add_argument("--players", help="comma list of players to include (default: everyone)")
+    p.set_defaults(func=cmd_flashback)
+
+    p = sub.add_parser("timelapse", help="activity-aware timelapse of an area, set up in Flashback",
+                       description="Fixed camera over an area that only plays while players are there, fits a "
+                                   "target length (3 min default) or speed. Writes a Flashback replay copy + editor "
+                                   "timeline (camera + timelapse keyframes), a date/time overlay (.srt) and chapters. "
+                                   "See docs/TIMELAPSE.md.")
+    _add_common(p)
+    p.add_argument("--replay", required=True, help="Flashback replay covering the area (number, path or name part)")
+    p.add_argument("--area", required=True, metavar="X1,Z1,X2,Z2[,Y1,Y2]", help="the box to watch, in block coordinates")
+    p.add_argument("--area-name", default="Base", help="name used in markers/chapters (default: Base)")
+    p.add_argument("--dimension", default="minecraft:overworld", choices=["minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"])
+    p.add_argument("--tracks", action="append", metavar="DIR_OR_FILE",
+                   help="live-map recordings (mcsm live --record DIR); repeatable. Without it, log sessions are used (coarse)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--length", default="3:00", help="target video length (default 3:00)")
+    g.add_argument("--speed", type=float, help="fixed speed instead of a target length, e.g. 60")
+    p.add_argument("--gap-seconds", type=float, default=0.5, help="output time for each idle gap (default 0.5 s)")
+    p.add_argument("--merge-gap", default="2:00", help="join activity closer together than this (default 2:00)")
+    p.add_argument("--pad", type=float, default=5.0, help="seconds kept before/after each activity period (default 5)")
+    p.add_argument("--camera", metavar="X,Y,Z,YAW,PITCH", help="camera position/angle (default: automatic, south of the area looking north)")
+    p.add_argument("-o", "--output", help="output .zip (default: '<name> (timelapse).zip' in the current folder)")
+    p.add_argument("--install", action="store_true", help="install the replay copy and its editor timeline into Flashback")
+    p.add_argument("--flashback-dir", help="Flashback data folder (default: <.minecraft>/flashback)")
+    p.add_argument("--extras-dir", help="folder for the date/time overlay and chapters (default: next to the output; "
+                                        "with --install: the current folder)")
+    p.add_argument("--dry-run", action="store_true", help="only print the plan")
+    p.set_defaults(func=cmd_timelapse)
+
     p = sub.add_parser("live", help="live 3D map of where players are right now (RCON)",
                        description="Show players moving in real time on a 3D map. Positions come from the running "
                                    "server over RCON; terrain from your downloaded world. See docs/LIVE_MAP.md.")
@@ -477,9 +706,32 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+# Options whose values often start with "-" (negative coordinates / times). argparse
+# would otherwise mistake "--area -100,20,..." for a new option.
+_NEGATIVE_OK = ("--area", "--camera", "--music-start", "--music-align", "--video-start")
+
+
+def normalise_argv(argv: list[str]) -> list[str]:
+    """Turn ``--area -100,5,...`` into ``--area=-100,5,...`` for the options above."""
+    out, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in _NEGATIVE_OK and i + 1 < len(argv) and argv[i + 1].startswith("-") and argv[i + 1] != "--":
+            out.append(f"{a}={argv[i + 1]}")
+            i += 2
+            continue
+        out.append(a)
+        i += 1
+    return out
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    return build_parser().parse_args(normalise_argv(list(argv)))
+
+
 def main(argv: list[str] | None = None) -> int:
     from .rcon import RconError
-    args = build_parser().parse_args(argv)
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         return args.func(args)
     except (FileNotFoundError, ValueError, RuntimeError, OSError, RconError) as exc:

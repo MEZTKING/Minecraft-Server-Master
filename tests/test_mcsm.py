@@ -344,6 +344,59 @@ class TestGUI(ServerTestCase):
             import gc
             gc.collect()
 
+    def test_flashback_tab_timelapse(self):
+        import time
+        import tkinter as tk
+        from fixtures import add_extra_replays
+        from mcsm import gui
+        tmp = tempfile.mkdtemp()
+        root_dir = build_server(os.path.join(tmp, "srv"))
+        add_extra_replays(root_dir)
+        fb = os.path.join(tmp, "flashback")
+        os.makedirs(os.path.join(fb, "replays"))
+        gui._documents_dir = lambda: tmp
+        dialogs = []
+        gui.messagebox.showinfo = gui.messagebox.showerror = lambda *a, **k: dialogs.append(a)  # never block
+        tracks = os.path.join(tmp, "tracks")
+        os.makedirs(tracks)
+        t0 = datetime(2024, 5, 3, 18, 5, tzinfo=UTC)
+        with open(os.path.join(tracks, "t.jsonl"), "w") as fh:
+            for sec in range(40, 100):
+                fh.write(json.dumps({"t": int((t0 + timedelta(seconds=sec)).timestamp() * 1000), "players": [
+                    {"name": "Steve", "x": -50, "y": 70, "z": -60, "dimension": "minecraft:overworld"}]}) + "\n")
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.server_var.set(root_dir)
+            app._load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertIn("Flashback", app.fb_combo.get())
+            app.fb_dir_var.set(fb)
+            app.fb_install_var.set(True)
+            app.tl_area_var.set("-100,-100,0,0")   # negative coordinates must work
+            app.tl_tracks_var.set(tracks)
+            app.tl_length_var.set("0:30")
+            app._fb_timelapse(dry=False)
+            deadline = time.time() + 30
+            while app.busy and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            log = app.log_text.get("1.0", "end")
+            states = os.listdir(os.path.join(fb, "editor_states")) if os.path.isdir(os.path.join(fb, "editor_states")) else []
+            self.assertEqual(dialogs, [])
+            self.assertEqual(len(states), 1, log[-2000:])
+            assert_valid_flashback_editor_state(self, json.load(open(os.path.join(fb, "editor_states", states[0]))))
+            self.assertTrue(any(f.endswith(".time.srt") for f in os.listdir(os.path.join(tmp, "mcsm-flashback"))))
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_live_tab_against_fake_rcon(self):
         import time
         import tkinter as tk
@@ -550,3 +603,156 @@ class TestTerrain(unittest.TestCase):
         self.assertEqual(terrain.block_colour("birch_log"), terrain.block_colour("oak_log"))
         self.assertEqual(terrain.auto_step(4), 1)
         self.assertEqual(terrain.auto_step(400), 8)
+
+
+def assert_valid_flashback_editor_state(tc, state):
+    """Checks every requirement found in Flashback's source (see docs/FLASHBACK.md)."""
+    tc.assertIsInstance(state["scenes"], list)
+    tc.assertGreater(len(state["scenes"]), 0)
+    tc.assertLess(state.get("sceneIndex", 0), len(state["scenes"]))
+    for scene in state["scenes"]:
+        for key in ("name", "keyframeTracks", "exportStartTicks", "exportEndTicks"):
+            tc.assertIn(key, scene)
+        tc.assertEqual(scene["history"], {"entries": [], "position": 0})
+        for track in scene["keyframeTracks"]:
+            tc.assertIn(track["keyframeType"], ("CAMERA", "TIMELAPSE"))
+            tc.assertIs(track["enabled"], True)
+            ticks = sorted(int(k) for k in track["keyframesByTick"])
+            tc.assertTrue(ticks)
+            for k, kf in track["keyframesByTick"].items():
+                if track["keyframeType"] == "CAMERA":
+                    tc.assertEqual(kf["type"], "camera")
+                    tc.assertEqual(len(kf["position"]), 3)
+                    tc.assertEqual(kf["interpolation_type"], "HOLD")
+                else:
+                    tc.assertEqual(kf["type"], "timelapse")
+                    tc.assertIsInstance(kf["ticks"], int)
+            if track["keyframeType"] == "TIMELAPSE":
+                outs = [track["keyframesByTick"][str(t)]["ticks"] for t in ticks]
+                tc.assertGreaterEqual(len(outs), 2)
+                tc.assertEqual(outs, sorted(set(outs)), "output ticks must strictly increase")
+
+
+class TestFlashbackWriting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fixtures import add_extra_replays
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-fbw-")
+        cls.root = build_server(os.path.join(cls.tmp, "server"))
+        add_extra_replays(cls.root)
+        cls.fbdir = os.path.join(cls.tmp, "flashback")
+        os.makedirs(os.path.join(cls.fbdir, "replays"))
+        # Steve is in the base 30-60 s and 120-150 s into the Flashback replay (starts 18:05:00 UTC).
+        tracks = os.path.join(cls.tmp, "tracks")
+        os.makedirs(tracks)
+        t0 = datetime(2024, 5, 3, 18, 5, tzinfo=UTC)
+        with open(os.path.join(tracks, "2024-05-03.jsonl"), "w") as fh:
+            for sec in range(180):
+                inside = 30 <= sec <= 60 or 120 <= sec <= 150
+                fh.write(json.dumps({"t": int((t0 + timedelta(seconds=sec)).timestamp() * 1000), "players": [
+                    {"name": "Steve", "x": 110 if inside else 400, "y": 70, "z": 0, "dimension": "minecraft:overworld"},
+                    {"name": "Alex", "x": 110, "y": 70, "z": 0, "dimension": "minecraft:the_nether"}]}) + "\n")
+        cls.tracks = tracks
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def src(self):
+        return os.path.join(self.root, "recordings", "players", STEVE, "2024-05-03--20-05-00.zip")
+
+    def test_marker_copy(self):
+        from mcsm import flashback as fbm
+        out = os.path.join(self.tmp, "copy.zip")
+        before = open(self.src(), "rb").read()
+        meta = fbm.write_replay_copy(self.src(), out, [fbm.FlashbackMarker(600, "Clash", 0xFF0000),
+                                                       fbm.FlashbackMarker(100, "Hi", 0x00FF00),
+                                                       fbm.FlashbackMarker(999999, "after end")])
+        self.assertEqual(open(self.src(), "rb").read(), before, "original must be untouched")
+        with zipfile.ZipFile(out) as zf, zipfile.ZipFile(self.src()) as orig:
+            m2 = json.loads(zf.read("metadata.json"))
+            self.assertEqual(zf.read("c0.flashback"), orig.read("c0.flashback"))
+        self.assertNotEqual(m2["uuid"], "x")
+        self.assertEqual(m2["name"], "Base tour (mcsm)")
+        self.assertEqual(m2["markers"]["600"]["description"], "Dragon fight")      # existing kept
+        self.assertEqual(m2["markers"]["601"], {"colour": 0xFF0000, "description": "Clash"})  # moved to free tick
+        self.assertEqual(m2["markers"]["100"]["colour"], 0x00FF00)
+        self.assertNotIn("999999", m2["markers"])
+        self.assertEqual(meta["_markers_added"], 2)
+        from mcsm.replays import read_replay
+        r = read_replay(out, self.tmp)
+        self.assertEqual((r.start, r.start_source), (utc(2024, 5, 3, 18, 5), "real-time-clock"))
+        with self.assertRaises(ValueError):
+            fbm.write_replay_copy(self.src(), self.src(), [])
+
+    def test_editor_state_shape(self):
+        from mcsm import flashback as fbm
+        st = fbm.editor_state("x", fbm.camera_keyframe(1, 2, 3, 180, 30), [(10, 0), (50, 4)], (10, 50))
+        assert_valid_flashback_editor_state(self, st)
+        with self.assertRaises(ValueError):
+            fbm.editor_state("x", None, [(10, 0), (50, 0)])
+
+    def test_windows_plan_keyframes(self):
+        from mcsm import timelapse as tlm
+        area = tlm.Area.parse("130,20,100,-20", "Base")
+        self.assertEqual((area.x1, area.x2, area.z1, area.z2), (100, 130, -20, 20))
+        samples = tlm.load_tracks([self.tracks])
+        start, end = utc(2024, 5, 3, 18, 5), utc(2024, 5, 3, 18, 8)
+        w = tlm.windows_from_tracks(samples, area, start, end, merge_gap=20, pad=5)
+        self.assertEqual([(x.start, x.end, x.players) for x in w],
+                         [(utc(2024, 5, 3, 18, 5, 25), utc(2024, 5, 3, 18, 6, 5), {"Steve"}),
+                          (utc(2024, 5, 3, 18, 6, 55), utc(2024, 5, 3, 18, 7, 35), {"Steve"})])  # Alex is in the nether
+        self.assertEqual(len(tlm.windows_from_tracks(samples, area, start, end, merge_gap=120, pad=5)), 1)
+        p = tlm.plan(w, target_seconds=20, gap_seconds=0.5)
+        self.assertAlmostEqual(p.total_seconds, 20.0)
+        self.assertAlmostEqual(p.active_speed, 80 / 19.5)
+        keys = tlm.timelapse_keyframes(p, start)
+        self.assertEqual(keys, [(500, 0), (1300, 195), (2300, 205), (3100, 400)])
+        self.assertEqual(tlm.plan(w, speed=2).active_speed, 2)
+        self.assertEqual(tlm.plan(w, target_seconds=3600).active_speed, 1.0)   # never slower than real time
+        cam = tlm.auto_camera(area)
+        self.assertEqual(cam[3], 180.0)
+        self.assertTrue(10 <= cam[4] <= 70)
+        self.assertGreater(cam[2], area.z2)
+
+    def test_cli_timelapse_and_flashback_install(self):
+        from io import StringIO
+        from contextlib import redirect_stdout
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        try:
+            buf = StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["timelapse", self.root, "--replay", "20-05-00", "--area", "100,-20,130,20",
+                                 "--tracks", self.tracks, "--length", "0:20", "--merge-gap", "0:20",
+                                 "--install", "--flashback-dir", self.fbdir])
+            self.assertEqual(code, 0, buf.getvalue())
+            states = os.listdir(os.path.join(self.fbdir, "editor_states"))
+            self.assertEqual(len(states), 1)
+            st = json.load(open(os.path.join(self.fbdir, "editor_states", states[0])))
+            assert_valid_flashback_editor_state(self, st)
+            self.assertEqual(st["scenes"][0]["exportStartTicks"], 500)
+            copy = os.path.join(self.fbdir, "replays", "2024-05-03--20-05-00 (timelapse).zip")
+            meta = json.loads(zipfile.ZipFile(copy).read("metadata.json"))
+            self.assertEqual(states[0], meta["uuid"] + ".json")
+            self.assertEqual(meta["markers"]["500"]["description"], "Steve at Base")
+            self.assertTrue(os.path.exists("2024-05-03--20-05-00 (timelapse).time.srt"))
+            self.assertEqual(sorted(os.listdir(os.path.join(self.fbdir, "replays"))),
+                             ["2024-05-03--20-05-00 (timelapse).zip"])        # nothing else dropped there
+            buf = StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["flashback", self.root, "--replay", "20-05-00", "--install", "--flashback-dir", self.fbdir])
+            self.assertEqual(code, 0, buf.getvalue())
+            # A ReplayMod replay is refused with a clear message.
+            with redirect_stdout(StringIO()), self.assertRaises(SystemExit):
+                cli.main(["flashback", self.root, "--replay", "18-00-00.mcpr"])
+        finally:
+            os.chdir(cwd)
+
+
+class TestArgv(unittest.TestCase):
+    def test_negative_values(self):
+        self.assertEqual(cli.normalise_argv(["timelapse", "s", "--area", "-100,-5,20,30", "--camera", "-1,2,3,4,5"]),
+                         ["timelapse", "s", "--area=-100,-5,20,30", "--camera=-1,2,3,4,5"])
+        args = cli.parse_args(["sync", "s", "--music-start", "-0:10", "--bpm", "120"])
+        self.assertEqual(args.music_start, "-0:10")

@@ -12,9 +12,12 @@ into:
 3. **Music sync** – detect a song's beat (or type in its BPM), place it on the video
    timeline, add beat/bar markers, and optionally **snap event markers to the beat** so
    your cuts land on the music.
-4. **Live 3D map** – watch where everyone is right now, with terrain from your world, trails,
+4. **Flashback editor integration** – copy a Flashback replay with server events as timeline
+   markers, or get a ready-made **activity-aware timelapse** of your base (fixed camera, plays
+   only while someone's there, fits 3 minutes) set up in Flashback's editor.
+5. **Live 3D map** – watch where everyone is right now, with terrain from your world, trails,
    and click-to-follow. Uses the server's built-in RCON; no mods needed.
-5. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
+6. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
 
 It comes as a **Windows installer** with a normal app window (nothing else to install),
 or as a Python package for the command line. Everything runs on your computer: no
@@ -46,8 +49,8 @@ internet, nothing is uploaded.
 3. Open **Minecraft Server Master** from the Start menu, click **Zip file…**, and pick your
    server download.
 
-The window has four tabs: **Statistics report**, **Video & music sync**, **Export
-data** and **Live map**. The full guide, including building the installer yourself, is in
+The window has five tabs: **Statistics report**, **Video & music sync**, **Export
+data**, **Flashback** and **Live map**. The full guide, including building the installer yourself, is in
 **[docs/INSTALLER.md](docs/INSTALLER.md)**.
 
 ---
@@ -133,6 +136,8 @@ Every command takes the server folder or zip as its first argument, plus these c
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |
+| `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
+| `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
 
 Run `mcsm <command> --help` for every option.
@@ -232,6 +237,8 @@ The HTML report always shows times in **your** browser's time zone.
 
 | Document | Contents |
 |---|---|
+| [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
+| [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |
 | [docs/INSTALLER.md](docs/INSTALLER.md) | Installing and using the Windows app; how the installer is built and released |
