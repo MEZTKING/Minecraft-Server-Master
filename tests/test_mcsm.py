@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fixtures import ALEX, REPLAY_START_MS, STEVE, build_server, write_click_track  # noqa: E402
+from fixtures import ALEX, REPLAY_START_MS, STEVE, build_server, write_click_track  # noqa: E402,F401
 
 from mcsm import cli, logs, models as m, music, nbt, sync  # noqa: E402
 from mcsm.analyzer import analyze  # noqa: E402
@@ -334,3 +334,54 @@ class TestGUI(ServerTestCase):
             self.assertTrue(os.path.exists(os.path.join(out, "2024-05-03--18-00-00.srt")))
         finally:
             root.destroy()
+
+
+class TestFlashbackAndUnfinished(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fixtures import add_extra_replays
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-fb-")
+        cls.root = build_server(os.path.join(cls.tmp, "server"))
+        add_extra_replays(cls.root)
+        # A world backup zip outside the recordings folder must NOT be scanned as a replay.
+        with zipfile.ZipFile(os.path.join(cls.root, "backup.zip"), "w") as zf:
+            zf.writestr("metadata.json", "{}")
+            zf.writestr("c0.flashback", b"")
+        cls.data = analyze(cls.root)
+        cls.by_name = {os.path.basename(r.path.rstrip("/")): r for r in cls.data.replays}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_all_found(self):
+        self.assertEqual(set(self.by_name), {"2024-05-03--18-00-00.mcpr", "2024-05-03--20-05-00.zip",
+                                             "2024-05-03--21-00-00.zip", "2024-05-03--22-00-00",
+                                             "2024-05-03--22-30-00.mcpr.tmp"})
+
+    def test_flashback_rtc_start(self):
+        r = self.by_name["2024-05-03--20-05-00.zip"]
+        self.assertEqual((r.format, r.start_source, r.unfinished), ("flashback", "real-time-clock", False))
+        self.assertEqual(r.start, utc(2024, 5, 3, 18, 5))           # 18:05:01 minus 20 ticks
+        self.assertEqual(r.duration_ms, 180_000)
+        self.assertEqual(r.recorded_player, "Steve")                  # uuid folder -> name
+        self.assertEqual(r.markers, [{"offset_ms": 30_000, "name": "Dragon fight", "position": [1.0, 70.0, 2.0],
+                                      "dimension": "minecraft:the_end"}])
+        mk = [e for e in self.data.events if e.type == "replay_marker" and e.text == "Dragon fight"]
+        self.assertEqual(mk[0].time, utc(2024, 5, 3, 18, 5, 30))
+
+    def test_flashback_name_fallback_uses_server_tz(self):
+        r = self.by_name["2024-05-03--21-00-00.zip"]
+        self.assertEqual((r.start_source, r.start), ("file-name", utc(2024, 5, 3, 19, 0)))
+
+    def test_unfinished(self):
+        fb = self.by_name["2024-05-03--22-00-00"]
+        self.assertEqual((fb.format, fb.unfinished, fb.start), ("flashback", True, utc(2024, 5, 3, 20)))
+        rm = self.by_name["2024-05-03--22-30-00.mcpr.tmp"]
+        self.assertEqual((rm.format, rm.unfinished, rm.start), ("replaymod", True, utc(2024, 5, 3, 20, 30)))
+
+    def test_sync_flashback(self):
+        r = self.by_name["2024-05-03--20-05-00.zip"]
+        tl = sync.timeline_from_replay(r)
+        mk = sync.build_markers(self.data.events, tl, replay_path=r.path)
+        self.assertEqual([(round(x.seconds), x.label) for x in mk], [(30, "Marker: Dragon fight")])

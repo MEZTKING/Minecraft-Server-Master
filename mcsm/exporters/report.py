@@ -54,6 +54,7 @@ def _payload(data: m.ServerData) -> dict:
         "replays": [{"path": r.path, "start": iso(r.start), "end": iso(r.end), "duration_ms": r.duration_ms,
                      "server_name": r.server_name, "mc_version": r.mc_version, "generator": r.generator,
                      "recorded_player": r.recorded_player, "players": r.player_names,
+                     "format": r.format, "start_source": r.start_source, "unfinished": r.unfinished,
                      "markers": r.markers, "size": r.size_bytes} for r in data.replays],
         "log_files": [m.to_jsonable(f) for f in data.log_files],
     }
@@ -427,14 +428,16 @@ RENDER.events = () => {
 // ---------- REPLAYS ----------
 RENDER.replays = () => {
   const el = $("#tab-replays");
-  if (!D.replays.length) { el.innerHTML = `<div class="card"><h2>Replays</h2><p class="muted">No <code>.mcpr</code> files were found. ServerReplay saves them under <code>recordings/</code>; include that folder in your download, or pass <code>--replay FILE</code>.</p></div>`; return; }
+  if (!D.replays.length) { el.innerHTML = `<div class="card"><h2>Replays</h2><p class="muted">No replays were found (ReplayMod <code>.mcpr</code> or Flashback <code>.zip</code>). ServerReplay saves them under <code>recordings/</code>; include that folder in your download, or pass <code>--replay FILE</code>.</p></div>`; return; }
   const rows = D.replays.map(r => { const s = Date.parse(r.start), e = Date.parse(r.end);
     const inside = EV.filter(x => x.t >= s && x.t <= e);
     return { ...r, s, dur: r.duration_ms / 1000, events: inside.length, deaths: inside.filter(x => x.type === "death").length,
       chat: inside.filter(x => x.type === "chat").length, advs: inside.filter(x => x.type === "advancement").length }; });
   el.innerHTML = `<div class="card"><h2>Replays (${rows.length})</h2><p class="muted" style="margin-top:-8px">Events counted are those from the logs that happened while the recording ran. To get markers/subtitles for a video, run <code>mcsm sync SERVER --replay PATH</code> (see docs/VIDEO_SYNC.md).</p><div id="rpTable"></div></div>`;
   $("#rpTable").appendChild(table([
-    { key: "path", label: "File", fmt: v => `<code>${esc(v)}</code>` }, { key: "recorded_player", label: "Recorded player", fmt: v => v ? plink(v) : '<span class="muted">—</span>' },
+    { key: "path", label: "File", fmt: v => `<code>${esc(v)}</code>` },
+    { key: "format", label: "Format", fmt: (v, r) => `<span class="pill">${v === "flashback" ? "Flashback" : "ReplayMod"}</span>` + (r.unfinished ? ' <span class="pill">unfinished</span>' : "") + (["metadata", "real-time-clock"].includes(r.start_source) ? "" : ` <span class="pill" title="Start time is estimated">start: ${esc(r.start_source)}</span>`) },
+    { key: "recorded_player", label: "Recorded player", fmt: v => v ? plink(v) : '<span class="muted">—</span>' },
     { key: "s", label: "Start", fmt: dt }, { key: "dur", label: "Length", num: 1, fmt: dur },
     { key: "events", label: "Events", num: 1, fmt: fmtN }, { key: "chat", label: "Chat", num: 1, fmt: fmtN }, { key: "deaths", label: "Deaths", num: 1, fmt: fmtN },
     { key: "advs", label: "Advs", num: 1, fmt: fmtN }, { key: "players", label: "Players in recording", fmt: v => (v || []).map(plink).join(", ") },

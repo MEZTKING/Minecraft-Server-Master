@@ -6,8 +6,8 @@ into:
 1. **A statistics dashboard** – one HTML file showing everything that happened over the
    server's life: who played when, play time, deaths, chat, advancements, inventories,
    world info, mods, and every log event, searchable.
-2. **Video-editing markers** – line up the **ServerReplay / ReplayMod** recordings with the
-   server logs, so chat, deaths, joins and advancements appear as **subtitles and coloured
+2. **Video-editing markers** – line up **ReplayMod** (`.mcpr`), **Flashback** (`.zip`) and
+   **ServerReplay** recordings with the server logs, so chat, deaths, joins and advancements appear as **subtitles and coloured
    timeline markers** in DaVinci Resolve, Premiere, CapCut, Shotcut, Vegas, Kdenlive...
 3. **Music sync** – detect a song's beat (or type in its BPM), place it on the video
    timeline, add beat/bar markers, and optionally **snap event markers to the beat** so
@@ -100,7 +100,7 @@ download at least these from the server's file manager / SFTP:
 | `world/stats/`, `world/advancements/`, `world/playerdata/`, `world/level.dat` | Lifetime stats, advancement dates, inventories, world info |
 | `usercache.json`, `ops.json`, `whitelist.json`, `banned-players.json` | UUID→name, roles |
 | `server.properties` | World folder name, settings |
-| `recordings/` (ServerReplay) | Replays to sync with video |
+| `recordings/` (ServerReplay), or your client's `replay_recordings/` / `flashback/replays/` | Replays to sync with video |
 | `mods/` or `plugins/` | Mod list (optional) |
 | `crash-reports/` | Crash events (optional) |
 
@@ -195,7 +195,8 @@ Full explanation: **[docs/MUSIC_SYNC.md](docs/MUSIC_SYNC.md)**.
 | `world/region`, `DIM-1`, `DIM1`, `dimensions/` | Region file count / size per dimension (≈ explored area) |
 | `usercache.json`, `ops.json`, `whitelist.json`, `banned-players.json` | Names, op / whitelist / ban status |
 | `server.properties` | Settings (the RCON password is masked) |
-| `*.mcpr` anywhere (ServerReplay, ReplayMod) | Recording start time, length, players, in-replay markers |
+| `*.mcpr` anywhere (ReplayMod, ServerReplay) | Recording start time, length, players, in-replay markers |
+| Flashback `.zip` replays and unfinished recording folders (Flashback mod, ServerReplay with `flashback` encoding) | Start time (decoded from the recording's real-time clock), length, markers |
 | `crash-reports/` | Crash events |
 | `mods/*.jar`, `plugins/*.jar` | Mod/plugin names and versions |
 

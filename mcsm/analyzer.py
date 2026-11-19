@@ -62,7 +62,7 @@ def analyze(root: str, tz: tzinfo | None = None, latest_log_date: date | None = 
     # 5. crash reports + replays
     for local, rel, desc in logs.iter_crash_reports(root):
         data.events.append(m.Event(clock.to_utc(local), m.EV_CRASH, None, desc, rel, None, {}))
-    data.replays, warns = replay_mod.read_replays(root, uuid_to_name, extra_replays)
+    data.replays, warns = replay_mod.read_replays(root, uuid_to_name, extra_replays, clock.to_utc)
     data.warnings.extend(warns)
     for r in data.replays:
         if r.start is None:

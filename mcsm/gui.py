@@ -206,7 +206,7 @@ class App(ttk.Frame):
         ttk.Radiobutton(vid, text="Rendered from replay:", variable=self.mode_var, value="replay").grid(row=0, column=0, sticky="w")
         self.replay_combo = ttk.Combobox(vid, state="readonly")
         self.replay_combo.grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(vid, text="Other .mcpr…", command=self._pick_replay).grid(row=0, column=2)
+        ttk.Button(vid, text="Other replay…", command=self._pick_replay).grid(row=0, column=2)
         ttk.Radiobutton(vid, text="Other footage, starting at:", variable=self.mode_var, value="manual").grid(row=1, column=0, sticky="w")
         self.video_start_var = tk.StringVar()
         ttk.Entry(vid, textvariable=self.video_start_var).grid(row=1, column=1, sticky="ew", padx=4)
@@ -379,14 +379,15 @@ class App(ttk.Frame):
             self.music_var.set(p)
 
     def _pick_replay(self):
-        p = filedialog.askopenfilename(title="Choose a replay", filetypes=[("Replays", "*.mcpr")])
+        p = filedialog.askopenfilename(title="Choose a replay", filetypes=[
+            ("Replays (ReplayMod .mcpr, Flashback .zip)", "*.mcpr *.zip"), ("All files", "*.*")])
         if not p or self.data is None:
             return
         from .replays import read_replay
         try:
             r = read_replay(p, self.data.root, {pl.uuid: pl.name for pl in self.data.players.values() if pl.uuid})
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror(APP_NAME, f"Could not read replay: {exc}")
+            messagebox.showerror(APP_NAME, f"Could not read replay (is it a ReplayMod .mcpr or Flashback .zip?): {exc}")
             return
         r.path = os.path.abspath(p)
         self.data.replays.append(r)
@@ -397,7 +398,11 @@ class App(ttk.Frame):
         for i, r in enumerate(self.data.replays if self.data else [], start=1):
             when = r.start.astimezone().strftime("%Y-%m-%d %H:%M") if r.start else "?"
             who = r.recorded_player or ", ".join(r.player_names[:3])
-            items.append(f"{i}. {when}  ({format_hms(r.duration_ms / 1000)})  {who}  –  {os.path.basename(r.path)}")
+            kind = "Flashback" if r.format == "flashback" else "ReplayMod"
+            if r.unfinished:
+                kind += ", unfinished"
+            items.append(f"{i}. {when}  ({format_hms(r.duration_ms / 1000)})  {who}  –  {kind}  –  "
+                         f"{os.path.basename(r.path.rstrip('/'))}")
         self.replay_combo["values"] = items
         if items:
             self.replay_combo.current(min(select, len(items) - 1))

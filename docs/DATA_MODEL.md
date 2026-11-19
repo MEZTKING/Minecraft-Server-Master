@@ -78,9 +78,11 @@ converted to the same layout.
 ## `Replay`
 
 `path`, `start`, `end`, `duration_ms`, `server_name`, `mc_version`, `generator`,
-`players` (UUIDs), `player_names`, `recorded_player` (from ServerReplay's
-`players/<name>/` folder), `markers` [{`offset_ms`, `name`, `position`}], `size_bytes`,
-`raw_meta`.
+`players` (UUIDs, ReplayMod only), `player_names`, `recorded_player` (from ServerReplay's
+`players/<uuid-or-name>/` folder, shown as a name), `markers` [{`offset_ms`, `name`,
+`position`, `dimension` (Flashback only)}], `size_bytes`, `raw_meta`,
+`format` (`replaymod` / `flashback`), `start_source` (`metadata` / `real-time-clock` /
+`file-name` / `file-time`), `unfinished` (true for in-progress/crashed recording folders).
 
 ## SQLite schema (`mcsm export --sqlite`)
 

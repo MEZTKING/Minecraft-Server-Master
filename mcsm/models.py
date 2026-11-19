@@ -96,7 +96,7 @@ class PlayerProfile:
 
 @dataclass
 class Replay:
-    """A ReplayMod / ServerReplay ``.mcpr`` recording."""
+    """A ReplayMod (``.mcpr``) or Flashback (``.zip``) recording -- see :mod:`mcsm.replays`."""
 
     path: str                      # relative to the server root
     start: datetime | None         # UTC, from metaData.json "date"
@@ -110,6 +110,9 @@ class Replay:
     markers: list[dict[str, Any]] = field(default_factory=list)
     size_bytes: int = 0
     raw_meta: dict[str, Any] = field(default_factory=dict)
+    format: str = "replaymod"          # "replaymod" (.mcpr) or "flashback" (.zip)
+    start_source: str = "metadata"     # metadata | real-time-clock | file-name | file-time
+    unfinished: bool = False           # an in-progress/crashed recording folder
 
     @property
     def end(self) -> datetime | None:

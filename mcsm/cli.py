@@ -163,12 +163,15 @@ def cmd_events(args) -> int:
 def cmd_replays(args) -> int:
     data = _load(args)
     if not data.replays:
-        print("No .mcpr replay files found (ServerReplay stores them in recordings/).")
+        print("No replays found (.mcpr from ReplayMod/ServerReplay, or Flashback .zip; ServerReplay stores them in recordings/).")
         return 0
     for i, r in enumerate(data.replays, start=1):
         inside = [e for e in data.events if r.start and r.start <= e.time <= r.end]
         who = r.recorded_player or ", ".join(r.player_names[:4])
-        print(f"[{i}] {r.path}\n     start {_local(r.start)}  length {format_hms(r.duration_ms / 1000)}  "
+        fmt = {"replaymod": "ReplayMod", "flashback": "Flashback"}.get(r.format, r.format)
+        flags = f"{fmt}" + (", UNFINISHED" if r.unfinished else "") + \
+            ("" if r.start_source in ("metadata", "real-time-clock") else f", start from {r.start_source}")
+        print(f"[{i}] {r.path}  ({flags})\n     start {_local(r.start)}  length {format_hms(r.duration_ms / 1000)}  "
               f"players: {who or '-'}  events during recording: {len(inside)}  markers: {len(r.markers)}")
     return 0
 
@@ -341,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, help="only the last N matches")
     p.set_defaults(func=cmd_events)
 
-    p = sub.add_parser("replays", help="list .mcpr replay recordings"); _add_common(p)
+    p = sub.add_parser("replays", help="list ReplayMod (.mcpr) and Flashback (.zip) recordings"); _add_common(p)
     p.set_defaults(func=cmd_replays)
 
     p = sub.add_parser("sync", help="video markers/subtitles for a replay (+ music sync)",
@@ -350,7 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
                                    "See docs/VIDEO_SYNC.md and docs/MUSIC_SYNC.md.")
     _add_common(p)
     g = p.add_argument_group("which video")
-    g.add_argument("--replay", help=".mcpr path, its number from 'mcsm replays', or part of its file name")
+    g.add_argument("--replay", help="replay (.mcpr or Flashback .zip) path, its number from 'mcsm replays', or part of its file name")
     g.add_argument("--video-start", help="instead of a replay: real time at video 0:00, 'YYYY-MM-DD HH:MM:SS'")
     g.add_argument("--render-start", help="where in the replay your render starts, e.g. 12:30 (default 0)")
     g.add_argument("--length", help="video length (default: rest of the replay)")

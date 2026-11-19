@@ -178,3 +178,55 @@ def write_click_track(path: str, bpm: float = 120.0, first_beat: float = 0.25, s
         wf.setsampwidth(2)
         wf.setframerate(rate)
         wf.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, s)) * 32767)) for s in samples))
+
+
+FLASHBACK_RTC_MS = int(datetime(2024, 5, 3, 18, 5, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def add_extra_replays(root: str) -> None:
+    """Flashback + unfinished replays (kept separate so older tests keep their counts).
+
+    * recordings/players/<steve-uuid>/2024-05-03--20-05-00.zip   Flashback, real-time clock
+      says 18:05:01 UTC after 20 ticks -> start 18:05:00 UTC; 3 minutes long; marker at tick 600.
+    * recordings/players/<steve-uuid>/2024-05-03--21-00-00.zip   Flashback without a clock
+      -> start from the file name, 21:00 server time (UTC+2) = 19:00 UTC.
+    * recordings/players/<steve-uuid>/2024-05-03--22-00-00/       unfinished Flashback folder
+    * recordings/chunks/base/2024-05-03--22-30-00.mcpr.tmp/       unfinished ReplayMod folder
+    """
+    from mcsm.replays import write_flashback_chunk
+    folder = os.path.join(root, "recordings", "players", STEVE)
+    os.makedirs(folder, exist_ok=True)
+
+    def meta(ticks, markers=None):
+        d = {"uuid": "x", "name": "Base tour", "version_string": "1.21.1", "world_name": "Friends SMP",
+             "total_ticks": ticks, "chunks": {"c0.flashback": {"duration": ticks, "forcePlaySnapshot": False}}}
+        if markers:
+            d["markers"] = markers
+        return json.dumps(d)
+
+    import io as _io
+    buf = _io.BytesIO()
+    write_flashback_chunk(buf, FLASHBACK_RTC_MS + 1000, ticks_before=20, extra_ticks=5)
+    with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-05-00.zip"), "w") as zf:
+        zf.writestr("metadata.json", meta(3600, {"600": {"colour": 16711680, "description": "Dragon fight",
+                                                         "position": {"position": [1.0, 70.0, 2.0],
+                                                                      "dimension": "minecraft:the_end"}}}))
+        zf.writestr("c0.flashback", buf.getvalue())
+        zf.writestr("icon.png", b"")
+
+    with zipfile.ZipFile(os.path.join(folder, "2024-05-03--21-00-00.zip"), "w") as zf:
+        zf.writestr("metadata.json", meta(1200))
+        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")  # header, no actions, no clock
+
+    raw = os.path.join(folder, "2024-05-03--22-00-00")
+    os.makedirs(raw, exist_ok=True)
+    with open(os.path.join(raw, "metadata.json"), "w") as fh:
+        fh.write(meta(400))
+    with open(os.path.join(raw, "c0.flashback"), "wb") as fh:
+        write_flashback_chunk(fh, int(datetime(2024, 5, 3, 20, 0, 0, tzinfo=timezone.utc).timestamp() * 1000))
+
+    tmp = os.path.join(root, "recordings", "chunks", "base", "2024-05-03--22-30-00.mcpr.tmp")
+    os.makedirs(tmp, exist_ok=True)
+    with open(os.path.join(tmp, "metaData.json"), "w") as fh:
+        json.dump({"date": int(datetime(2024, 5, 3, 20, 30, tzinfo=timezone.utc).timestamp() * 1000),
+                   "duration": 60000, "serverName": "Friends SMP", "mcversion": "1.21.1", "players": []}, fh)
