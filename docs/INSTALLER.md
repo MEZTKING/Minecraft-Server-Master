@@ -6,8 +6,8 @@ developers).
 ## For users: installing
 
 1. Get `MinecraftServerMaster-Setup-<version>.exe`:
-   - **From a release:** the repository's *Releases* page (published automatically when a
-     version tag such as `v0.1.0` is pushed).
+   - **From a release:** the repository's *Releases* page (the installer is attached automatically
+     when a release is published, see *Releasing a version* below).
    - **From the latest build:** the repository's *Actions* tab → *Build installer* → the
      newest successful run → *Artifacts* → **MinecraftServerMaster-Setup** (a zip containing
      the `.exe`; you must be signed in to GitHub to download artifacts).
@@ -107,9 +107,15 @@ The installer appears in `dist\installer\`.
 
 ### Releasing a version
 
-1. Bump `__version__` in `mcsm/__init__.py` and `version` in `pyproject.toml`.
-2. Commit, then tag and push: `git tag v0.2.0` and `git push origin v0.2.0`.
-3. The workflow builds the installer and attaches it to a new GitHub Release.
+1. Bump `__version__` in `mcsm/__init__.py` and `version` in `pyproject.toml`; note it in
+   `PROJECT_STATUS.md`; push.
+2. On GitHub: **Releases → Draft a new release** → *Choose a tag*: type `v0.2.0` and pick
+   *Create new tag on publish* → *Target*: the branch with the code → **Publish release**.
+3. The *Build installer* workflow runs for the release and attaches
+   `MinecraftServerMaster-Setup-<version>.exe` to it within a few minutes (watch the Actions tab).
+
+The permanent download link is then
+https://github.com/MEZTKING/Minecraft-Server-Master/releases/latest.
 
 ### macOS and Linux
 

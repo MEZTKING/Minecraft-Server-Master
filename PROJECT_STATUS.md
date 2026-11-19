@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19 (first release, v0.1.0).
+`CLAUDE.md`). Last updated: 2026-11-19 (release workflow).
 
 ## What this project is
 
@@ -20,7 +20,10 @@ More features "like these" are planned, listed under **Backlog** below.
 ## Downloads
 
 - **Latest release (installer):** https://github.com/MEZTKING/Minecraft-Server-Master/releases/latest
-  (v0.1.0 published 2026-11-19 from the working branch).
+  — **no release published yet.** Claude sessions can push only the working branch (tag pushes
+  are rejected), so the owner publishes releases on GitHub: *Releases → Draft a new release →
+  tag `v0.1.0` (create on publish), target `claude/exciting-cannon-d0r8dm` → Publish*. The
+  workflow then builds the installer and attaches it (check the Actions tab).
 - Every push also builds an installer artifact under Actions → Build installer (sign-in required,
   kept 90 days).
 
@@ -32,8 +35,8 @@ More features "like these" are planned, listed under **Backlog** below.
 - Python 3.10+, **standard library only** at runtime. three.js is vendored in
   `mcsm/assets/web/vendor/`.
 - Releases: bump `__version__` (`mcsm/__init__.py`) and `version` (`pyproject.toml`), update the
-  changelog here, push, then push a tag `vX.Y.Z`; the workflow attaches the installer to a
-  GitHub Release. Released so far: v0.1.0.
+  changelog here, push; then the owner publishes a GitHub Release (see Downloads) and the
+  workflow attaches the installer. Released so far: none.
 - Windows installer: built by GitHub Actions on every push (`.github/workflows/build-installer.yml`,
   see `docs/INSTALLER.md`). Check the run after pushing.
 - Docs live in `README.md` and `docs/`. Code layout: `docs/ARCHITECTURE.md`.
@@ -173,6 +176,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-19 | Timelapse targets Flashback's editor first (owner confirmed) | Owner prefers editing in Flashback |
 | 2026-11-19 | Flashback outputs are always a *copy* with a new replay uuid; never overwrite an editor_states file | Protects the owner's original replay and existing edits |
 | 2026-11-19 | Timelapse default: fit 3:00, each idle gap 0.5 s, never slower than real time | Owner asked for "3 minutes as an option" |
+| 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -197,8 +201,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
-- **2026-11-19 – v0.1.0 released** (GitHub Release with the Windows installer): everything listed
-  below.
+- **2026-11-19:** Release workflow now triggers on *publishing* a GitHub Release (tag pushes are
+  blocked for Claude sessions). v0.1.0 ready to publish.
 - **2026-11-19:** `mcsm flashback` (markers into a Flashback replay copy) and `mcsm timelapse`
   (activity-aware area timelapse set up in Flashback's editor; 3:00 target or fixed speed; date/time
   overlay; chapters); app Flashback tab; negative-value option fix; docs FLASHBACK.md, TIMELAPSE.md.
