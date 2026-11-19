@@ -756,3 +756,45 @@ class TestArgv(unittest.TestCase):
                          ["timelapse", "s", "--area=-100,-5,20,30", "--camera=-1,2,3,4,5"])
         args = cli.parse_args(["sync", "s", "--music-start", "-0:10", "--bpm", "120"])
         self.assertEqual(args.music_start, "-0:10")
+
+
+class TestMinecraft26Layout(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fixtures import build_server_26_1
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-26-")
+        cls.root = build_server_26_1(os.path.join(cls.tmp, "server"))
+        cls.data = analyze(cls.root)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_player_files_found(self):
+        steve = self.data.player("steve")
+        self.assertEqual(steve.stats["custom"]["play_time"], 216000)
+        self.assertIn("story/mine_stone", steve.advancements)
+        self.assertEqual(steve.playerdata["inventory"]["torch"], 74)
+        self.assertIn("UTC+02:00", self.data.timezone_info)       # learned from players/advancements
+
+    def test_level_dat_and_data_files(self):
+        w = self.data.world
+        self.assertEqual((w["version_name"], w["difficulty"], w["seed"], w["spawn"]), ("26.1.2", "hard", 4242, [8, 70, -16]))
+        self.assertEqual(w["game_rules"], {"minecraft:keep_inventory": 1})
+        self.assertTrue(w["raining"])
+        self.assertEqual(set(w["dimensions"]), {"overworld", "the_nether"})   # no duplicates from dimensions/
+
+    def test_terrain_dirs(self):
+        from mcsm import terrain
+        self.assertEqual(len(terrain.region_files(self.root, os.path.join(self.root, "world"), "minecraft:overworld")), 1)
+
+    def test_serverreplay_flashback(self):
+        reps = {os.path.basename(r.path): r for r in self.data.replays if "Recordings for_" in r.path}
+        bad = reps["2024-05-03--20-05-00.zip"]
+        self.assertEqual(bad.recorded_player, "Steve")
+        # file name 20:05 server time (UTC+2) -> 18:05 UTC; length = save 18:10 - 18:05 - 1 min paused = 4 min
+        self.assertEqual((bad.start, bad.start_source, bad.duration_ms), (utc(2024, 5, 3, 18, 5), "file-name", 240_000))
+        self.assertEqual(bad.raw_meta["duration_note"], "estimated from save time")
+        good = reps["2024-05-03--20-30-00.zip"]
+        # save 18:33 - 2 min length - 1 min paused = 18:30
+        self.assertEqual((good.start, good.start_source, good.duration_ms), (utc(2024, 5, 3, 18, 30), "save-time", 120_000))

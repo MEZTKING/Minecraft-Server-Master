@@ -213,9 +213,9 @@ def read_region_surface(path: str, step: int = 4) -> Tile | None:
     return Tile(rx, rz, step, size, heights, bytes(colours)) if found else None
 
 
-DIMENSION_DIRS = {
-    "minecraft:overworld": ["{w}/region"],
-    "minecraft:the_end": ["{w}/DIM1/region", "{w}_the_end/DIM1/region"],
+DIMENSION_DIRS = {  # 26.1+ layout first
+    "minecraft:overworld": ["{w}/dimensions/minecraft/overworld/region", "{w}/region"],
+    "minecraft:the_end": ["{w}/dimensions/minecraft/the_end/region", "{w}/DIM1/region", "{w}_the_end/DIM1/region"],
 }
 
 

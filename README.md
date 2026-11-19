@@ -104,7 +104,7 @@ download at least these from the server's file manager / SFTP:
 | Path | Needed for |
 |---|---|
 | `logs/` (all `.log.gz` + `latest.log`) | Timeline, sessions, chat, deaths – **the most important part** |
-| `world/stats/`, `world/advancements/`, `world/playerdata/`, `world/level.dat` | Lifetime stats, advancement dates, inventories, world info |
+| `world/stats/`, `world/advancements/`, `world/playerdata/`, `world/level.dat` (Minecraft 26.1+: `world/players/` and `world/data/minecraft/`) | Lifetime stats, advancement dates, inventories, world info |
 | `usercache.json`, `ops.json`, `whitelist.json`, `banned-players.json` | UUID→name, roles |
 | `server.properties` | World folder name, settings |
 | `recordings/` (ServerReplay), or your client's `replay_recordings/` / `flashback/replays/` | Replays to sync with video |

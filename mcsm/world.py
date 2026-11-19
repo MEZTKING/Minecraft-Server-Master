@@ -14,12 +14,13 @@ from . import nbt
 
 # Dimension folder layout inside a world folder:
 #   Vanilla/Fabric/Forge : <world>/region, <world>/DIM-1/region, <world>/DIM1/region
-#   1.21+ custom dims   : <world>/dimensions/<namespace>/<name>/region
+#   26.1+               : <world>/dimensions/minecraft/{overworld,the_nether,the_end}/region
+#   custom dims         : <world>/dimensions/<namespace>/<name>/region
 #   Paper/Spigot        : <world>/region, <world>_nether/DIM-1/region, <world>_the_end/DIM1/region
 _DIMENSIONS = {
-    "overworld": ["{w}/region"],
-    "the_nether": ["{w}/DIM-1/region", "{w}_nether/DIM-1/region"],
-    "the_end": ["{w}/DIM1/region", "{w}_the_end/DIM1/region"],
+    "overworld": ["{w}/dimensions/minecraft/overworld/region", "{w}/region"],
+    "the_nether": ["{w}/dimensions/minecraft/the_nether/region", "{w}/DIM-1/region", "{w}_nether/DIM-1/region"],
+    "the_end": ["{w}/dimensions/minecraft/the_end/region", "{w}/DIM1/region", "{w}_the_end/DIM1/region"],
 }
 
 
@@ -70,8 +71,41 @@ def world_dir(root: str, props: dict[str, str]) -> str:
     return candidate
 
 
+def _find_key(obj: Any, key: str, depth: int = 4) -> Any:
+    """First value stored under *key* anywhere in nested dicts (shallow search)."""
+    if depth < 0 or not isinstance(obj, dict):
+        return None
+    if key in obj:
+        return obj[key]
+    for v in obj.values():
+        found = _find_key(v, key, depth - 1)
+        if found is not None:
+            return found
+    return None
+
+
+def _load_data_file(world: str, name: str) -> dict[str, Any]:
+    """Read ``<world>/data/minecraft/<name>.dat`` (26.1+ moved several level.dat parts there)."""
+    path = os.path.join(world, "data", "minecraft", name + ".dat")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        return nbt.load(path)
+    except (nbt.NBTError, OSError, EOFError):
+        return {}
+
+
 def read_level_dat(world: str) -> dict[str, Any]:
-    """Summarise ``level.dat``: name, seed, version, game time, spawn, rules."""
+    """Summarise ``level.dat``: name, seed, version, game time, spawn, rules.
+
+    Handles both layouts:
+
+    * up to 1.21: everything in ``level.dat`` (``SpawnX/Y/Z``, ``Difficulty`` int,
+      ``GameRules``, ``WorldGenSettings.seed``, ``raining``...);
+    * 26.1+: ``spawn: {pos: [x,y,z], dimension, yaw, pitch}``,
+      ``difficulty_settings: {difficulty: "hard", locked}``, and game rules / world-gen
+      settings / weather moved to ``data/minecraft/{game_rules,world_gen_settings,weather}.dat``.
+    """
     path = os.path.join(world, "level.dat")
     if not os.path.isfile(path):
         return {}
@@ -80,9 +114,33 @@ def read_level_dat(world: str) -> dict[str, Any]:
     except (nbt.NBTError, OSError, EOFError) as exc:
         return {"error": f"could not read level.dat: {exc}"}
 
+    gen = _load_data_file(world, "world_gen_settings")
+    rules = _load_data_file(world, "game_rules")
+    weather = _load_data_file(world, "weather")
     seed = data.get("WorldGenSettings", {}).get("seed", data.get("RandomSeed"))
+    if seed is None:
+        seed = _find_key(gen, "seed")
     version = data.get("Version", {})
     game_time = data.get("Time")                      # total ticks the world has run
+    day_time = data.get("DayTime")  # 26.1 moved it; new location not verified, so left unknown there
+    spawn = [data.get("SpawnX"), data.get("SpawnY"), data.get("SpawnZ")]
+    if spawn[0] is None and isinstance(data.get("spawn"), dict):
+        pos = data["spawn"].get("pos")
+        if isinstance(pos, list) and len(pos) == 3:
+            spawn = pos
+    difficulty = {0: "peaceful", 1: "easy", 2: "normal", 3: "hard"}.get(data.get("Difficulty"))
+    if difficulty is None and isinstance(data.get("difficulty_settings"), dict):
+        difficulty = data["difficulty_settings"].get("difficulty")
+    game_rules = data.get("GameRules")
+    if not game_rules and rules:
+        inner = rules.get("data", rules)
+        game_rules = {k: v for k, v in inner.items() if not isinstance(v, (dict, list))} if isinstance(inner, dict) else {}
+    raining = data.get("raining")
+    if raining is None:
+        raining = _find_key(weather, "raining")
+    thundering = data.get("thundering")
+    if thundering is None:
+        thundering = _find_key(weather, "thundering")
     out: dict[str, Any] = {
         "level_name": data.get("LevelName"),
         "seed": seed,
@@ -90,15 +148,15 @@ def read_level_dat(world: str) -> dict[str, Any]:
         "data_version": data.get("DataVersion") or version.get("Id"),
         "game_time_ticks": game_time,
         "game_time_hours": round(game_time / 20 / 3600, 2) if isinstance(game_time, int) else None,
-        "in_game_days": (data.get("DayTime", 0) // 24000) if isinstance(data.get("DayTime"), int) else None,
-        "spawn": [data.get("SpawnX"), data.get("SpawnY"), data.get("SpawnZ")],
+        "in_game_days": (day_time // 24000) if isinstance(day_time, int) else None,
+        "spawn": spawn,
         "hardcore": bool(data.get("hardcore", 0)),
-        "difficulty": {0: "peaceful", 1: "easy", 2: "normal", 3: "hard"}.get(data.get("Difficulty")),
+        "difficulty": difficulty,
         "game_type": {0: "survival", 1: "creative", 2: "adventure", 3: "spectator"}.get(data.get("GameType")),
-        "raining": bool(data.get("raining", 0)),
-        "thundering": bool(data.get("thundering", 0)),
+        "raining": bool(raining or 0),
+        "thundering": bool(thundering or 0),
         "last_played_ms": data.get("LastPlayed"),
-        "game_rules": data.get("GameRules", {}),
+        "game_rules": game_rules or {},
         "datapacks_enabled": data.get("DataPacks", {}).get("Enabled", []),
         "brand": data.get("ServerBrands", []),
     }
@@ -143,6 +201,9 @@ def region_summary(root: str, world: str) -> dict[str, dict[str, int]]:
         for current, dirs, _files in os.walk(custom):
             if os.path.basename(current) == "region":
                 rel = os.path.relpath(os.path.dirname(current), custom).replace(os.sep, ":", 1)
+                if rel in ("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"):
+                    dirs[:] = []
+                    continue
                 files = [f for f in os.listdir(current) if f.endswith(".mca")]
                 out[rel] = {"region_files": len(files),
                             "bytes": sum(os.path.getsize(os.path.join(current, f)) for f in files),

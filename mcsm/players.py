@@ -4,6 +4,9 @@
 * ``<world>/stats/<uuid>.json``      -- lifetime statistics
 * ``<world>/advancements/<uuid>.json`` -- advancements with completion timestamps
 * ``<world>/playerdata/<uuid>.dat``  -- NBT: position, health, XP, inventory...
+
+Minecraft 26.1+ keeps the same files in ``<world>/players/stats``,
+``players/advancements`` and ``players/data``; :func:`player_dir` finds either.
 * ``ops.json``, ``whitelist.json``, ``banned-players.json``
 
 Statistic formats
@@ -30,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -50,6 +54,40 @@ _LEGACY_CATEGORY = {
     "stat.breakItem": "broken", "stat.pickup": "picked_up", "stat.drop": "dropped",
     "stat.killEntity": "killed", "stat.entityKilledBy": "killed_by",
 }
+
+
+# Where per-player files live, newest layout first. Minecraft 26.1 moved them to
+# <world>/players/{stats,advancements,data}; before that <world>/{stats,advancements,playerdata}.
+_PLAYER_DIRS = {
+    "stats": ["players/stats", "stats"],
+    "advancements": ["players/advancements", "advancements"],
+    "playerdata": ["players/data", "playerdata"],
+}
+_UUID_FILE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.(json|dat)$")
+
+
+def player_dir(world: str, kind: str) -> str | None:
+    """Folder holding ``kind`` (stats / advancements / playerdata) files for this world.
+
+    Known locations are tried first; otherwise the world folder is searched (3 levels,
+    skipping dimension/region data) for a folder of uuid-named files with the right name,
+    so a future layout change keeps working.
+    """
+    for rel in _PLAYER_DIRS[kind]:
+        d = os.path.join(world, rel)
+        if os.path.isdir(d):
+            return d
+    names = {"stats": {"stats"}, "advancements": {"advancements"}, "playerdata": {"playerdata", "data"}}[kind]
+    ext = ".dat" if kind == "playerdata" else ".json"
+    skip = {"region", "entities", "poi", "dimensions", "DIM1", "DIM-1", "datapacks", "DistantHorizons"}
+    base_depth = world.rstrip(os.sep).count(os.sep)
+    for current, dirs, files in os.walk(world):
+        dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
+        if current.count(os.sep) - base_depth >= 3:
+            dirs[:] = []
+        if os.path.basename(current) in names and any(_UUID_FILE.match(f) and f.endswith(ext) for f in files):
+            return current
+    return None
 
 
 def _strip(key: str) -> str:
@@ -97,9 +135,9 @@ def normalise_stats(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
 
 def read_stats(world: str) -> dict[str, dict[str, dict[str, int]]]:
     """Return ``{uuid: normalised_stats}`` for every file in ``<world>/stats``."""
-    folder = os.path.join(world, "stats")
+    folder = player_dir(world, "stats")
     out = {}
-    if not os.path.isdir(folder):
+    if not folder:
         return out
     for name in os.listdir(folder):
         if not name.endswith(".json"):
@@ -123,10 +161,10 @@ def read_advancements(world: str) -> tuple[dict[str, dict[str, dict[str, Any]]],
     Recipe unlocks (``minecraft:recipes/...``) are skipped -- there are
     hundreds of them and they are not interesting.
     """
-    folder = os.path.join(world, "advancements")
+    folder = player_dir(world, "advancements")
     out: dict[str, dict[str, dict[str, Any]]] = {}
     samples: list[tuple[date, timedelta]] = []
-    if not os.path.isdir(folder):
+    if not folder:
         return out, samples
     for name in os.listdir(folder):
         if not name.endswith(".json"):
@@ -200,9 +238,9 @@ def summarise_playerdata(data: dict[str, Any]) -> dict[str, Any]:
 
 def read_playerdata(world: str) -> dict[str, dict[str, Any]]:
     """Return ``{uuid: summary}`` for every ``<world>/playerdata/*.dat``."""
-    folder = os.path.join(world, "playerdata")
+    folder = player_dir(world, "playerdata")
     out = {}
-    if not os.path.isdir(folder):
+    if not folder:
         return out
     for name in os.listdir(folder):
         if not name.endswith(".dat") or name.endswith("_old.dat"):

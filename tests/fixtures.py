@@ -230,3 +230,54 @@ def add_extra_replays(root: str) -> None:
     with open(os.path.join(tmp, "metaData.json"), "w") as fh:
         json.dump({"date": int(datetime(2024, 5, 3, 20, 30, tzinfo=timezone.utc).timestamp() * 1000),
                    "duration": 60000, "serverName": "Friends SMP", "mcversion": "1.21.1", "players": []}, fh)
+
+
+def build_server_26_1(root: str) -> str:
+    """The same fake server, but in the Minecraft 26.1 world layout, with a ServerReplay
+    3.4.1-style Flashback replay (arcade_replay_meta.json, no real-time clock, 1-tick length,
+    folder "Recordings for_ Steve (<uuid>)")."""
+    import shutil as _sh
+    build_server(root)
+    w = os.path.join(root, "world")
+    os.makedirs(os.path.join(w, "players"))
+    for old, new in (("stats", "players/stats"), ("advancements", "players/advancements"), ("playerdata", "players/data")):
+        _sh.move(os.path.join(w, old), os.path.join(w, new))
+    os.makedirs(os.path.join(w, "dimensions", "minecraft", "overworld"))
+    _sh.move(os.path.join(w, "region"), os.path.join(w, "dimensions", "minecraft", "overworld", "region"))
+    os.makedirs(os.path.join(w, "dimensions", "minecraft", "the_nether"))
+    _sh.move(os.path.join(w, "DIM-1", "region"), os.path.join(w, "dimensions", "minecraft", "the_nether", "region"))
+    _sh.rmtree(os.path.join(w, "DIM-1"))
+    _write(os.path.join(w, "level.dat"), nbt.dumps({"Data": {
+        "LevelName": "Friends SMP", "Time": Typed(TAG_LONG, 20 * 3600 * 5), "GameType": 0,
+        "Version": {"Name": "26.1.2", "Id": 4790}, "DataVersion": 4790,
+        "spawn": {"dimension": "minecraft:overworld", "pos": Typed(11, [8, 70, -16]), "yaw": Typed(TAG_FLOAT, 0.0),
+                  "pitch": Typed(TAG_FLOAT, 0.0)},
+        "difficulty_settings": {"difficulty": "hard", "locked": Typed(1, 0)}}}), "wb")
+    _write(os.path.join(w, "data", "minecraft", "world_gen_settings.dat"),
+           nbt.dumps({"data": {"seed": Typed(TAG_LONG, 4242), "generate_structures": Typed(1, 1)}, "DataVersion": 4790}), "wb")
+    _write(os.path.join(w, "data", "minecraft", "game_rules.dat"),
+           nbt.dumps({"data": {"minecraft:keep_inventory": Typed(1, 1)}, "DataVersion": 4790}), "wb")
+    _write(os.path.join(w, "data", "minecraft", "weather.dat"),
+           nbt.dumps({"data": {"raining": Typed(1, 1), "thundering": Typed(1, 0)}}), "wb")
+    # ServerReplay 3.4.1 Flashback replay: saved 2024-05-03 18:10:00 UTC, file name 20:05:00 server time (UTC+2)
+    folder = os.path.join(root, "recordings", "players", f"Recordings for_ Steve ({STEVE})")
+    os.makedirs(folder, exist_ok=True)
+    save_ms = int(datetime(2024, 5, 3, 18, 10, 0, tzinfo=timezone.utc).timestamp() * 1000)
+    with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-05-00.zip"), "w") as zf:
+        zf.writestr("metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000001", "name": "Unnamed",
+                                                 "version_string": "26.1.2", "world_name": "Main_World",
+                                                 "data_version": 4790, "protocol_version": 775, "total_ticks": 1,
+                                                 "markers": {}, "chunks": {"c0.flashback": {"duration": 1, "forcePlaySnapshot": False}}}))
+        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
+        zf.writestr("arcade_replay_meta.json", json.dumps({"name": "Steve", "epoch_time_ms": save_ms,
+                                                           "accumulated_paused_time": "00:01:00"}))
+    # A recording with a sane length: start = save - length - paused
+    with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-30-00.zip"), "w") as zf:
+        zf.writestr("metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000002", "name": "Unnamed",
+                                                 "version_string": "26.1.2", "world_name": "Main_World", "total_ticks": 2400,
+                                                 "markers": {}, "chunks": {"c0.flashback": {"duration": 2400, "forcePlaySnapshot": False}}}))
+        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
+        zf.writestr("arcade_replay_meta.json", json.dumps({
+            "name": "Steve", "epoch_time_ms": int(datetime(2024, 5, 3, 18, 33, 0, tzinfo=timezone.utc).timestamp() * 1000),
+            "accumulated_paused_time": "00:01:00"}))
+    return root

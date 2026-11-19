@@ -49,8 +49,16 @@ Flashback marker times are stored as ticks and converted at 50 ms per tick. If y
 a client-side Flashback recording, the paused time isn't in the recording, so markers after
 the pause will be early by the pause length. ServerReplay recordings never pause.
 
+**ServerReplay's Flashback files** (made by its "arcade" library) contain no real-time
+clock. Instead they include `arcade_replay_meta.json` with the time the file was **saved** and
+any paused time, so `mcsm` uses start = save time − length − paused time
+(`start from save-time`). Some ServerReplay 3.4.1 files report a length of 1 tick. Then the
+start comes from the file name and the length is estimated as save time − start; the report
+marks these as estimates.
+
 ServerReplay names player folders by UUID by default (`player_recording_name: "{uuid}"`);
-`mcsm` shows the player's name instead, using `usercache.json`.
+`mcsm` shows the player's name instead, using `usercache.json`. Custom names such as
+`Recordings for: {username} ({uuid})` (the colon becomes `_` on Windows) work too.
 
 ### 1. Find the replay
 

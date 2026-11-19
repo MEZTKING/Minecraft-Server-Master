@@ -82,7 +82,7 @@ converted to the same layout.
 `players/<uuid-or-name>/` folder, shown as a name), `markers` [{`offset_ms`, `name`,
 `position`, `dimension` (Flashback only)}], `size_bytes`, `raw_meta`,
 `format` (`replaymod` / `flashback`), `start_source` (`metadata` / `real-time-clock` /
-`file-name` / `file-time`), `unfinished` (true for in-progress/crashed recording folders).
+`save-time` / `file-name` / `file-time`), `unfinished` (true for in-progress/crashed recording folders).
 
 ## SQLite schema (`mcsm export --sqlite`)
 

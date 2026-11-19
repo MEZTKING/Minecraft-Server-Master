@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19 (real-server findings; multi-backup request).
+`CLAUDE.md`). Last updated: 2026-11-19 (26.1 layout + ServerReplay fixes).
 
 ## What this project is
 
@@ -69,18 +69,27 @@ The owner ran the report on their real server (**Minecraft 26.1.2, Fabric, Serve
 11 players, 266 logs, 762 Flashback replays, 14.7 GB world**). Logs parsed well (7,595 events).
 Problems found:
 
-1. **Stats, advancements and playerdata all empty.** Minecraft 26.1 moved these out of
+1. ✅ *Fixed (needs owner re-check)* — **Stats, advancements and playerdata all empty.** Minecraft 26.1 moved these out of
    `<world>/stats|advancements|playerdata` (dimensions also moved to
    `<world>/dimensions/minecraft/<dim>/region`). Fix: auto-discover these folders anywhere in the
    world (uuid-named files), so future layout changes keep working. Same for terrain region dirs.
-2. **Time zone unknown** (follows from 1: offsets come from advancement files). Also consider
+2. ✅ *Fixed via 1 (needs owner re-check)* — **Time zone unknown** (follows from 1: offsets come from advancement files). Also consider
    other offset sources.
-3. **All Flashback replays: duration 50 ms, start only from the file name, no markers.**
+3. 🟡 *Partly fixed* — **All Flashback replays: duration 50 ms, start only from the file name, no markers.**
+   Research: ServerReplay writes Flashback via the arcade library (CasualChampionships/arcade
+   `io/writer/flashback`). It writes **no real-time clock**, but adds `arcade_replay_meta.json`
+   with `epoch_time_ms` (save time) and `accumulated_paused_time`. Now:
+   start = save − length − paused (`start_source: save-time`). If the length is implausible
+   (≤ 1 tick), the start comes from the file name and the length is estimated as save − start.
+   The arcade source looks correct, so **why** the length is 1 tick is still unknown: a sample
+   is needed.
    ServerReplay 3.4.1's Flashback output differs from what Flashback master writes. Needs a sample
    replay (`metadata.json` + `c0.flashback`) from the owner → fix the reader.
-4. Player folders are named `Recordings for_ NAME (uuid)` (custom `player_recording_name`):
+4. ✅ *Fixed* — Player folders are named `Recordings for_ NAME (uuid)` (custom `player_recording_name`):
    extract the uuid/name.
-5. `level.dat` in 26.1: spawn, difficulty and day time not found (fields moved). Needs a sample.
+5. ✅ *Mostly fixed* — `level.dat` in 26.1: spawn (`spawn.pos`), difficulty (`difficulty_settings`),
+   seed/game rules/weather (`data/minecraft/*.dat`) now read. Day time's new location is not
+   verified (left unknown).
 6. Two players without uuid (`5ou1s`, `InsidiousCrow`): not in usercache (likely Bedrock via
    Geyser, or expired cache).
 7. Whole-zip extraction does not scale (14.7 GB world): read backups selectively.
@@ -232,6 +241,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-19 | Timelapse targets Flashback's editor first (owner confirmed) | Owner prefers editing in Flashback |
 | 2026-11-19 | Flashback outputs are always a *copy* with a new replay uuid; never overwrite an editor_states file | Protects the owner's original replay and existing edits |
 | 2026-11-19 | Timelapse default: fit 3:00, each idle gap 0.5 s, never slower than real time | Owner asked for "3 minutes as an option" |
+| 2026-11-19 | Player/dimension folders are found by known paths first, then by searching the world folder | Survives future layout changes (26.1 moved everything) |
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
@@ -257,6 +267,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-19:** Minecraft 26.1 world layout (players/, dimensions/minecraft/, new level.dat and
+  data/minecraft/*.dat); ServerReplay Flashback replays: start from arcade save time, length
+  estimate, "Recordings for_ NAME (uuid)" folders.
 - **2026-11-19:** Release workflow now triggers on *publishing* a GitHub Release (tag pushes are
   blocked for Claude sessions). v0.1.0 ready to publish.
 - **2026-11-19:** `mcsm flashback` (markers into a Flashback replay copy) and `mcsm timelapse`

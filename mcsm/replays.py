@@ -42,7 +42,12 @@ So the start time of a Flashback recording is::
 
     start = first full real-time-clock value - (next_tick records before it) x 50 ms
 
-with fallbacks, in order: a ``YYYY-MM-DD--HH-MM-SS`` date in the file name
+ServerReplay's Flashback writer (the "arcade" library) writes **no** real-time clock;
+instead it adds ``arcade_replay_meta.json`` with ``epoch_time_ms`` (when the file was
+SAVED) and ``accumulated_paused_time``, so ``start = save - length - paused``
+(``start_source = "save-time"``).
+
+Further fallbacks, in order: a ``YYYY-MM-DD--HH-MM-SS`` date in the file name
 (ServerReplay's naming, server local time), then the file's modification time
 minus the duration. :attr:`Replay.start_source` says which one was used.
 
@@ -136,11 +141,25 @@ def find_replay_files(root: str) -> list[str]:
     return [p for _, p in find_replay_sources(root)]
 
 
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
 def _recorded_player(rel_path: str) -> str | None:
-    """ServerReplay puts player recordings in ``.../players/<name-or-uuid>/x``."""
+    """ServerReplay puts player recordings in ``.../players/<folder>/x``.
+
+    The folder comes from its ``player_recording_name`` setting: ``{uuid}`` (default),
+    ``{username}``, or text such as ``Recordings for: {username} ({uuid})`` (the colon becomes
+    ``_`` on Windows). Returns the uuid if the folder contains one (mapped to a name later),
+    else the folder name.
+    """
     parts = rel_path.replace("\\", "/").rstrip("/").split("/")
     if len(parts) >= 3 and parts[-3] == "players":
-        return parts[-2]
+        folder = parts[-2]
+        m = _UUID_RE.search(folder)
+        if m:
+            return m.group(0).lower()
+        m = re.match(r"^Recordings for[:_]?\s*(\S+)", folder)
+        return m.group(1) if m else folder
     return None
 
 
@@ -254,14 +273,27 @@ def _read_replaymod(meta: dict, markers_raw: Any, rel: str, path: str, uuid_to_n
         format="replaymod", start_source=source, unfinished=unfinished)
 
 
+def _hms_ms(text) -> int:
+    try:
+        h, mi, sec = (int(x) for x in str(text).split(":"))
+        return ((h * 60 + mi) * 60 + sec) * 1000
+    except (ValueError, TypeError):
+        return 0
+
+
 def _read_flashback(meta: dict, open_chunk: Callable[[str], IO[bytes] | None], rel: str, path: str,
-                    local_to_utc, unfinished: bool) -> m.Replay:
+                    local_to_utc, unfinished: bool, arcade_meta: dict | None = None) -> m.Replay:
     chunks = meta.get("chunks") or {}
     duration_ticks = int(meta.get("total_ticks") or 0) or sum(
         int((c or {}).get("duration", 0)) for c in chunks.values() if isinstance(c, dict))
     duration_ms = duration_ticks * 50
 
     start, source = None, ""
+    # ServerReplay (arcade library) also writes arcade_replay_meta.json with the SAVE time
+    # ("epoch_time_ms") and "accumulated_paused_time" ("HH:MM:SS"); it writes no real-time clock.
+    arcade = arcade_meta or {}
+    end_ms = arcade.get("epoch_time_ms") if isinstance(arcade.get("epoch_time_ms"), (int, float)) else None
+    paused_ms = _hms_ms(arcade.get("accumulated_paused_time"))
     first_chunk = min(chunks, key=lambda n: int(re.sub(r"\D", "", n) or 0)) if chunks else "c0.flashback"
     fh = open_chunk(first_chunk)
     if fh is not None:
@@ -269,6 +301,18 @@ def _read_flashback(meta: dict, open_chunk: Callable[[str], IO[bytes] | None], r
             rtc = flashback_first_rtc(fh)
         if rtc:
             start, source = from_epoch_ms(rtc[0] - rtc[1] * 50), "real-time-clock"
+    duration_note = ""
+    if start is None and end_ms is not None:
+        name_start = _start_from_name(path, local_to_utc)
+        if duration_ticks > 1:
+            start, source = from_epoch_ms(end_ms - duration_ms - paused_ms), "save-time"
+        elif name_start is not None:
+            # Metadata length is implausible (seen with ServerReplay 3.4.1): estimate it from
+            # the save time and the start time in the file name.
+            start, source = name_start, "file-name"
+            est = int(end_ms - paused_ms - name_start.timestamp() * 1000)
+            if est > 0:
+                duration_ms, duration_note = est, "estimated from save time"
     if start is None:
         start = _start_from_name(path, local_to_utc)
         source = "file-name" if start else ""
@@ -289,7 +333,9 @@ def _read_flashback(meta: dict, open_chunk: Callable[[str], IO[bytes] | None], r
         server_name=meta.get("world_name") or meta.get("name") or "",
         mc_version=meta.get("version_string", ""), generator="Flashback",
         recorded_player=_recorded_player(rel), markers=sorted(markers, key=lambda x: x["offset_ms"]),
-        size_bytes=_size(path), raw_meta={k: v for k, v in meta.items() if k not in ("chunks", "markers")},
+        size_bytes=_size(path), raw_meta={**{k: v for k, v in meta.items() if k not in ("chunks", "markers")},
+                                          **({"arcade": arcade} if arcade else {}),
+                                          **({"duration_note": duration_note} if duration_note else {})},
         format="flashback", start_source=source, unfinished=unfinished)
 
 
@@ -298,8 +344,14 @@ def read_replay(path: str, root: str, uuid_to_name: dict[str, str] | None = None
     """Read one replay of any supported kind (detected if *kind* is None)."""
     r = _read_any(path, root, uuid_to_name or {}, kind, local_to_utc)
     # ServerReplay names player folders by UUID by default ({uuid}); show the name.
-    if r.recorded_player and uuid_to_name:
-        r.recorded_player = uuid_to_name.get(r.recorded_player.lower(), r.recorded_player)
+    if r.recorded_player and _UUID_RE.fullmatch(r.recorded_player):
+        name = (uuid_to_name or {}).get(r.recorded_player.lower())
+        if not name:  # not in usercache: use a name written in the folder, if any
+            parts = r.path.replace("\\", "/").rstrip("/").split("/")
+            m = re.match(r"^Recordings for[:_]?\s*(\S+)", parts[-2]) if len(parts) >= 2 else None
+            name = m.group(1) if m else None
+        if name:
+            r.recorded_player = name
     return r
 
 
@@ -335,7 +387,13 @@ def _read_any(path, root, uuid_to_name, kind, local_to_utc) -> m.Replay:
             def open_chunk(name):
                 return zf.open(name) if name in names else None
 
-            return _read_flashback(meta, open_chunk, rel, path, local_to_utc, unfinished=False)
+            arcade = None
+            if "arcade_replay_meta.json" in names:
+                try:
+                    arcade = json.loads(zf.read("arcade_replay_meta.json").decode("utf-8", "replace"))
+                except ValueError:
+                    arcade = None
+            return _read_flashback(meta, open_chunk, rel, path, local_to_utc, unfinished=False, arcade_meta=arcade)
 
     if kind == "flashback-dir":
         meta_path = os.path.join(path, "metadata.json")
@@ -350,7 +408,15 @@ def _read_any(path, root, uuid_to_name, kind, local_to_utc) -> m.Replay:
             p = os.path.join(path, name)
             return open(p, "rb") if os.path.isfile(p) else None
 
-        return _read_flashback(meta, open_chunk, rel, path, local_to_utc, unfinished=True)
+        arcade = None
+        ap = os.path.join(path, "arcade_replay_meta.json")
+        if os.path.isfile(ap):
+            try:
+                with open(ap, encoding="utf-8") as fh:
+                    arcade = json.load(fh)
+            except ValueError:
+                arcade = None
+        return _read_flashback(meta, open_chunk, rel, path, local_to_utc, unfinished=True, arcade_meta=arcade)
 
     raise ValueError(f"unknown replay kind {kind}")
 
