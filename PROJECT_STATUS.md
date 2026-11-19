@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19 (Flashback markers + timelapse).
+`CLAUDE.md`). Last updated: 2026-11-19 (first release, v0.1.0).
 
 ## What this project is
 
@@ -17,6 +17,13 @@ small Minecraft server for friends, hosted on PebbleHost. It:
 The owner edits videos (DaVinci Resolve etc.) on **Windows** and wants an easy installer.
 More features "like these" are planned, listed under **Backlog** below.
 
+## Downloads
+
+- **Latest release (installer):** https://github.com/MEZTKING/Minecraft-Server-Master/releases/latest
+  (v0.1.0 published 2026-11-19 from the working branch).
+- Every push also builds an installer artifact under Actions → Build installer (sign-in required,
+  kept 90 days).
+
 ## How to work on it
 
 - Branch: `claude/exciting-cannon-d0r8dm` (push here; no PRs unless asked).
@@ -24,6 +31,9 @@ More features "like these" are planned, listed under **Backlog** below.
   `xvfb-run -a python3 -m unittest tests.test_mcsm`.
 - Python 3.10+, **standard library only** at runtime. three.js is vendored in
   `mcsm/assets/web/vendor/`.
+- Releases: bump `__version__` (`mcsm/__init__.py`) and `version` (`pyproject.toml`), update the
+  changelog here, push, then push a tag `vX.Y.Z`; the workflow attaches the installer to a
+  GitHub Release. Released so far: v0.1.0.
 - Windows installer: built by GitHub Actions on every push (`.github/workflows/build-installer.yml`,
   see `docs/INSTALLER.md`). Check the run after pushing.
 - Docs live in `README.md` and `docs/`. Code layout: `docs/ARCHITECTURE.md`.
@@ -187,6 +197,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-19 – v0.1.0 released** (GitHub Release with the Windows installer): everything listed
+  below.
 - **2026-11-19:** `mcsm flashback` (markers into a Flashback replay copy) and `mcsm timelapse`
   (activity-aware area timelapse set up in Flashback's editor; 3:00 target or fixed speed; date/time
   overlay; chapters); app Flashback tab; negative-value option fix; docs FLASHBACK.md, TIMELAPSE.md.

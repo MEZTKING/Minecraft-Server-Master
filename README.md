@@ -42,8 +42,9 @@ internet, nothing is uploaded.
 
 ## Install on Windows
 
-1. Download `MinecraftServerMaster-Setup-<version>.exe` from the **Releases** page, or from
-   the newest *Build installer* run in the **Actions** tab (under *Artifacts*).
+1. Download `MinecraftServerMaster-Setup-<version>.exe` from the
+   **[latest release](https://github.com/MEZTKING/Minecraft-Server-Master/releases/latest)**
+   (or, for the very newest build, the *Build installer* run in the **Actions** tab, under *Artifacts*).
 2. Run it. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**:
    the installer works but isn't code-signed.
 3. Open **Minecraft Server Master** from the Start menu, click **Zip file…**, and pick your
