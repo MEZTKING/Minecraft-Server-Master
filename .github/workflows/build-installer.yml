@@ -54,6 +54,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "summary failed" }
           & "dist\MinecraftServerMaster\mcsm.exe" report build\sample-server -o build\sample-report.html
           if ($LASTEXITCODE -ne 0) { throw "report failed" }
+      - name: Smoke test the live map (bundled web assets, demo mode)
+        shell: pwsh
+        run: |
+          $p = Start-Process "dist\MinecraftServerMaster\mcsm.exe" -ArgumentList "live", "build\sample-server", "--demo", "--no-browser", "--http-port", "8799" -PassThru
+          try {
+            Start-Sleep -Seconds 6
+            $page = Invoke-WebRequest http://127.0.0.1:8799/ -UseBasicParsing
+            if ($page.Content -notmatch "three.module.min.js") { throw "viewer page missing" }
+            $lib = Invoke-WebRequest http://127.0.0.1:8799/vendor/three.module.min.js -UseBasicParsing
+            if ($lib.StatusCode -ne 200) { throw "three.js not bundled" }
+            $state = Invoke-RestMethod http://127.0.0.1:8799/api/state
+            if ($state.status -ne "live" -or $state.players.Count -lt 1) { throw "no live demo players" }
+            Write-Host "live map OK: $($state.players.Count) demo players"
+          } finally { Stop-Process -Id $p.Id -Force }
       - name: Silent install / uninstall test
         shell: pwsh
         run: |

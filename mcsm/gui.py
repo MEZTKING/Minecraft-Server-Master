@@ -82,6 +82,9 @@ class App(ttk.Frame):
         self.q: queue.Queue = queue.Queue()
         self.busy = False
         self.action_buttons: list[ttk.Button] = []
+        self.live = None                      # running LiveMap, if any
+        self.live_stack = contextlib.ExitStack()
+        self.live_url: str | None = None
         root.title(f"{APP_NAME} {__version__}")
         root.minsize(760, 560)
         root.geometry("900x760")
@@ -130,6 +133,7 @@ class App(ttk.Frame):
         nb.add(self._tab_report(nb), text="Statistics report")
         nb.add(self._tab_sync(nb), text="Video & music sync")
         nb.add(self._tab_export(nb), text="Export data")
+        nb.add(self._tab_live(nb), text="Live map")
 
     def _button(self, parent, text, command, **grid) -> ttk.Button:
         b = ttk.Button(parent, text=text, command=command, state="disabled")
@@ -272,6 +276,109 @@ class App(ttk.Frame):
         ttk.Button(out, text="Browse…", command=lambda: self._pick_dir(self.outdir_var)).grid(row=0, column=2)
         self._button(out, "Create markers", self._sync, row=0, column=3, padx=(8, 0))
         return holder
+
+    def _tab_live(self, nb) -> ttk.Frame:
+        f = ttk.Frame(nb, padding=12)
+        f.columnconfigure(1, weight=1)
+        ttk.Label(f, text="See where everyone is right now on a 3D map in your browser. Player positions come "
+                          "live from the server over RCON; the landscape comes from the world in your download. "
+                          "Setup: docs/LIVE_MAP.md.", wraplength=660, justify="left").grid(row=0, column=0, columnspan=4, sticky="w")
+        self.live_host_var, self.live_port_var = tk.StringVar(), tk.StringVar(value="25575")
+        self.live_pw_var, self.live_interval_var = tk.StringVar(), tk.StringVar(value="1")
+        rows = (("Server address", self.live_host_var, "e.g. 123.45.67.89 or play.myserver.net (no port)"),
+                ("RCON port", self.live_port_var, "rcon.port in server.properties"),
+                ("RCON password", self.live_pw_var, "rcon.password (filled in from your download if present)"),
+                ("Update every", self.live_interval_var, "seconds"))
+        for i, (label, var, hint) in enumerate(rows, start=1):
+            ttk.Label(f, text=label + ":").grid(row=i, column=0, sticky="w", pady=3)
+            ttk.Entry(f, textvariable=var, show="•" if "password" in label else "").grid(row=i, column=1, sticky="ew", padx=4)
+            ttk.Label(f, text=hint, foreground="gray").grid(row=i, column=2, sticky="w")
+        self.live_record_var = tk.BooleanVar(value=False)
+        self.live_record_dir = tk.StringVar(value=os.path.join(_documents_dir(), "mcsm-live-tracks"))
+        ttk.Checkbutton(f, text="Save positions to:", variable=self.live_record_var).grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Entry(f, textvariable=self.live_record_dir).grid(row=5, column=1, sticky="ew", padx=4)
+        ttk.Button(f, text="Browse…", command=lambda: self._pick_dir(self.live_record_dir)).grid(row=5, column=2, sticky="w")
+        btns = ttk.Frame(f)
+        btns.grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.live_start_btn = ttk.Button(btns, text="Start live map", command=lambda: self._live_start(demo=False))
+        self.live_start_btn.pack(side="left")
+        self.live_demo_btn = ttk.Button(btns, text="Try demo", command=lambda: self._live_start(demo=True))
+        self.live_demo_btn.pack(side="left", padx=6)
+        self.live_open_btn = ttk.Button(btns, text="Open map", command=lambda: self.live_url and webbrowser.open(self.live_url),
+                                        state="disabled")
+        self.live_open_btn.pack(side="left")
+        self.live_stop_btn = ttk.Button(btns, text="Stop", command=self._live_stop, state="disabled")
+        self.live_stop_btn.pack(side="left", padx=6)
+        self.live_status_var = tk.StringVar(value="Not running.")
+        ttk.Label(f, textvariable=self.live_status_var, foreground="gray", wraplength=660).grid(
+            row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(f, text="RCON is unencrypted and gives full control of the server: use a long random password "
+                          "and don't share it.", foreground="gray", wraplength=660).grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        return f
+
+    def _live_start(self, demo: bool) -> None:
+        if self.live is not None or self.busy:
+            return
+        argv = ["live", "--no-browser", "--interval", self.live_interval_var.get().strip() or "1"]
+        if demo:
+            argv.append("--demo")
+        else:
+            host = self.live_host_var.get().strip()
+            if not host:
+                messagebox.showinfo(APP_NAME, "Type your server's address (the IP or hostname you join with, without the port).")
+                return
+            if ":" in host and host.count(":") == 1:  # "1.2.3.4:25565" -> drop the game port
+                host = host.split(":")[0]
+            argv += ["--host", host]
+            if self.live_port_var.get().strip():
+                argv += ["--rcon-port", self.live_port_var.get().strip()]
+        if self.live_record_var.get():
+            argv += ["--record", self.live_record_dir.get().strip()]
+        try:
+            args = cli.build_parser().parse_args(argv)
+        except SystemExit:
+            messagebox.showerror(APP_NAME, "Check the RCON port and update interval are numbers.")
+            return
+        server_path = self.server_var.get().strip()
+        password = self.live_pw_var.get()
+        stack = contextlib.ExitStack()
+
+        def work(_):
+            try:
+                root = stack.enter_context(open_server(server_path)) if server_path else None
+                if not demo and not password and not cli.live_settings(root).get("password"):
+                    raise ValueError("Type the RCON password (rcon.password in server.properties).")
+                print("Connecting…" if not demo else "Starting demo…")
+                return cli.start_live(args, root, password or None)
+            except BaseException:
+                stack.close()  # remove any extracted temp copy if starting failed
+                raise
+
+        def after(result):
+            live, url = result
+            self.live, self.live_url, self.live_stack = live, url, stack
+            self.live_status_var.set(f"Running at {url}  –  {'demo players' if demo else 'live from ' + args.host}. "
+                                     "Keep this window open while you watch.")
+            self.live_start_btn.configure(state="disabled")
+            self.live_demo_btn.configure(state="disabled")
+            self.live_stop_btn.configure(state="normal")
+            self.live_open_btn.configure(state="normal")
+            self.log(f"Live map running at {url}\n")
+            webbrowser.open(url)
+
+        self._run("Live map", work, after)
+
+    def _live_stop(self) -> None:
+        if self.live is not None:
+            self.live.stop()
+            self.live = None
+        self.live_stack.close()
+        self.live_url = None
+        self.live_status_var.set("Stopped.")
+        self.live_start_btn.configure(state="normal")
+        self.live_demo_btn.configure(state="normal")
+        self.live_stop_btn.configure(state="disabled")
+        self.live_open_btn.configure(state="disabled")
 
     def _tab_export(self, nb) -> ttk.Frame:
         f = ttk.Frame(nb, padding=12)
@@ -428,10 +535,16 @@ class App(ttk.Frame):
         def work(_):
             with open_server(path) as root:
                 print(f"Reading {path}")
-                return analyze(root, tz=tz, latest_log_date=latest)
+                return analyze(root, tz=tz, latest_log_date=latest), cli.live_settings(root)
 
-        def after(data):
+        def after(result):
+            data, live_cfg = result
             self.data = data
+            # Pre-fill the Live map tab from the download's server.properties.
+            if live_cfg.get("port"):
+                self.live_port_var.set(str(live_cfg["port"]))
+            if live_cfg.get("password") and not self.live_pw_var.get():
+                self.live_pw_var.set(live_cfg["password"])
             self.status_var.set(f"Loaded: {len(data.players)} players, {len(data.events):,} events, "
                                 f"{len(data.replays)} replays.  Time zone: {data.timezone_info}")
             self._fill_replays()
@@ -546,6 +659,12 @@ def main() -> int:
         except tk.TclError:
             pass
     app = App(root)
+
+    def on_close():
+        app._live_stop()  # stop the live map server and remove temp files
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):  # "Open with…" / drag onto the icon
         app.server_var.set(sys.argv[1])
         app.after(200, app._load)

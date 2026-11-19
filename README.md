@@ -12,7 +12,9 @@ into:
 3. **Music sync** – detect a song's beat (or type in its BPM), place it on the video
    timeline, add beat/bar markers, and optionally **snap event markers to the beat** so
    your cuts land on the music.
-4. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
+4. **Live 3D map** – watch where everyone is right now, with terrain from your world, trails,
+   and click-to-follow. Uses the server's built-in RCON; no mods needed.
+5. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
 
 It comes as a **Windows installer** with a normal app window (nothing else to install),
 or as a Python package for the command line. Everything runs on your computer: no
@@ -44,8 +46,8 @@ internet, nothing is uploaded.
 3. Open **Minecraft Server Master** from the Start menu, click **Zip file…**, and pick your
    server download.
 
-The window has three tabs: **Statistics report**, **Video & music sync** and **Export
-data**. The full guide, including building the installer yourself, is in
+The window has four tabs: **Statistics report**, **Video & music sync**, **Export
+data** and **Live map**. The full guide, including building the installer yourself, is in
 **[docs/INSTALLER.md](docs/INSTALLER.md)**.
 
 ---
@@ -131,6 +133,7 @@ Every command takes the server folder or zip as its first argument, plus these c
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |
+| `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
 
 Run `mcsm <command> --help` for every option.
 
@@ -229,6 +232,8 @@ The HTML report always shows times in **your** browser's time zone.
 
 | Document | Contents |
 |---|---|
+| [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
+| [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |
 | [docs/INSTALLER.md](docs/INSTALLER.md) | Installing and using the Windows app; how the installer is built and released |
 | [docs/PEBBLEHOST.md](docs/PEBBLEHOST.md) | Downloading the right files from PebbleHost (and other hosts) |
 | [docs/VIDEO_SYNC.md](docs/VIDEO_SYNC.md) | How replay ↔ log syncing works, all options, editor import steps, troubleshooting |

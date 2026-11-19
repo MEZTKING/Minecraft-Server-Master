@@ -8,6 +8,7 @@ export    write JSON / SQLite / CSV files
 events    search events from the terminal
 replays   list replay recordings found on the server
 sync      make video markers/subtitles for a replay (+ music beat sync)
+live      live 3D map of players (RCON)
 music     detect the tempo (BPM) of a song
 
 Run ``mcsm <command> --help`` for the options of each command, and see
@@ -302,6 +303,77 @@ def _signed_duration(text: str) -> float:
     return -parse_duration(text[1:]) if text.startswith("-") else parse_duration(text.lstrip("+"))
 
 
+def live_settings(root: str | None) -> dict:
+    """RCON port/password, title and spawn from a downloaded server (all optional)."""
+    from . import world as world_mod
+    out: dict = {}
+    if not root:
+        return out
+    props = world_mod.read_properties(os.path.join(root, "server.properties"), mask_secrets=False)
+    if props.get("rcon.port", "").isdigit():
+        out["port"] = int(props["rcon.port"])
+    if props.get("rcon.password"):
+        out["password"] = props["rcon.password"]
+    if props.get("enable-rcon", "").lower() == "false":
+        out["rcon_disabled"] = True
+    out["world"] = world_mod.world_dir(root, props)
+    level = world_mod.read_level_dat(out["world"])
+    out["title"] = level.get("level_name") or props.get("motd") or "Minecraft server"
+    sp = level.get("spawn")
+    if sp and None not in sp:
+        out["spawn"] = tuple(float(v) for v in sp)
+    return out
+
+
+def start_live(args, root: str | None, password: str | None = None):
+    """Create and start a LiveMap for CLI/GUI. Returns ``(live, url)``."""
+    from .live import DemoSource, LiveMap, RconSource
+    from .rcon import RconClient
+    cfg = live_settings(root)
+    step = None if args.terrain_detail == "auto" else int(args.terrain_detail)
+    record = args.record
+    if args.demo:
+        live = LiveMap(None, root, cfg.get("world"), args.interval, record, step,
+                       (cfg.get("title") or "Demo world") + " (demo)", cfg.get("spawn"))
+        live.source = DemoSource(lambda x, z: live.height_at(x, z), centre=(cfg.get("spawn") or (0, 0, 0))[0::2])
+    else:
+        if not args.host:
+            raise SystemExit("give --host (your server's address, e.g. 123.45.67.89 or play.example.com), or --demo")
+        password = password or os.environ.get("MCSM_RCON_PASSWORD") or cfg.get("password")
+        if not password:
+            import getpass
+            password = getpass.getpass("RCON password: ")
+        port = args.rcon_port or cfg.get("port") or 25575
+        client = RconClient(args.host, port, password)
+        client.connect()  # fail fast with a clear message
+        live = LiveMap(RconSource(client), root, cfg.get("world"), args.interval, record, step,
+                       cfg.get("title") or args.host, cfg.get("spawn"))
+    url = live.start(args.http_port)
+    return live, url
+
+
+def cmd_live(args) -> int:
+    import time as _time
+    import webbrowser
+    from contextlib import ExitStack
+    with ExitStack() as stack:
+        root = stack.enter_context(open_server(args.server)) if args.server else None
+        live, url = start_live(args, root)
+        print(f"Live map running at {url}  (Ctrl+C to stop)")
+        if args.record:
+            print(f"Recording positions to {os.path.abspath(args.record)}")
+        if not args.no_browser:
+            webbrowser.open(url)
+        try:
+            while True:
+                _time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nStopping...")
+        finally:
+            live.stop()
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -383,6 +455,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also write beat or bar markers (default: bar)")
     p.set_defaults(func=cmd_sync)
 
+    p = sub.add_parser("live", help="live 3D map of where players are right now (RCON)",
+                       description="Show players moving in real time on a 3D map. Positions come from the running "
+                                   "server over RCON; terrain from your downloaded world. See docs/LIVE_MAP.md.")
+    p.add_argument("server", nargs="?", help="downloaded server folder or .zip (for terrain and RCON settings)")
+    p.add_argument("--host", help="server address for RCON (the IP/hostname of your server)")
+    p.add_argument("--rcon-port", type=int, help="RCON port (default: rcon.port from server.properties, else 25575)")
+    p.add_argument("--interval", type=float, default=1.0, help="seconds between position updates (default 1)")
+    p.add_argument("--http-port", type=int, default=8765, help="local port for the map page (default 8765)")
+    p.add_argument("--terrain-detail", default="auto", choices=["auto", "1", "2", "4", "8", "16"],
+                   help="sample every N blocks (1 = full detail; auto keeps big worlds fast)")
+    p.add_argument("--record", metavar="DIR", help="also save every position update to DIR/YYYY-MM-DD.jsonl")
+    p.add_argument("--demo", action="store_true", help="simulated players; no server needed")
+    p.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
+    p.set_defaults(func=cmd_live)
+    p.epilog = "The RCON password is read from server.properties in SERVER, the MCSM_RCON_PASSWORD environment variable, or asked for."
+
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")
     p.set_defaults(func=cmd_music)
@@ -390,10 +478,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .rcon import RconError
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError, RconError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

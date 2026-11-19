@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from datetime import date, datetime, timedelta, timezone
@@ -301,6 +302,9 @@ def _have_display() -> bool:
         import tkinter
         r = tkinter.Tk()
         r.destroy()
+        del r
+        import gc
+        gc.collect()  # collect Tk objects on the main thread (tkinter forbids it elsewhere)
         return True
     except Exception:  # noqa: BLE001 - no tkinter or no display
         return False
@@ -328,12 +332,50 @@ class TestGUI(ServerTestCase):
             app.outdir_var.set(out)
             app.bpm_var.set("120")
             app._sync()
+            deadline = time.time() + 30
             while app.busy and time.time() < deadline:
                 root.update()
                 time.sleep(0.05)
-            self.assertTrue(os.path.exists(os.path.join(out, "2024-05-03--18-00-00.srt")))
+            self.assertTrue(os.path.exists(os.path.join(out, "2024-05-03--18-00-00.srt")),
+                            app.log_text.get("1.0", "end")[-1500:])
         finally:
             root.destroy()
+            del root
+            import gc
+            gc.collect()
+
+    def test_live_tab_against_fake_rcon(self):
+        import time
+        import tkinter as tk
+        import urllib.request
+        from fake_rcon import FakeRconServer
+        from mcsm import gui
+        gui.webbrowser.open = lambda url: None
+        srv = FakeRconServer(password="pw")
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.live_host_var.set(f"127.0.0.1:{25565}")   # game port is stripped
+            app.live_port_var.set(str(srv.port))
+            app.live_pw_var.set("pw")
+            app._live_start(demo=False)
+            deadline = time.time() + 15
+            while app.live is None and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertIsNotNone(app.live, app.log_text.get("1.0", "end"))
+            while app.live.status != "live" and time.time() < deadline:
+                time.sleep(0.05)
+            state = json.loads(urllib.request.urlopen(app.live_url + "api/state", timeout=5).read())
+            self.assertEqual({p["name"] for p in state["players"]}, {"Steve", "Alex"})
+            app._live_stop()
+            self.assertIsNone(app.live)
+        finally:
+            srv.close()
+            root.destroy()
+            del root
+            import gc
+            gc.collect()
 
 
 class TestFlashbackAndUnfinished(unittest.TestCase):
@@ -385,3 +427,126 @@ class TestFlashbackAndUnfinished(unittest.TestCase):
         tl = sync.timeline_from_replay(r)
         mk = sync.build_markers(self.data.events, tl, replay_path=r.path)
         self.assertEqual([(round(x.seconds), x.label) for x in mk], [(30, "Marker: Dragon fight")])
+
+
+class TestRconAndLive(unittest.TestCase):
+    def setUp(self):
+        from fake_rcon import FakeRconServer
+        self.srv = FakeRconServer(password="s3cret")
+
+    def tearDown(self):
+        self.srv.close()
+
+    def test_wrong_password(self):
+        from mcsm.rcon import RconClient, RconError
+        with self.assertRaises(RconError):
+            RconClient("127.0.0.1", self.srv.port, "nope").connect()
+
+    def test_connection_refused_message(self):
+        from mcsm.rcon import RconClient, RconError
+        with self.assertRaisesRegex(RconError, "enable-rcon"):
+            RconClient("127.0.0.1", 1, "x", timeout=1).connect()
+
+    def test_pipelined_commands(self):
+        from mcsm.rcon import RconClient
+        with RconClient("127.0.0.1", self.srv.port, "s3cret") as c:
+            replies = c.commands(["list", "data get entity Steve Pos", "data get entity Nobody Pos"])
+        self.assertIn("Steve, Alex", replies[0])
+        self.assertEqual(replies[1], "Steve has the following entity data: [12.5d, 64.0d, -3.25d]")
+        self.assertEqual(replies[2], "No entity was found")
+
+    def test_source_poll(self):
+        from mcsm.live import RconSource
+        from mcsm.rcon import RconClient
+        src = RconSource(RconClient("127.0.0.1", self.srv.port, "s3cret"))
+        states = {s.name: s for s in src.poll()}
+        st = states["Steve"]
+        self.assertEqual((st.x, st.y, st.z, st.yaw, st.pitch), (12.5, 64.0, -3.25, 90.0, 10.0))
+        self.assertEqual((st.health, st.food, st.xp_level, st.game_mode), (18.5, 17, 30, "survival"))
+        self.assertEqual((states["Alex"].dimension, states["Alex"].game_mode), ("minecraft:the_nether", "creative"))
+        # Second poll skips the slow fields but keeps their last values.
+        n = len(self.srv.commands)
+        src.poll()
+        self.assertEqual(len(self.srv.commands) - n, 1 + 2 * 3)
+        # A player who leaves between "list" and "data get" is skipped, not an error.
+        self.srv.vanish_after_list = {"Alex"}
+        self.assertEqual([s.name for s in src.poll()], ["Steve"])
+        src.close()
+
+    def test_parsers(self):
+        from mcsm.live import parse_list
+        self.assertEqual(parse_list("There are 0 of a max of 20 players online: "), [])
+        self.assertEqual(parse_list("There are 2/20 players online:\n§aSteve§r, Alex"), ["Steve", "Alex"])
+        self.assertEqual(parse_list("There are 1 of a max of 5 players online: .BedrockGuy"), [".BedrockGuy"])
+
+    def test_live_map_http_events_and_recording(self):
+        import urllib.request
+        from mcsm.live import LiveMap, RconSource
+        from mcsm.rcon import RconClient
+        rec = tempfile.mkdtemp()
+        live = LiveMap(RconSource(RconClient("127.0.0.1", self.srv.port, "s3cret")), interval=0.2, record_dir=rec)
+        url = live.start(port=18800)
+        try:
+            deadline = time.time() + 5
+            while live.status != "live" and time.time() < deadline:
+                time.sleep(0.05)
+            self.srv.players["Steve"]["pos"] = [20.0, 64.0, -3.25]
+            del self.srv.players["Alex"]
+            time.sleep(0.6)
+            state = json.loads(urllib.request.urlopen(url + "api/state", timeout=5).read())
+            self.assertEqual([p["name"] for p in state["players"]], ["Steve"])
+            self.assertEqual([(e["type"], e["player"]) for e in state["events"]][-1], ("leave", "Alex"))
+            self.assertGreaterEqual(len(state["trails"]["Steve"]["points"]), 2)
+            page = urllib.request.urlopen(url, timeout=5).read().decode()
+            self.assertIn("three.module.min.js", page)
+            self.assertEqual(urllib.request.urlopen(url + "vendor/three.module.min.js", timeout=5).status, 200)
+            with self.assertRaises(Exception):
+                urllib.request.urlopen(url + "vendor/../../live.py", timeout=5)
+            files = os.listdir(rec)
+            self.assertEqual(len(files), 1)
+            first = json.loads(open(os.path.join(rec, files[0]), encoding="utf-8").readline())
+            self.assertEqual({p["name"] for p in first["players"]}, {"Steve", "Alex"})
+        finally:
+            live.stop()
+            shutil.rmtree(rec, ignore_errors=True)
+
+    def test_cli_reads_password_from_server_properties(self):
+        from mcsm.cli import build_parser, start_live
+        tmp = tempfile.mkdtemp()
+        try:
+            root = build_server(os.path.join(tmp, "srv"))
+            with open(os.path.join(root, "server.properties"), "a") as fh:
+                fh.write(f"enable-rcon=true\nrcon.port={self.srv.port}\n")
+            props = open(os.path.join(root, "server.properties")).read().replace("rcon.password=hunter2", "rcon.password=s3cret")
+            open(os.path.join(root, "server.properties"), "w").write(props)
+            args = build_parser().parse_args(["live", root, "--host", "127.0.0.1", "--http-port", "18820", "--no-browser"])
+            live, url = start_live(args, root)
+            try:
+                self.assertTrue(url.startswith("http://127.0.0.1:"))
+                self.assertEqual(live.title, "Friends SMP")
+            finally:
+                live.stop()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestTerrain(unittest.TestCase):
+    def test_region_roundtrip_and_colours(self):
+        import math as _m
+        from mcsm import terrain
+        h = lambda x, z: 62 + int(10 * _m.sin(x / 20) * _m.cos(z / 25))  # noqa: E731
+        b = lambda x, y, z: "minecraft:water" if y < 63 else "minecraft:grass_block"  # noqa: E731
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "r.-1.2.mca")
+            terrain.write_region(p, {(cx, cz): terrain.make_chunk(cx - 32, cz + 64, h, b)
+                                     for cx in range(3) for cz in range(3)})
+            for step in (1, 2, 4):
+                t = terrain.read_region_surface(p, step)
+                self.assertEqual((t.rx, t.rz), (-1, 2))
+                for z in range(0, 48, step):
+                    for x in range(0, 48, step):
+                        self.assertEqual(t.heights[(z // step) * t.size + x // step], h(x - 512, z + 1024))
+        self.assertEqual(terrain.block_colour("minecraft:red_concrete"), (160, 39, 34))
+        self.assertEqual(terrain.block_colour("birch_log"), terrain.block_colour("oak_log"))
+        self.assertEqual(terrain.auto_step(4), 1)
+        self.assertEqual(terrain.auto_step(400), 8)

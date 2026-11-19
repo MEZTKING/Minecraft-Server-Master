@@ -19,6 +19,7 @@ mcsm/
   cli.py             argument parsing and the commands (run_* functions take loaded data)
   gui.py             tkinter desktop window; calls the same run_* functions as the CLI
   assets/icon.png    window icon
+  assets/web/        live.html (3D viewer) + vendored three.js r160 (MIT)
   source.py          open a folder or .zip, find the server root inside it
   analyzer.py        runs all parsers, merges results into ServerData
   models.py          dataclasses: ServerData, Event, Session, PlayerProfile, Replay, ...
@@ -27,7 +28,10 @@ mcsm/
   logs.py            log files -> events; events -> sessions; crash reports
   players.py         usercache, stats, advancements, playerdata
   world.py           server.properties, level.dat, region sizes, mods/plugins, json lists
-  replays.py         .mcpr metadata + markers
+  replays.py         ReplayMod .mcpr + Flashback .zip (+ unfinished folders): start, length, markers
+  rcon.py            RCON client (pipelined commands)
+  live.py            live map: RCON/demo sources, polling, trails, recording, local web server + SSE
+  terrain.py         region files -> surface height/colour tiles for the 3D map
   sync.py            VideoTimeline and event -> Marker conversion
   music.py           BeatGrid, beat detection, snapping, alignment
   exporters/
@@ -35,7 +39,8 @@ mcsm/
     data.py          JSON, SQLite, CSV
     markers.py       SRT, Resolve EDL, CSV, Audacity labels, YouTube chapters, JSON
 tests/
-  fixtures.py        builds a complete fake server (and a click-track WAV)
+  fixtures.py        builds a complete fake server (and a click-track WAV, Flashback replays)
+  fake_rcon.py       fake RCON server speaking the real protocol (also runnable by hand)
   test_mcsm.py       unit + end-to-end tests
 docs/                user and developer documentation
 installer/           Windows packaging: PyInstaller spec, Inno Setup script, build script, icon
@@ -62,6 +67,21 @@ installer/           Windows packaging: PyInstaller spec, Inno Setup script, bui
    exporters.report  exporters.data   sync.build_markers   cli summary/events
    (HTML)            (JSON/SQL/CSV)   + music.BeatGrid
                                       → exporters.markers (SRT/EDL/...)
+```
+
+### Live map data flow
+
+```
+server ──RCON (list, data get entity …, pipelined)──► RconSource.poll()
+                                                          │ every --interval s
+download world/region/*.mca ──terrain.read_region_surface──► tiles (height + colour)
+                                                          ▼
+                       LiveMap (trails, join/leave, optional .jsonl recording)
+                          │ http://127.0.0.1:<port>  (ThreadingHTTPServer)
+                          ├─ /api/terrain/...  binary tiles
+                          ├─ /api/stream       Server-Sent Events, one snapshot per poll
+                          ▼
+                 live.html (three.js): terrain meshes, markers, trails, labels
 ```
 
 ## Key decisions
@@ -112,6 +132,8 @@ Add `write_xxx(markers, path)` to `exporters/markers.py`, register it in `ALL_FO
 `write_all()`, and document the import steps in `docs/VIDEO_SYNC.md`.
 
 ## Ideas not yet implemented
+
+See `PROJECT_STATUS.md` → Backlog for the maintained list with designs. Older notes:
 
 - Reading chat/positions directly from the replay packet stream (`recording.tmcpr`) – would
   give sub-second timing but depends on the protocol version of each Minecraft release.

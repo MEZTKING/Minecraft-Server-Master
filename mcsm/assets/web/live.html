@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Map</title>
+<!--
+  3D live map viewer, served by mcsm/live.py on http://127.0.0.1:<port>/.
+  Data:  /api/info, /api/terrain/<dim>[/<rx>/<rz>], /api/stream (Server-Sent Events).
+  Coordinates map 1:1 from Minecraft (x east, y up, z south) to three.js (both right-handed, y up).
+  three.js r160 is vendored in ./vendor (MIT licence).
+-->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #cfe3f5; --panel: rgba(252,252,251,.94); --border: #e2e1dc; --text: #0b0b0b; --text-2: #52514e; --muted: #7a7975;
+  --accent: #2a78d6; --good: #1a7f37; --warn: #9a6700; --bad: #c62828; --chip: #f0efec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #101820; --panel: rgba(26,26,25,.93); --border: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e88;
+    --accent: #3987e5; --good: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --chip: #242422;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101820; --panel: rgba(26,26,25,.93); --border: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e88;
+  --accent: #3987e5; --good: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --chip: #242422;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#scene { position: fixed; inset: 0; }
+#panel { position: fixed; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; backdrop-filter: blur(6px); }
+#panel h1 { font-size: 15px; margin: 0 0 2px; }
+.sub { color: var(--text-2); font-size: 12px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; margin: 6px 0 2px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+.status.live .dot { background: var(--good); } .status.reconnecting .dot { background: var(--bad); }
+.status.live::after { content: "Live"; } .status.reconnecting::after { content: "Reconnecting…"; } .status.starting::after { content: "Starting…"; }
+.err { color: var(--bad); font-size: 12px; margin-top: 4px; word-break: break-word; }
+.row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+select, button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--text); cursor: pointer; }
+ul#players { list-style: none; margin: 10px 0 0; padding: 0; }
+#players li { padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+#players li:hover { background: var(--chip); }
+#players li.following { border-color: var(--accent); }
+#players li.otherdim { opacity: .55; }
+#players .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+#players .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+#players .meta { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); margin-top: 10px; }
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
+#toasts { position: fixed; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.toast { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; animation: fade 6s forwards; }
+@keyframes fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+#help { position: fixed; right: 12px; top: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; color: var(--text-2); max-width: 240px; }
+.terrain-note { font-size: 12px; color: var(--text-2); margin-top: 8px; }
+@media (max-width: 640px) {
+  #panel { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 45%; }
+  #help { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="labels"></div>
+<aside id="panel">
+  <h1 id="title">Live Map</h1>
+  <div class="sub" id="server"></div>
+  <div class="status starting" id="status"><span class="dot"></span></div>
+  <div class="err" id="error" hidden></div>
+  <div class="row">
+    <label>Dimension <select id="dim">
+      <option value="minecraft:overworld">Overworld</option>
+      <option value="minecraft:the_nether">Nether</option>
+      <option value="minecraft:the_end">The End</option>
+    </select></label>
+    <button id="fit" type="button">Show everyone</button>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="trails" checked> Trails (5 min)</label>
+    <button id="theme" type="button">Theme</button>
+  </div>
+  <ul id="players"></ul>
+  <div class="empty" id="empty" hidden>Nobody is online.</div>
+  <div class="terrain-note" id="terrainNote"></div>
+</aside>
+<div id="help">Drag to rotate · right-drag to pan · scroll to zoom · click a player to follow</div>
+<div id="toasts"></div>
+
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "./vendor/OrbitControls.js";
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Categorical palette in fixed order; colour follows the player, never their rank.
+const PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+const colourOf = {};
+let nextColour = 0;
+function playerColour(name) {
+  if (!(name in colourOf)) colourOf[name] = PALETTE[nextColour++ % PALETTE.length];
+  return colourOf[name];
+}
+const DIM_LABEL = { "minecraft:overworld": "Overworld", "minecraft:the_nether": "Nether", "minecraft:the_end": "The End" };
+const dimLabel = d => DIM_LABEL[d] || String(d).replace(/^minecraft:/, "");
+
+// ---------- theme ----------
+try { const t = localStorage.getItem("mcsm-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("#theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+  try { localStorage.setItem("mcsm-theme", document.documentElement.dataset.theme); } catch (e) {}
+  applySky();
+};
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+$("#scene").appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 20000);
+camera.position.set(80, 140, 120);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 64, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(0.4, 1, 0.25);
+scene.add(sun);
+const grid = new THREE.GridHelper(1024, 64, 0x888888, 0xaaaaaa);
+grid.position.y = 63;
+grid.material.transparent = true; grid.material.opacity = 0.35;
+scene.add(grid);
+function applySky() {
+  const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+  const d = $("#dim").value;
+  const sky = d === "minecraft:the_nether" ? (dark ? 0x2a0d0d : 0x6b2a22) : d === "minecraft:the_end" ? (dark ? 0x0d0a17 : 0x2b2440) : (dark ? 0x101820 : 0xcfe3f5);
+  scene.background = new THREE.Color(sky);
+  scene.fog = new THREE.Fog(sky, 600, 4000);
+}
+applySky();
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize); resize();
+
+// ---------- terrain ----------
+const terrainGroups = {};       // dim -> THREE.Group
+const loadedTiles = new Set();  // "dim|rx|rz"
+let terrainBounds = null;
+async function loadTerrain(dim) {
+  let list;
+  try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}`)).json(); } catch (e) { return; }
+  if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
+  for (const t of list.tiles) {
+    const key = `${dim}|${t.rx}|${t.rz}`;
+    if (loadedTiles.has(key)) continue;
+    loadedTiles.add(key);
+    const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
+    terrainGroups[dim].add(tileMesh(t, buf));
+  }
+  updateTerrainVisibility();
+}
+function tileMesh(t, buf) {
+  const n = t.size, heights = new Int16Array(buf, 0, n * n), rgb = new Uint8Array(buf, n * n * 2, n * n * 3);
+  const pos = new Float32Array(n * n * 3), col = new Float32Array(n * n * 3), idx = [];
+  const NO = -32768;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i, h = heights[k];
+    const x = t.rx * 512 + i * t.step + t.step / 2, z = t.rz * 512 + j * t.step + t.step / 2;
+    pos.set([x, h === NO ? 0 : h + 1, z], k * 3);
+    col.set([rgb[k * 3] / 255, rgb[k * 3 + 1] / 255, rgb[k * 3 + 2] / 255], k * 3);
+    if (h !== NO) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
+  }
+  for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+    const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+    if (heights[a] === NO || heights[b] === NO || heights[c] === NO || heights[d] === NO) continue;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  if (minX < Infinity) terrainBounds = terrainBounds ? { minX: Math.min(terrainBounds.minX, minX), maxX: Math.max(terrainBounds.maxX, maxX), minZ: Math.min(terrainBounds.minZ, minZ), maxZ: Math.max(terrainBounds.maxZ, maxZ) } : { minX, maxX, minZ, maxZ };
+  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+function updateTerrainVisibility() {
+  const d = $("#dim").value;
+  for (const [dim, g] of Object.entries(terrainGroups)) g.visible = dim === d;
+  const has = terrainGroups[d] && terrainGroups[d].children.length;
+  grid.visible = !has;
+}
+
+// ---------- players ----------
+const markers = {};   // name -> {group, body, arrow, trail, label, from, to, t0}
+const markerGeo = new THREE.BoxGeometry(0.8, 1.9, 0.8);
+const arrowGeo = new THREE.ConeGeometry(0.45, 1.2, 12);
+arrowGeo.rotateX(Math.PI / 2);   // point along +z
+function makeMarker(name) {
+  const c = new THREE.Color(playerColour(name));
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(markerGeo, new THREE.MeshLambertMaterial({ color: c }));
+  body.position.y = 0.95;
+  const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshLambertMaterial({ color: c }));
+  arrow.position.set(0, 1.4, 0);
+  const head = new THREE.Group(); head.add(arrow); arrow.position.z = 0.9;
+  head.position.y = 0;
+  group.add(body, head);
+  scene.add(group);
+  const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.85 }));
+  scene.add(trail);
+  const label = document.createElement("div");
+  label.className = "label"; label.textContent = name;
+  label.style.borderBottom = `2px solid ${playerColour(name)}`;
+  $("#labels").appendChild(label);
+  return { group, head, trail, label, from: null, to: null, t0: 0, yaw: 0 };
+}
+function removeMarker(name) {
+  const m = markers[name]; if (!m) return;
+  scene.remove(m.group); scene.remove(m.trail); m.label.remove(); delete markers[name];
+}
+
+// ---------- state from the server ----------
+let state = null, following = null, firstFrame = true, interval = 1000;
+const seenEvents = new Set();
+function onState(s) {
+  state = s; interval = (s.interval || 1) * 1000;
+  $("#server").textContent = s.server ? `Server: ${s.server}` : "";
+  $("#status").className = `status ${s.status}`;
+  $("#error").hidden = !s.error; $("#error").textContent = s.error || "";
+  const names = new Set(s.players.map(p => p.name));
+  for (const n of Object.keys(markers)) if (!names.has(n)) removeMarker(n);
+  const now = performance.now();
+  for (const p of s.players) {
+    const m = markers[p.name] || (markers[p.name] = makeMarker(p.name));
+    const cur = m.to ? currentPos(m, now) : new THREE.Vector3(p.x, p.y, p.z);
+    m.from = cur; m.to = new THREE.Vector3(p.x, p.y, p.z); m.t0 = now;
+    m.yaw = p.yaw; m.dim = p.dimension; m.state = p;
+    const tr = (s.trails || {})[p.name];
+    const pts = tr && tr.dimension === p.dimension ? tr.points.map(q => new THREE.Vector3(q[0], q[1] + 0.2, q[2])) : [];
+    m.trail.geometry.dispose(); m.trail.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  }
+  for (const e of s.events || []) {
+    const key = `${e.t}|${e.type}|${e.player}`;
+    if (seenEvents.has(key)) continue;
+    seenEvents.add(key);
+    if (!firstFrame) toast(`${e.player} ${e.type === "join" ? "came online" : "went offline"}`);
+  }
+  if (firstFrame && s.players.length) { firstFrame = false; fitAll(); }
+  if (firstFrame && s.status === "live") firstFrame = false;
+  if (following && !names.has(following)) following = null;
+  if (following) { const p = s.players.find(q => q.name === following); if (p && p.dimension !== $("#dim").value) setDim(p.dimension); }
+  renderList();
+}
+function currentPos(m, now) {
+  const a = Math.min(1, (now - m.t0) / interval);
+  return m.from.clone().lerp(m.to, a);
+}
+function renderList() {
+  const d = $("#dim").value, ps = (state ? state.players : []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  $("#empty").hidden = ps.length > 0 || !state || state.status !== "live";
+  // Update rows in place (keyed by name) so a click is never lost to a re-render.
+  const ul = $("#players"), rows = {};
+  for (const li of [...ul.children]) rows[li.dataset.name] = li;
+  for (const n of Object.keys(rows)) if (!ps.some(p => p.name === n)) rows[n].remove();
+  ps.forEach((p, i) => {
+    let li = rows[p.name];
+    if (!li) {
+      li = document.createElement("li");
+      li.dataset.name = p.name;
+      li.innerHTML = `<div class="name"><span class="sw" style="background:${playerColour(p.name)}"></span><span class="n"></span><span class="sub f"></span></div><div class="meta pos"></div><div class="meta vit"></div>`;
+      li.querySelector(".n").textContent = p.name;
+    }
+    if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
+    const bits = [`${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}`];
+    if (p.dimension !== d) bits.push(dimLabel(p.dimension));
+    const vit = [p.health != null ? `♥ ${Math.round(p.health) / 2}` : "", p.food != null ? `🍗 ${p.food / 2}` : "", p.xp_level != null ? `lvl ${p.xp_level}` : "", p.game_mode && p.game_mode !== "survival" ? p.game_mode : ""].filter(Boolean).join(" · ");
+    li.className = `${p.name === following ? "following" : ""} ${p.dimension !== d ? "otherdim" : ""}`;
+    li.querySelector(".f").textContent = p.name === following ? " (following)" : "";
+    li.querySelector(".pos").textContent = bits.join(" · ");
+    li.querySelector(".vit").textContent = vit;
+    li.querySelector(".vit").hidden = !vit;
+  });
+}
+$("#players").onclick = e => {
+  const li = e.target.closest("li"); if (!li) return;
+  following = following === li.dataset.name ? null : li.dataset.name;
+  const p = state.players.find(q => q.name === following);
+  if (p) { if (p.dimension !== $("#dim").value) setDim(p.dimension); focusOn(new THREE.Vector3(p.x, p.y, p.z), 60); }
+  renderList();
+};
+function setDim(d) { $("#dim").value = d; applySky(); updateTerrainVisibility(); loadTerrain(d); renderList(); }
+$("#dim").onchange = () => { following = null; setDim($("#dim").value); fitAll(); };
+$("#fit").onclick = () => { following = null; renderList(); fitAll(); };
+function focusOn(v, dist) {
+  const off = camera.position.clone().sub(controls.target).normalize().multiplyScalar(dist);
+  controls.target.copy(v); camera.position.copy(v).add(off);
+}
+function fitAll() {
+  const d = $("#dim").value, ps = (state ? state.players : []).filter(p => p.dimension === d);
+  let box;
+  if (ps.length) { box = new THREE.Box3(); ps.forEach(p => box.expandByPoint(new THREE.Vector3(p.x, p.y, p.z))); }
+  else if (terrainBounds && d === "minecraft:overworld") box = new THREE.Box3(new THREE.Vector3(terrainBounds.minX, 60, terrainBounds.minZ), new THREE.Vector3(terrainBounds.maxX, 80, terrainBounds.maxZ));
+  else return;
+  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
+  camera.position.set(c.x + Math.max(40, size * 0.6), c.y + Math.max(60, size * 0.7), c.z + Math.max(40, size * 0.6));
+  controls.target.copy(c);
+}
+$("#trails").onchange = () => Object.values(markers).forEach(m => m.trail.visible = $("#trails").checked);
+function toast(text) {
+  const el = document.createElement("div"); el.className = "toast"; el.textContent = text;
+  $("#toasts").appendChild(el); setTimeout(() => el.remove(), 6200);
+}
+
+// ---------- render loop ----------
+const tmp = new THREE.Vector3();
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now(), d = $("#dim").value;
+  for (const [name, m] of Object.entries(markers)) {
+    const vis = m.dim === d;
+    m.group.visible = vis; m.trail.visible = vis && $("#trails").checked;
+    if (!m.to) continue;
+    const p = currentPos(m, now);
+    m.group.position.copy(p);
+    // Minecraft yaw: 0 = facing south (+z), 90 = west (-x).
+    m.head.rotation.y = -m.yaw * Math.PI / 180;
+    const dist = camera.position.distanceTo(p);
+    m.group.scale.setScalar(Math.max(1, dist / 70));
+    if (name === following) {
+      const delta = p.clone().sub(controls.target);
+      controls.target.add(delta); camera.position.add(delta);
+    }
+    tmp.copy(p); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
+    const onScreen = vis && tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+    m.label.style.display = onScreen ? "" : "none";
+    if (onScreen) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+frame();
+
+// ---------- connect ----------
+async function init() {
+  try {
+    const info = await (await fetch("api/info")).json();
+    $("#title").textContent = info.title || "Live Map";
+    document.title = `${info.title || "Live"} – Live Map`;
+    if (info.spawn) controls.target.set(info.spawn[0], info.spawn[1], info.spawn[2]);
+    showTerrainProgress(info);
+  } catch (e) {}
+  const es = new EventSource("api/stream");
+  es.onmessage = ev => onState(JSON.parse(ev.data));
+  es.onerror = () => { $("#status").className = "status reconnecting"; $("#error").hidden = false; $("#error").textContent = "Lost connection to the mcsm app. Is it still running?"; };
+  // Terrain is built in the background; pick up new tiles until done.
+  const poll = async () => {
+    try {
+      const info = await (await fetch("api/info")).json();
+      showTerrainProgress(info);
+      await loadTerrain($("#dim").value);
+      const t = info.terrain[$("#dim").value];
+      if (!t || t.done < t.total) setTimeout(poll, 2500); else if (firstFrame) fitAll();
+    } catch (e) { setTimeout(poll, 5000); }
+  };
+  poll();
+}
+function showTerrainProgress(info) {
+  const t = info.terrain || {}, d = $("#dim").value, cur = t[d];
+  let txt;
+  if (!Object.keys(t).length) txt = "No terrain: load a server download with world/region files to see the landscape.";
+  else if (!cur) txt = d === "minecraft:the_nether" ? "Nether terrain isn't drawn (its bedrock roof hides the surface); players are still shown." : "No terrain for this dimension in your download.";
+  else if (cur.done < cur.total) txt = `Building terrain… ${cur.done}/${cur.total} regions`;
+  else txt = `Terrain from your last world download (${cur.tiles} regions). Players are live.`;
+  $("#terrainNote").textContent = txt;
+}
+init();
+</script>
+</body>
+</html>

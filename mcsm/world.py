@@ -23,8 +23,12 @@ _DIMENSIONS = {
 }
 
 
-def read_properties(path: str) -> dict[str, str]:
-    """Parse a Java ``.properties`` file (good enough for server.properties)."""
+def read_properties(path: str, mask_secrets: bool = True) -> dict[str, str]:
+    """Parse a Java ``.properties`` file (good enough for server.properties).
+
+    Secrets (the RCON password) are replaced by ``********`` unless
+    *mask_secrets* is False -- only the live map asks for them, to log in.
+    """
     props: dict[str, str] = {}
     if not os.path.isfile(path):
         return props
@@ -48,7 +52,7 @@ def read_properties(path: str) -> dict[str, str]:
             props[key] = value
     # Never keep secrets around (they would end up in the HTML report).
     for secret in ("rcon.password", "management-server-secret"):
-        if secret in props and props[secret]:
+        if mask_secrets and secret in props and props[secret]:
             props[secret] = "********"
     return props
 

@@ -52,6 +52,9 @@ Reports and markers you saved elsewhere are left alone.
    - **Detect BPM only** works without loading a server.
    - MP3/OGG/FLAC songs need [ffmpeg](https://ffmpeg.org) on PATH; WAV always works.
 4. **Export data** – SQLite / JSON / CSV ([DATA_MODEL.md](DATA_MODEL.md)).
+5. **Live map** – type your server's address, check the RCON port/password (filled in from
+   your download), and click **Start live map**. **Try demo** works without a server. Keep the
+   app open while watching. Setup and security: [LIVE_MAP.md](LIVE_MAP.md).
 
 Everything the app does is printed in the **Output** box at the bottom. Copy it from there
 if you need to report a problem.
