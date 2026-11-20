@@ -31,7 +31,9 @@ Reports and markers you saved elsewhere are left alone.
 
 ## Using the app
 
-1. **Server** – click **Zip file…** (or **Folder…**) and pick your PebbleHost download. It
+1. **Server** – click **Zip file…** (or **Folder…**) and pick your PebbleHost download. Select
+   **several zips** (or use **+ Add backup…**) to merge backups into one history
+   ([BACKUPS.md](BACKUPS.md)). It
    loads automatically; the grey line underneath shows how many players, events and
    replays were found, and which time zone was used. You can also drag a zip onto the app's
    desktop icon.

@@ -136,6 +136,10 @@ class ServerData:
     timezone_info: str = ""
     warnings: list[str] = field(default_factory=list)
     generated_at: datetime | None = None
+    # Multi-backup archives (mcsm.archive) only:
+    backups: list[dict[str, Any]] = field(default_factory=list)          # one entry per backup, oldest first
+    player_history: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # name -> per-backup snapshot
+    sources: dict[str, str] = field(default_factory=dict)                # backup label -> extracted root
 
     def player(self, name: str) -> PlayerProfile | None:
         return self.players.get(name.lower())

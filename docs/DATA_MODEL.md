@@ -20,6 +20,9 @@ All times are **UTC**. In JSON/SQLite/CSV they are ISO-8601 strings ending in `Z
 | `mods` | list[dict] | `kind` (mod/plugin), `file`, `id`, `name`, `version`, `loader` |
 | `timezone_info` | str | How log times were converted |
 | `warnings` | list[str] | Things the user should check |
+| `backups` | list[dict] | Merged archives only: per backup `label`, `path`, `time`, `version`, `data_version`, `level_name`, `seed`, `world_number`, `size_bytes`, counts, `first_event`, `last_event` |
+| `player_history` | dict name→list | Merged archives only: per backup `backup`, `time`, `play_ticks`, `deaths`, `mob_kills`, `jumps`, `blocks_mined`, `items_crafted`, `walk_cm`, `advancements` |
+| `sources` | dict | Merged archives only: backup label → extracted folder (replay paths start with the label) |
 
 ### `world`
 

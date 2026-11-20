@@ -20,7 +20,8 @@ mcsm/
   gui.py             tkinter desktop window; calls the same run_* functions as the CLI
   assets/icon.png    window icon
   assets/web/        live.html (3D viewer) + vendored three.js r160 (MIT)
-  source.py          open a folder or .zip, find the server root inside it
+  source.py          open a folder or .zip (selective "lite" extraction, replay stubs, ensure_full)
+  archive.py         merge several backups (any versions) into one ServerData
   analyzer.py        runs all parsers, merges results into ServerData
   models.py          dataclasses: ServerData, Event, Session, PlayerProfile, Replay, ...
   timeutil.py        time zones, LogClock (local log time -> UTC), duration parsing

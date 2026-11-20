@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-19 (26.1 layout + ServerReplay fixes).
+`CLAUDE.md`). Last updated: 2026-11-20 (multi-backup archive).
 
 ## What this project is
 
@@ -59,6 +59,9 @@ More features "like these" are planned, listed under **Backlog** below.
 | Live 3D map over RCON (terrain from download, trails, follow, demo mode, track recording) | ✅ Done, not yet tried on a real server | `mcsm/live.py`, `rcon.py`, `terrain.py`, `assets/web/live.html` | `docs/LIVE_MAP.md` |
 | Flashback markers: replay copy with server events in its timeline | ✅ Done, not yet tried in a real Flashback | `mcsm/flashback.py`, `mcsm flashback`, app Flashback tab | `docs/FLASHBACK.md` |
 | Activity-aware area timelapse in Flashback (Phase A): fixed camera + timelapse keyframes, 3:00 target or fixed speed, date/time SRT, chapters | ✅ Done, not yet tried in a real Flashback | `mcsm/timelapse.py`, `mcsm timelapse`, app Flashback tab | `docs/TIMELAPSE.md` |
+| Merge many backups (any versions) into one history; Backups tab with progress over time; server-version timeline | ✅ Done, not yet tried on the owner's backups | `mcsm/archive.py`, all commands, app *+ Add backup* | `docs/BACKUPS.md` |
+| Selective zip reading (no region unpacking; replay stubs) | ✅ Done | `mcsm/source.py` | `docs/BACKUPS.md` |
+| "Everything as one recording" 3D time-machine map | 📝 Designed, research done | n/a | Backlog #0b Phase 2 |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -92,7 +95,11 @@ Problems found:
    verified (left unknown).
 6. Two players without uuid (`5ou1s`, `InsidiousCrow`): not in usercache (likely Bedrock via
    Geyser, or expired cache).
-7. Whole-zip extraction does not scale (14.7 GB world): read backups selectively.
+7. ✅ *Fixed* — Whole-zip extraction does not scale (14.7 GB world): zips are now read selectively
+   (no region files; replays as metadata stubs, full replay extracted on demand).
+8. Owner asked about versions ("I have multiple server jars"): the logs show **1.21.5 (Apr–Nov
+   2025) → 1.21.10 → 1.21.11 → 26.1.2 (Apr 2026)**. `level.dat` only has the last one. The report
+   now shows a **Server versions** table from the logs, and both folder layouts are read.
 
 ### 0b. Unified multi-backup archive + recordings map (requested 2026-11-19)
 
@@ -103,6 +110,8 @@ make a live map using the recording files, to do the same thing as above so i ca
 in my backup file as if its one recording"
 
 **Proposed design:**
+- ✅ **Phase 1 done** (`mcsm/archive.py`, docs/BACKUPS.md): pass several backups to any command or
+  select several in the app; Backups tab with progress per player. Original design notes:
 - **Phase 1: merge backups into one dataset/report** (`mcsm report BACKUP1 BACKUP2 ...`, and an
   app list of backups):
   - read each backup (zip or folder, any version) *selectively*: logs, player files, level.dat,
@@ -114,6 +123,15 @@ in my backup file as if its one recording"
   - replays: union, de-duplicated by replay uuid / file name;
   - a **Backups tab**: timeline of backups with game version, world size, seed and level name (a
     new world = new section), plus version changes.
+- **Research for Phase 2 (2026-11-19):** Flashback chunk files have a version-independent
+  `flashback:action/move_entities` action (per dimension: entity id, x/y/z doubles, yaw/pitch/
+  head-yaw floats, on-ground; only *changed* entities per tick, so carry values forward).
+  ServerReplay's writer (arcade `FlashbackWriter`) emits `create_local_player` (uuid, x/y/z,
+  rotation, velocity, game profile, game mode: no entity id) and move_entities, but **no
+  real-time clock**. Mapping entity id → player needs either the version-specific add-entity
+  game packet, or a heuristic (the local player is the entity whose first position equals the
+  create_local_player position). The arcade `ExactEntityPosition.write` layout is not yet
+  verified. **A real replay sample from the owner is needed** to confirm before building.
 - **Phase 2: "everything as one recording" 3D time-machine viewer**: a time slider across
   the whole history. Player paths, events pinned in 3D, sessions, replays as coverage bars. Click
   to open or sync the replay at that moment. Terrain from the nearest backup (switching backups
@@ -241,6 +259,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-19 | Timelapse targets Flashback's editor first (owner confirmed) | Owner prefers editing in Flashback |
 | 2026-11-19 | Flashback outputs are always a *copy* with a new replay uuid; never overwrite an editor_states file | Protects the owner's original replay and existing edits |
 | 2026-11-19 | Timelapse default: fit 3:00, each idle gap 0.5 s, never slower than real time | Owner asked for "3 minutes as an option" |
+| 2026-11-20 | Several backups → one history: events de-duplicated by (time, type, player, text); newest backup's stats; every backup kept as a snapshot | Owner's backups overlap and span versions |
+| 2026-11-20 | Zip backups are read selectively; replays become metadata stubs until needed | Real backups are 15+ GB, mostly region files |
 | 2026-11-19 | Player/dimension folders are found by known paths first, then by searching the world folder | Survives future layout changes (26.1 moved everything) |
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
@@ -267,6 +287,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-20:** Merge several backups into one history (`mcsm report A.zip B.zip …`, app
+  *+ Add backup*), Backups tab with per-player progress, Server versions table, selective zip
+  reading (sizes from the zip listing), lenient world identity.
 - **2026-11-19:** Minecraft 26.1 world layout (players/, dimensions/minecraft/, new level.dat and
   data/minecraft/*.dat); ServerReplay Flashback replays: start from arcade save time, length
   estimate, "Recordings for_ NAME (uuid)" folders.

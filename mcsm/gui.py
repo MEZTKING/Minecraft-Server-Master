@@ -36,6 +36,7 @@ from .sync import DEFAULT_SYNC_TYPES
 from .timeutil import format_hms, parse_tz
 
 APP_NAME = "Minecraft Server Master"
+SEP = " | "  # separates several backups in the "Download" field
 
 EVENT_CHOICES = [  # (type, label) in display order
     (m.EV_CHAT, "Chat"), (m.EV_DEATH, "Deaths"), (m.EV_ADVANCEMENT, "Advancements"),
@@ -83,6 +84,7 @@ class App(ttk.Frame):
         self.busy = False
         self.action_buttons: list[ttk.Button] = []
         self.live = None                      # running LiveMap, if any
+        self.server_stack = contextlib.ExitStack()  # keeps loaded backups extracted
         self.live_stack = contextlib.ExitStack()
         self.live_url: str | None = None
         root.title(f"{APP_NAME} {__version__}")
@@ -111,9 +113,10 @@ class App(ttk.Frame):
         ttk.Entry(box, textvariable=self.server_var).grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(box, text="Zip file…", command=self._pick_zip).grid(row=0, column=2)
         ttk.Button(box, text="Folder…", command=self._pick_folder).grid(row=0, column=3, padx=(4, 0))
+        ttk.Button(box, text="+ Add backup…", command=self._add_backup).grid(row=0, column=4, padx=(4, 0))
 
         opts = ttk.Frame(box)
-        opts.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+        opts.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(6, 0))
         ttk.Label(opts, text="Server time zone:").pack(side="left")
         self.tz_var = tk.StringVar()
         ttk.Entry(opts, textvariable=self.tz_var, width=18).pack(side="left", padx=4)
@@ -124,7 +127,7 @@ class App(ttk.Frame):
         self.load_btn = ttk.Button(opts, text="Load server", command=self._load)
         self.load_btn.pack(side="right")
         self.status_var = tk.StringVar(value="No server loaded")
-        ttk.Label(box, textvariable=self.status_var, foreground="gray").grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        ttk.Label(box, textvariable=self.status_var, foreground="gray", wraplength=820).grid(row=2, column=0, columnspan=5, sticky="w", pady=(6, 0))
 
     def _build_tabs(self) -> None:
         nb = ttk.Notebook(self)
@@ -489,13 +492,15 @@ class App(ttk.Frame):
         except SystemExit:
             messagebox.showerror(APP_NAME, "Check the RCON port and update interval are numbers.")
             return
-        server_path = self.server_var.get().strip()
+        # Terrain comes from the newest (last) backup in the list.
+        server_path = [p for p in self.server_var.get().split(SEP.strip()) if p.strip()][-1:] or [""]
+        server_path = server_path[0].strip()
         password = self.live_pw_var.get()
         stack = contextlib.ExitStack()
 
         def work(_):
             try:
-                root = stack.enter_context(open_server(server_path)) if server_path else None
+                root = stack.enter_context(open_server(server_path, include_regions=True)) if server_path else None
                 if not demo and not password and not cli.live_settings(root).get("password"):
                     raise ValueError("Type the RCON password (rcon.password in server.properties).")
                 print("Connecting…" if not demo else "Starting demo…")
@@ -612,10 +617,17 @@ class App(ttk.Frame):
 
     # ----------------------------------------------------------------- pickers
     def _pick_zip(self):
-        p = filedialog.askopenfilename(title="Choose the server download",
-                                       filetypes=[("Zip files", "*.zip"), ("All files", "*.*")])
-        if p:
-            self.server_var.set(p)
+        ps = filedialog.askopenfilenames(title="Choose the server backup(s) – select several to merge them",
+                                         filetypes=[("Zip files", "*.zip"), ("All files", "*.*")])
+        if ps:
+            self.server_var.set(SEP.join(ps))
+            self._load()
+
+    def _add_backup(self):
+        ps = filedialog.askopenfilenames(title="Add backup(s) to merge", filetypes=[("Zip files", "*.zip"), ("All files", "*.*")])
+        if ps:
+            have = [p.strip() for p in self.server_var.get().split(SEP.strip()) if p.strip()]
+            self.server_var.set(SEP.join(have + [p for p in ps if p not in have]))
             self._load()
 
     def _pick_folder(self):
@@ -690,20 +702,37 @@ class App(ttk.Frame):
             return
         self.status_var.set("Loading… (big servers can take a minute)")
 
+        paths = [p.strip() for p in path.split(SEP.strip()) if p.strip()]
+        stack = contextlib.ExitStack()
+
         def work(_):
-            with open_server(path) as root:
-                print(f"Reading {path}")
-                return analyze(root, tz=tz, latest_log_date=latest), cli.live_settings(root)
+            # Backups stay (selectively) extracted while loaded: Flashback copies and
+            # timelapses read full replays from them later. Closed on the next load / exit.
+            try:
+                if len(paths) == 1:
+                    root = stack.enter_context(open_server(paths[0]))
+                    print(f"Reading {paths[0]}")
+                    data = analyze(root, tz=tz, latest_log_date=latest)
+                else:
+                    from .archive import analyze_many
+                    data = analyze_many(paths, stack, tz=tz, latest_log_date=latest, progress=print)
+                return data, cli.live_settings(data.root)
+            except BaseException:
+                stack.close()
+                raise
 
         def after(result):
             data, live_cfg = result
+            self.server_stack.close()          # release the previously loaded backup(s)
+            self.server_stack = stack
             self.data = data
             # Pre-fill the Live map tab from the download's server.properties.
             if live_cfg.get("port"):
                 self.live_port_var.set(str(live_cfg["port"]))
             if live_cfg.get("password") and not self.live_pw_var.get():
                 self.live_pw_var.set(live_cfg["password"])
-            self.status_var.set(f"Loaded: {len(data.players)} players, {len(data.events):,} events, "
+            merged = f"{len(data.backups)} backups merged, " if data.backups else ""
+            self.status_var.set(f"Loaded: {merged}{len(data.players)} players, {len(data.events):,} events, "
                                 f"{len(data.replays)} replays.  Time zone: {data.timezone_info}")
             self._fill_replays()
             self._set_busy(False)
@@ -820,6 +849,7 @@ def main() -> int:
 
     def on_close():
         app._live_stop()  # stop the live map server and remove temp files
+        app.server_stack.close()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)

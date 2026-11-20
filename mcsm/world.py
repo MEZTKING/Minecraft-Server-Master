@@ -167,7 +167,14 @@ def read_level_dat(world: str) -> dict[str, Any]:
 
 
 def dir_size(path: str) -> tuple[int, int]:
-    """Return ``(total_bytes, file_count)`` for everything below *path*."""
+    """Return ``(total_bytes, file_count)`` for everything below *path*.
+
+    For a selectively-read zip backup the sizes come from the zip listing, so skipped
+    region files still count."""
+    from .source import zip_listing
+    listing = zip_listing(path)
+    if listing is not None:
+        return sum(listing.values()), len(listing)
     total = count = 0
     for current, _dirs, files in os.walk(path):
         for f in files:
@@ -183,32 +190,54 @@ def region_summary(root: str, world: str) -> dict[str, dict[str, int]]:
     """Size and region-file count per dimension (a cheap 'how explored' metric).
 
     Each ``r.X.Z.mca`` region file covers 512x512 blocks, so the count is a
-    rough measure of explored area.
+    rough measure of explored area. Works on selectively-read zip backups too
+    (counts come from the zip listing).
     """
-    w = os.path.relpath(world, root)
+    from .source import zip_listing
+    w = os.path.relpath(world, root).replace(os.sep, "/")
+    listing = zip_listing(root)
+
+    def region_files(rel_dir: str) -> dict[str, int] | None:
+        if listing is not None:
+            pre = rel_dir.rstrip("/") + "/"
+            found = {n[len(pre):]: sz for n, sz in listing.items()
+                     if n.startswith(pre) and "/" not in n[len(pre):] and n.endswith(".mca")}
+            return found or None
+        folder = os.path.join(root, rel_dir)
+        if not os.path.isdir(folder):
+            return None
+        return {f: os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder) if f.endswith(".mca")}
+
+    def entry(files: dict[str, int]) -> dict[str, int]:
+        return {"region_files": len(files), "bytes": sum(files.values()),
+                "approx_area_km2": round(len(files) * 512 * 512 / 1e6, 2)}
+
     out: dict[str, dict[str, int]] = {}
     for dim, patterns in _DIMENSIONS.items():
         for pat in patterns:
-            folder = os.path.join(root, pat.format(w=w))
-            if os.path.isdir(folder):
-                files = [f for f in os.listdir(folder) if f.endswith(".mca")]
-                size = sum(os.path.getsize(os.path.join(folder, f)) for f in files)
-                out[dim] = {"region_files": len(files), "bytes": size,
-                            "approx_area_km2": round(len(files) * 512 * 512 / 1e6, 2)}
+            files = region_files(pat.format(w=w))
+            if files:
+                out[dim] = entry(files)
                 break
-    custom = os.path.join(world, "dimensions")
-    if os.path.isdir(custom):
-        for current, dirs, _files in os.walk(custom):
-            if os.path.basename(current) == "region":
-                rel = os.path.relpath(os.path.dirname(current), custom).replace(os.sep, ":", 1)
-                if rel in ("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"):
-                    dirs[:] = []
-                    continue
-                files = [f for f in os.listdir(current) if f.endswith(".mca")]
-                out[rel] = {"region_files": len(files),
-                            "bytes": sum(os.path.getsize(os.path.join(current, f)) for f in files),
-                            "approx_area_km2": round(len(files) * 512 * 512 / 1e6, 2)}
-                dirs[:] = []
+    # custom dimensions: <world>/dimensions/<namespace>/<name>/region
+    if listing is not None:
+        pre = f"{w}/dimensions/"
+        dims = {n[len(pre):].split("/region/")[0] for n in listing if n.startswith(pre) and "/region/" in n}
+    else:
+        custom = os.path.join(world, "dimensions")
+        dims = set()
+        if os.path.isdir(custom):
+            for ns in os.listdir(custom):
+                for name in (os.listdir(os.path.join(custom, ns)) if os.path.isdir(os.path.join(custom, ns)) else []):
+                    if os.path.isdir(os.path.join(custom, ns, name, "region")):
+                        dims.add(f"{ns}/{name}")
+    for d in sorted(dims):
+        key = d.replace("/", ":", 1)
+        if key in ("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"):
+            continue
+        files = region_files(f"{w}/dimensions/{d}/region")
+        if files:
+            out[key] = entry(files)
     return out
 
 

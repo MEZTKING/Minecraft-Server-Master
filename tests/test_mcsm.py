@@ -397,6 +397,36 @@ class TestGUI(ServerTestCase):
             gc.collect()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_multi_backup_load(self):
+        import time
+        import tkinter as tk
+        from mcsm import gui
+        tmp = tempfile.mkdtemp()
+        a = _zip_dir(build_server(os.path.join(tmp, "a")), os.path.join(tmp, "a.zip"))
+        b = _zip_dir(build_server(os.path.join(tmp, "b")), os.path.join(tmp, "b.zip"))
+        gui.messagebox.showinfo = gui.messagebox.showerror = lambda *x, **k: None
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.server_var.set(a + gui.SEP + b)
+            app._load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertEqual(len(app.data.backups), 2, app.log_text.get("1.0", "end")[-1500:])
+            self.assertIn("2 backups merged", app.status_var.get())
+            # the replay is still extractable after loading (backups kept open)
+            r = next(r for r in app.data.replays if r.path.endswith(".mcpr"))
+            self.assertTrue(os.path.isfile(cli._replay_file(app.data, r)))
+            app.server_stack.close()
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_live_tab_against_fake_rcon(self):
         import time
         import tkinter as tk
@@ -798,3 +828,98 @@ class TestMinecraft26Layout(unittest.TestCase):
         good = reps["2024-05-03--20-30-00.zip"]
         # save 18:33 - 2 min length - 1 min paused = 18:30
         self.assertEqual((good.start, good.start_source, good.duration_ms), (utc(2024, 5, 3, 18, 30), "save-time", 120_000))
+
+
+def _zip_dir(src: str, dst: str, wrapper: str = "") -> str:
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
+        for cur, _dirs, files in os.walk(src):
+            for f in files:
+                full = os.path.join(cur, f)
+                zf.write(full, os.path.join(wrapper, os.path.relpath(full, src)))
+    return dst
+
+
+class TestLiteZipAndArchive(unittest.TestCase):
+    """Two backups of one server across a version change: an old-layout 1.21 backup taken on
+    2024-05-02 and a 26.1-layout backup taken later, both as zips (selective extraction)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fixtures import build_server_26_1
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-arch-")
+        old = build_server(os.path.join(cls.tmp, "old"))
+        # The old backup was taken before latest.log existed and before the 05-03 replay.
+        os.remove(os.path.join(old, "logs", "latest.log"))
+        shutil.rmtree(os.path.join(old, "recordings"))
+        stats = os.path.join(old, "world", "stats", f"{STEVE}.json")
+        d = json.load(open(stats))
+        d["stats"]["minecraft:custom"]["minecraft:play_time"] = 72000
+        json.dump(d, open(stats, "w"))
+        # a big region file that lite extraction must skip
+        with open(os.path.join(old, "world", "region", "r.5.5.mca"), "wb") as fh:
+            fh.write(b"\0" * 300_000)
+        new = build_server_26_1(os.path.join(cls.tmp, "new"))
+        cls.old_zip = _zip_dir(old, os.path.join(cls.tmp, "backup-2024-05-02.zip"), "server")
+        cls.new_zip = _zip_dir(new, os.path.join(cls.tmp, "backup-2024-05-04.zip"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_lite_extraction_and_ensure_full(self):
+        from mcsm.source import ensure_full, is_stub, open_server
+        with open_server(self.old_zip) as root:
+            self.assertFalse(os.path.exists(os.path.join(root, "world", "region", "r.5.5.mca")))
+            self.assertTrue(os.path.exists(os.path.join(root, "world", "level.dat")))
+        with open_server(self.new_zip) as root:
+            rp = os.path.join(root, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
+            self.assertTrue(is_stub(rp))
+            data = analyze(root)
+            r = next(r for r in data.replays if r.path.endswith("18-00-00.mcpr"))
+            self.assertEqual(r.start, utc(2024, 5, 3, 18))            # metadata read from the stub
+            self.assertGreater(r.size_bytes, 0)
+            ensure_full(rp)
+            self.assertFalse(is_stub(rp))
+            self.assertIn("recording.tmcpr", zipfile.ZipFile(rp).namelist())
+        with open_server(self.old_zip, include_regions=True) as root:
+            self.assertTrue(os.path.exists(os.path.join(root, "world", "region", "r.5.5.mca")))
+
+    def test_merge(self):
+        from contextlib import ExitStack
+        from mcsm.archive import analyze_many
+        with ExitStack() as stack:
+            d = analyze_many([self.new_zip, self.old_zip], stack)   # order given doesn't matter
+            self.assertEqual([b["label"] for b in d.backups], ["backup-2024-05-02", "backup-2024-05-04"])
+            self.assertEqual([b["version"] for b in d.backups], ["1.20.4", "26.1.2"])
+            chats = [e for e in d.events if e.type == "chat"]
+            self.assertEqual(len(chats), 4)                         # the shared log is not doubled
+            self.assertEqual(len(d.sessions), 3)
+            steve = d.player("steve")
+            self.assertEqual(steve.stats["custom"]["play_time"], 216000)      # newest backup wins
+            hist = d.player_history["Steve"]
+            self.assertEqual([h["play_ticks"] for h in hist], [72000, 216000])  # progress over time
+            self.assertIn("UTC+02:00", d.timezone_info)
+            # replays from the new backup, with label-prefixed paths that still resolve
+            r = next(r for r in d.replays if r.path.endswith("18-00-00.mcpr"))
+            self.assertTrue(r.path.startswith("backup-2024-05-04/"))
+            self.assertTrue(os.path.isfile(cli._replay_file(d, r)))
+            from mcsm.exporters import report as rep
+            html = rep.render(d)
+            self.assertIn("backup-2024-05-02", html)
+
+    def test_cli_multi(self):
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+        out, err = StringIO(), StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["summary", self.old_zip, self.new_zip])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("Steve", out.getvalue())
+
+
+    def test_sizes_from_listing(self):
+        from mcsm.source import open_server
+        with open_server(self.old_zip) as root:
+            d = analyze(root)
+        self.assertGreater(d.world["size_bytes"], 300_000)                 # skipped region file still counted
+        self.assertEqual(d.world["dimensions"]["overworld"]["region_files"], 2)

@@ -242,7 +242,9 @@ def _mtime_start(path: str, duration_ms: int) -> datetime:
 
 def _size(path: str) -> int:
     if os.path.isfile(path):
-        return os.path.getsize(path)
+        from .source import stub_original_size
+        orig = stub_original_size(path) if path.lower().endswith((".zip", ".mcpr")) else None
+        return orig if orig is not None else os.path.getsize(path)
     return sum(os.path.getsize(os.path.join(c, f)) for c, _d, fs in os.walk(path) for f in fs)
 
 

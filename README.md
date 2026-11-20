@@ -17,7 +17,9 @@ into:
    only while someone's there, fits 3 minutes) set up in Flashback's editor.
 5. **Live 3D map** – watch where everyone is right now, with terrain from your world, trails,
    and click-to-follow. Uses the server's built-in RCON; no mods needed.
-6. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
+6. **Many backups as one history** – give several backups (any versions, e.g. 1.21 and 26.1)
+   and get one merged report: every event once, all replays, progress over time per player.
+7. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
 
 It comes as a **Windows installer** with a normal app window (nothing else to install),
 or as a Python package for the command line. Everything runs on your computer: no
@@ -122,7 +124,8 @@ to estimate how much of the world has been explored.
 
 ## Commands
 
-Every command takes the server folder or zip as its first argument, plus these common options:
+Every command takes the server folder or zip as its first argument (**several** to merge
+backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these common options:
 
 | Option | Meaning |
 |---|---|
@@ -239,6 +242,7 @@ The HTML report always shows times in **your** browser's time zone.
 
 | Document | Contents |
 |---|---|
+| [docs/BACKUPS.md](docs/BACKUPS.md) | Merging several backups (any versions) into one history; big-backup handling |
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |

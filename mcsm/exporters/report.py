@@ -57,6 +57,8 @@ def _payload(data: m.ServerData) -> dict:
                      "format": r.format, "start_source": r.start_source, "unfinished": r.unfinished,
                      "markers": r.markers, "size": r.size_bytes} for r in data.replays],
         "log_files": [m.to_jsonable(f) for f in data.log_files],
+        "backups": m.to_jsonable(data.backups),
+        "player_history": m.to_jsonable(data.player_history),
     }
 
 
@@ -165,6 +167,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-
   <section id="tab-player"></section>
   <section id="tab-events"></section>
   <section id="tab-replays"></section>
+  <section id="tab-backups"></section>
   <section id="tab-files"></section>
 </main>
 <div id="tooltip"></div>
@@ -214,7 +217,8 @@ function plink(name) { return name ? `<a class="plink" data-player="${esc(name)}
 document.addEventListener("click", e => { const a = e.target.closest("a.plink"); if (a) { showPlayer(a.dataset.player); } });
 
 // ---------- tabs ----------
-const TABS = [["overview", "Overview"], ["activity", "Activity"], ["players", "Players"], ["events", "Events"], ["replays", "Replays"], ["files", "Files"]];
+const TABS = [["overview", "Overview"], ["activity", "Activity"], ["players", "Players"], ["events", "Events"], ["replays", "Replays"]]
+  .concat((D.backups || []).length ? [["backups", "Backups"]] : []).concat([["files", "Files"]]);
 const rendered = {};
 function openTab(id) {
   document.querySelectorAll("main > section").forEach(s => s.classList.toggle("active", s.id === "tab-" + id));
@@ -306,8 +310,11 @@ RENDER.overview = () => {
     (dims.length ? `<h3>Explored area by dimension</h3><table><tr><th>Dimension</th><th class="n">Region files</th><th class="n">≈ km²</th><th class="n">Size</th></tr>` +
       dims.map(([d, v]) => `<tr><td>${esc(pretty(d))}</td><td class="n">${fmtN(v.region_files)}</td><td class="n">${v.approx_area_km2}</td><td class="n">${(v.bytes / 1048576).toFixed(1)} MB</td></tr>`).join("") + `</table>` : "") +
     `</div><div class="card"><h2>server.properties</h2><table>${Object.entries(sp).sort().map(([k, v]) => `<tr><td class="muted">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table></div></div>` +
+    (versionRuns().length ? `<div class="card"><h2>Server versions</h2><p class="muted" style="margin-top:-8px">From the "Starting minecraft server version" line of every start in the logs. The world folder layout changed in 26.1.</p><div id="verTable"></div></div>` : "") +
     (D.mods.length ? `<div class="card"><h2>Mods & plugins (${D.mods.length})</h2><div id="modsTable"></div></div>` : "") +
     (w.game_rules && Object.keys(w.game_rules).length ? `<div class="card"><details><summary>Game rules (${Object.keys(w.game_rules).length})</summary><table>${Object.entries(w.game_rules).sort().map(([k, v]) => `<tr><td class="muted">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table></details></div>` : "");
+  if (versionRuns().length) $("#verTable").appendChild(table([{ key: "version", label: "Version" }, { key: "from", label: "First start", fmt: dt },
+    { key: "to", label: "Last start", fmt: dt }, { key: "starts", label: "Starts", num: 1, fmt: fmtN }], versionRuns(), { sort: "from", dir: 1 }));
   if (D.mods.length) $("#modsTable").appendChild(table([{ key: "name", label: "Name" }, { key: "version", label: "Version" }, { key: "kind", label: "Kind" }, { key: "loader", label: "Loader" }, { key: "file", label: "File" }], D.mods, { sort: "name", dir: 1 }));
 };
 
@@ -446,6 +453,48 @@ RENDER.replays = () => {
 };
 
 // ---------- FILES ----------
+function versionRuns() {
+  const runs = [];
+  for (const e of EV) {
+    if (e.type !== "server_start" || !e.data.version) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.version === e.data.version) { last.to = e.t; last.starts++; }
+    else runs.push({ version: e.data.version, from: e.t, to: e.t, starts: 1 });
+  }
+  return runs;
+}
+
+// ---------- BACKUPS (merged archives) ----------
+const HIST_STATS = [["play_ticks", "Play time", v => dur(v / 20)], ["blocks_mined", "Blocks mined", fmtN], ["deaths", "Deaths", fmtN],
+  ["mob_kills", "Mob kills", fmtN], ["items_crafted", "Items crafted", fmtN], ["walk_cm", "Walked + sprinted", v => fmtStat("walk_one_cm", v)],
+  ["advancements", "Advancements", fmtN], ["jumps", "Jumps", fmtN]];
+RENDER.backups = () => {
+  const el = $("#tab-backups"), B = D.backups || [];
+  const names = Object.keys(D.player_history || {}).sort((a, b) => a.localeCompare(b));
+  el.innerHTML = `<div class="card"><h2>Backups (${B.length})</h2><p class="muted" style="margin-top:-8px">Merged into one history, oldest first. Events seen in several backups are counted once; player stats come from the newest backup that has them. "World" changes when the level name or seed changes.</p><div id="bkTable"></div></div>` +
+    (names.length ? `<div class="card"><h2>Progress across backups</h2><div class="filters"><select id="hPlayer">${names.map(n => `<option>${esc(n)}</option>`).join("")}</select>` +
+      `<select id="hStat">${HIST_STATS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select></div><div id="hChart"></div><div id="hTable" style="margin-top:12px"></div></div>` : "");
+  $("#bkTable").appendChild(table([
+    { key: "label", label: "Backup", fmt: v => `<code>${esc(v)}</code>` }, { key: "time", label: "Taken (newest data)", fmt: dIso },
+    { key: "version", label: "World version" }, { key: "world_number", label: "World", fmt: (v, r) => `#${v} ${esc(r.level_name || "")}` },
+    { key: "size_bytes", label: "World size", num: 1, fmt: v => v ? (v / 1073741824).toFixed(2) + " GB" : "—" },
+    { key: "players", label: "Players", num: 1, fmt: fmtN }, { key: "events", label: "Events", num: 1, fmt: fmtN },
+    { key: "log_files", label: "Logs", num: 1, fmt: fmtN }, { key: "replays", label: "Replays", num: 1, fmt: fmtN },
+  ], B, { sort: "time", dir: 1 }));
+  if (!names.length) return;
+  const draw = () => {
+    const name = $("#hPlayer").value, key = $("#hStat").value, [, label, f] = HIST_STATS.find(x => x[0] === key);
+    const rows = (D.player_history[name] || []).filter(h => h.time);
+    const items = rows.map(h => ({ label: new Date(h.time).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" }), value: h[key] || 0, backup: h.backup }));
+    barChart($("#hChart"), items, { valueFmt: key === "play_ticks" ? (v => dur(v / 20)) : (v => fmtN(Math.round(v))),
+      labelEvery: Math.ceil(items.length / 10), tipFmt: d => `<b>${esc(d.backup)}</b><br>${esc(label)}: ${esc(f(d.value))}` });
+    $("#hTable").innerHTML = "";
+    $("#hTable").appendChild(table([{ key: "backup", label: "Backup", fmt: v => `<code>${esc(v)}</code>` }, { key: "time", label: "Date", fmt: dIso },
+      ...HIST_STATS.map(([k, l, fm]) => ({ key: k, label: l, num: 1, fmt: fm }))], rows, { sort: "time", dir: 1 }));
+  };
+  $("#hPlayer").onchange = draw; $("#hStat").onchange = draw; draw();
+};
+
 RENDER.files = () => {
   const el = $("#tab-files");
   el.innerHTML = `<div class="card"><h2>Log files read (${D.log_files.length})</h2><p class="muted" style="margin-top:-8px">Log lines only contain a time of day; the date comes from the file name (or, for latest.log, its modification time). Time zone: ${esc(D.timezone_info)}.</p><div id="lfTable"></div></div>`;

@@ -20,6 +20,7 @@ Run ``mcsm <command> --help`` for the options of each command, and see
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import os
 import sys
 from datetime import date, datetime, timedelta  # noqa: F401
@@ -36,16 +37,26 @@ from .timeutil import UTC, format_hms, iso, parse_duration, parse_tz
 # helpers
 # ---------------------------------------------------------------------------
 
+# Backups opened during a command stay extracted until main() finishes, so later steps
+# (copying a replay, building terrain) can still read them.
+_OPEN = ExitStack()
+
+
 def _load(args) -> m.ServerData:
+    """Analyse one server/backup, or several merged into one (see mcsm.archive)."""
     tz = parse_tz(args.tz) if getattr(args, "tz", None) else None
     latest = date.fromisoformat(args.latest_log_date) if getattr(args, "latest_log_date", None) else None
     extra = []
     rp = getattr(args, "replay", None)
     if rp and os.path.isfile(rp):
         extra.append(rp)
-    with open_server(args.server) as root:
-        data = analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
-    return data
+    servers = args.server if isinstance(args.server, list) else [args.server]
+    if len(servers) == 1:
+        root = _OPEN.enter_context(open_server(servers[0]))
+        return analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
+    from .archive import analyze_many
+    return analyze_many(servers, _OPEN, tz=tz, latest_log_date=latest, extra_replays=extra,
+                        progress=lambda msg: print(msg, file=sys.stderr))
 
 
 def _print_warnings(data: m.ServerData) -> None:
@@ -70,7 +81,8 @@ def _local(dt: datetime | None) -> str:
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("server", help="server folder or .zip download")
+    p.add_argument("server", nargs="+", help="server folder or .zip backup; give several to merge them "
+                                            "into one history (any versions, oldest to newest)")
     p.add_argument("--tz", help="server time zone for log times, e.g. Europe/London or +01:00 "
                                 "(default: learned from advancement files)")
     p.add_argument("--latest-log-date", metavar="YYYY-MM-DD",
@@ -359,7 +371,7 @@ def cmd_live(args) -> int:
     import webbrowser
     from contextlib import ExitStack
     with ExitStack() as stack:
-        root = stack.enter_context(open_server(args.server)) if args.server else None
+        root = stack.enter_context(open_server(args.server, include_regions=True)) if args.server else None
         live, url = start_live(args, root)
         print(f"Live map running at {url}  (Ctrl+C to stop)")
         if args.record:
@@ -389,8 +401,16 @@ def _flashback_replay(data: m.ServerData, spec: str) -> m.Replay:
 
 
 def _replay_file(data: m.ServerData, r: m.Replay) -> str:
-    p = r.path if os.path.isabs(r.path) else os.path.join(data.root, r.path)
-    return os.path.normpath(p)
+    """The replay's file on disk (complete, even if the backup was read selectively)."""
+    from .source import ensure_full
+    if os.path.isabs(r.path):
+        p = r.path
+    elif data.sources and "/" in r.path and r.path.split("/", 1)[0] in data.sources:
+        label, rel = r.path.split("/", 1)
+        p = os.path.join(data.sources[label], rel)
+    else:
+        p = os.path.join(data.root, r.path)
+    return ensure_full(os.path.normpath(p))
 
 
 def _safe_name(text: str) -> str:
@@ -733,7 +753,8 @@ def main(argv: list[str] | None = None) -> int:
     from .rcon import RconError
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        return args.func(args)
+        with _OPEN:
+            return args.func(args)
     except (FileNotFoundError, ValueError, RuntimeError, OSError, RconError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

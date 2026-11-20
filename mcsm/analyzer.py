@@ -20,8 +20,13 @@ from .timeutil import UTC, LogClock
 
 
 def analyze(root: str, tz: tzinfo | None = None, latest_log_date: date | None = None,
-            extra_replays: list[str] | None = None) -> m.ServerData:
-    """Parse the server at *root* (a directory; see :func:`mcsm.source.open_server`)."""
+            extra_replays: list[str] | None = None,
+            extra_offset_samples: list | None = None) -> m.ServerData:
+    """Parse the server at *root* (a directory; see :func:`mcsm.source.open_server`).
+
+    *extra_offset_samples*: ``(date, utc_offset)`` pairs learned elsewhere (other backups of
+    the same server), used together with this backup's own advancement timestamps.
+    """
     data = m.ServerData(root=os.path.abspath(root), generated_at=datetime.now(UTC))
 
     # 1. server-level info
@@ -46,7 +51,7 @@ def analyze(root: str, tz: tzinfo | None = None, latest_log_date: date | None = 
     pdata = players.read_playerdata(wdir)
 
     # 3. time zone
-    clock = LogClock(explicit=tz, samples=offset_samples)
+    clock = LogClock(explicit=tz, samples=list(offset_samples) + list(extra_offset_samples or []))
     data.timezone_info = clock.describe()
     if clock.source == "assumed-utc":
         data.warnings.append(data.timezone_info)
