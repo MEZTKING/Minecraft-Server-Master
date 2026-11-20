@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-20 (multi-backup archive).
+`CLAUDE.md`). Last updated: 2026-11-20 (hand-off to a new session; see HANDOFF.md).
 
 ## What this project is
 
@@ -234,6 +234,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ### 3. Other ideas (not yet requested in detail; confirm before building)
 
+- **Ledger as a build-history source** (spotted 2026-11-20): the owner's server runs the Ledger
+  block-logging mod, whose database records block changes with player and time. That would give
+  true block-by-block timelapses (backlog #1 Phase B/C) and "who built/broke what" analysis
+  without decoding replay packets. Needs the database file from the owner; note that selective zip
+  reading skips `*.sqlite` today.
+
 - Play back recorded tracks in the 3D viewer (time slider, speed control), e.g. "show
   last Saturday's session".
 - Heatmaps: where people spend time (from tracks) and where they die (death messages + the
@@ -287,6 +293,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-20:** `HANDOFF.md` written: the work moves to a new session/account. Ledger idea added
+  to the backlog.
 - **2026-11-20:** Merge several backups into one history (`mcsm report A.zip B.zip …`, app
   *+ Add backup*), Backups tab with per-player progress, Server versions table, selective zip
   reading (sizes from the zip listing), lenient world identity.

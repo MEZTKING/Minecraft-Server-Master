@@ -246,6 +246,7 @@ The HTML report always shows times in **your** browser's time zone.
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
+| [HANDOFF.md](HANDOFF.md) | Everything needed to continue development in a new session or account |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |
 | [docs/INSTALLER.md](docs/INSTALLER.md) | Installing and using the Windows app; how the installer is built and released |
 | [docs/PEBBLEHOST.md](docs/PEBBLEHOST.md) | Downloading the right files from PebbleHost (and other hosts) |

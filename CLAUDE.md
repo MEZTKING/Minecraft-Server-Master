@@ -1,7 +1,8 @@
 # Instructions for Claude sessions working on this repository
 
-Read `PROJECT_STATUS.md` first. It is the hand-off document: current state, backlog with
-designs, decisions, and open questions.
+**New session? Read `HANDOFF.md` first** (setup, current state, owner context, research findings,
+next steps), then `PROJECT_STATUS.md`: current state, backlog with designs, decisions, and open
+questions.
 
 ## Standing rule from the project owner: always update and upload the documents
 
