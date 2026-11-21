@@ -256,3 +256,41 @@ def play_time_ticks(stats: dict[str, dict[str, int]]) -> int:
     """Total play time in ticks (``play_time`` since 1.17, ``play_one_minute`` before)."""
     custom = stats.get("custom", {})
     return int(custom.get("play_time", custom.get("play_one_minute", 0)))
+
+
+def name_aliases(events, uuid_to_name: dict[str, str]) -> dict[str, tuple[str, str | None]]:
+    """Map every logged player name (lower case) to ``(current name, uuid)``.
+
+    Players who changed their Minecraft name appear under several names in the logs. The
+    uuid on each join event (from the "UUID of player X is ..." line) and vanilla's
+    "joined the game (formerly known as OLD)" link the names together. The current name is
+    the one in ``usercache.json``, otherwise the most recently seen name for that uuid.
+    Names without a known uuid map to themselves.
+    """
+    from .models import EV_JOIN
+
+    latest: dict[str, str] = {}            # uuid -> most recent name seen joining
+    name_uuid: dict[str, str] = {}         # lower name -> uuid
+    formerly: list[tuple[str, str]] = []   # (old lower name, new name)
+    for ev in events:                      # events are in time order
+        if ev.type != EV_JOIN or not ev.player:
+            continue
+        u = (ev.data or {}).get("uuid")
+        if u:
+            latest[u] = ev.player
+            name_uuid[ev.player.lower()] = u
+        if (ev.data or {}).get("formerly"):
+            formerly.append((ev.data["formerly"].lower(), ev.player))
+    for old, new in formerly:              # without uuid lines, link old to new by name
+        u = name_uuid.get(new.lower())
+        if u and old not in name_uuid:
+            name_uuid[old] = u
+    for u, n in uuid_to_name.items():
+        name_uuid.setdefault(n.lower(), u)
+
+    out: dict[str, tuple[str, str | None]] = {}
+    for lname, u in name_uuid.items():
+        out[lname] = (uuid_to_name.get(u) or latest.get(u) or lname, u)
+    for old, new in formerly:              # old name with no uuid anywhere: follow the rename
+        out.setdefault(old, out.get(new.lower(), (new, None)))
+    return out

@@ -50,7 +50,7 @@ Geyser/Floodgate Bedrock prefixes).
 | `server_start` | `Starting minecraft server version 1.20.4` | `version` |
 | `server_ready` | `Done (4.512s)! For help, type "help"` | `startup_seconds` |
 | `server_stop` | `Stopping server` / `Stopping the server` | |
-| `join` | `NAME joined the game` / `NAME joined the game (formerly known as OLD)` | `formerly`, plus `position` `(x, y, z)` and `world` from the preceding `NAME[/ip:port] logged in with entity id N at (...)` line |
+| `join` | `NAME joined the game` / `NAME joined the game (formerly known as OLD)` | `formerly`, plus `position` `(x, y, z)` and `world` from the preceding `NAME[/ip:port] logged in with entity id N at (...)` line, and `uuid` from the `UUID of player NAME is <uuid>` line before that. The uuid links a player's old names to their current one (see DATA_MODEL.md, `names_seen`) |
 | `leave` | `NAME left the game` | `reason` from the preceding `NAME lost connection: …` line |
 | `chat` | `<NAME> text`, optionally prefixed `[Not Secure] ` | |
 | `server_chat` | `[Server] text`, `[Rcon] text` (`/say` from console) | |

@@ -56,7 +56,7 @@ Event types: `server_start`, `server_ready`, `server_stop`, `crash`, `join`, `le
 
 | Field | Source |
 |---|---|
-| `uuid`, `name`, `names_seen` | usercache + logs |
+| `uuid`, `name`, `names_seen` | usercache + logs. One profile per uuid: a player who changed their name is listed under the current name (usercache, else the newest name seen joining), and `names_seen` includes the old names. Sessions, chat and deaths under old names count toward this profile. Names are linked by the uuid on join events and by `joined the game (formerly known as OLD)` |
 | `stats` | `{category: {key: value}}` from `stats/<uuid>.json`, `minecraft:` prefix removed |
 | `advancements` | `{id: {done, completed, criteria}}`; recipe unlocks are left out |
 | `playerdata` | `position`, `dimension`, `health`, `food`, `xp_level`, `xp_total`, `score`, `game_mode`, `flying`, `spawn`, `last_death` {dimension,pos}, `inventory` {item: count}, `ender_chest` {item: count}, `inventory_slots_used` |

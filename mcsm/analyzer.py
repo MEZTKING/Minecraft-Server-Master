@@ -86,8 +86,12 @@ def analyze(root: str, tz: tzinfo | None = None, latest_log_date: date | None = 
 
 def _merge_players(data: m.ServerData, root: str, uuid_to_name: dict[str, str],
                    stats: dict, advs: dict, pdata: dict) -> None:
+    aliases = players.name_aliases(data.events, uuid_to_name)
+
     def get(uuid: str | None, name: str | None) -> m.PlayerProfile:
         name = name or uuid_to_name.get(uuid or "", None) or (uuid or "unknown")
+        if uuid is None and name.lower() in aliases:     # an older name of a renamed player
+            name, uuid = aliases[name.lower()]
         key = name.lower()
         prof = data.players.get(key)
         if prof is None:

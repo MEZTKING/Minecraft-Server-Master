@@ -139,10 +139,22 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
     if not samples and tz is None:
         out.warnings.insert(0, out.timezone_info)
 
-    # Players: newest backup with data wins; keep per-backup history.
+    # Players: newest backup with data wins; keep per-backup history. The same uuid under a
+    # different name in a newer backup is a rename: move the profile to the newer name.
+    by_uuid: dict[str, str] = {}           # uuid -> key in out.players
     for label, _p, _root, d in parts:
         snap_time = _snapshot_time(d)
         for key, prof in d.players.items():
+            u = (prof.uuid or "").lower()
+            old_key = by_uuid.get(u) if u else None
+            if old_key and old_key != key and old_key in out.players:
+                moved = out.players.pop(old_key)
+                moved.name = prof.name
+                if key in out.players:     # already seen under the new name: keep that one
+                    moved = out.players[key]
+                out.players[key] = moved
+            if u:
+                by_uuid[u] = key
             target = out.players.get(key)
             if target is None:
                 target = m.PlayerProfile(uuid=prof.uuid, name=prof.name)
@@ -171,10 +183,20 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
         prof.first_seen = prof.last_seen = None
         prof.session_count, prof.session_seconds, prof.chat_messages, prof.deaths_logged = 0, 0.0, 0, 0
         prof.names_seen = []
+    aliases = players_mod.name_aliases(
+        out.events, {p.uuid.lower(): p.name for p in out.players.values() if p.uuid})
+
+    def profile_for(name: str) -> m.PlayerProfile:
+        cur, u = aliases.get(name.lower(), (name, None))
+        prof = out.players.setdefault(cur.lower(), m.PlayerProfile(uuid=u, name=cur))
+        if u and not prof.uuid:
+            prof.uuid = u
+        return prof
+
     for ev in out.events:
         if not ev.player:
             continue
-        prof = out.players.setdefault(ev.player.lower(), m.PlayerProfile(uuid=None, name=ev.player))
+        prof = profile_for(ev.player)
         if ev.player not in prof.names_seen:
             prof.names_seen.append(ev.player)
         prof.first_seen = ev.time if prof.first_seen is None else min(prof.first_seen, ev.time)
@@ -182,7 +204,7 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
         prof.chat_messages += ev.type == m.EV_CHAT
         prof.deaths_logged += ev.type == m.EV_DEATH
     for s in out.sessions:
-        prof = out.players.setdefault(s.player.lower(), m.PlayerProfile(uuid=None, name=s.player))
+        prof = profile_for(s.player)
         prof.session_count += 1
         prof.session_seconds += s.seconds
 

@@ -64,6 +64,9 @@ RE_LEAVE = re.compile(rf"^(?P<name>{_NAME}) left the game$")
 RE_LOGIN = re.compile(rf"^(?P<name>{_NAME})\[[^\]]*\] logged in with entity id \d+ at "
                       r"\((?:\[(?P<world>[^\]]+)\])?(?P<x>-?[\d.]+), (?P<y>-?[\d.]+), (?P<z>-?[\d.]+)\)")
 RE_LOST = re.compile(rf"^(?P<name>{_NAME}) lost connection: (?P<reason>.*)$")
+# Logged by the "User Authenticator" thread just before "logged in with entity id".
+RE_UUID = re.compile(rf"^UUID of player (?P<name>{_NAME}) is (?P<uuid>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-"
+                     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$")
 RE_CHAT = re.compile(rf"^(?:\[Not Secure\] )?<(?P<name>{_NAME})> (?P<text>.*)$")
 RE_SERVER_SAY = re.compile(r"^\[(?:Server|Rcon)\] (?P<text>.*)$")
 RE_EMOTE = re.compile(rf"^\* (?P<name>{_NAME}) (?P<text>.*)$")
@@ -275,11 +278,15 @@ def parse_logs(root: str, clock: LogClock, known_players: Iterable[str] = (),
             clock.to_utc(lines[-1].local) if lines else None))
 
         for raw in lines:
-            # "logged in with entity id" precedes "joined the game" and carries
-            # the spawn position; remember it and attach to the join event.
+            # "UUID of player" and "logged in with entity id" precede "joined the game";
+            # remember them and attach the uuid and spawn position to the join event.
+            if mt := RE_UUID.match(raw.msg):
+                pending_login[mt.group("name").lower()] = {"uuid": mt.group("uuid").lower()}
+                continue
             if mt := RE_LOGIN.match(raw.msg):
                 pos = (float(mt.group("x")), float(mt.group("y")), float(mt.group("z")))
-                pending_login[mt.group("name").lower()] = {"position": pos, "world": mt.group("world")}
+                pending_login.setdefault(mt.group("name").lower(), {}).update(
+                    {"position": pos, "world": mt.group("world")})
                 known.add(mt.group("name").lower())
                 continue
             if mt := RE_LOST.match(raw.msg):

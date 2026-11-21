@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-20 (hand-off to a new session; see HANDOFF.md).
+`CLAUDE.md`). Last updated: 2026-11-21 (first check against the owner's real backup; renamed players merged).
 
 ## What this project is
 
@@ -93,8 +93,13 @@ Problems found:
 5. ✅ *Mostly fixed* — `level.dat` in 26.1: spawn (`spawn.pos`), difficulty (`difficulty_settings`),
    seed/game rules/weather (`data/minecraft/*.dat`) now read. Day time's new location is not
    verified (left unknown).
-6. Two players without uuid (`5ou1s`, `InsidiousCrow`): not in usercache (likely Bedrock via
-   Geyser, or expired cache).
+6. ✅ *Fixed (2026-11-21, checked on the owner's real backup)*: the two players without uuid
+   (`5ou1s`, `InsidiousCrow`) were **old names** of Vakirath and Crow_Shroom. The logs'
+   `UUID of player NAME is …` lines prove it. Each person was split in two: stats under the new name,
+   the old name's sessions/chat under a second row with 0:00 play time. Fix: join events carry
+   the uuid; every logged name maps to the uuid's current name (usercache, else newest name
+   seen; `formerly known as` also links names). Multi-backup merges also follow a uuid to its
+   newer name. Result on the real backup: Vakirath 289 → 407 sessions, Crow_Shroom 134 → 156.
 7. ✅ *Fixed* — Whole-zip extraction does not scale (14.7 GB world): zips are now read selectively
    (no region files; replays as metadata stubs, full replay extracted on demand).
 8. Owner asked about versions ("I have multiple server jars"): the logs show **1.21.5 (Apr–Nov
@@ -269,6 +274,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-20 | Zip backups are read selectively; replays become metadata stubs until needed | Real backups are 15+ GB, mostly region files |
 | 2026-11-19 | Player/dimension folders are found by known paths first, then by searching the world folder | Survives future layout changes (26.1 moved everything) |
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
+| 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -292,6 +298,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** First run against the owner's real backup (local, 26.3, 438 logs, 10,109
+  events, 216 replays): stats, advancements and time zone now load (backlog #0.1/#0.2 confirmed).
+  Renamed players are merged into one (`5ou1s` → Vakirath, `InsidiousCrow` → Crow_Shroom); join
+  events gain `uuid`. Test `TestRenamedPlayer`.
 
 - **2026-11-20:** `HANDOFF.md` written: the work moves to a new session/account. Ledger idea added
   to the backlog.

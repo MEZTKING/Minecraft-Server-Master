@@ -830,6 +830,43 @@ class TestMinecraft26Layout(unittest.TestCase):
         self.assertEqual((good.start, good.start_source, good.duration_ms), (utc(2024, 5, 3, 18, 30), "save-time", 120_000))
 
 
+class TestRenamedPlayer(unittest.TestCase):
+    """Steve played as "Stevie" before a name change. The log's "UUID of player" line links the
+    old name to Steve's uuid, so both names make one player (seen on the owner's real server)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import gzip
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-rename-")
+        cls.root = build_server(os.path.join(cls.tmp, "server"))
+        with gzip.open(os.path.join(cls.root, "logs", "2024-04-30-1.log.gz"), "wt", encoding="utf-8") as fh:
+            fh.write(f"[19:59:59] [User Authenticator #1/INFO]: UUID of player Stevie is {STEVE}\n"
+                     "[20:00:00] [Server thread/INFO]: Stevie[/203.0.113.5:5000] logged in with entity id 3 at (1.0, 64.0, 2.0)\n"
+                     "[20:00:00] [Server thread/INFO]: Stevie joined the game\n"
+                     "[20:30:00] [Server thread/INFO]: <Stevie> my old name\n"
+                     "[21:00:00] [Server thread/INFO]: Stevie left the game\n")
+        cls.data = analyze(cls.root)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_one_player(self):
+        self.assertIsNone(self.data.player("stevie"))
+        steve = self.data.player("steve")
+        self.assertEqual(steve.uuid, STEVE)
+        self.assertIn("Stevie", steve.names_seen)
+        self.assertGreater(steve.stats["custom"]["play_time"], 0)
+        self.assertEqual(sum(1 for s in self.data.sessions if s.player == "Stevie"), 1)
+        join = next(e for e in self.data.events if e.type == m.EV_JOIN and e.player == "Stevie")
+        self.assertEqual((join.data["uuid"], join.data["position"]), (STEVE, (1.0, 64.0, 2.0)))
+
+    def test_formerly_known_as(self):
+        from mcsm.players import name_aliases
+        ev = m.Event(utc(2024, 5, 1), m.EV_JOIN, "Newname", "", "", None, {"formerly": "Oldname"})
+        self.assertEqual(name_aliases([ev], {})["oldname"], ("Newname", None))
+
+
 def _zip_dir(src: str, dst: str, wrapper: str = "") -> str:
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
         for cur, _dirs, files in os.walk(src):
