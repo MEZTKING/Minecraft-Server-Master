@@ -58,6 +58,23 @@ def thin(points: list[list]) -> list[list]:
     return out
 
 
+def prefer_own(points: list[list]) -> list[list]:
+    """Drop points seen in someone else's recording (6th element = who recorded) within 2 s of
+    the player's own recording or live-map track: their own is more exact."""
+    import bisect
+    own = [p[0] for p in points if len(p) < 6]
+    if not own or len(own) == len(points):
+        return points
+    out = []
+    for p in points:
+        if len(p) >= 6:
+            i = bisect.bisect_left(own, p[0] - 2000)
+            if i < len(own) and own[i] <= p[0] + 2000:
+                continue
+        out.append(p)
+    return out
+
+
 def history_payload(data: m.ServerData, title: str = "") -> dict:
     """Everything except the paths, as JSON-friendly data (times in epoch ms)."""
     events = []
@@ -196,7 +213,7 @@ class HistoryMap(TerrainServer):
         for f in files:
             for name, pts in self._loaded[f].items():
                 merged.setdefault(aliases.get(name, name), []).extend(pts)
-        out = {"players": {n: thin(sorted(p, key=lambda q: q[0])) for n, p in merged.items()}}
+        out = {"players": {n: thin(prefer_own(sorted(p, key=lambda q: q[0]))) for n, p in merged.items()}}
         out["points"] = sum(len(p) for p in out["players"].values())
         self._paths_cache = (len(files), out)
         return out

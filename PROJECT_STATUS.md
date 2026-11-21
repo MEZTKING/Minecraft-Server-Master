@@ -160,8 +160,13 @@ in my backup file as if its one recording"
   position; "Recordings at this moment" with the offset to seek to in Flashback; timeline with
   online/recording rows, deaths, backups. Terrain from the newest backup, built near spawn and
   log-in spots first. On the real backup: 216 recordings in a few minutes, ~100k points.
-  **Still to do (Phase 2b):** identify *other* players inside recordings (needs the
-  version-specific add-entity packet); terrain per backup (see the world change); terrain speed
+  **Phase 2b, other players: done 2026-11-21.** Players in view of each recording are
+  tracked via the add-entity game packet (id 1 in 26.2/26.3; matched by player UUID, so no
+  entity-type table) incl. the chunk snapshot, and remove-entities (77 in 26.2, 78 in 26.3;
+  unknown versions: stop 1 min after the last move). On the real backup: ~50,000 extra points
+  for 6 players across 216 recordings (3.5 min); vs. the same players' own recordings at
+  47,626 moments the median gap is 1.2 blocks, 99.9% within 20 (rest = teleports).
+  **Still to do:** terrain per backup (see the world change); terrain speed
   for big worlds (1,569 regions take well over an hour; cache tiles or a faster reader);
   "edit" (the owner's open question); open Flashback at the moment directly; Nether surface.
   (Terrain speed: done 2026-11-21, 1,569 regions in ~30 s, ~4 s cached.)
@@ -305,6 +310,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-21 | History viewer positions come from Flashback's version-independent `move_entities` action, not version-specific game packets; only the recorded player is tracked for now | Works for every Minecraft version without packet decoding; identifying other entities needs per-protocol work |
 | 2026-11-21 | Decoded paths are cached as `.jsonl` in the live-map track format (`%LOCALAPPDATA%\mcsm\paths`, keyed by file name + size + mtime) | Instant later runs; the same files feed `mcsm timelapse --tracks` |
 | 2026-11-21 | Terrain: partial NBT scanner + process pool (≤ 8 workers) + per-region tile cache in `%LOCALAPPDATA%\mcsm\terrain` | Full decoding was ~90% of the time; 16 cores were idle; repeat runs should be instant. Output verified identical to the full decoder on real regions |
+| 2026-11-21 | Other players in recordings are recognised by UUID in the add-entity packet, with per-protocol packet ids found in real files | Only two version-specific numbers instead of a full packet decoder; a wrong guess can't mislabel anyone because the UUID must match |
+| 2026-11-21 | A player's own recording wins over "seen in someone else's" within 2 s | Their own is exact; mixing both made trails zigzag |
 | 2026-11-21 | Region seams are stitched in the browser, not by resampling on the server | Tiles stay independent and cacheable per region; the page joins neighbours as they arrive |
 | 2026-11-21 | Web servers don't set SO_REUSEADDR on Windows | There it lets a second server silently take a busy port |
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
@@ -321,8 +328,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Terrain at automatic detail samples every 16 blocks on worlds this size, so hills look
   blocky and path lines can dip under the surface.
 - History viewer: path time = recording start + ticks × 50 ms, so server lag (slow ticks) and
-  paused time inside a recording shift later points slightly. Only the recorded player of
-  each recording is tracked; ReplayMod `.mcpr` recordings give no paths yet.
+  paused time inside a recording shift later points slightly. ReplayMod `.mcpr` recordings
+  give no paths yet. Other players need a known UUID (usercache/player files) and, for a
+  future Minecraft version, the add/remove packet ids in `paths.ADD_ENTITY` /
+  `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
 - **Not yet tested by the owner on real data:** log formats from their server, the
   installer's GUI wizard on a real Windows desktop, the live map against the real server
@@ -336,6 +345,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** History viewer shows **other players** seen in each recording ("seen by
+  NAME"), not just the recorder: add/remove-entity packets matched by player UUID, read from
+  the chunk snapshot too. Track files gain `recorded_by`/`seen` (also used by the timelapse's
+  area detection). Path cache version 2 (re-decoded once).
 
 - **2026-11-21:** The owner tried the installed app: the History tab works and terrain loads in
   parallel (worker processes OK in the frozen build). Fixed the dark grid lines between

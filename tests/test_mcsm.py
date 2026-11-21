@@ -971,7 +971,7 @@ class TestRenamedPlayer(unittest.TestCase):
         self.assertEqual(name_aliases([ev], {})["oldname"], ("Newname", None))
 
 
-def _fb_chunk(records: list[tuple[str, bytes]], with_local: tuple | None = None) -> bytes:
+def _fb_chunk(records: list[tuple[str, bytes]], snapshot: list[tuple[str, bytes]] = ()) -> bytes:
     """A Flashback chunk file with the given (action, payload) records (ServerReplay action order)."""
     import struct
 
@@ -988,10 +988,27 @@ def _fb_chunk(records: list[tuple[str, bytes]], with_local: tuple | None = None)
     body = struct.pack(">I", 0xD780E884) + vi(len(names))
     for n in names:
         body += vi(len(n)) + n.encode()
-    body += struct.pack(">I", 0)       # empty snapshot
-    for name, payload in records:
-        body += vi(names.index("flashback:action/" + name)) + struct.pack(">I", len(payload)) + payload
-    return body
+
+    def recs(items):
+        return b"".join(vi(names.index("flashback:action/" + name)) + struct.pack(">I", len(p)) + p for name, p in items)
+    snap = recs(snapshot)
+    return body + struct.pack(">I", len(snap)) + snap + recs(records)
+
+
+def _vi(n: int) -> bytes:
+    out = b""
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out += bytes([b | (0x80 if n else 0)])
+        if not n:
+            return out
+
+
+def _fb_add_player(eid: int, uuid_text: str, x: float, y: float, z: float, entity_type: int = 159) -> bytes:
+    """26.3 add-entity game packet (id 1): entity id, UUID, type, x, y, z, then more we don't read."""
+    import struct
+    return (_vi(1) + _vi(eid) + bytes.fromhex(uuid_text.replace("-", "")) + _vi(entity_type)
+            + struct.pack(">ddd", x, y, z) + b"\0" * 12)
 
 
 def _fb_move(entities: list[tuple[int, float, float, float]], dim: str = "minecraft:overworld") -> bytes:
@@ -1020,23 +1037,31 @@ class TestHistory(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="mcsm-hist-")
         cls.root = build_server_26_1(os.path.join(cls.tmp, "server"))
         # Steve (entity 7) walks east 1 block per second for 2 minutes, over two chunk files.
-        # Entity 9 (someone else) stands still. Recording starts 18:30 UTC (see fixtures).
+        # Alex (entity 9, added in the snapshot = already in view) walks north 1 block per second
+        # until a remove-entities packet at tick 600 (he left view). Entity 11 is a mob (unknown
+        # UUID). Recording starts 18:30 UTC (see fixtures); protocol 777 = 26.3.
         local = struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 10.0, 64.0, -3.0) + b"\0" * 40
+        snapshot = [("game_packet", _fb_add_player(9, ALEX, 500.0, 70.0, 500.0)),
+                    ("game_packet", _fb_add_player(11, "00000000-0000-4000-8000-0000000000ff", 0, 0, 0, 12))]
+        remove = ("game_packet", _vi(78) + _vi(2) + _vi(11) + _vi(9))
         chunks = []
         for c in range(2):
             recs = [("create_local_player", local)] if c == 0 else []
             for t in range(1200):
                 g = c * 1200 + t
-                ents = [(7, 10.0 + g / 20, 64.0, -3.0)]
-                if g == 0:
-                    ents.append((9, 500.0, 70.0, 500.0))
+                ents = [(7, 10.0 + g / 20, 64.0, -3.0), (11, 1.0, 1.0, float(g))]
+                if g < 600:
+                    ents.append((9, 500.0, 70.0, 500.0 - g / 20))
                 recs.append(("move_entities", _fb_move(ents)))
+                if g == 600:
+                    recs.append(remove)
                 recs.append(("next_tick", b""))
-            chunks.append(_fb_chunk(recs))
+            chunks.append(_fb_chunk(recs, snapshot if c == 0 else ()))
         cls.replay = os.path.join(cls.root, "recordings", "players", f"Recordings for_ Steve ({STEVE})",
                                   "2024-05-03--20-30-00.zip")
         with zipfile.ZipFile(cls.replay) as zf:
             meta, arcade = zf.read("metadata.json"), zf.read("arcade_replay_meta.json")
+        meta = json.dumps({**json.loads(meta), "protocol_version": 777})
         with zipfile.ZipFile(cls.replay, "w") as zf:
             zf.writestr("metadata.json", meta)
             zf.writestr("arcade_replay_meta.json", arcade)
@@ -1057,6 +1082,27 @@ class TestHistory(unittest.TestCase):
         self.assertAlmostEqual(pts[-1][2], 10.0 + 2399 / 20)
         self.assertEqual(len(pts), 120)                                                  # one per second
         self.assertTrue(all(p[2] < 500 for p in pts))                                   # never the other entity
+
+    def test_other_players(self):
+        from mcsm import paths
+        players = paths.player_uuids(self.data)
+        self.assertEqual(players[bytes.fromhex(ALEX.replace("-", ""))], "Alex")
+        alex = [p for p in paths.decode_entities(self.replay, players) if p[1] == "Alex"]
+        self.assertEqual(alex[0][:6], (20, "Alex", "minecraft:overworld", 500.0, 70.0, 500.0 - 19 / 20))
+        self.assertEqual(alex[-1][0], 600)                          # removed at tick 600: no more points
+        self.assertEqual(len(alex), 30)
+        self.assertFalse(any(p[1] not in (None, "Alex") for p in paths.decode_entities(self.replay, players)))  # no mobs
+        # Track file: Alex is marked as seen in Steve's recording.
+        f = paths.replay_track(self.data.replays[[r.path for r in self.data.replays].index(
+            next(r.path for r in self.data.replays if r.path.endswith("20-30-00.zip")))],
+            self.replay, os.path.join(self.tmp, "cache-other"), players)
+        pts = paths.read_tracks([f])
+        self.assertEqual(pts["Alex"][0][5], "Steve")
+        self.assertEqual(len(pts["Steve"][0]), 5)
+        # In the viewer, Alex's own points (if any) win over "seen" points at the same moment.
+        from mcsm.history import prefer_own
+        mixed = [[1000, 0, 0, 0, "d"], [1500, 9, 9, 9, "d", "Steve"], [9000, 1, 1, 1, "d", "Steve"]]
+        self.assertEqual([p[0] for p in prefer_own(mixed)], [1000, 9000])
 
     def test_tracks_and_cache(self):
         from mcsm import paths

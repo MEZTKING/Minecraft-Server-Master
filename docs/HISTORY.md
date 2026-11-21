@@ -13,7 +13,7 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
 ## What you see
 
 - **Players** walk along their paths as time moves. A solid marker means the position comes
-  from a recording at that moment. A faded marker means the player was online (from the logs)
+  from a recording at that moment: their own, or someone else's they were in view of. A faded marker means the player was online (from the logs)
   and that is their last known position this session: a path point or where they logged in.
 - **Trail**: where each player went in the last 1 min / 10 min / 1 hour / 1 day.
 - **All paths**: every recorded path in the current dimension, faint. Shows where people
@@ -46,8 +46,13 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
    per 30 MB of replay data; the owner's 22 GB backup took a few minutes). Results are cached in
    `%LOCALAPPDATA%\mcsm\paths` (`--cache DIR` to change), so later runs are instant. The page
    fills in while this runs.
-   - Only the **recorded player** is tracked from each recording. Other players visible in it
-     are not identified yet.
+   - Besides the **recorded player**, every **other player in view** is tracked too. They
+     are recognised by their UUID from the server files. In the player list their position
+     says *seen by NAME* (whose recording it comes from). When a player was recording
+     themselves at the same time, their own recording is used. Checked on the owner's
+     backup: "seen" positions match the players' own recordings to about a block.
+   - Mobs and other entities are not shown. Bedrock (Geyser) players without a UUID in the
+     server files can't be recognised.
    - ServerReplay **3.4.0/3.4.1** recordings contain no movement, so they give no paths.
 2. **Live-map recordings** (`mcsm live --record DIR`): `mcsm history SERVER --tracks DIR`.
 3. **Log-in positions** from the logs (every join), used as "last known position".
