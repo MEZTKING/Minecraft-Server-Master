@@ -237,9 +237,13 @@ class TerrainServer:
             return min(math.hypot(cx - x, cz - z) for x, z in focus)
         return sorted(files, key=dist)
 
+    terrain_cache: str | None = None      # None = terrain.default_cache_dir(); "" = no cache
+    terrain_workers: int | None = None    # None = automatic; 1 = no worker processes
+
     def _build_terrain(self) -> None:
         if not (self.root and self.world):
             return
+        cache = terrain_mod.default_cache_dir() if self.terrain_cache is None else (self.terrain_cache or None)
         for dim in ("minecraft:overworld", "minecraft:the_end"):
             files = self._ordered_regions(terrain_mod.region_files(self.root, self.world, dim))
             if not files:
@@ -248,16 +252,63 @@ class TerrainServer:
             step = self.terrain_step or terrain_mod.auto_step(len(files))
             tiles: dict[tuple[int, int], terrain_mod.Tile] = {}
             self.terrain[dim] = tiles
-            for i, path in enumerate(files):
+            todo = []
+            for path in files:                 # cached tiles first: instant
                 if self._stop.is_set():
                     return
-                try:
-                    t = terrain_mod.read_region_surface(path, step)
-                except Exception:  # noqa: BLE001 -- one unreadable region must not stop the rest
-                    t = None
-                if t:
-                    tiles[(t.rx, t.rz)] = t
-                self.terrain_progress[dim][0] = i + 1
+                found, t = (False, None)
+                if cache:
+                    try:
+                        found, t = terrain_mod.load_tile(terrain_mod.tile_cache_file(path, step, cache))
+                    except OSError:
+                        pass
+                if found:
+                    if t:
+                        tiles[(t.rx, t.rz)] = t
+                    self.terrain_progress[dim][0] += 1
+                else:
+                    todo.append(path)
+            if todo and not self._read_parallel(todo, step, cache, tiles, dim):
+                return
+
+    def _read_parallel(self, files: list[str], step: int, cache: str | None, tiles: dict, dim: str) -> bool:
+        """Read regions in worker processes (pure-Python decoding is CPU-bound); falls back to
+        this thread if processes can't be started. Returns False if stopped."""
+        workers = self.terrain_workers or max(1, min(8, (os.cpu_count() or 2) - 1))
+        if workers > 1 and len(files) > 2:
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+            done: set[str] = set()
+            try:
+                with ProcessPoolExecutor(max_workers=workers) as pool:
+                    futures = {pool.submit(terrain_mod.read_region_cached, p, step, cache): p for p in files}
+                    for fut in as_completed(futures):
+                        if self._stop.is_set():
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            return False
+                        try:
+                            t = fut.result()
+                        except (OSError, RuntimeError, ImportError):
+                            raise                      # the pool itself failed: finish below
+                        except Exception:  # noqa: BLE001 -- one unreadable region must not stop the rest
+                            t = None
+                        done.add(futures[fut])
+                        if t:
+                            tiles[(t.rx, t.rz)] = t
+                        self.terrain_progress[dim][0] += 1
+                return True
+            except (OSError, RuntimeError, ImportError):
+                files = [p for p in files if p not in done]   # e.g. processes not allowed: finish here
+        for path in files:
+            if self._stop.is_set():
+                return False
+            try:
+                t = terrain_mod.read_region_cached(path, step, cache)
+            except Exception:  # noqa: BLE001
+                t = None
+            if t:
+                tiles[(t.rx, t.rz)] = t
+            self.terrain_progress[dim][0] += 1
+        return True
 
     def height_at(self, x: float, z: float, dim: str = "minecraft:overworld") -> int | None:
         tiles = self.terrain.get(dim, {})

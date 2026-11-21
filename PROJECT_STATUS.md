@@ -164,6 +164,7 @@ in my backup file as if its one recording"
   version-specific add-entity packet); terrain per backup (see the world change); terrain speed
   for big worlds (1,569 regions take well over an hour; cache tiles or a faster reader);
   "edit" (the owner's open question); open Flashback at the moment directly; Nether surface.
+  (Terrain speed: done 2026-11-21, 1,569 regions in ~30 s, ~4 s cached.)
 - **Phase 2: "everything as one recording" 3D time-machine viewer**: a time slider across
   the whole history. Player paths, events pinned in 3D, sessions, replays as coverage bars. Click
   to open or sync the replay at that moment. Terrain from the nearest backup (switching backups
@@ -303,6 +304,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
 | 2026-11-21 | History viewer positions come from Flashback's version-independent `move_entities` action, not version-specific game packets; only the recorded player is tracked for now | Works for every Minecraft version without packet decoding; identifying other entities needs per-protocol work |
 | 2026-11-21 | Decoded paths are cached as `.jsonl` in the live-map track format (`%LOCALAPPDATA%\mcsm\paths`, keyed by file name + size + mtime) | Instant later runs; the same files feed `mcsm timelapse --tracks` |
+| 2026-11-21 | Terrain: partial NBT scanner + process pool (≤ 8 workers) + per-region tile cache in `%LOCALAPPDATA%\mcsm\terrain` | Full decoding was ~90% of the time; 16 cores were idle; repeat runs should be instant. Output verified identical to the full decoder on real regions |
 | 2026-11-21 | Web servers don't set SO_REUSEADDR on Windows | There it lets a second server silently take a busy port |
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
@@ -315,9 +317,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Timelapse over many days fast-forwards idle time at very high tick rates; Flashback export of
   such spans may be slow (not measured).
 - Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
-- **Terrain is slow for big worlds** (pure-Python region reader): the owner's 1,569 overworld
-  regions take well over an hour for the live map and history viewer. Regions near spawn and
-  log-ins come first. A tile cache or faster reader is the fix.
+- Terrain worker processes in the **frozen Windows app** (PyInstaller) rely on
+  `multiprocessing.freeze_support()` in the launchers; CI builds the installer but doesn't
+  start terrain workers in it. If processes can't start, terrain is read in one thread
+  (slower, still correct).
+- Terrain at automatic detail samples every 16 blocks on worlds this size, so hills look
+  blocky and path lines can dip under the surface.
 - History viewer: path time = recording start + ticks × 50 ms, so server lag (slow ticks) and
   paused time inside a recording shift later points slightly. Only the recorded player of
   each recording is tracked; ReplayMod `.mcpr` recordings give no paths yet.
@@ -334,6 +339,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** Terrain speed: the owner's 1,569-region world went from 12+ minutes (over an
+  hour while recordings were decoding) to ~33 s, and ~4 s on later runs (tile cache). Partial NBT
+  scanner (2.5× per region, identical output), process pool, tile cache, 8 parallel tile
+  downloads in the pages. Fixed 26.3 mixed palettes (`{"": name}` / `{id, properties}`) being
+  read as air. History viewer opens on the nearest recorded spot when nobody is online.
+  `python -m mcsm` and the installer launchers are now safe to re-import (worker processes).
 
 - **2026-11-21:** History viewer (`mcsm history`, app History tab, docs/HISTORY.md): the whole
   history on a 3D map with a time slider; player paths decoded from Flashback recordings

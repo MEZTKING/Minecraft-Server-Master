@@ -159,13 +159,18 @@ async function loadTerrain(dim) {
   let list;
   try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}`)).json(); } catch (e) { return; }
   if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
-  for (const t of list.tiles) {
-    const key = `${dim}|${t.rx}|${t.rz}`;
-    if (loadedTiles.has(key)) continue;
-    loadedTiles.add(key);
-    const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
-    terrainGroups[dim].add(tileMesh(t, buf));
-  }
+  const todo = list.tiles.filter(t => !loadedTiles.has(`${dim}|${t.rx}|${t.rz}`));
+  todo.forEach(t => loadedTiles.add(`${dim}|${t.rx}|${t.rz}`));
+  // 8 downloads at a time (big worlds have over a thousand tiles), nearest-first.
+  const worker = async () => {
+    for (let t; (t = todo.shift());) {
+      try {
+        const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
+        terrainGroups[dim].add(tileMesh(t, buf));
+      } catch (e) { loadedTiles.delete(`${dim}|${t.rx}|${t.rz}`); }
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
   updateTerrainVisibility();
 }
 function tileMesh(t, buf) {

@@ -101,10 +101,11 @@ Terrain: for each region file, the chunks' `MOTION_BLOCKING` heightmap gives the
 height, and the block at that height (decoded from the section's palette) gives an approximate
 colour. Supported worlds: Minecraft 1.16 and newer. Worlds bigger than ~12 regions are sampled
 every 2–32 blocks automatically. The Nether isn't drawn because its bedrock roof hides the
-surface, but Nether players are still shown, on a grid. Regions nearest spawn are built
-first; big worlds (over a thousand regions) take a long time to finish, so far-away land
-appears last. Minecraft 26.3's shorter palette format is supported, and a region that can't
-be read is skipped.
+surface, but Nether players are still shown, on a grid. Regions are read in parallel (up to
+8 worker processes), nearest to spawn first, and cached in `%LOCALAPPDATA%\mcsm\terrain`: a
+1,569-region world takes about 30 seconds the first time and a few seconds after that.
+Minecraft 26.3's new palette formats are supported, and a region that can't be read is
+skipped. To free the space, delete that folder; it is rebuilt when needed.
 
 ## Recorded tracks
 

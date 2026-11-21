@@ -213,13 +213,19 @@ async function loadTerrain(dim) {
   let list;
   try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}`)).json(); } catch (e) { return; }
   if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
-  for (const t of list.tiles) {
-    const key = `${dim}|${t.rx}|${t.rz}`;
-    if (loadedTiles.has(key)) continue;
-    loadedTiles.add(key);
-    const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
-    terrainGroups[dim].add(tileMesh(t, buf));
-  }
+  const todo = list.tiles.filter(t => !loadedTiles.has(`${dim}|${t.rx}|${t.rz}`));
+  todo.forEach(t => loadedTiles.add(`${dim}|${t.rx}|${t.rz}`));
+  // 8 downloads at a time (big worlds have over a thousand tiles); the server lists them
+  // nearest-first, so the land around the action appears first.
+  const worker = async () => {
+    for (let t; (t = todo.shift());) {
+      try {
+        const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
+        terrainGroups[dim].add(tileMesh(t, buf));
+      } catch (e) { loadedTiles.delete(`${dim}|${t.rx}|${t.rz}`); }
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
   updateDimVisibility();
 }
 function tileMesh(t, buf) {
@@ -475,9 +481,13 @@ function focusOn(v, dist) {
 function fitAll() {
   const d = $("#dim").value, box = new THREE.Box3();
   for (const m of Object.values(markers)) if (m.cur && m.cur.dim === d) box.expandByPoint(new THREE.Vector3(...m.cur.pos));
-  if (box.isEmpty()) for (const pts of Object.values(P)) {     // else everyone's paths in this dimension
-    const lo = lower(pts, T - 86400000, p => p[0]), hi = lower(pts, T + 86400000, p => p[0]);
-    for (let i = lo; i < hi; i += 5) if (pts[i][4] === d) box.expandByPoint(new THREE.Vector3(pts[i][1], pts[i][2], pts[i][3]));
+  if (box.isEmpty()) {                 // nobody here now: the recorded position nearest in time
+    let best = null;
+    for (const pts of Object.values(P)) {
+      const i = lower(pts, T, p => p[0]);
+      for (const p of [pts[i - 1], pts[i]]) if (p && p[4] === d && (!best || Math.abs(p[0] - T) < Math.abs(best[0] - T))) best = p;
+    }
+    if (best) box.expandByPoint(new THREE.Vector3(best[1], best[2], best[3]));
   }
   if (box.isEmpty() && terrainBounds && d === "minecraft:overworld") box.set(new THREE.Vector3(terrainBounds.minX, 60, terrainBounds.minZ), new THREE.Vector3(terrainBounds.maxX, 80, terrainBounds.maxZ));
   if (box.isEmpty()) return;

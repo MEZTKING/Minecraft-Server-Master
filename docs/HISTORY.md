@@ -57,9 +57,11 @@ timelapses: `mcsm timelapse … --tracks "%LOCALAPPDATA%\mcsm\paths"`.
 
 ## Terrain
 
-The landscape comes from the **newest** backup's world. Big worlds take a long time to read
-(the owner's 1,569 regions take well over an hour), so regions near spawn and where people log
-in are built first and the rest follows in the background. The Nether surface is not drawn.
+The landscape comes from the **newest** backup's world. Regions are read in parallel (one
+worker process per CPU core, up to 8), nearest to spawn and log-in spots first, and each
+finished region is cached in `%LOCALAPPDATA%\mcsm\terrain`. The owner's 1,569-region world takes
+about 30 seconds the first time and about 4 seconds after that. A region is read again only when
+its file changes, e.g. in a newer backup. The Nether surface is not drawn.
 
 ## Options
 

@@ -1,4 +1,4 @@
-"""Surface terrain from region files, for the 3D live map.
+"""Surface terrain from region files, for the 3D live map and the history viewer.
 
 Region files (``r.<rx>.<rz>.mca``) each hold 32x32 chunks of 16x16 columns:
 
@@ -121,6 +121,221 @@ def iter_chunks(path: str) -> Iterator[tuple[int, int, dict]]:
             continue
 
 
+def iter_raw_chunks(path: str) -> Iterator[tuple[int, int, bytes]]:
+    """Like :func:`iter_chunks`, but yields the decompressed NBT bytes (not decoded)."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if len(data) < 8192:
+        return
+    for i in range(1024):
+        off = int.from_bytes(data[i * 4:i * 4 + 3], "big")
+        if off == 0:
+            continue
+        start = off * 4096
+        if start + 5 > len(data):
+            continue
+        length = struct.unpack_from(">i", data, start)[0]
+        comp = data[start + 4]
+        raw = data[start + 5:start + 4 + length]
+        try:
+            if comp == 2:
+                raw = zlib.decompress(raw)
+            elif comp == 1:
+                raw = gzip.decompress(raw)
+            elif comp != 3:
+                continue
+        except (zlib.error, OSError, EOFError):
+            continue
+        yield i % 32, i // 32, raw
+
+
+# --- fast partial NBT reading --------------------------------------------------
+# Decoding a whole chunk into Python objects is ~90% of the time. The map needs only the
+# heightmap and each section's palette + block data, so this reader walks the bytes, keeps
+# those tags and skips everything else (entities, lighting, biomes...) without building objects.
+# Specs: {tag name (bytes): "val" | "palette" | sub-spec dict | ("list", sub-spec)}.
+
+_FIXED = {1: 1, 2: 2, 3: 4, 4: 8, 5: 4, 6: 8}
+_ARRAY_ITEM = {7: 1, 11: 4, 12: 8}
+_U16, _I32 = struct.Struct(">H"), struct.Struct(">i")
+
+_SEC_SPEC = {b"Y": "val", b"block_states": {b"palette": "lazy", b"data": "lazy"}}
+_HM_SPEC = {b"MOTION_BLOCKING": "val", b"WORLD_SURFACE": "val"}
+_OLD_SEC_SPEC = {b"Y": "val", b"Palette": "lazy", b"BlockStates": "lazy"}
+_ROOT_SPEC = {b"yPos": "val", b"Heightmaps": _HM_SPEC, b"sections": ("list", _SEC_SPEC),
+              b"Level": {b"Heightmaps": _HM_SPEC, b"Sections": ("list", _OLD_SEC_SPEC)}}
+_NAME_SPEC = {b"Name": "val", b"id": "val", b"": "val"}    # see _block_name for the formats
+
+
+def _skip(b: bytes, t: int, pos: int) -> int:
+    if t in _FIXED:
+        return pos + _FIXED[t]
+    if t in _ARRAY_ITEM:
+        return pos + 4 + _I32.unpack_from(b, pos)[0] * _ARRAY_ITEM[t]
+    if t == 8:
+        return pos + 2 + _U16.unpack_from(b, pos)[0]
+    if t == 9:
+        et, n = b[pos], _I32.unpack_from(b, pos + 1)[0]
+        pos += 5
+        if n <= 0:
+            return pos
+        if et in _FIXED:
+            return pos + n * _FIXED[et]
+        for _ in range(n):
+            pos = _skip(b, et, pos)
+        return pos
+    if t == 10:
+        return _skip_compound(b, pos)
+    raise ValueError(f"bad NBT tag {t}")
+
+
+def _skip_compound(b: bytes, pos: int) -> int:
+    # Hot path (block palettes are thousands of small compounds): handle the common tags
+    # inline and only call out for nested lists/compounds/arrays.
+    while True:
+        ct = b[pos]
+        if ct == 0:
+            return pos + 1
+        pos += 3 + (b[pos + 1] << 8 | b[pos + 2])          # tag byte + name
+        if ct == 8:
+            pos += 2 + (b[pos] << 8 | b[pos + 1])
+        elif ct in _FIXED:
+            pos += _FIXED[ct]
+        elif ct == 10:
+            pos = _skip_compound(b, pos)
+        else:
+            pos = _skip(b, ct, pos)
+
+
+def _value(b: bytes, t: int, pos: int):
+    if t == 1:
+        return struct.unpack_from(">b", b, pos)[0], pos + 1
+    if t == 2:
+        return struct.unpack_from(">h", b, pos)[0], pos + 2
+    if t == 3:
+        return _I32.unpack_from(b, pos)[0], pos + 4
+    if t == 4:
+        return struct.unpack_from(">q", b, pos)[0], pos + 8
+    if t == 8:
+        n = _U16.unpack_from(b, pos)[0]
+        return b[pos + 2:pos + 2 + n].decode("utf-8", "replace"), pos + 2 + n
+    if t in (11, 12):
+        n = _I32.unpack_from(b, pos)[0]
+        fmt = "i" if t == 11 else "q"
+        return list(struct.unpack_from(f">{n}{fmt}", b, pos + 4)), pos + 4 + n * _ARRAY_ITEM[t]
+    return None, _skip(b, t, pos)
+
+
+def _compound(b: bytes, pos: int, spec: dict) -> tuple[dict, int]:
+    out: dict = {}
+    while True:
+        t = b[pos]
+        pos += 1
+        if t == 0:
+            return out, pos
+        nl = _U16.unpack_from(b, pos)[0]
+        name = b[pos + 2:pos + 2 + nl]
+        pos += 2 + nl
+        sub = spec.get(name)
+        if sub is None:
+            pos = _skip(b, t, pos)
+        elif sub == "lazy":                  # remember where it is; decode only if needed
+            out[name] = (t, pos)
+            pos = _skip(b, t, pos)
+        elif sub == "val":
+            out[name], pos = _value(b, t, pos)
+        elif sub == "palette" and t == 9:
+            et, n = b[pos], _I32.unpack_from(b, pos + 1)[0]
+            pos += 5
+            names = []
+            for _ in range(max(0, n)):
+                if et == 8:
+                    v, pos = _value(b, 8, pos)
+                    names.append(v)
+                elif et == 10:
+                    d, pos = _compound(b, pos, _NAME_SPEC)
+                    names.append(d.get(b"Name") or d.get(b"id") or d.get(b"") or "minecraft:air")
+                else:
+                    pos = _skip(b, et, pos)
+            out[name] = names
+        elif isinstance(sub, dict) and t == 10:
+            out[name], pos = _compound(b, pos, sub)
+        elif isinstance(sub, tuple) and t == 9:
+            et, n = b[pos], _I32.unpack_from(b, pos + 1)[0]
+            pos += 5
+            items = []
+            for _ in range(max(0, n)):
+                if et == 10:
+                    d, pos = _compound(b, pos, sub[1])
+                    items.append(d)
+                else:
+                    pos = _skip(b, et, pos)
+            out[name] = items
+        else:
+            pos = _skip(b, t, pos)
+
+
+def _compound_list_palette(b: bytes, pos: int) -> tuple[list[str], int]:
+    et, n = b[pos], _I32.unpack_from(b, pos + 1)[0]
+    pos += 5
+    names = []
+    for _ in range(max(0, n)):
+        if et == 8:
+            v, pos = _value(b, 8, pos)
+            names.append(v)
+        elif et == 10:
+            d, pos = _compound(b, pos, _NAME_SPEC)
+            names.append(d.get(b"Name") or d.get(b"id") or d.get(b"") or "minecraft:air")
+        else:
+            pos = _skip(b, et, pos)
+    return names, pos
+
+
+class _LazySections(dict):
+    """``{section_y: (palette, data)}`` that decodes a section only when it is looked up."""
+
+    def __init__(self, raw: bytes):
+        super().__init__()
+        self.raw = raw
+
+    def get(self, key, default=None):
+        v = super().get(key, default)
+        if isinstance(v, tuple) and len(v) == 2 and isinstance(v[0], tuple):
+            (pt, ppos), data = v
+            pal = _compound_list_palette(self.raw, ppos)[0] if pt == 9 else []
+            longs = _value(self.raw, data[0], data[1])[0] if data else []
+            v = (pal, longs or [])
+            if not pal:
+                super().__delitem__(key)
+                return default
+            self[key] = v
+        return v
+
+
+def _fast_sections(raw: bytes) -> tuple[dict[int, tuple[list, list[int]]], int, dict]:
+    """:func:`_sections` straight from chunk bytes (same result, much faster). Sections are
+    decoded lazily, on first lookup."""
+    if not raw or raw[0] != 10:
+        raise ValueError("not an NBT compound")
+    pos = 3 + _U16.unpack_from(raw, 1)[0]
+    root, _ = _compound(raw, pos, _ROOT_SPEC)
+    out = _LazySections(raw)
+    if b"sections" in root:                                   # 1.18+
+        secs = [(s.get(b"Y", 0), (s.get(b"block_states") or {}).get(b"palette"),
+                 (s.get(b"block_states") or {}).get(b"data")) for s in root[b"sections"]]
+        min_y = root.get(b"yPos", -4) * 16
+        hm = root.get(b"Heightmaps") or {}
+    else:                                                     # 1.16-1.17
+        level = root.get(b"Level") or {}
+        secs = [(s.get(b"Y", 0), s.get(b"Palette"), s.get(b"BlockStates")) for s in level.get(b"Sections") or []]
+        min_y = 0
+        hm = level.get(b"Heightmaps") or {}
+    for y, pal, data in secs:
+        if pal and pal[0] == 9 and _I32.unpack_from(raw, pal[1] + 1)[0] > 0:   # non-empty palette
+            dict.__setitem__(out, y, (pal, data))
+    return out, min_y, {k.decode(): v for k, v in hm.items()}
+
+
 def _unpack(longs: list[int], bits: int, index: int) -> int:
     per = 64 // bits
     word = longs[index // per] & 0xFFFFFFFFFFFFFFFF
@@ -128,12 +343,17 @@ def _unpack(longs: list[int], bits: int, index: int) -> int:
 
 
 def _block_name(p) -> str:
-    """A palette entry: ``{"Name": ..., "Properties": ...}``, or (26.3+, data version 5023) just
-    the block name as a string."""
+    """A palette entry. Seen in real worlds:
+
+    * ``{"Name": ..., "Properties": {...}}`` (1.13 – 26.2);
+    * 26.3 (data version 5023): a plain string when every entry is a plain name; otherwise a
+      list of compounds where blocks with properties are ``{"id": ..., "properties": {...}}``
+      and plain names are wrapped as ``{"": "minecraft:stone"}`` (NBT lists hold one type).
+    """
     if isinstance(p, str):
         return p
     if isinstance(p, dict):
-        return p.get("Name", "minecraft:air")
+        return p.get("Name") or p.get("id") or p.get("") or "minecraft:air"
     return "minecraft:air"
 
 
@@ -197,10 +417,14 @@ def read_region_surface(path: str, step: int = 4) -> Tile | None:
     colours = bytearray(size * size * 3)
     found = False
     offsets = range(0, 16, step) if step <= 16 else [0]
-    for cx, cz, chunk in iter_chunks(path):
+    colour_cache: dict[str, bytes] = {}
+    for cx, cz, raw in iter_raw_chunks(path):
         if step > 16 and ((cx * 16) % step or (cz * 16) % step):
             continue
-        sections, min_y, hm = _sections(chunk)
+        try:
+            sections, min_y, hm = _fast_sections(raw)
+        except (ValueError, IndexError, struct.error):
+            continue
         motion = hm.get("MOTION_BLOCKING") or hm.get("WORLD_SURFACE")
         if not motion or not sections:
             continue
@@ -218,9 +442,85 @@ def read_region_surface(path: str, step: int = 4) -> Tile | None:
                 sx, sz = (cx * 16 + lx) // step, (cz * 16 + lz) // step
                 i = sz * size + sx
                 heights[i] = top
-                colours[i * 3:i * 3 + 3] = bytes(block_colour(block))
+                rgb = colour_cache.get(block)
+                if rgb is None:
+                    rgb = colour_cache[block] = bytes(block_colour(block))
+                colours[i * 3:i * 3 + 3] = rgb
                 found = True
     return Tile(rx, rz, step, size, heights, bytes(colours)) if found else None
+
+
+# --- tile cache ------------------------------------------------------------------
+# One small file per region and sampling step, keyed by the region file's name, size and
+# modification time, so later runs (and the live map / history viewer) load terrain instantly.
+# An empty file means "this region has no surface".
+
+_TILE_HEAD = struct.Struct(">4sBiiHH")       # magic, version, rx, rz, step, size
+_TILE_MAGIC, _TILE_VERSION = b"MCST", 1
+
+
+def default_cache_dir() -> str:
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "mcsm", "terrain")
+
+
+def tile_cache_file(path: str, step: int, cache_dir: str) -> str:
+    st = os.stat(path)
+    key = f"{_TILE_VERSION}|{os.path.basename(path)}|{st.st_size}|{st.st_mtime_ns}|{step}"
+    return os.path.join(cache_dir, f"{zlib.crc32(key.encode()):08x}-{os.path.basename(path)}-{step}.tile")
+
+
+def save_tile(file: str, tile: Tile | None) -> None:
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+    tmp = file + ".tmp"
+    with open(tmp, "wb") as fh:
+        if tile is not None:
+            fh.write(_TILE_HEAD.pack(_TILE_MAGIC, _TILE_VERSION, tile.rx, tile.rz, tile.step, tile.size))
+            fh.write(struct.pack(f">{len(tile.heights)}h", *tile.heights))
+            fh.write(tile.colours)
+    os.replace(tmp, file)
+
+
+def load_tile(file: str) -> tuple[bool, Tile | None]:
+    """``(found, tile)``: found is False when there is no usable cache entry."""
+    try:
+        with open(file, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return False, None
+    if not data:
+        return True, None
+    try:
+        magic, ver, rx, rz, step, size = _TILE_HEAD.unpack_from(data, 0)
+        if magic != _TILE_MAGIC or ver != _TILE_VERSION:
+            return False, None
+        n = size * size
+        heights = list(struct.unpack_from(f">{n}h", data, _TILE_HEAD.size))
+        colours = data[_TILE_HEAD.size + 2 * n:_TILE_HEAD.size + 5 * n]
+        if len(colours) != 3 * n:
+            return False, None
+        return True, Tile(rx, rz, step, size, heights, colours)
+    except struct.error:
+        return False, None
+
+
+def read_region_cached(path: str, step: int, cache_dir: str | None) -> Tile | None:
+    """:func:`read_region_surface` through the tile cache. Safe to run in a worker process."""
+    if not cache_dir:
+        return read_region_surface(path, step)
+    try:
+        cf = tile_cache_file(path, step, cache_dir)
+    except OSError:
+        return read_region_surface(path, step)
+    found, tile = load_tile(cf)
+    if found:
+        return tile
+    tile = read_region_surface(path, step)
+    try:
+        save_tile(cf, tile)
+    except OSError:
+        pass
+    return tile
 
 
 DIMENSION_DIRS = {  # 26.1+ layout first

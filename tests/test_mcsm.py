@@ -16,6 +16,9 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Caches (terrain tiles, decoded paths) default to %LOCALAPPDATA%\mcsm: keep tests out of the real one.
+os.environ["LOCALAPPDATA"] = tempfile.mkdtemp(prefix="mcsm-test-appdata-")
+
 from fixtures import ALEX, REPLAY_START_MS, STEVE, build_server, write_click_track  # noqa: E402,F401
 
 from mcsm import cli, logs, models as m, music, nbt, sync  # noqa: E402
@@ -668,6 +671,68 @@ class TestTerrain(unittest.TestCase):
         self.assertEqual(terrain.auto_step(4), 1)
         self.assertEqual(terrain.auto_step(400), 8)
 
+    def test_fast_reader_matches_full_decode(self):
+        from mcsm import terrain
+        h = lambda x, z: 60 + (x * 7 + z * 3) % 40  # noqa: E731  (crosses section borders)
+        blocks = ["minecraft:stone", "minecraft:sand", "minecraft:oak_log", "minecraft:water", "minecraft:snow"]
+        b = lambda x, y, z: blocks[(x + y + z) % len(blocks)]  # noqa: E731
+        chunk = terrain.make_chunk(3, -2, h, b)
+        chunk["block_entities"] = [{"id": "minecraft:chest", "Items": [{"id": "x", "Count": nbt.Typed(nbt.TAG_BYTE, 1)}]}]
+        chunk["sections"][0]["biomes"] = {"palette": ["minecraft:plains"]}       # extra tags to skip
+        # 26.3 palette formats (seen in the owner's world): all plain strings, or compounds
+        # mixing {"": name} (wrapped plain name) and {"id": name, "properties": {...}}.
+        pal0 = chunk["sections"][0]["block_states"]["palette"]
+        chunk["sections"][0]["block_states"]["palette"] = [p["Name"] for p in pal0]
+        pal1 = chunk["sections"][1]["block_states"]["palette"]
+        chunk["sections"][1]["block_states"]["palette"] = (
+            [{"": pal1[0]["Name"]}] + [{"id": p["Name"], "properties": {"axis": "y"}} for p in pal1[1:]])
+        raw = nbt.dumps(chunk, compress=False)
+        fast, slow = terrain._fast_sections(raw), terrain._sections(nbt.loads(raw))
+        self.assertEqual((fast[1], fast[2]), (slow[1], slow[2]))
+        for y in slow[0]:
+            self.assertEqual(fast[0].get(y), slow[0][y])
+        names = [n for y in slow[0] for n in slow[0][y][0]]
+        self.assertTrue(set(names) <= {"minecraft:air", *blocks}, names)          # no format read as air/garbage
+        self.assertGreater(len(set(names) & set(blocks)), 2)
+        old = {"Level": {"Sections": [{"Y": nbt.Typed(nbt.TAG_BYTE, 4), "Palette": [{"Name": "minecraft:dirt"}],
+                                       "BlockStates": nbt.Typed(nbt.TAG_LONG_ARRAY, [0] * 256)}],
+                         "Heightmaps": {"MOTION_BLOCKING": nbt.Typed(nbt.TAG_LONG_ARRAY, [1] * 37)}}}
+        raw = nbt.dumps(old, compress=False)                                         # 1.16-1.17 layout
+        fast, slow = terrain._fast_sections(raw), terrain._sections(nbt.loads(raw))
+        self.assertEqual((fast[0].get(4), fast[1], fast[2]), (slow[0][4], slow[1], slow[2]))
+
+    def test_tile_cache_and_parallel_build(self):
+        from mcsm import terrain
+        from mcsm.live import LiveMap
+        h = lambda x, z: 64 + (x // 8 + z // 8) % 5  # noqa: E731
+        b = lambda x, y, z: "minecraft:grass_block"  # noqa: E731
+        with tempfile.TemporaryDirectory() as d:
+            world = os.path.join(d, "world")
+            for rx in range(4):
+                terrain.write_region(os.path.join(world, "region", f"r.{rx}.0.mca"),
+                                     {(0, 0): terrain.make_chunk(rx * 32, 0, h, b)})
+            cache = os.path.join(d, "cache")
+            serial = LiveMap(None, d, world, terrain_step=4)
+            serial.terrain_cache, serial.terrain_workers = "", 1
+            serial._build_terrain()
+            par = LiveMap(None, d, world, terrain_step=4)
+            par.terrain_cache, par.terrain_workers = cache, 2
+            par._build_terrain()
+            want = {k: (t.heights, t.colours) for k, t in serial.terrain["minecraft:overworld"].items()}
+            got = {k: (t.heights, t.colours) for k, t in par.terrain["minecraft:overworld"].items()}
+            self.assertEqual(len(want), 4)
+            self.assertEqual(got, want)
+            self.assertEqual(par.terrain_progress["minecraft:overworld"], [4, 4])
+            self.assertEqual(len([f for f in os.listdir(cache) if f.endswith(".tile")]), 4)
+            again = LiveMap(None, d, world, terrain_step=4)                    # served from the cache
+            again.terrain_cache = cache
+            again._build_terrain()
+            self.assertEqual({k: (t.heights, t.colours) for k, t in again.terrain["minecraft:overworld"].items()}, want)
+            # a changed region file is read again
+            f = os.path.join(world, "region", "r.0.0.mca")
+            os.utime(f, ns=(os.stat(f).st_atime_ns, os.stat(f).st_mtime_ns + 5_000_000_000))
+            self.assertFalse(terrain.load_tile(terrain.tile_cache_file(f, 4, cache))[0])
+
 
 def assert_valid_flashback_editor_state(tc, state):
     """Checks every requirement found in Flashback's source (see docs/FLASHBACK.md)."""
@@ -997,7 +1062,8 @@ class TestHistory(unittest.TestCase):
         from mcsm import paths
         files, warns = paths.tracks_from_replays(self.data, lambda r: os.path.join(self.root, r.path), self.cache)
         self.assertEqual((len(files), warns), (1, []))     # the 3.4.1 file (no timeline) is skipped
-        rows = [json.loads(line) for line in open(files[0], encoding="utf-8")]
+        with open(files[0], encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh]
         self.assertEqual(rows[0]["t"], int(utc(2024, 5, 3, 18, 30, 1).timestamp() * 1000))
         self.assertEqual(rows[0]["players"][0]["name"], "Steve")
         mtime = os.path.getmtime(files[0])
