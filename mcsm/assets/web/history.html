@@ -34,12 +34,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 #scene { position: fixed; inset: 0; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(6px); }
-#panel { position: fixed; top: 12px; left: 12px; width: 310px; max-height: calc(100% - 190px); overflow: auto; padding: 12px; }
+#panel { position: fixed; top: 12px; left: 12px; width: 310px; max-height: calc(100% - 190px); overflow-y: auto; overflow-x: hidden; padding: 12px; }
+#panel li, #panel .note { overflow-wrap: anywhere; }
 #panel h1 { font-size: 15px; margin: 0 0 2px; }
 h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin: 14px 0 4px; font-weight: 600; }
 .sub { color: var(--text-2); font-size: 12px; }
 .row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 select, button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--text); cursor: pointer; }
+input[type=text] { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); flex: 1; min-width: 0; }
+button:disabled { opacity: .5; cursor: default; }
+#hl li { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
+#hl li.editing { border-color: var(--accent); }
+#hl .t { font-weight: 600; }
+#hl .acts { display: flex; gap: 4px; margin-top: 4px; }
+#hl .acts button { padding: 2px 8px; font-size: 12px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 64px; }
 ul { list-style: none; margin: 0; padding: 0; }
 #players li { padding: 5px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
@@ -112,9 +120,23 @@ ul { list-style: none; margin: 0; padding: 0; }
   <ul id="now"></ul>
   <h2>Recordings at this moment</h2>
   <ul id="recs"></ul>
+  <h2>Highlights for videos</h2>
+  <div class="row" style="margin-top:2px">
+    <button id="hlIn" type="button" title="Use the current time as the start (key I)">Start (I)</button>
+    <button id="hlOut" type="button" title="Use the current time as the end (key O)">End (O)</button>
+    <span class="meta" id="hlSpan">Move to a moment and press Start.</span>
+  </div>
+  <div class="row">
+    <input id="hlTitle" type="text" placeholder="Title, e.g. Wither fight" maxlength="120">
+    <button id="hlSave" class="primary" type="button">Save</button>
+    <button id="hlCancel" type="button" hidden>Cancel</button>
+  </div>
+  <ul id="hl"></ul>
+  <div class="row"><button id="hlExport" type="button">Export to Flashback</button></div>
+  <div class="note" id="hlStatus"></div>
   <div class="note" id="status"></div>
 </aside>
-<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses</div>
+<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses · I / O mark a highlight's start / end</div>
 
 <section id="timeline" class="card">
   <div class="row" style="margin-top:0">
@@ -145,6 +167,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     <span><i style="background:var(--warn)"></i>backup</span>
     <span><i style="background:var(--bad)"></i>death</span>
     <span><i style="background:var(--text-2)"></i>other events</span>
+    <span><i style="background:var(--good);opacity:.4"></i>highlight</span>
   </div>
 </section>
 
@@ -569,6 +592,14 @@ function drawTimeline() {
   const top = 14 * dpr, avail = Hh - top - 16 * dpr;
   const rh = Math.max(3 * dpr, Math.min(rowH, (avail - gap * players.length) / Math.max(1, players.length)));
   ctx.fillStyle = css("--track"); ctx.fillRect(0, top, W, Hh - top - 14 * dpr);
+  // highlights (saved: green bands; being marked: accent)
+  ctx.fillStyle = css("--good"); ctx.globalAlpha = 0.28;
+  for (const h of HL.highlights) if (h.end >= view[0] && h.start <= view[1] && h.id !== hlEditing)
+    ctx.fillRect(xOf(h.start), top, Math.max(2 * dpr, xOf(h.end) - xOf(h.start)), Hh - top - 14 * dpr);
+  ctx.fillStyle = css("--accent"); ctx.globalAlpha = 0.3;
+  if (hlIn != null && hlOut != null) ctx.fillRect(xOf(Math.min(hlIn, hlOut)), top, Math.max(2 * dpr, Math.abs(xOf(hlOut) - xOf(hlIn))), Hh - top - 14 * dpr);
+  ctx.globalAlpha = 1;
+  for (const t of [hlIn, hlOut]) if (t != null) ctx.fillRect(xOf(t) - dpr, top, 2 * dpr, Hh - top - 14 * dpr);
   players.forEach((name, k) => {
     const y = top + k * (rh + gap / 2);
     ctx.globalAlpha = isDark() ? 0.38 : 0.3; ctx.fillStyle = playerColour(name);
@@ -638,13 +669,92 @@ $("#next").onclick = () => { const t = nextStart(T + 1000); if (t != null) seek(
 $("#prev").onclick = () => { const t = prevStart(T); if (t != null) seek(t); };
 function anyoneOnline(t) { return H.players.some(n => onlineAt(n, t)) || H.players.some(n => positionAt(n, t)); }
 
+// ---------- highlights ----------
+let HL = { highlights: [] }, hlIn = null, hlOut = null, hlEditing = null, playUntil = null;
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `${res.status}`);
+  return data;
+}
+async function loadHighlights() {
+  try { HL = await (await fetch("api/highlights")).json(); } catch (e) { return; }
+  renderHighlights(); drawTimeline();
+}
+function showSpan() {
+  const bits = [];
+  if (hlIn != null) bits.push(`from ${fmtShort(hlIn)}`);
+  if (hlOut != null) bits.push(`to ${fmtShort(hlOut)}`);
+  if (hlIn != null && hlOut != null) bits.push(`(${hms(Math.abs(hlOut - hlIn))})`);
+  $("#hlSpan").textContent = bits.length ? bits.join(" ") : "Move to a moment and press Start.";
+  $("#hlSave").disabled = hlIn == null || hlOut == null || Math.abs(hlOut - hlIn) < 1000;
+  $("#hlCancel").hidden = hlIn == null && hlOut == null && !hlEditing;
+  drawTimeline();
+}
+function resetEditor() { hlIn = hlOut = hlEditing = null; $("#hlTitle").value = ""; showSpan(); renderHighlights(); }
+$("#hlIn").onclick = () => { hlIn = T; if (hlOut != null && hlOut < hlIn) hlOut = null; showSpan(); };
+$("#hlOut").onclick = () => { hlOut = T; if (hlIn == null) hlIn = Math.max(H.range[0], T - 60000); showSpan(); };
+$("#hlCancel").onclick = resetEditor;
+$("#hlSave").onclick = async () => {
+  try {
+    await post("api/highlights", { id: hlEditing || undefined, title: $("#hlTitle").value, start: Math.min(hlIn, hlOut), end: Math.max(hlIn, hlOut) });
+    $("#hlStatus").textContent = `Saved to ${HL.file || "the highlights file"}.`;
+    resetEditor(); await loadHighlights();
+  } catch (e) { $("#hlStatus").textContent = `Couldn't save: ${e.message}`; }
+};
+$("#hlTitle").addEventListener("keydown", e => { if (e.key === "Enter" && !$("#hlSave").disabled) $("#hlSave").click(); });
+function renderHighlights() {
+  const ul = $("#hl"); ul.replaceChildren();
+  for (const h of HL.highlights) {
+    const li = document.createElement("li");
+    if (h.id === hlEditing) li.className = "editing";
+    const t = document.createElement("div"); t.className = "t"; t.textContent = h.title;
+    const meta = document.createElement("div"); meta.className = "meta";
+    const recs = h.recordings || [];
+    meta.textContent = `${fmtShort(h.start)} · ${hms(h.end - h.start)}` + (h.players && h.players.length ? ` · ${h.players.join(", ")}` : "")
+      + ` · ${recs.length ? `${recs.length} recording${recs.length > 1 ? "s" : ""} (${[...new Set(recs.map(r => r.player || "?"))].join(", ")})` : "no recording covers it"}`;
+    const acts = document.createElement("div"); acts.className = "acts";
+    const btn = (label, title, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; acts.appendChild(b); };
+    btn("▶ Play", "Play just this highlight", () => { seek(h.start); playUntil = h.end; setPlaying(true); });
+    btn("Edit", "Change the title or move start/end (Start/End buttons), then Save", () => {
+      hlEditing = h.id; hlIn = h.start; hlOut = h.end; $("#hlTitle").value = h.title; seek(h.start); showSpan(); renderHighlights();
+    });
+    btn("Delete", "Delete this highlight", async () => {
+      if (!confirm(`Delete the highlight "${h.title}"?`)) return;
+      try { await post("api/highlights/delete", { id: h.id }); if (hlEditing === h.id) resetEditor(); await loadHighlights(); }
+      catch (e) { $("#hlStatus").textContent = `Couldn't delete: ${e.message}`; }
+    });
+    li.append(t, meta, acts);
+    ul.appendChild(li);
+  }
+  if (!HL.highlights.length) ul.innerHTML = `<li class="empty" style="border:0">No highlights yet: mark a start and an end, give it a title, Save.</li>`;
+  $("#hlExport").disabled = !HL.highlights.length;
+  $("#hlExport").title = HL.flashback_dir ? `Copies each covering recording into ${HL.flashback_dir}\\replays with markers and one export scene per highlight`
+    : "Flashback's folder wasn't found: the copies go next to the highlights file";
+}
+$("#hlExport").onclick = async () => {
+  const n = new Set(HL.highlights.flatMap(h => (h.recordings || []).map(r => r.path))).size;
+  if (!confirm(`Export ${HL.highlights.length} highlight(s)?\n\nThis copies ${n} recording(s) ${HL.flashback_dir ? "into Flashback" : "next to the highlights file"} with start/end markers and one export scene per highlight, and writes a clip list (CSV). Big recordings take a while to copy. Your originals are not changed.`)) return;
+  $("#hlExport").disabled = true; $("#hlStatus").textContent = "Exporting… (copying recordings)";
+  try {
+    const r = await post("api/highlights/export", {});
+    const where = r.installed ? "Flashback → Replays (names end with “(highlights)”). In the editor, pick a highlight's scene and Export."
+      : `${r.folder}. Copy the .zip files into Flashback's replays folder.`;
+    $("#hlStatus").textContent = `Done: ${r.replays.length} replay cop${r.replays.length === 1 ? "y" : "ies"} in ${where} Clip list: ${r.clip_list}`
+      + (r.skipped.length ? ` Not covered by any recording: ${r.skipped.join(", ")}.` : "");
+  } catch (e) { $("#hlStatus").textContent = `Export failed: ${e.message}`; }
+  $("#hlExport").disabled = !HL.highlights.length;
+};
+
 // ---------- playback ----------
 let playing = false, lastFrame = performance.now();
-function setPlaying(p) { playing = p; $("#play").textContent = p ? "Pause" : "Play"; }
+function setPlaying(p) { playing = p; if (!p) playUntil = null; $("#play").textContent = p ? "Pause" : "Play"; }
 $("#play").onclick = () => setPlaying(!playing);
 addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "KeyI") $("#hlIn").click();
+  if (e.code === "KeyO") $("#hlOut").click();
   if (e.code === "ArrowRight") seek(T + 60000 * (e.shiftKey ? 60 : 1));
   if (e.code === "ArrowLeft") seek(T - 60000 * (e.shiftKey ? 60 : 1));
 });
@@ -655,7 +765,8 @@ function frame(now) {
   if (H && H.range) {
     if (playing) {
       T += dt * +$("#speed").value;
-      if ($("#skip").checked && !anyoneOnline(T)) { const t = nextStart(T); if (t != null) T = t; }
+      if (playUntil != null && T >= playUntil) { T = playUntil; playUntil = null; setPlaying(false); }
+      if ($("#skip").checked && playUntil == null && !anyoneOnline(T)) { const t = nextStart(T); if (t != null) T = t; }
       if (T >= H.range[1]) { T = H.range[1]; setPlaying(false); }
       if (T > view[1] || T < view[0]) setView();
       update(now, false);
@@ -714,6 +825,7 @@ async function init() {
   const saved = +store.get("mcsm-history-t");
   T = saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
   resize(); setView(); update(performance.now(), true);
+  showSpan(); loadHighlights();
   await loadPaths();
   fitAll();
 }

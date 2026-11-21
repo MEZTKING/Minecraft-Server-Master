@@ -50,6 +50,7 @@ _PREFIXES = [
 ]
 
 # Minecraft colour/format codes (section sign) and ANSI escapes that Paper writes.
+_SYSTEM_CHAT = "System chat: "
 _FORMAT_CODES = re.compile(r"§[0-9a-fk-orx]|\x1b\[[0-9;]*m", re.IGNORECASE)
 
 # --- message patterns -----------------------------------------------------
@@ -147,6 +148,11 @@ def _split_line(line: str) -> tuple[str | None, str, str, str, str] | None:
         if mt:
             gd = mt.groupdict()
             msg = _FORMAT_CODES.sub("", gd["msg"]).rstrip()
+            # Since Minecraft 26.3 (seen on the owner's server from late October 2026) system
+            # messages -- joins, leaves, deaths, advancements, command feedback -- are logged as
+            # "System chat: <message>". Player chat ("<name> text") is unchanged.
+            if msg.startswith(_SYSTEM_CHAT):
+                msg = msg[len(_SYSTEM_CHAT):]
             return gd.get("fdate"), gd["t"], gd.get("level") or "INFO", gd.get("thread") or "", msg
     return None
 
@@ -306,7 +312,11 @@ def parse_logs(root: str, clock: LogClock, known_players: Iterable[str] = (),
                 lost = pending_login.pop("__lost__" + player.lower(), None)
                 if lost and lost.get("reason"):
                     data["reason"] = lost["reason"]
-            events.append(m.Event(clock.to_utc(raw.local), etype, player, text, rel, raw.lineno, data))
+            when = clock.to_utc(raw.local)
+            if etype == m.EV_SERVER_STOP and events and events[-1].type == m.EV_SERVER_STOP \
+                    and abs((when - events[-1].time).total_seconds()) <= 10:
+                continue   # "Stopping the server" and "Stopping server" are logged for one shutdown
+            events.append(m.Event(when, etype, player, text, rel, raw.lineno, data))
 
     events.sort(key=lambda e: e.time)  # stable: keeps file order for equal times
     return events, infos

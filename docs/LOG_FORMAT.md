@@ -62,6 +62,14 @@ Geyser/Floodgate Bedrock prefixes).
 | `crash` | not from logs: one per `crash-reports/crash-YYYY-MM-DD_HH.MM.SS-server.txt` | description in `text` |
 | `replay_marker` | not from logs: markers stored inside `.mcpr` files | `offset_ms` |
 
+**`System chat: ` prefix (Minecraft 26.3):** system messages are logged as
+`System chat: Steve joined the game`, `System chat: Steve was slain by Zombie`, and so on.
+This covers joins, leaves, deaths, advancements, command feedback and "Stopping the server".
+The prefix is removed before the patterns above are applied. Player chat (`<Steve> hi`) has
+no prefix. Before this was handled, the owner's server lost every join, death and
+advancement from late October 2026. One shutdown logs both "Stopping the server" and
+"Stopping server"; stops within 10 seconds count once.
+
 **Known players** are names from `usercache.json`/`ops.json`/`whitelist.json` plus anyone
 seen joining or logging in earlier. This stops lines like `Nobody drowned` from a plugin
 being counted as deaths.

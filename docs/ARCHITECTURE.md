@@ -35,6 +35,8 @@ mcsm/
                      TerrainServer and serve() shared with the history viewer
   paths.py           player paths decoded from Flashback chunk files (move_entities), cached as .jsonl tracks
   history.py         history viewer: paths + events + sessions + replays as JSON, local web server
+                     (GET + header-protected POST for highlights)
+  highlights.py      highlights store (JSON per world), covering recordings, Flashback export, clip list
   terrain.py         region files -> surface height/colour tiles for the 3D map: partial NBT scanner
                      (heightmap + lazily decoded section palettes only), tile cache; read in a
                      process pool by live.TerrainServer

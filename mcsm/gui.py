@@ -544,7 +544,8 @@ class App(ttk.Frame):
         f.columnconfigure(1, weight=1)
         ttk.Label(f, text="Everything in your loaded backups as one recording: a 3D map with a time slider over "
                           "the whole history. Player paths come from your Flashback recordings; joins, deaths and "
-                          "chat from the logs. Load one or more backups first. See docs/HISTORY.md.",
+                          "chat from the logs. Mark highlights for videos and export them to Flashback. "
+                          "Load one or more backups first. See docs/HISTORY.md.",
                   wraplength=660, justify="left").grid(row=0, column=0, columnspan=3, sticky="w")
         self.hist_replays_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(f, text="Read player positions from Flashback recordings (first time: a few minutes; "
@@ -592,8 +593,11 @@ class App(ttk.Frame):
         def after(result):
             hm, url = result
             self.history, self.history_url, self.history_stack = hm, url, stack
-            self.hist_status_var.set(f"Running at {url}. Player paths and terrain keep loading in the "
-                                     "background; the page fills in as they arrive. Keep this window open.")
+            self.hist_status_var.set(
+                f"Running at {url}. Player paths and terrain keep loading in the background; the page fills "
+                f"in as they arrive. Keep this window open.\nHighlights are saved in {hm.highlights.path}; "
+                + (f"exports go into Flashback ({hm.flashback_dir})." if hm.flashback_dir
+                   else "Flashback's folder wasn't found, so exports go next to that file."))
             self.hist_start_btn.configure(state="disabled")
             self.hist_stop_btn.configure(state="normal")
             self.hist_open_btn.configure(state="normal")

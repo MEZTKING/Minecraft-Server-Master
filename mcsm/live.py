@@ -523,6 +523,34 @@ def _make_handler(live: LiveMap):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def do_POST(self):  # noqa: N802
+            """Changes (history viewer highlights) as JSON. Only from our own page: the custom
+            header makes browsers send a CORS preflight for any other site, which we never
+            answer, so other websites can't post here; Origin, when sent, must be this server."""
+            path = unquote(urlparse(self.path).path)
+            handler = getattr(live, "api_post", None)
+            origin = self.headers.get("Origin")
+            host = self.headers.get("Host", "")
+            if (handler is None or self.headers.get("X-MCSM") != "1"
+                    or (origin and urlparse(origin).netloc != host)):
+                return self._send(403, b"forbidden", "text/plain")
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}") if n else {}
+            except ValueError:
+                return self._send(400, b"bad json", "text/plain")
+            try:
+                obj = handler(path, body)
+            except ValueError as exc:
+                return self._send(400, json.dumps({"error": str(exc)}).encode(), "application/json")
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception as exc:  # noqa: BLE001 -- report to the page instead of dropping the connection
+                return self._send(500, json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode(), "application/json")
+            if obj is None:
+                return self._send(404, b"not found", "text/plain")
+            self._json(obj)
+
         def _static(self, rel: str):
             full = os.path.realpath(os.path.join(WEB_DIR, rel))
             if not full.startswith(os.path.realpath(WEB_DIR) + os.sep) or not os.path.isfile(full):

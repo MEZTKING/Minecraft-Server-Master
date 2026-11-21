@@ -35,8 +35,42 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
 - Click or drag to jump. **View** zooms the strip (everything, 30 days … 2 hours).
 - **Play** moves time at the chosen speed (1×, 10×, 1 min/s, 10 min/s, 1 h/s).
   **Skip quiet time** jumps over periods when nobody was online. **Prev / Next** jump between
-  log-ins. Keyboard: Space plays/pauses, ← → move 1 minute (with Shift: 1 hour).
+  log-ins. Keyboard: Space plays/pauses, ← → move 1 minute (with Shift: 1 hour), `I` / `O`
+  mark a highlight's start / end.
 - The page remembers the last time you looked at (in this browser only).
+
+## Highlights for videos
+
+Mark the moments you want in a video while you browse the history, then send them to
+Flashback ready to export.
+
+1. Move to where the moment starts and press **Start** (or the `I` key). Move to where it
+   ends and press **End** (`O`). The span shows on the timeline.
+2. Type a title and press **Save** (or Enter). The players online in that span are filled in.
+3. Saved highlights are listed in the panel and shown as green bands on the timeline:
+   **▶ Play** plays just that span, **Edit** loads it back for a new title or new Start/End,
+   **Delete** removes it. Each one says how many recordings cover it, and whose.
+4. **Export to Flashback** handles all highlights at once:
+   - For every Flashback recording that covers a highlight (one per player's point of view),
+     a **copy** appears in Flashback's replay list, named `NAME DATE (highlights)`. It has a
+     green **▶ title** marker at each highlight's start and a red **■ title** marker at its
+     end. Its editor has **one scene per highlight whose export range is already set**: open
+     the copy, choose the scene, press Export.
+   - A clip list, `<world> highlights.csv`, next to the highlights file: title, local
+     start/end, length, players, and for each recording the in/out time to seek to. Use it
+     for any video editor.
+   - Copying takes a while for long recordings, which can be hundreds of MB each. Your original
+     recordings are never changed, and existing Flashback timelines are never overwritten.
+
+Highlights are saved in `Documents\mcsm-highlights\<world>.json` (`--highlights FILE` to
+change), so they're kept between sessions and whichever backups you load. Flashback's folder
+is found automatically (`%APPDATA%\.minecraft\flashback`); give `--flashback-dir` for a
+launcher with its own folder. If it isn't found, the copies go into a `flashback` folder
+next to the highlights file: copy them into Flashback's `replays` folder, and the `.json`
+editor timelines into its `editor_states` folder.
+
+Not yet tried in a real Flashback: scenes that only set an export range (no camera
+keyframes) are allowed by Flashback's code, but nobody has opened one in-game yet.
 
 ## Where positions come from
 
@@ -74,6 +108,8 @@ its file changes, e.g. in a newer backup. The Nether surface is not drawn.
 |---|---|
 | `--tracks DIR_OR_FILE` | also show live-map recordings (repeatable) |
 | `--no-replays` | don't read positions from recordings |
+| `--highlights FILE` | where highlights are kept (default `Documents\mcsm-highlights\<world>.json`) |
+| `--flashback-dir DIR` | Flashback data folder for exporting highlights (default: found automatically) |
 | `--cache DIR` | where decoded paths are kept (default `%LOCALAPPDATA%\mcsm\paths`) |
 | `--http-port N` | local port (default 8766; the next free one is used if busy) |
 | `--terrain-detail auto\|1\|2\|4\|8\|16` | sample every N blocks |

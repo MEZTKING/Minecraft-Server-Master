@@ -16,6 +16,7 @@ track recordings (``mcsm live --record``), and join positions from the logs.
 from __future__ import annotations
 
 import math
+import os
 import threading
 from typing import Callable
 
@@ -122,8 +123,13 @@ class HistoryMap(TerrainServer):
     def __init__(self, data: m.ServerData, replay_file: Callable[[m.Replay], str] | None,
                  root: str | None = None, world: str | None = None, terrain_step: int | None = None,
                  cache_dir: str | None = None, track_files: list[str] | None = None, title: str = "",
-                 spawn=None, decode_replays: bool = True):
+                 spawn=None, decode_replays: bool = True, highlights_file: str | None = None,
+                 flashback_dir: str | None = None):
+        from . import highlights as hl
         self.data, self.replay_file = data, replay_file
+        self.highlights = hl.Store(highlights_file or hl.default_file(data.world.get("level_name") or title))
+        self.flashback_dir = flashback_dir
+        self._export_lock = threading.Lock()
         self.root, self.world, self.terrain_step = root, world, terrain_step
         self.cache_dir = cache_dir
         self.title, self.spawn = title, spawn
@@ -223,4 +229,41 @@ class HistoryMap(TerrainServer):
             return self._payload
         if path == "/api/paths":
             return self.paths()
+        if path == "/api/highlights":
+            return self.highlights_info()
+        return None
+
+    # -- highlights ----------------------------------------------------------
+    def highlights_info(self) -> dict:
+        from . import highlights as hl
+        items = self.highlights.list()
+        for h in items:
+            h["recordings"] = [{"path": r.path, "player": r.recorded_player,
+                                "in_ms": max(0, h["start"] - _ms(r.start))} for r in hl.covering(self.data, h)]
+        return {"file": self.highlights.path, "flashback_dir": self.flashback_dir, "highlights": items}
+
+    def api_post(self, path: str, body: dict):
+        from . import highlights as hl
+        if path == "/api/highlights":
+            players = hl.players_in(self.data, int(body.get("start", 0)), int(body.get("end", 0)))
+            self.highlights.put(body, players)
+            return self.highlights_info()
+        if path == "/api/highlights/delete":
+            self.highlights.delete(str(body.get("id", "")))
+            return self.highlights_info()
+        if path == "/api/highlights/export":
+            ids = set(body.get("ids") or [])
+            items = [h for h in self.highlights.list() if not ids or h["id"] in ids]
+            if not items:
+                raise ValueError("no highlights to export")
+            if self.replay_file is None:
+                raise ValueError("recordings are not available in this session")
+            if not self._export_lock.acquire(blocking=False):
+                raise ValueError("an export is already running")
+            try:
+                out = os.path.dirname(os.path.abspath(self.highlights.path))
+                return hl.export(self.data, items, self.replay_file, out, self.flashback_dir,
+                                 self.data.world.get("level_name") or self._payload["title"])
+            finally:
+                self._export_lock.release()
         return None

@@ -62,6 +62,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Merge many backups (any versions) into one history; Backups tab with progress over time; server-version timeline | ✅ Done, not yet tried on the owner's backups | `mcsm/archive.py`, all commands, app *+ Add backup* | `docs/BACKUPS.md` |
 | Selective zip reading (no region unpacking; replay stubs) | ✅ Done | `mcsm/source.py` | `docs/BACKUPS.md` |
 | "Everything as one recording" 3D time-machine map (Phase 2a): time slider, recorded player's path from Flashback recordings (cached), log-in positions, events pinned in 3D, sessions + replay coverage timeline, playback, app History tab | ✅ Done, checked on the owner's real backup (216 recordings) | `mcsm/paths.py`, `history.py`, `assets/web/history.html`, `mcsm history`, app History tab | `docs/HISTORY.md` |
+| Highlights for videos: mark spans in the history viewer; export Flashback copies with start/end markers + one export-range scene per highlight, and a CSV clip list | ✅ Done, not yet tried in a real Flashback | `mcsm/highlights.py`, `history.py`, `assets/web/history.html` | `docs/HISTORY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -183,6 +184,40 @@ in my backup file as if its one recording"
   when they happened on the map.
 - Open questions: what "edit" should mean in the unified view (notes and annotations? marking
   highlights for video? merging/renaming players?); how many backups and what size.
+
+### 0c. Highlights for videos in the history viewer (requested 2026-11-21)
+
+**The ask:** the owner's answer to "what should *edit* mean in the unified view": **"Highlights
+for videos"**.
+
+**Design:**
+- In the history viewer: **Mark start** / **Mark end** (keys `I` / `O`, as in video editors)
+  at the current time, a title, **Save**. The players online in that span are filled in. Saved
+  highlights are listed (jump to, play just that span, rename, delete) and drawn as bands on
+  the timeline.
+- Stored as JSON per world in `Documents\mcsm-highlights\<world>.json` (`--highlights FILE`),
+  so they survive restarts, can be backed up, and don't depend on which backups are loaded.
+- **Export to Flashback:** for every Flashback recording that covers a highlight (one per
+  player's point of view), one copy of the replay (new uuid, `… (highlights)`) with a green start
+  and a red end marker per highlight, plus an editor timeline with **one scene per highlight
+  whose export range is that highlight**. In Flashback: open the copy, pick the scene, Export.
+  Installed into Flashback's `replays/` and `editor_states/` when the folder is found;
+  otherwise written to the highlights folder.
+- Also a clip list (`<world> highlights.csv`): title, local start/end, length, players, and
+  each covering recording with the in/out offsets. Works with any editor or a ReplayMod workflow.
+- Safety: the page can only change highlights through POST requests that carry a custom
+  header (so other websites can't); originals are never modified; editor states are never
+  overwritten.
+
+✅ **Done 2026-11-21** as designed (`mcsm/highlights.py`, viewer panel, `--highlights`,
+`--flashback-dir`). Tried on the real backup: a 3-minute highlight at the base on 18 Nov
+listed its 5 players and 5 recordings; export wrote 5 valid replay copies (same entries and
+data, start/end markers 3,600 ticks apart, one scene with that export range each) and the clip
+list. Writing it also uncovered the 26.3 `System chat:` log prefix (see changelog).
+
+**Open questions:** does Flashback accept a scene with no keyframe tracks (only an export
+range)? (Source suggests yes; to be confirmed in-game.) Should highlights also become markers
+in `mcsm sync` video exports (SRT/EDL)?
 
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
@@ -310,6 +345,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-21 | History viewer positions come from Flashback's version-independent `move_entities` action, not version-specific game packets; only the recorded player is tracked for now | Works for every Minecraft version without packet decoding; identifying other entities needs per-protocol work |
 | 2026-11-21 | Decoded paths are cached as `.jsonl` in the live-map track format (`%LOCALAPPDATA%\mcsm\paths`, keyed by file name + size + mtime) | Instant later runs; the same files feed `mcsm timelapse --tracks` |
 | 2026-11-21 | Terrain: partial NBT scanner + process pool (≤ 8 workers) + per-region tile cache in `%LOCALAPPDATA%\mcsm\terrain` | Full decoding was ~90% of the time; 16 cores were idle; repeat runs should be instant. Output verified identical to the full decoder on real regions |
+| 2026-11-21 | "Edit" in the unified view = highlights for videos (owner's choice); export = per-recording Flashback copies with markers + one export-range scene per highlight, plus a CSV clip list | Flashback-first (owner's editor); every point of view is offered; the CSV covers other editors |
+| 2026-11-21 | Highlights live in `Documents\mcsm-highlights\<world>.json`, not in a cache | They are the owner's work: visible, backed up, independent of loaded backups |
+| 2026-11-21 | The local server accepts POSTs only with an `X-MCSM` header and a same-origin (or no) Origin | Stops other websites from changing highlights through the browser |
+| 2026-11-21 | Strip the `System chat: ` prefix (26.3) before classifying log lines | One change fixes joins, deaths, advancements and commands |
 | 2026-11-21 | Other players in recordings are recognised by UUID in the add-entity packet, with per-protocol packet ids found in real files | Only two version-specific numbers instead of a full packet decoder; a wrong guess can't mislabel anyone because the UUID must match |
 | 2026-11-21 | A player's own recording wins over "seen in someone else's" within 2 s | Their own is exact; mixing both made trails zigzag |
 | 2026-11-21 | Region seams are stitched in the browser, not by resampling on the server | Tiles stay independent and cacheable per region; the page joins neighbours as they arrive |
@@ -345,6 +384,15 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** **Highlights for videos** in the history viewer (Start/End with `I`/`O`, list,
+  play, edit, delete; timeline bands) and **Export to Flashback** (replay copies with
+  start/end markers and one export-range scene per highlight, plus a CSV clip list).
+  **Log fix:** Minecraft 26.3 logs system messages as `System chat: …`, so since late October
+  2026 every join, leave, death, advancement and command on the owner's server was missed
+  (269 joins, 24 deaths, 6 advancements, 36 commands; sessions and last-seen were wrong). The
+  prefix is now removed. Duplicate "Stopping (the) server" lines count as one shutdown (103
+  double-counted since 2025).
 
 - **2026-11-21:** History viewer shows **other players** seen in each recording ("seen by
   NAME"), not just the recorder: add/remove-entity packets matched by player UUID, read from

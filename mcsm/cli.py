@@ -411,9 +411,11 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
         root = (stack or _OPEN).enter_context(open_server(newest, include_regions=True))
     cfg = live_settings(root)
     step = None if args.terrain_detail == "auto" else int(args.terrain_detail)
+    from .flashback import find_flashback_dir
     hm = HistoryMap(data, lambda r: _replay_file(data, r), root, cfg.get("world"), step,
                     args.cache, _track_files(args.tracks), cfg.get("title") or "", cfg.get("spawn"),
-                    decode_replays=not args.no_replays)
+                    decode_replays=not args.no_replays, highlights_file=args.highlights,
+                    flashback_dir=find_flashback_dir(args.flashback_dir))
     return hm, hm.start(args.http_port)
 
 
@@ -426,6 +428,9 @@ def cmd_history(args) -> int:
     n = sum(1 for r in data.replays if r.format == "flashback" and r.start and not r.unfinished)
     print(f"History viewer running at {url}  (Ctrl+C to stop)", flush=True)
     print(f"History     : {len(data.events)} events, {len(data.sessions)} sessions, {len(data.replays)} replays")
+    print(f"Highlights  : {hm.highlights.path}"
+          + (f"  (export to Flashback: {hm.flashback_dir})" if hm.flashback_dir else
+             "  (Flashback folder not found: exports go next to that file; see --flashback-dir)"))
     if not args.no_replays and n:
         print(f"Paths       : reading player positions from {n} Flashback recordings in the background "
               f"(cached in {args.cache or default_cache_dir()})")
@@ -799,6 +804,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also show live-map recordings (mcsm live --record DIR); repeatable")
     p.add_argument("--no-replays", action="store_true", help="don't read positions from Flashback recordings")
     p.add_argument("--cache", metavar="DIR", help="where decoded paths are kept (default: %%LOCALAPPDATA%%/mcsm/paths)")
+    p.add_argument("--highlights", metavar="FILE",
+                   help="where highlights are kept (default: Documents/mcsm-highlights/<world>.json)")
+    p.add_argument("--flashback-dir", help="Flashback data folder for exporting highlights "
+                                           "(default: <.minecraft>/flashback if it exists)")
     p.add_argument("--http-port", type=int, default=8766, help="local port for the page (default 8766)")
     p.add_argument("--terrain-detail", default="auto", choices=["auto", "1", "2", "4", "8", "16"],
                    help="sample every N blocks (1 = full detail; auto keeps big worlds fast)")

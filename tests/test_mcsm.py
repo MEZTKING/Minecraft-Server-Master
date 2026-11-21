@@ -934,6 +934,31 @@ class TestMinecraft26Layout(unittest.TestCase):
         self.assertEqual((good.start, good.start_source, good.duration_ms), (utc(2024, 5, 3, 18, 30), "save-time", 120_000))
 
 
+class TestSystemChatPrefix(unittest.TestCase):
+    """26.3 logs system messages as "System chat: ..." (seen on the owner's server since Oct 2026)."""
+
+    def test_prefixed_lines(self):
+        import gzip
+        with tempfile.TemporaryDirectory() as d:
+            root = build_server(os.path.join(d, "s"))
+            with gzip.open(os.path.join(root, "logs", "2024-05-02-1.log.gz"), "wt", encoding="utf-8") as fh:
+                fh.write("[19:00:00] [Server thread/INFO]: Starting minecraft server version 26.3\n"
+                         "[19:59:59] [Server thread/INFO]: Steve[/203.0.113.5:5000] logged in with entity id 5 at (1.0, 64.0, 2.0)\n"
+                         "[19:59:59] [Server thread/INFO]: System chat: Steve joined the game\n"
+                         "[20:01:00] [Server thread/INFO]: <Steve> hi\n"
+                         "[20:02:00] [Server thread/INFO]: System chat: Steve was slain by Zombie\n"
+                         "[20:03:00] [Server thread/INFO]: System chat: Steve has made the advancement [Monster Hunter]\n"
+                         "[20:04:00] [Server thread/INFO]: System chat: Steve left the game\n"
+                         "[20:05:00] [Server thread/INFO]: System chat: Stopping the server\n"
+                         "[20:05:00] [Server thread/INFO]: Stopping server\n")
+            data = analyze(root)
+            day = [e for e in data.events if e.source.endswith("2024-05-02-1.log.gz")]
+            self.assertEqual([e.type for e in day], ["server_start", "join", "chat", "death", "advancement", "leave", "server_stop"])
+            self.assertEqual(day[1].data["position"], (1.0, 64.0, 2.0))
+            self.assertEqual(day[3].data["killer"], "Zombie")
+            self.assertTrue(any(s.start == day[1].time and s.end == day[5].time for s in data.sessions))
+
+
 class TestRenamedPlayer(unittest.TestCase):
     """Steve played as "Stevie" before a name change. The log's "UUID of player" line links the
     old name to Steve's uuid, so both names make one player (seen on the owner's real server)."""
@@ -1147,6 +1172,66 @@ class TestHistory(unittest.TestCase):
             self.assertGreater(len(p["players"]["Steve"]), 50)
             page = urllib.request.urlopen(url, timeout=10).read().decode()
             self.assertIn("api/history", page)
+        finally:
+            hm.stop()
+
+    def test_highlights_store_and_export(self):
+        import csv as _csv
+        from mcsm import highlights as hl
+        start = int(utc(2024, 5, 3, 18, 31).timestamp() * 1000)        # replay 20-30-00 covers 18:30-18:32
+        store = hl.Store(os.path.join(self.tmp, "hl", "w.json"))
+        with self.assertRaises(ValueError):
+            store.put({"start": start, "end": start + 500})               # under 1 s
+        h = store.put({"title": "  Big fight ", "start": start + 30000, "end": start}, ["Steve"])   # reversed: swapped
+        self.assertEqual((h["title"], h["start"], h["end"]), ("Big fight", start, start + 30000))
+        store.put({"id": h["id"], "title": "Bigger fight", "start": start, "end": start + 30000})
+        self.assertEqual([x["title"] for x in hl.Store(store.path).list()], ["Bigger fight"])  # saved to disk, updated in place
+        self.assertEqual(hl.Store(store.path).list()[0]["players"], ["Steve"])
+        reps = hl.covering(self.data, store.list()[0])
+        self.assertEqual([os.path.basename(r.path) for r in reps], ["2024-05-03--20-30-00.zip"])   # not the 3.4.1 one
+        fb = os.path.join(self.tmp, "flashback")
+        os.makedirs(os.path.join(fb, "replays"))
+        res = hl.export(self.data, store.list(), lambda r: os.path.join(self.root, r.path),
+                        os.path.dirname(store.path), fb, "Main_world")
+        self.assertEqual(len(res["replays"]), 1)
+        out = res["replays"][0]
+        with zipfile.ZipFile(out["file"]) as zf:
+            meta = json.loads(zf.read("metadata.json"))
+        self.assertEqual(sorted(meta["markers"]), ["1200", "1800"])          # 60 s and 90 s into the recording
+        self.assertEqual(meta["markers"]["1200"]["colour"], hl.START_COLOUR)
+        with open(out["editor_state"], encoding="utf-8") as fh:
+            state = json.load(fh)
+        assert_valid_flashback_editor_state(self, {**state, "scenes": [
+            {**s, "keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": {"0": {
+                "type": "camera", "position": [0, 0, 0], "interpolation_type": "HOLD"}}}]} for s in state["scenes"]]})
+        self.assertEqual((state["scenes"][0]["exportStartTicks"], state["scenes"][0]["exportEndTicks"]), (1200, 1800))
+        self.assertEqual(state["scenes"][0]["keyframeTracks"], [])
+        with open(res["clip_list"], encoding="utf-8-sig") as fh:
+            rows = list(_csv.DictReader(fh))
+        self.assertEqual((rows[0]["title"], rows[0]["in (offset)"], rows[0]["out (offset)"]), ("Bigger fight", "0:01:00", "0:01:30"))
+        self.assertTrue(store.delete(h["id"]))
+        self.assertEqual(hl.Store(store.path).list(), [])
+
+    def test_highlight_api_only_from_own_page(self):
+        import urllib.error
+        import urllib.request
+        from mcsm.history import HistoryMap
+        hm = HistoryMap(self.data, None, decode_replays=False, highlights_file=os.path.join(self.tmp, "hl2.json"))
+        url = hm.start(8795)
+        try:
+            body = json.dumps({"title": "x", "start": 0, "end": 5000}).encode()
+
+            def post(headers):
+                req = urllib.request.Request(url + "api/highlights", body, {"Content-Type": "application/json", **headers})
+                try:
+                    return urllib.request.urlopen(req, timeout=10).status
+                except urllib.error.HTTPError as exc:
+                    return exc.code
+            self.assertEqual(post({}), 403)                                                   # no custom header
+            self.assertEqual(post({"X-MCSM": "1", "Origin": "https://example.com"}), 403)     # another website
+            self.assertEqual(post({"X-MCSM": "1"}), 200)
+            got = json.loads(urllib.request.urlopen(url + "api/highlights", timeout=10).read())
+            self.assertEqual([h["title"] for h in got["highlights"]], ["x"])
         finally:
             hm.stop()
 
