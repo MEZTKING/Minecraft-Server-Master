@@ -36,6 +36,12 @@ installer built by GitHub Actions.
 
 ## 3. Current state
 
+**Update 2026-11-21 (second session, branch `ccr-d60bfe88-0gm7i8`, started from
+`claude/exciting-cannon-d0r8dm`):** the owner's files were not uploaded yet, so step 7.3 was started:
+`mcsm tracks` (`mcsm/paths.py`) decodes player positions from Flashback replays, and the timelapse
+uses them by itself. The move_entities layout is now verified from source (§8). 59 tests pass with
+pytest; 64 with tkinter (install `python3-tk` for `/usr/bin/python3.12`).
+
 - **All work is committed and pushed** (last commit: "Merge several backups into one history;
   selective zip reading"). 54 tests pass with pytest. With tkinter and a display, 58 run
   (`xvfb-run -a /usr/bin/python3.12 -m unittest tests.test_mcsm`).
@@ -127,8 +133,8 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    (`total_ticks`, `chunks.*.duration`) and `arcade_replay_meta.json`, and count
    `next_tick` actions in the `cN.flashback` files (action ids in arcade files = enum
    ordinal; see §8). If metadata is truly wrong, derive the length from tick counts.
-3. **Phase 2 "everything as one recording" (backlog #0b):** extract player paths from
-   recordings via `move_entities` (§8). Store them like live-map tracks (`.jsonl`). Build the
+3. **Phase 2 "everything as one recording" (backlog #0b):** ✅ player paths from recordings via
+   `move_entities` are done (`mcsm tracks`, docs/TRACKS.md; check them on a real replay). Next: build the
    3D time-machine viewer: time slider over all history, paths, events pinned in 3D, replay
    coverage, terrain from the nearest backup. Reuse `mcsm/live.py`'s web server and
    `assets/web/live.html`.
@@ -180,8 +186,9 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
 - `create_local_player` payload: `UUID, f64 x, f64 y, f64 z, f32 yaw, f32 pitch, f32 headYaw,
   Vec3 velocity, GameProfile, VarInt gamemode`. **No entity id.** The recorded player's
   entity id appears only in `move_entities`. Heuristic: the id whose first position equals
-  this position. The `ExactEntityPosition.write` layout used in its `move_entities` is **not
-  verified** against Flashback's reader layout above: check it with a real file.
+  this position. **Verified 2026-11-21:** `ExactEntityPosition.write` (Vec3 = 3 doubles, yaw, pitch,
+  head-yaw floats, on-ground) after a VarInt id is byte-identical to Flashback's reader; dimension
+  via `writeResourceKey`. arcade puts the player into move_entities only once they move.
 - Output: `<recordings>/<player folder>/<date>/` raw folder → `<date>.zip`. Date pattern
   and time zone come from `DateTimeUtils.getFormattedDate` (arcade-utils), **not verified**
   (README example `2024-05-11--19-19-55`; treated as server local time).

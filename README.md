@@ -142,7 +142,8 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |
 | `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
-| `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
+| `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
+| `mcsm tracks SERVER -o replay-tracks` | Decode where each player went from their Flashback replays ([guide](docs/TRACKS.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
 
 Run `mcsm <command> --help` for every option.
@@ -245,6 +246,7 @@ The HTML report always shows times in **your** browser's time zone.
 | [docs/BACKUPS.md](docs/BACKUPS.md) | Merging several backups (any versions) into one history; big-backup handling |
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
+| [docs/TRACKS.md](docs/TRACKS.md) | Player position tracks decoded from Flashback replays |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
 | [HANDOFF.md](HANDOFF.md) | Everything needed to continue development in a new session or account |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |

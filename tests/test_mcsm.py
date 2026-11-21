@@ -397,6 +397,42 @@ class TestGUI(ServerTestCase):
             gc.collect()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_flashback_tab_decode_positions(self):
+        import time
+        import tkinter as tk
+        from fixtures import add_position_replay
+        from mcsm import gui
+        tmp = tempfile.mkdtemp()
+        root_dir = build_server(os.path.join(tmp, "srv"))
+        add_position_replay(root_dir)
+        gui._documents_dir = lambda: tmp
+        dialogs = []
+        gui.messagebox.showinfo = gui.messagebox.showerror = lambda *a, **k: dialogs.append(a)
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.server_var.set(root_dir)
+            app._load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            app._fb_tracks()
+            deadline = time.time() + 30
+            while app.busy and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            out = os.path.join(tmp, "mcsm-replay-tracks")
+            self.assertEqual(dialogs, [])
+            self.assertEqual(app.tl_tracks_var.get(), out)
+            self.assertTrue(any("20-05-30" in f for f in os.listdir(out)), app.log_text.get("1.0", "end")[-1500:])
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_multi_backup_load(self):
         import time
         import tkinter as tk
@@ -923,3 +959,98 @@ class TestLiteZipAndArchive(unittest.TestCase):
             d = analyze(root)
         self.assertGreater(d.world["size_bytes"], 300_000)                 # skipped region file still counted
         self.assertEqual(d.world["dimensions"]["overworld"]["region_files"], 2)
+
+
+class TestReplayPaths(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fixtures import add_extra_replays, add_position_replay
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-paths-")
+        cls.root = build_server(os.path.join(cls.tmp, "server"))
+        add_extra_replays(cls.root)
+        cls.alex_zip = add_position_replay(cls.root)
+        cls.data = analyze(cls.root)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def alex_replay(self):
+        return next(r for r in self.data.replays if r.path.endswith("20-05-30.zip"))
+
+    def test_decode_path(self):
+        from mcsm import paths
+        r = self.alex_replay()
+        self.assertEqual((r.start, r.recorded_player), (utc(2024, 5, 3, 18, 5, 30), "Alex"))
+        rp = paths.decode_path(self.alex_zip, r)
+        self.assertTrue(rp.matched)
+        self.assertEqual((rp.player, rp.ticks), ("Alex", 2400))
+        first, last = rp.samples[0], rp.samples[-1]
+        self.assertEqual(first["players"][0]["name"], "Alex")
+        self.assertAlmostEqual(first["players"][0]["x"], 110.01)
+        self.assertEqual(first["players"][0]["dimension"], "minecraft:overworld")
+        self.assertEqual(last["players"][0]["x"], 400.0)                 # the zombie (id 99) was never used
+        self.assertEqual(last["t"], int(utc(2024, 5, 3, 18, 7, 30).timestamp() * 1000))
+        xs = [s["players"][0]["x"] for s in rp.samples]
+        self.assertTrue(all(x < 117 or x == 400.0 for x in xs))
+        # Sparse: a sample per >= 0.1 block moved, plus a heartbeat every 30 s while standing still.
+        self.assertLess(len(rp.samples), 100)
+        gaps = [(b["t"] - a["t"]) / 1000 for a, b in zip(rp.samples, rp.samples[1:])]
+        self.assertLessEqual(max(gaps), 30.0)
+
+    def test_no_positions(self):
+        from mcsm import paths
+        r = next(r for r in self.data.replays if r.path.endswith("21-00-00.zip"))
+        rp = paths.decode_path(os.path.join(self.root, r.path), r)
+        self.assertEqual(rp.samples, [])
+        self.assertFalse(rp.matched)
+        self.assertTrue(rp.note)
+
+    def test_parse_helpers(self):
+        from mcsm import paths
+        import io as _io
+        import struct as _struct
+        uuid_bytes = bytes.fromhex(STEVE.replace("-", ""))
+        self.assertEqual(paths.parse_local_player(uuid_bytes + _struct.pack(">ddd", 1, 2, 3) + b"\0" * 20),
+                         (STEVE, 1.0, 2.0, 3.0))
+        with self.assertRaises(ValueError):
+            list(paths._records(_io.BytesIO(b"\0\0\0\0")))
+
+    def test_cli_tracks_and_cache(self):
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+        out = os.path.join(self.tmp, "tracks-out")
+        buf = StringIO()
+        with redirect_stdout(buf), redirect_stderr(StringIO()):
+            code = cli.main(["tracks", self.root, "-o", out])
+        self.assertEqual(code, 0, buf.getvalue())
+        self.assertIn("1 with positions", buf.getvalue())
+        files = sorted(os.listdir(out))
+        alex = [f for f in files if "20-05-30" in f]
+        self.assertEqual(len(alex), 1)
+        from mcsm import timelapse as tlm
+        samples = tlm.load_tracks([out])
+        self.assertTrue(samples and all(p["name"] == "Alex" for _t, ps in samples for p in ps))
+        buf = StringIO()
+        with redirect_stdout(buf), redirect_stderr(StringIO()):
+            cli.main(["tracks", self.root, "-o", out])
+        self.assertIn("already decoded earlier", buf.getvalue())
+        self.assertNotIn(": Alex", buf.getvalue())
+
+    def test_timelapse_uses_replay_positions(self):
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+        buf = StringIO()
+        with redirect_stdout(buf), redirect_stderr(StringIO()):
+            code = cli.main(["timelapse", self.root, "--replay", "20-05-00", "--area", "100,-20,130,20",
+                             "--length", "0:20", "--dry-run"])
+        self.assertEqual(code, 0, buf.getvalue())
+        text = buf.getvalue()
+        self.assertIn("positions decoded from 1 replay", text)
+        self.assertIn("Alex", text)
+        self.assertIn("1 period", text)
+        # Without replay positions, the logs (nobody online then) give nothing.
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), self.assertRaises(SystemExit) as cm:
+            cli.main(["timelapse", self.root, "--replay", "20-05-00", "--area", "100,-20,130,20",
+                      "--length", "0:20", "--dry-run", "--no-replay-tracks"])
+        self.assertIn("log sessions", str(cm.exception))

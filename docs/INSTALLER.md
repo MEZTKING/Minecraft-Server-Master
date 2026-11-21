@@ -56,7 +56,9 @@ Reports and markers you saved elsewhere are left alone.
 4. **Export data** – SQLite / JSON / CSV ([DATA_MODEL.md](DATA_MODEL.md)).
 5. **Flashback** – pick a Flashback replay and **Copy replay with markers**, or fill in an area
    and **Create timelapse** (3:00 by default). Ticking *Install* puts the copy straight into
-   Flashback. Guides: [FLASHBACK.md](FLASHBACK.md), [TIMELAPSE.md](TIMELAPSE.md).
+   Flashback. **Decode positions from all replays** reads where each recorded player went
+   (used by the timelapse). Guides: [FLASHBACK.md](FLASHBACK.md), [TIMELAPSE.md](TIMELAPSE.md),
+   [TRACKS.md](TRACKS.md).
 6. **Live map** – type your server's address, check the RCON port/password (filled in from
    your download), and click **Start live map**. **Try demo** works without a server. Keep the
    app open while watching. Setup and security: [LIVE_MAP.md](LIVE_MAP.md).

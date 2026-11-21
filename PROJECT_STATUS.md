@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-20 (hand-off to a new session; see HANDOFF.md).
+`CLAUDE.md`). Last updated: 2026-11-21 (position tracks from Flashback replays).
 
 ## What this project is
 
@@ -29,7 +29,8 @@ More features "like these" are planned, listed under **Backlog** below.
 
 ## How to work on it
 
-- Branch: `claude/exciting-cannon-d0r8dm` (push here; no PRs unless asked).
+- Branch: work up to 2026-11-20 is on `claude/exciting-cannon-d0r8dm`; from 2026-11-21 the work
+  continues on `ccr-d60bfe88-0gm7i8` (started from it). Push to the branch your session is given; no PRs unless asked.
 - Tests: `python -m pytest tests`. GUI tests need tkinter and a display:
   `xvfb-run -a python3 -m unittest tests.test_mcsm`.
 - Python 3.10+, **standard library only** at runtime. three.js is vendored in
@@ -61,7 +62,8 @@ More features "like these" are planned, listed under **Backlog** below.
 | Activity-aware area timelapse in Flashback (Phase A): fixed camera + timelapse keyframes, 3:00 target or fixed speed, date/time SRT, chapters | ✅ Done, not yet tried in a real Flashback | `mcsm/timelapse.py`, `mcsm timelapse`, app Flashback tab | `docs/TIMELAPSE.md` |
 | Merge many backups (any versions) into one history; Backups tab with progress over time; server-version timeline | ✅ Done, not yet tried on the owner's backups | `mcsm/archive.py`, all commands, app *+ Add backup* | `docs/BACKUPS.md` |
 | Selective zip reading (no region unpacking; replay stubs) | ✅ Done | `mcsm/source.py` | `docs/BACKUPS.md` |
-| "Everything as one recording" 3D time-machine map | 📝 Designed, research done | n/a | Backlog #0b Phase 2 |
+| Position tracks decoded from Flashback replays (`move_entities`); timelapse uses them automatically | ✅ Done, not yet tried on a real ServerReplay file | `mcsm/paths.py`, `mcsm tracks`, app Flashback tab | `docs/TRACKS.md` |
+| "Everything as one recording" 3D time-machine map | 🟡 Phase 2 step 1 done (tracks from replays); viewer next | n/a | Backlog #0b Phase 2 |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -132,6 +134,13 @@ in my backup file as if its one recording"
   game packet, or a heuristic (the local player is the entity whose first position equals the
   create_local_player position). The arcade `ExactEntityPosition.write` layout is not yet
   verified. **A real replay sample from the owner is needed** to confirm before building.
+- ✅ **Phase 2 step 1 done (2026-11-21):** `mcsm tracks` / `mcsm/paths.py` decodes the recording
+  player's path from every Flashback replay into live-map-format `.jsonl` tracks (cached per
+  replay). The `move_entities` / `create_local_player` layouts were re-verified against Flashback
+  master and arcade 26.3 (`ExactEntityPosition.write` = VarInt id, 3 doubles, yaw, pitch, head
+  yaw floats, on-ground: byte-identical to Flashback's reader). arcade only adds the recorded
+  player to move_entities once they move. The timelapse now uses these positions by itself.
+  **Next:** the viewer below, fed by these tracks.
 - **Phase 2: "everything as one recording" 3D time-machine viewer**: a time slider across
   the whole history. Player paths, events pinned in 3D, sessions, replays as coverage bars. Click
   to open or sync the replay at that moment. Terrain from the nearest backup (switching backups
@@ -201,7 +210,8 @@ research. **Waiting for the owner to confirm** the order and answer the open que
 (fixed speed also offered). **Phase A is done** (see `docs/TIMELAPSE.md`): areas, activity windows
 from live-map tracks (fallback: log sessions), target-length/fixed-speed plan, Flashback copy with
 activity markers + editor timeline (camera HOLD keyframe + TIMELAPSE track, export range), real
-date/time SRT and chapters. Next: owner tests in Flashback; then Phase B.
+date/time SRT and chapters. Next: owner tests in Flashback; then Phase B. **2026-11-21:** activity windows now come from positions
+decoded from the overlapping Flashback replays when no `--tracks` are given (Phase C's position half, done).
 
 **Update 2026-11-19: the owner likes Flashback's in-game editor.** They asked whether the
 tool uses it. Answer given: not yet. `mcsm` only *reads* Flashback replays and writes files for
@@ -269,6 +279,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-20 | Zip backups are read selectively; replays become metadata stubs until needed | Real backups are 15+ GB, mostly region files |
 | 2026-11-19 | Player/dimension folders are found by known paths first, then by searching the world folder | Survives future layout changes (26.1 moved everything) |
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
+| 2026-11-21 | Replay tracks follow only the recording player; entity id found by matching the create_local_player position with the first nearby move | Other entities have no names without version-specific packets; ServerReplay records each player separately anyway |
+| 2026-11-21 | Timelapse without `--tracks` decodes overlapping replays before falling back to log sessions (`--no-replay-tracks` to skip) | Owner records every player with ServerReplay; no live map needed |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -290,9 +302,15 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Terrain: Minecraft 1.16+ chunk formats only; LZ4-compressed chunks (an optional 1.20.5+
   setting) and the Nether surface aren't drawn.
 - Log times have 1-second resolution.
+- Replay tracks: decoded only from synthetic test files so far; a real ServerReplay replay is needed
+  to confirm. Paused recordings shift positions by the paused time; a player who never moves in a
+  chunk is not found in it.
 
 ## Changelog
 
+- **2026-11-21:** `mcsm tracks` (app: *Decode positions from all replays*): player positions decoded
+  from Flashback replays into `.jsonl` tracks, cached per replay; `mcsm timelapse` uses the
+  overlapping replays' positions automatically (`--no-replay-tracks` to turn off); docs/TRACKS.md.
 - **2026-11-20:** `HANDOFF.md` written: the work moves to a new session/account. Ledger idea added
   to the backlog.
 - **2026-11-20:** Merge several backups into one history (`mcsm report A.zip B.zip …`, app

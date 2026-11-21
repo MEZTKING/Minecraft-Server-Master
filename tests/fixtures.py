@@ -281,3 +281,36 @@ def build_server_26_1(root: str) -> str:
             "name": "Steve", "epoch_time_ms": int(datetime(2024, 5, 3, 18, 33, 0, tzinfo=timezone.utc).timestamp() * 1000),
             "accumulated_paused_time": "00:01:00"}))
     return root
+
+
+def add_position_replay(root: str) -> str:
+    """A ServerReplay-style Flashback replay of Alex WITH positions (move_entities).
+
+    recordings/players/<alex-uuid>/2024-05-03--20-05-30.zip: no clock, so the start comes from
+    the file name: 20:05:30 server time (UTC+2) = 18:05:30 UTC; 2400 ticks (2 min).
+    Alex (entity 7) is created at (110, 70, 0), walks east inside x 110..116 for ticks 1-600
+    (= the first 30 s), then is at (400, 70, 0) from tick 601. A zombie (entity 99) moves
+    nearby-ish at (500, 64, 500) and must not be mistaken for Alex.
+    """
+    from mcsm.paths import write_test_chunk
+    import io as _io
+    folder = os.path.join(root, "recordings", "players", ALEX)
+    os.makedirs(folder, exist_ok=True)
+    ticks = []
+    for t in range(1, 2401):
+        entries = [("minecraft:overworld", 99, 500.0, 64.0, 500.0 + t * 0.01)]
+        if t <= 600:
+            entries.append(("minecraft:overworld", 7, 110.0 + t * 0.01, 70.0, 0.0))
+        elif t == 601:
+            entries.append(("minecraft:overworld", 7, 400.0, 70.0, 0.0))
+        ticks.append(entries)
+    buf = _io.BytesIO()
+    write_test_chunk(buf, ticks, local_player=(ALEX, 110.0, 70.0, 0.0))
+    path = os.path.join(folder, "2024-05-03--20-05-30.zip")
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-0000000000a1", "name": "Unnamed",
+                                                 "version_string": "26.1.2", "world_name": "Main_World",
+                                                 "total_ticks": 2400,
+                                                 "chunks": {"c0.flashback": {"duration": 2400, "forcePlaySnapshot": False}}}))
+        zf.writestr("c0.flashback", buf.getvalue())
+    return path

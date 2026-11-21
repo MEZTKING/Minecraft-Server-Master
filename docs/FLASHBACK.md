@@ -7,6 +7,7 @@
 |---|---|---|
 | **Server events as markers** | `mcsm flashback` / Flashback tab → *Copy replay with markers* | Deaths, chat, joins and advancements appear as coloured markers on the replay's timeline |
 | **Area timelapse** | `mcsm timelapse` / Flashback tab → *Create timelapse* | A fixed camera and timelapse keyframes, ready to export. See [TIMELAPSE.md](TIMELAPSE.md) |
+| **Position tracks** | `mcsm tracks` / Flashback tab → *Decode positions from all replays* | Where each recorded player went, read from the replays. See [TRACKS.md](TRACKS.md) |
 
 **Your original replay is never changed.** `mcsm` writes a **copy** whose name ends in
 `(mcsm)` or `(timelapse)`, with a **new replay ID**. Flashback keeps editor timelines per replay

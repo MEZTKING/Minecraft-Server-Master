@@ -35,6 +35,7 @@ mcsm/
   terrain.py         region files -> surface height/colour tiles for the 3D map
   flashback.py       write Flashback replay copies (markers, new uuid) and editor states (camera/timelapse)
   timelapse.py       areas, activity windows (tracks/sessions), target-length plan, timelapse keyframes
+  paths.py           player position tracks decoded from Flashback replays (move_entities), .jsonl tracks
   sync.py            VideoTimeline and event -> Marker conversion
   music.py           BeatGrid, beat detection, snapping, alignment
   exporters/

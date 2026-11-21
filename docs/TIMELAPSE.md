@@ -13,23 +13,25 @@ timestamps.
      players are near. In ServerReplay set `default_encoding` to `flashback`, then start a
      chunk recording around your base. It's saved in `recordings/chunks/<name>/`.
    - A player recording (ServerReplay or your own Flashback) where that player is at the area.
-2. **Position recordings** saying who was where and when: run the live map with recording on
-   while people play (`mcsm live … --record DIR`, or *Save positions* in the app's Live map tab).
-   Without recordings, `mcsm` falls back to the logs ("anyone online"). That is much
-   coarser: it can't tell whether people were at *your* area.
+2. **Positions** saying who was where and when. Nothing to do if your players are recorded
+   with ServerReplay in Flashback format: `mcsm` decodes the positions from every replay that
+   overlaps the chosen one ([TRACKS.md](TRACKS.md)). Other sources: live-map recordings
+   (`mcsm live … --record DIR`, or *Save positions* in the Live map tab) or a `mcsm tracks`
+   folder, passed with `--tracks`. With no positions at all, `mcsm` falls back to the logs
+   ("anyone online"). That is much coarser: it can't tell whether people were at *your* area.
 3. **The area box:** stand at two opposite corners in game and note the X and Z from F3. Add a
    Y range if you want to ignore people flying over or mining far below.
 
 ## Run it
 
 **App:** load the download → **Flashback** tab → pick the replay, fill in *Area box*, point
-*Position recordings* at your recordings folder → **Preview plan** → **Create timelapse**.
+*Position recordings* at your recordings folder (or leave it empty, or click **Decode positions from all replays**) → **Preview plan** → **Create timelapse**.
 
 **Command line:**
 
 ```bash
 mcsm timelapse my-server.zip --replay 3 --area 100,-50,180,20 --area-name "Main base" \
-    --tracks mcsm-live-tracks --length 3:00 --install
+    --length 3:00 --install
 ```
 
 Use `--dry-run` first to see the plan:
@@ -48,7 +50,8 @@ Output      : 3:00 at 92x while active
 | `--area X1,Z1,X2,Z2[,Y1,Y2]` | The box to watch (negative numbers are fine) | required |
 | `--area-name` | Used in markers and chapters | Base |
 | `--dimension` | `minecraft:overworld` / `the_nether` / `the_end` | overworld |
-| `--tracks DIR` | Live-map recordings (repeatable) | log sessions |
+| `--tracks DIR` | Live-map recordings or a `mcsm tracks` folder (repeatable) | positions decoded from overlapping replays, else log sessions |
+| `--no-replay-tracks` | Don't decode positions from replays | off |
 | `--length 3:00` | Fit the whole timelapse into this length | 3:00 |
 | `--speed 60` | Instead: a fixed speed while active | – |
 | `--gap-seconds` | Output time for each skipped idle stretch | 0.5 |
@@ -81,7 +84,8 @@ F3. Or adjust the camera keyframe in Flashback after opening; it's a normal keyf
 
 ## Limits and notes
 
-- Accuracy depends on the recordings: one position per player per second.
+- Accuracy depends on the positions: live recordings give one per player per second; replay
+  positions are finer but only exist while a player was being recorded.
 - Idle stretches are fast-forwarded through the replay at very high speed. Flashback still
   processes that recording time, so exporting a timelapse over many days of recording can take
   a while.

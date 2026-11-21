@@ -331,8 +331,11 @@ class App(ttk.Frame):
         ttk.Entry(tl, textvariable=self.tl_tracks_var).grid(row=r, column=1, sticky="ew", padx=4)
         ttk.Button(tl, text="Browse…", command=lambda: self._pick_dir(self.tl_tracks_var)).grid(row=r, column=2, sticky="w")
         r += 1
-        ttk.Label(tl, text="Made by Live map → 'Save positions'. Empty/missing: uses log sessions (anyone online, coarse).",
+        ttk.Label(tl, text="Live map → 'Save positions', or 'Decode positions from replays' below. Empty/missing: "
+                           "positions are decoded from the replays that overlap the chosen one, else log sessions (coarse).",
                   foreground="gray", wraplength=520).grid(row=r, column=1, columnspan=2, sticky="w")
+        r += 1
+        self._button(tl, "Decode positions from all replays", self._fb_tracks).grid(row=r, column=1, sticky="w", padx=4, pady=2)
         r += 1
         lenrow = ttk.Frame(tl)
         lenrow.grid(row=r, column=0, columnspan=3, sticky="w", pady=4)
@@ -403,6 +406,18 @@ class App(ttk.Frame):
         if args is None:
             return
         self._run("Flashback markers", lambda d: cli.run_flashback(d, args))
+
+    def _fb_tracks(self):
+        """mcsm tracks: decode every Flashback replay's positions into Documents/mcsm-replay-tracks."""
+        if self.data is None:
+            messagebox.showinfo(APP_NAME, "Load a server whose download contains Flashback replays first.")
+            return
+        out = os.path.join(_documents_dir(), "mcsm-replay-tracks")
+        args = self._parse(["tracks", *self._common_argv(), "-o", out])
+        if args is None:
+            return
+        self.tl_tracks_var.set(out)
+        self._run("Decode positions", lambda d: cli.run_tracks(d, args))
 
     def _fb_timelapse(self, dry: bool):
         argv = self._fb_common("timelapse")

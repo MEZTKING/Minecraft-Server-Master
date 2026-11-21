@@ -10,6 +10,7 @@ replays   list replay recordings found on the server
 sync      make video markers/subtitles for a replay (+ music beat sync)
 flashback copy a Flashback replay with server events as markers in its timeline
 timelapse activity-aware timelapse of an area, set up in Flashback
+tracks    decode where the recording player went from Flashback replays (.jsonl)
 live      live 3D map of players (RCON)
 music     detect the tempo (BPM) of a song
 
@@ -30,7 +31,7 @@ from .analyzer import analyze
 from .players import play_time_ticks
 from .source import open_server
 from .sync import DEFAULT_SYNC_TYPES
-from .timeutil import UTC, format_hms, iso, parse_duration, parse_tz
+from .timeutil import UTC, format_hms, from_epoch_ms, iso, parse_duration, parse_tz
 
 
 # ---------------------------------------------------------------------------
@@ -478,11 +479,19 @@ def run_timelapse(data: m.ServerData, args) -> int:
     area = tlm.Area.parse(args.area, args.area_name, args.dimension)
     start, end = r.start, r.end
     merge_gap = parse_duration(args.merge_gap)
+    windows = None
     if args.tracks:
         samples = tlm.load_tracks(args.tracks)
         windows = tlm.windows_from_tracks(samples, area, start, end, merge_gap, args.pad)
         source = f"{len(samples)} track samples"
-    else:
+    elif not args.no_replay_tracks:
+        samples, used = _replay_track_samples(data, start, end)
+        if samples:
+            samples = sorted(((from_epoch_ms(row["t"]), row.get("players") or []) for row in samples),
+                             key=lambda s: s[0])
+            windows = tlm.windows_from_tracks(samples, area, start, end, merge_gap, args.pad)
+            source = f"positions decoded from {used} replay{'s' if used != 1 else ''} ({len(samples)} samples)"
+    if windows is None:
         windows = tlm.windows_from_sessions(data.sessions, start, end, merge_gap, args.pad)
         source = "log sessions (anyone online counts -- record tracks with 'mcsm live --record' for real area detection)"
     if not windows:
@@ -544,6 +553,64 @@ def run_timelapse(data: m.ServerData, args) -> int:
               "<.minecraft>/flashback/editor_states/ (or re-run with --install), then open it in Flashback.")
     _print_warnings(data)
     return 0
+
+
+def _uuid_names(data: m.ServerData) -> dict[str, str]:
+    return {p.uuid.lower(): p.name for p in data.players.values() if p.uuid}
+
+
+def _replay_track_samples(data: m.ServerData, start, end) -> tuple[list[dict], int]:
+    """Positions decoded from every Flashback replay overlapping [start, end] (all players' recordings)."""
+    from . import paths
+    reps = [r for r in paths.overlapping(data.replays, start, end) if not r.unfinished]
+    if not reps:
+        return [], 0
+    results, samples = paths.tracks_for_replays(reps, lambda r: _replay_file(data, r), uuid_to_name=_uuid_names(data),
+                                                progress=lambda msg: print(msg, file=sys.stderr))
+    used = sum(1 for _r, rp, _f in results if rp is not None and rp.samples)
+    return samples, used
+
+
+def cmd_tracks(args) -> int:
+    return run_tracks(_load(args), args)
+
+
+def run_tracks(data: m.ServerData, args) -> int:
+    from . import paths
+    reps = [r for r in data.replays if r.format == "flashback" and not r.unfinished and r.start is not None]
+    if args.replay:
+        reps = [_flashback_replay(data, args.replay)]
+    if args.since:
+        since = _parse_when(args.since, args.tz)
+        reps = [r for r in reps if r.end >= since]
+    if args.until:
+        until = _parse_when(args.until, args.tz)
+        reps = [r for r in reps if r.start <= until]
+    if not reps:
+        print("No finished Flashback replays to decode.")
+        return 0
+    results, samples = paths.tracks_for_replays(reps, lambda r: _replay_file(data, r), args.out, _uuid_names(data),
+                                                force=args.force, progress=lambda msg: print(msg, file=sys.stderr))
+    found = reused = 0
+    for r, rp, target in results:
+        if rp is None:
+            reused += 1
+            continue
+        if rp.samples:
+            found += 1
+        span = format_hms(rp.ticks / 20)
+        state = f"{len(rp.samples)} positions" if rp.samples else "no positions"
+        print(f"  {r.path}: {rp.player or '?'}  {span}  {state}" + (f"  ({rp.note})" if rp.note and not rp.samples else ""))
+    print(f"Replays     : {len(results)} ({found} with positions, {reused} already decoded earlier)")
+    print(f"Samples     : {len(samples)}")
+    print(f"Tracks      : {os.path.abspath(args.out)}")
+    print("Next        : mcsm timelapse ... --tracks " + _quote(args.out) + "   (or open them on the live map later)")
+    _print_warnings(data)
+    return 0
+
+
+def _quote(path: str) -> str:
+    return f'"{path}"' if " " in path else path
 
 
 def _write_timelapse_overlays(plan, area, base: str) -> None:
@@ -688,7 +755,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--area-name", default="Base", help="name used in markers/chapters (default: Base)")
     p.add_argument("--dimension", default="minecraft:overworld", choices=["minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"])
     p.add_argument("--tracks", action="append", metavar="DIR_OR_FILE",
-                   help="live-map recordings (mcsm live --record DIR); repeatable. Without it, log sessions are used (coarse)")
+                   help="position recordings: live map (mcsm live --record DIR) or 'mcsm tracks' output; repeatable. "
+                        "Without it, positions are decoded from the Flashback replays that overlap this one, "
+                        "then log sessions are used (coarse)")
+    p.add_argument("--no-replay-tracks", action="store_true",
+                   help="don't decode positions from replays; without --tracks use log sessions")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--length", default="3:00", help="target video length (default 3:00)")
     g.add_argument("--speed", type=float, help="fixed speed instead of a target length, e.g. 60")
@@ -703,6 +774,18 @@ def build_parser() -> argparse.ArgumentParser:
                                         "with --install: the current folder)")
     p.add_argument("--dry-run", action="store_true", help="only print the plan")
     p.set_defaults(func=cmd_timelapse)
+
+    p = sub.add_parser("tracks", help="decode where players went from Flashback replays (position tracks)",
+                       description="Reads the recording player's position from every Flashback replay (ServerReplay "
+                                   "records one per player) and writes one .jsonl track per replay, in the same format "
+                                   "as 'mcsm live --record'. See docs/TRACKS.md.")
+    _add_common(p)
+    p.add_argument("-o", "--out", default="replay-tracks", help="output folder (default: replay-tracks)")
+    p.add_argument("--replay", help="only this replay (number from 'mcsm replays', path or part of its name)")
+    p.add_argument("--since", help="only replays after 'YYYY-MM-DD [HH:MM:SS]' (your local time unless --tz)")
+    p.add_argument("--until", help="only replays before this time")
+    p.add_argument("--force", action="store_true", help="decode again even if a track file already exists")
+    p.set_defaults(func=cmd_tracks)
 
     p = sub.add_parser("live", help="live 3D map of where players are right now (RCON)",
                        description="Show players moving in real time on a 3D map. Positions come from the running "
