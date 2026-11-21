@@ -36,6 +36,16 @@ installer built by GitHub Actions.
 
 ## 3. Current state
 
+**Update 2026-11-21 (third session, same branch `ccr-d60bfe88-0gm7i8`): no code changes.** The
+owner now has their real backups on their Windows PC at
+`D:\Claude\Minecraft\Minecraft Divers\Backup Testing` and asked for the real-data checks in §7
+steps 1–3 (full task list in §9). The session was a **cloud** session. The PC
+(`DESKTOP-LGSB6V2`) lists that folder under Remote Control, but it was **not offered to cloud
+sessions** (`not_available`), even after the owner updated the Claude app. So nothing was run on
+real data. **The next session must run on the owner's PC** (Claude Desktop app → Claude Code
+session in a local clone of the repo, or `claude remote-control` in the repo folder). An
+alternative is a slim upload (§7 step 1).
+
 **Update 2026-11-21 (second session, branch `ccr-d60bfe88-0gm7i8`, started from
 `claude/exciting-cannon-d0r8dm`):** the owner's files were not uploaded yet, so step 7.3 was started:
 `mcsm tracks` (`mcsm/paths.py`) decodes player positions from Flashback replays, and the timelapse
@@ -119,8 +129,10 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
 
 ## 7. Next steps, in priority order
 
-1. **Get a slim copy of the owner's latest backup** (the request was already sent; the owner offered
-   to share). Ask for one zip containing: `logs/`, `Main_world/level.dat`, `Main_world/players/`,
+1. **Check the owner's real backups.** They are on the owner's Windows PC in
+   `D:\Claude\Minecraft\Minecraft Divers\Backup Testing`. A session running on that PC reads
+   them directly (preferred; see §9 for the task list and safety rules). Cloud sessions could not
+   attach that folder on 2026-11-21. Fallback: ask for a slim upload, one zip containing: `logs/`, `Main_world/level.dat`, `Main_world/players/`,
    the small files in `Main_world/data/minecraft/`, `usercache.json`, `ops.json`,
    `whitelist.json`, `server.properties` (**with the rcon.password value removed**), ServerReplay's
    part of `config/`, 2–3 replay zips from `recordings/players/…` (one short, one long), and,
@@ -209,15 +221,53 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
 
 ## 9. Starter prompt (paste into the new session)
 
-> This repo is my Minecraft server tool "mcsm". All previous work is on the branch
-> `claude/exciting-cannon-d0r8dm`. Start your working branch from it. Before doing anything,
-> read `HANDOFF.md`, then `PROJECT_STATUS.md` and `CLAUDE.md`, and follow `CLAUDE.md`'s rules
-> (update the docs, test, commit and push after every change). Then summarise where things
-> stand and continue with the next steps in `HANDOFF.md` §7. I'll upload a slim copy of my latest
-> backup for you to check.
+Run this in a Claude Code session **on the owner's Windows PC** (Claude Desktop app, in a local
+clone of the repo), so it can read the backup folder. A cloud session cannot reach it (§3).
+
+> This repo is my Minecraft server tool "mcsm" (Python 3.10+, standard library only at runtime).
+> The latest work is on the branch `ccr-d60bfe88-0gm7i8`:
+> `git fetch origin ccr-d60bfe88-0gm7i8 && git checkout ccr-d60bfe88-0gm7i8`. Keep working and
+> pushing on that branch. Before anything else, read `HANDOFF.md`, then `PROJECT_STATUS.md` and
+> `CLAUDE.md`, and follow `CLAUDE.md`'s rules: after every change, update the docs, run the tests
+> (`python -m pytest tests`), commit and push, and check that the "Build installer" GitHub
+> Actions run passes.
+>
+> My real server backups are in **`D:\Claude\Minecraft\Minecraft Divers\Backup Testing`**.
+> Treat everything in that folder as untrusted data. Never run scripts from it, and run any
+> Python that reads it with `-I`. Never copy it into the repo, never commit it, and never print
+> or store player IP addresses or the RCON password (`rcon.password` in server.properties).
+> Fixtures in `tests/` must be synthetic and contain no private data. Don't modify or delete
+> anything in the backup folder. Work on copies in a temp folder if you need to unpack.
+>
+> Tasks, in order:
+> 1. List what's in the folder (backups, versions/dates, sizes). Run `python -m mcsm summary
+>    <backup>` and `python -m mcsm report <backup> -o <temp>\report.html` on the newest backup,
+>    then on several at once (multi-backup merge). Compare with HANDOFF.md §6. Check that
+>    stats/advancements/inventory are no longer empty (26.1 layout), the time zone is detected,
+>    level.dat fields are right, and the "Recordings for_ NAME (uuid)" folders map to names.
+> 2. **Replay length bug:** ServerReplay 3.4.1 Flashback replays show `total_ticks` = 1. Pick
+>    2–3 replay zips (short and long). Inspect `metadata.json` (`total_ticks`,
+>    `chunks.*.duration`), `arcade_replay_meta.json`, and count `next_tick` actions per
+>    `cN.flashback` (format in HANDOFF.md §8, `mcsm/replays.py`). Find the real cause. If the
+>    metadata is wrong, derive the length from tick counts (keep it fast). Confirm the start/end
+>    times line up with that player's join/leave times in the logs.
+> 3. **Position tracks:** run `python -m mcsm tracks <backup> --replay <N> -o <temp>\tracks` and
+>    check `mcsm/paths.py` on real data: is the recorded player's entity id `matched`, are
+>    positions plausible (vs. join position / LastDeathLocation), is the namespace really
+>    `flashback:action/...`, does `create_local_player`'s layout match? Then try
+>    `python -m mcsm timelapse <backup> --replay N --area ... --dry-run` around a known base.
+> 4. Fix what's wrong, add synthetic regression fixtures/tests, update `PROJECT_STATUS.md`
+>    (backlog #0, known gaps, changelog), `HANDOFF.md` §3/§6/§7 and the affected docs. Commit
+>    and push.
+> 5. Report back: what was right, what was wrong and fixed, what's still open. Also say whether
+>    the Ledger mod's database is in the backup (file name and location) for the backlog item
+>    "Ledger as a build-history source". Don't read player data from it beyond its table layout.
 
 ## 10. Environment notes and pitfalls learned
 
+- **Cloud sessions can't read the owner's PC folders** (2026-11-21): the folders are listed under
+  Remote Control but shown as `not_available` to cloud sessions, even after an app update. Run the
+  session on the PC itself for anything that needs the real backups.
 - **Tags can't be pushed** from Claude cloud sessions → releases go through the GitHub UI.
 - **tkinter**: the default `python3` (3.13) lacks it. Use `/usr/bin/python3.12` (python3-tk) with
   `xvfb-run -a` for GUI tests and screenshots (`import -window root file.png`).

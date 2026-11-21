@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-21 (position tracks from Flashback replays).
+`CLAUDE.md`). Last updated: 2026-11-21 (hand-off: real-data checks must run on the owner's PC).
 
 ## What this project is
 
@@ -292,6 +292,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   such spans may be slow (not measured).
 - Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
 
+- **Real backups are on the owner's PC** (`D:\Claude\Minecraft\Minecraft Divers\Backup
+  Testing`) and can only be checked by a session running there (see HANDOFF.md §9).
 - **Not yet tested by the owner on real data:** log formats from their server, the
   installer's GUI wizard on a real Windows desktop, the live map against the real server
   (PebbleHost may need an extra port allocated for RCON).
@@ -308,6 +310,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-21:** Hand-off only, no code changes. The real-data checks (HANDOFF.md §7 steps 1–3)
+  were blocked: the cloud session could not attach the owner's backup folder on their Windows PC.
+  HANDOFF.md §3/§7/§9 now hold the full task list as a starter prompt for a session on that PC.
 - **2026-11-21:** `mcsm tracks` (app: *Decode positions from all replays*): player positions decoded
   from Flashback replays into `.jsonl` tracks, cached per replay; `mcsm timelapse` uses the
   overlapping replays' positions automatically (`--no-replay-tracks` to turn off); docs/TRACKS.md.
