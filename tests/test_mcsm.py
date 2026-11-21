@@ -825,6 +825,11 @@ class TestMinecraft26Layout(unittest.TestCase):
         # file name 20:05 server time (UTC+2) -> 18:05 UTC; length = save 18:10 - 18:05 - 1 min paused = 4 min
         self.assertEqual((bad.start, bad.start_source, bad.duration_ms), (utc(2024, 5, 3, 18, 5), "file-name", 240_000))
         self.assertEqual(bad.raw_meta["duration_note"], "estimated from save time")
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli._warn_if_empty_timeline(bad)
+        self.assertIn("no timeline inside", buf.getvalue())
         good = reps["2024-05-03--20-30-00.zip"]
         # save 18:33 - 2 min length - 1 min paused = 18:30
         self.assertEqual((good.start, good.start_source, good.duration_ms), (utc(2024, 5, 3, 18, 30), "save-time", 120_000))

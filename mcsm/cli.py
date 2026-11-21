@@ -436,6 +436,15 @@ def _flashback_output(args, r: m.Replay, suffix: str) -> tuple[str, str | None]:
     return out, fb_dir
 
 
+def _warn_if_empty_timeline(r: m.Replay) -> None:
+    """ServerReplay 3.4.0/3.4.1 saved recordings without a timeline (no ticks, no movement); the
+    length mcsm shows is an estimate, and Flashback has nothing to play."""
+    if r.raw_meta.get("duration_note"):
+        print(f"  ! This recording has no timeline inside (total_ticks {r.raw_meta.get('total_ticks', 1)}; "
+              "typical of ServerReplay 3.4.0/3.4.1). Its length is estimated from the save time, and "
+              "Flashback will likely show an empty replay. Recordings from ServerReplay 3.5+ are fine.")
+
+
 def cmd_flashback(args) -> int:
     return run_flashback(_load(args), args)
 
@@ -443,6 +452,7 @@ def cmd_flashback(args) -> int:
 def run_flashback(data: m.ServerData, args) -> int:
     from . import flashback as fbm, sync
     r = _flashback_replay(data, args.replay)
+    _warn_if_empty_timeline(r)
     out, fb_dir = _flashback_output(args, r, " (mcsm)")
     types = args.types.split(",") if args.types else None
     if types == ["all"]:
@@ -475,6 +485,7 @@ def run_timelapse(data: m.ServerData, args) -> int:
     import json as _json
     from . import flashback as fbm, timelapse as tlm
     r = _flashback_replay(data, args.replay)
+    _warn_if_empty_timeline(r)
     area = tlm.Area.parse(args.area, args.area_name, args.dimension)
     start, end = r.start, r.end
     merge_gap = parse_duration(args.merge_gap)

@@ -13,6 +13,11 @@ timestamps.
      players are near. In ServerReplay set `default_encoding` to `flashback`, then start a
      chunk recording around your base. It's saved in `recordings/chunks/<name>/`.
    - A player recording (ServerReplay or your own Flashback) where that player is at the area.
+
+   Use **ServerReplay 3.5 or newer**. Recordings made with 3.4.0/3.4.1 (spring 2026 on this
+   server) contain no timeline: no ticks and no movement, so Flashback has nothing to play.
+   `mcsm timelapse` and `mcsm flashback` print a warning when you pick one. Their length in
+   `mcsm replays` is estimated from the save time.
 2. **Position recordings** saying who was where and when: run the live map with recording on
    while people play (`mcsm live … --record DIR`, or *Save positions* in the app's Live map tab).
    Without recordings, `mcsm` falls back to the logs ("anyone online"). That is much

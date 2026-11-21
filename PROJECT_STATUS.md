@@ -93,8 +93,16 @@ Problems found:
    durations = number of `next_tick` actions, no 1-tick lengths, and start (save − length −
    paused) lands 3–17 s after the file-name time (the file name is UTC on this server). So the
    50 ms problem belonged to **3.4.1** recordings (the old report); newer ServerReplay versions
-   don't have it. The existing estimate covers old 3.4.1 files; a 3.4.1 sample would confirm
-   it (the `May19_2026` backup should contain some).
+   don't have it.
+   **Root cause found (2026-11-21, `May19_2026` backup, 762 replays from 3.4.0+26.1 / 3.4.1+26.1):**
+   every file has `total_ticks` 1 and one chunk. Its `c0.flashback` holds only `game_packet` (and
+   `create_local_player`) actions: **no `next_tick`, no `move_entities`, an empty snapshot, no
+   chunk cache**. ServerReplay 3.4.x never wrote the timeline, so the data can't be recovered:
+   these recordings have no timing and won't play properly in Flashback. All 762 total 39 MB (a
+   10-minute recording is 36 KiB; a 7-minute 3.6.0 one is 45 MB). mcsm's estimate (save − file
+   name) is the best available and matches the server log exactly (e.g. 10:25 for
+   `2026-05-19--09-57-42`). `mcsm flashback` / `timelapse` now warn when given such a recording.
+   ✅ Closed.
 4. ✅ *Fixed* — Player folders are named `Recordings for_ NAME (uuid)` (custom `player_recording_name`):
    extract the uuid/name.
 5. ✅ *Mostly fixed* — `level.dat` in 26.1: spawn (`spawn.pos`), difficulty (`difficulty_settings`),
@@ -311,7 +319,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   Renamed players are merged into one (`5ou1s` → Vakirath, `InsidiousCrow` → Crow_Shroom); join
   events gain `uuid`. Test `TestRenamedPlayer`. Real replays (ServerReplay 3.5.2/3.6.0) checked:
   lengths, starts and the Flashback chunk layout (action names, `next_tick` counts,
-  `move_entities`) are as the reader expects. The 50 ms lengths were a 3.4.1 problem.
+  `move_entities`) are as the reader expects. The 50 ms lengths were a 3.4.x problem: those
+  files contain no ticks at all (checked on 762 real files), so their lengths stay estimated.
+  `mcsm flashback` and `mcsm timelapse` now warn when given such a recording.
 
 - **2026-11-20:** `HANDOFF.md` written: the work moves to a new session/account. Ledger idea added
   to the backlog.

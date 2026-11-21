@@ -14,6 +14,11 @@ ID, so the copy has its own timeline and can't overwrite edits you made on the o
 (With `--install`, if the original already has an editor timeline, the markers copy gets a
 copy of it.)
 
+**ServerReplay 3.4.0 / 3.4.1 recordings are empty inside.** Those versions saved the game
+packets but no ticks and no movement, so Flashback has no timeline to play (checked on 762 real
+files). `mcsm` estimates their length from the save time and prints a warning if you pick one
+for markers or a timelapse. ServerReplay 3.5.2 and newer write complete recordings.
+
 ## Markers
 
 ```bash

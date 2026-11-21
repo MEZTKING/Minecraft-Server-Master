@@ -124,8 +124,9 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    - run `mcsm summary/report` on it and compare with §6;
    - fix whatever is still wrong (stats, time zone, replay lengths);
    - add a regression fixture built from what you learn (no private data in fixtures).
-2. *(2026-11-21: newer ServerReplay files are fine; the bug was 3.4.1 only. See §8. Only a
-   3.4.1 sample remains to check, e.g. from the `May19_2026` backup.)* **Fix the replay length** using a real replay: inspect `metadata.json`
+2. *(Done 2026-11-21: ServerReplay 3.4.0/3.4.1 files contain no `next_tick`/`move_entities` at
+   all, so the timeline was never recorded; lengths stay estimated and the tools warn. 3.5.2+
+   files are correct. See §8 and `PROJECT_STATUS.md` backlog #0.3.)* Original plan: **Fix the replay length** using a real replay: inspect `metadata.json`
    (`total_ticks`, `chunks.*.duration`) and `arcade_replay_meta.json`, and count
    `next_tick` actions in the `cN.flashback` files (action ids in arcade files = enum
    ordinal; see §8). If metadata is truly wrong, derive the length from tick counts.
