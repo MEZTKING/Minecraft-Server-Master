@@ -478,6 +478,9 @@ _STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 def _make_handler(live: LiveMap):
     class Handler(BaseHTTPRequestHandler):
         server_version = "mcsm-live"
+        # Keep connections open: a big world is over a thousand tile requests, and a new
+        # connection for each can exhaust Windows' sockets (ERR_NO_BUFFER_SPACE).
+        protocol_version = "HTTP/1.1"
 
         def log_message(self, *args):  # keep the console quiet
             pass
@@ -550,6 +553,8 @@ def _make_handler(live: LiveMap):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")    # endless body: ends when the connection does
+            self.close_connection = True
             self.end_headers()
             q = live.subscribe()
             try:

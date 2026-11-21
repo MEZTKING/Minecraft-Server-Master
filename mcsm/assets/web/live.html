@@ -165,9 +165,17 @@ async function loadTerrain(dim) {
   const worker = async () => {
     for (let t; (t = todo.shift());) {
       try {
-        const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
+        const res = await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`);
+        if (!res.ok) throw new Error(res.status);
+        const buf = await res.arrayBuffer();
         terrainGroups[dim].add(tileMesh(t, buf));
-      } catch (e) { loadedTiles.delete(`${dim}|${t.rx}|${t.rz}`); }
+        const seams = addSeams(dim, t, buf);
+        if (seams) terrainGroups[dim].add(seams);
+      } catch (e) {                                   // retry a couple of times, then give up
+        t.tries = (t.tries || 0) + 1;
+        if (t.tries < 3) { await new Promise(r => setTimeout(r, 500 * t.tries)); todo.push(t); }
+        else loadedTiles.delete(`${dim}|${t.rx}|${t.rz}`);
+      }
     }
   };
   await Promise.all(Array.from({ length: 8 }, worker));
@@ -196,6 +204,46 @@ function tileMesh(t, buf) {
   g.setIndex(idx);
   g.computeVertexNormals();
   if (minX < Infinity) terrainBounds = terrainBounds ? { minX: Math.min(terrainBounds.minX, minX), maxX: Math.max(terrainBounds.maxX, maxX), minZ: Math.min(terrainBounds.minZ, minZ), maxZ: Math.max(terrainBounds.maxZ, maxZ) } : { minX, maxX, minZ, maxZ };
+  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+// Each region is its own mesh whose samples sit step/2 inside its edges, which leaves a gap one
+// sample wide between neighbouring regions. When a region arrives, join it to the neighbours
+// already loaded (edges, and corners where four regions meet). Each seam is built once: when
+// the second of its regions arrives. (Same code as history.html.)
+const tileData = {};   // dim -> Map("rx,rz" -> {t, heights, rgb})
+function addSeams(dim, t, buf) {
+  const n = t.size, D = tileData[dim] || (tileData[dim] = new Map()), NO = -32768;
+  D.set(`${t.rx},${t.rz}`, { t, heights: new Int16Array(buf, 0, n * n), rgb: new Uint8Array(buf, n * n * 2, n * n * 3) });
+  const get = (rx, rz) => { const e = D.get(`${rx},${rz}`); return e && e.t.size === n && e.t.step === t.step ? e : null; };
+  const V = (e, i, j) => {
+    if (!e) return null;
+    const k = j * n + i, h = e.heights[k];
+    if (h === NO) return null;
+    return [e.t.rx * 512 + i * t.step + t.step / 2, h + 1, e.t.rz * 512 + j * t.step + t.step / 2,
+            e.rgb[k * 3] / 255, e.rgb[k * 3 + 1] / 255, e.rgb[k * 3 + 2] / 255];
+  };
+  const pos = [], col = [];
+  const tri = (...vs) => vs.forEach(v => { pos.push(v[0], v[1], v[2]); col.push(v[3], v[4], v[5]); });
+  // a = (x, z), b = (x+1, z), c = (x, z+1), d = (x+1, z+1); same winding as tileMesh
+  const quad = (a, b, c, d) => { if (a && b && c && d) { tri(a, c, b); tri(b, c, d); } };
+  const me = get(t.rx, t.rz), W = get(t.rx - 1, t.rz), E = get(t.rx + 1, t.rz), N = get(t.rx, t.rz - 1), S = get(t.rx, t.rz + 1);
+  for (let j = 0; j < n - 1; j++) {
+    if (W) quad(V(W, n - 1, j), V(me, 0, j), V(W, n - 1, j + 1), V(me, 0, j + 1));
+    if (E) quad(V(me, n - 1, j), V(E, 0, j), V(me, n - 1, j + 1), V(E, 0, j + 1));
+  }
+  for (let i = 0; i < n - 1; i++) {
+    if (N) quad(V(N, i, n - 1), V(N, i + 1, n - 1), V(me, i, 0), V(me, i + 1, 0));
+    if (S) quad(V(me, i, n - 1), V(me, i + 1, n - 1), V(S, i, 0), V(S, i + 1, 0));
+  }
+  for (const [cx, cz] of [[t.rx - 1, t.rz - 1], [t.rx, t.rz - 1], [t.rx - 1, t.rz], [t.rx, t.rz]]) {   // corners
+    const tl = get(cx, cz), tr = get(cx + 1, cz), bl = get(cx, cz + 1), br = get(cx + 1, cz + 1);
+    if (tl && tr && bl && br) quad(V(tl, n - 1, n - 1), V(tr, 0, n - 1), V(bl, n - 1, 0), V(br, 0, 0));
+  }
+  if (!pos.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
   return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 function updateTerrainVisibility() {

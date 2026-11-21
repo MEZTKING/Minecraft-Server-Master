@@ -305,6 +305,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-21 | History viewer positions come from Flashback's version-independent `move_entities` action, not version-specific game packets; only the recorded player is tracked for now | Works for every Minecraft version without packet decoding; identifying other entities needs per-protocol work |
 | 2026-11-21 | Decoded paths are cached as `.jsonl` in the live-map track format (`%LOCALAPPDATA%\mcsm\paths`, keyed by file name + size + mtime) | Instant later runs; the same files feed `mcsm timelapse --tracks` |
 | 2026-11-21 | Terrain: partial NBT scanner + process pool (≤ 8 workers) + per-region tile cache in `%LOCALAPPDATA%\mcsm\terrain` | Full decoding was ~90% of the time; 16 cores were idle; repeat runs should be instant. Output verified identical to the full decoder on real regions |
+| 2026-11-21 | Region seams are stitched in the browser, not by resampling on the server | Tiles stay independent and cacheable per region; the page joins neighbours as they arrive |
 | 2026-11-21 | Web servers don't set SO_REUSEADDR on Windows | There it lets a second server silently take a busy port |
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
@@ -317,10 +318,6 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Timelapse over many days fast-forwards idle time at very high tick rates; Flashback export of
   such spans may be slow (not measured).
 - Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
-- Terrain worker processes in the **frozen Windows app** (PyInstaller) rely on
-  `multiprocessing.freeze_support()` in the launchers; CI builds the installer but doesn't
-  start terrain workers in it. If processes can't start, terrain is read in one thread
-  (slower, still correct).
 - Terrain at automatic detail samples every 16 blocks on worlds this size, so hills look
   blocky and path lines can dip under the surface.
 - History viewer: path time = recording start + ticks × 50 ms, so server lag (slow ticks) and
@@ -339,6 +336,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** The owner tried the installed app: the History tab works and terrain loads in
+  parallel (worker processes OK in the frozen build). Fixed the dark grid lines between
+  regions: the pages now stitch neighbouring regions' edges and corners (live map and history
+  viewer). The local web server keeps connections open (HTTP/1.1); 1,000+ tile requests had
+  run out of Windows sockets (`ERR_NO_BUFFER_SPACE`), and failed tiles are now retried.
 
 - **2026-11-21:** Terrain speed: the owner's 1,569-region world went from 12+ minutes (over an
   hour while recordings were decoding) to ~33 s, and ~4 s on later runs (tile cache). Partial NBT
