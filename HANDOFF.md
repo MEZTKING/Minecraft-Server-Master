@@ -130,7 +130,8 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    (`total_ticks`, `chunks.*.duration`) and `arcade_replay_meta.json`, and count
    `next_tick` actions in the `cN.flashback` files (action ids in arcade files = enum
    ordinal; see §8). If metadata is truly wrong, derive the length from tick counts.
-3. **Phase 2 "everything as one recording" (backlog #0b):** extract player paths from
+3. *(Phase 2a done 2026-11-21: `mcsm history`, docs/HISTORY.md; what's left is listed under
+   backlog #0b "Phase 2b" in `PROJECT_STATUS.md`.)* **Phase 2 "everything as one recording" (backlog #0b):** extract player paths from
    recordings via `move_entities` (§8). Store them like live-map tracks (`.jsonl`). Build the
    3D time-machine viewer: time slider over all history, paths, events pinned in 3D, replay
    coverage, terrain from the nearest backup. Reuse `mcsm/live.py`'s web server and

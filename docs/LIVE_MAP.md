@@ -101,7 +101,10 @@ Terrain: for each region file, the chunks' `MOTION_BLOCKING` heightmap gives the
 height, and the block at that height (decoded from the section's palette) gives an approximate
 colour. Supported worlds: Minecraft 1.16 and newer. Worlds bigger than ~12 regions are sampled
 every 2–32 blocks automatically. The Nether isn't drawn because its bedrock roof hides the
-surface, but Nether players are still shown, on a grid.
+surface, but Nether players are still shown, on a grid. Regions nearest spawn are built
+first; big worlds (over a thousand regions) take a long time to finish, so far-away land
+appears last. Minecraft 26.3's shorter palette format is supported, and a region that can't
+be read is skipped.
 
 ## Recorded tracks
 
@@ -115,7 +118,8 @@ With `--record` (or the **Save positions** tick box), each update is appended to
 
 `t` is Unix milliseconds (UTC). These files feed the **activity-aware timelapse**
 ([TIMELAPSE.md](TIMELAPSE.md)): keep recording on while people play so the timelapse knows
-who was at your base, and when.
+who was at your base, and when. They can also be shown in the history viewer
+(`mcsm history SERVER --tracks DIR`, [HISTORY.md](HISTORY.md)).
 
 ## Troubleshooting
 

@@ -388,6 +388,65 @@ def cmd_live(args) -> int:
     return 0
 
 
+def _track_files(specs: list[str] | None) -> list[str]:
+    import glob
+    out = []
+    for p in specs or []:
+        out += sorted(glob.glob(os.path.join(p, "*.jsonl"))) if os.path.isdir(p) else [p]
+    return out
+
+
+def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terrain_source: str | None = None):
+    """Create and start the history viewer for CLI/GUI. Returns ``(history, url)``.
+
+    Terrain comes from the newest backup (*terrain_source*, else the newest one loaded); a zip
+    that was read selectively has no region files, so it is opened again with them (kept open
+    on *stack*, default: until the command ends).
+    """
+    from .history import HistoryMap
+    newest = terrain_source or (data.backups[-1]["path"] if data.backups else
+                                (args.server[0] if isinstance(args.server, list) else args.server))
+    root = data.root
+    if newest and os.path.isfile(newest):
+        root = (stack or _OPEN).enter_context(open_server(newest, include_regions=True))
+    cfg = live_settings(root)
+    step = None if args.terrain_detail == "auto" else int(args.terrain_detail)
+    hm = HistoryMap(data, lambda r: _replay_file(data, r), root, cfg.get("world"), step,
+                    args.cache, _track_files(args.tracks), cfg.get("title") or "", cfg.get("spawn"),
+                    decode_replays=not args.no_replays)
+    return hm, hm.start(args.http_port)
+
+
+def cmd_history(args) -> int:
+    import time as _time
+    import webbrowser
+    from .paths import default_cache_dir
+    data = _load(args)
+    hm, url = start_history(args, data)
+    n = sum(1 for r in data.replays if r.format == "flashback" and r.start and not r.unfinished)
+    print(f"History viewer running at {url}  (Ctrl+C to stop)", flush=True)
+    print(f"History     : {len(data.events)} events, {len(data.sessions)} sessions, {len(data.replays)} replays")
+    if not args.no_replays and n:
+        print(f"Paths       : reading player positions from {n} Flashback recordings in the background "
+              f"(cached in {args.cache or default_cache_dir()})")
+    if not args.no_browser:
+        webbrowser.open(url)
+    _print_warnings(data)
+    last = None
+    try:
+        while True:
+            _time.sleep(1)
+            done, total = hm.decode_progress
+            if total and (done, total) != last and (done == total or done % 10 == 0):
+                print(f"Paths       : {done}/{total} recordings read", file=sys.stderr)
+                last = (done, total)
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    finally:
+        hm.stop()
+    return 0
+
+
 def _flashback_replay(data: m.ServerData, spec: str) -> m.Replay:
     r = _resolve_replay(data, spec)
     if r.format != "flashback":
@@ -730,6 +789,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     p.set_defaults(func=cmd_live)
     p.epilog = "The RCON password is read from server.properties in SERVER, the MCSM_RCON_PASSWORD environment variable, or asked for."
+
+    p = sub.add_parser("history", help="3D time machine: all backups and recordings as one timeline",
+                       description="A 3D map with a time slider over the whole history: player paths decoded "
+                                   "from Flashback recordings, joins, deaths and chat, sessions and replay "
+                                   "coverage. Terrain from the newest backup. See docs/HISTORY.md.")
+    _add_common(p)
+    p.add_argument("--tracks", action="append", metavar="DIR_OR_FILE",
+                   help="also show live-map recordings (mcsm live --record DIR); repeatable")
+    p.add_argument("--no-replays", action="store_true", help="don't read positions from Flashback recordings")
+    p.add_argument("--cache", metavar="DIR", help="where decoded paths are kept (default: %%LOCALAPPDATA%%/mcsm/paths)")
+    p.add_argument("--http-port", type=int, default=8766, help="local port for the page (default 8766)")
+    p.add_argument("--terrain-detail", default="auto", choices=["auto", "1", "2", "4", "8", "16"],
+                   help="sample every N blocks (1 = full detail; auto keeps big worlds fast)")
+    p.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
+    p.set_defaults(func=cmd_history)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")

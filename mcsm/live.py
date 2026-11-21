@@ -207,7 +207,95 @@ class _Track:
     dimension: str = ""
 
 
-class LiveMap:
+class TerrainServer:
+    """Terrain tiles from a downloaded world, built in the background (shared by the live map
+    and the history viewer). Needs ``root``, ``world``, ``terrain_step`` and ``_stop``."""
+
+    root: str | None
+    world: str | None
+    terrain_step: int | None
+
+    def _init_terrain(self) -> None:
+        self.terrain: dict[str, dict[tuple[int, int], terrain_mod.Tile]] = {}
+        self.terrain_progress: dict[str, list[int]] = {}
+
+    def terrain_focus(self) -> list[tuple[float, float]]:
+        """Block (x, z) points whose regions are built first (big worlds take a long time)."""
+        sp = getattr(self, "spawn", None)
+        return [(sp[0], sp[2])] if sp else []
+
+    def _ordered_regions(self, files: list[str]) -> list[str]:
+        focus = self.terrain_focus()
+        if not focus:
+            return files
+
+        def dist(path: str) -> float:
+            mt = re.search(r"r\.(-?\d+)\.(-?\d+)\.mca$", path)
+            if not mt:
+                return float("inf")
+            cx, cz = int(mt.group(1)) * 512 + 256, int(mt.group(2)) * 512 + 256
+            return min(math.hypot(cx - x, cz - z) for x, z in focus)
+        return sorted(files, key=dist)
+
+    def _build_terrain(self) -> None:
+        if not (self.root and self.world):
+            return
+        for dim in ("minecraft:overworld", "minecraft:the_end"):
+            files = self._ordered_regions(terrain_mod.region_files(self.root, self.world, dim))
+            if not files:
+                continue
+            self.terrain_progress[dim] = [0, len(files)]
+            step = self.terrain_step or terrain_mod.auto_step(len(files))
+            tiles: dict[tuple[int, int], terrain_mod.Tile] = {}
+            self.terrain[dim] = tiles
+            for i, path in enumerate(files):
+                if self._stop.is_set():
+                    return
+                try:
+                    t = terrain_mod.read_region_surface(path, step)
+                except Exception:  # noqa: BLE001 -- one unreadable region must not stop the rest
+                    t = None
+                if t:
+                    tiles[(t.rx, t.rz)] = t
+                self.terrain_progress[dim][0] = i + 1
+
+    def height_at(self, x: float, z: float, dim: str = "minecraft:overworld") -> int | None:
+        tiles = self.terrain.get(dim, {})
+        t = tiles.get((math.floor(x) >> 9, math.floor(z) >> 9))
+        if not t:
+            return None
+        lx, lz = (math.floor(x) & 511) // t.step, (math.floor(z) & 511) // t.step
+        h = t.heights[lz * t.size + lx]
+        return None if h == t.NO_DATA else h
+
+    def terrain_info(self) -> dict:
+        return {d: {"done": p[0], "total": p[1], "tiles": len(self.terrain.get(d, {}))}
+                for d, p in self.terrain_progress.items()}
+
+
+class _Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second program bind a port that is already in use, so a
+    # busy port would never be detected; elsewhere it only allows quick restarts.
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+
+def serve(app, port: int, host: str = "127.0.0.1") -> ThreadingHTTPServer:
+    """An HTTP server for *app* on the first free port from *port* (this computer only)."""
+    handler = _make_handler(app)
+    for p in range(port, port + 20):
+        try:
+            httpd = _Server((host, p), handler)
+            httpd.daemon_threads = True
+            return httpd
+        except OSError:
+            continue
+    raise OSError(f"no free port between {port} and {port + 19}")
+
+
+class LiveMap(TerrainServer):
+    PAGE = "live.html"
+
     def __init__(self, source, root: str | None = None, world: str | None = None, interval: float = 1.0,
                  record_dir: str | None = None, terrain_step: int | None = None, title: str = "",
                  spawn: tuple[float, float, float] | None = None):
@@ -223,8 +311,7 @@ class LiveMap:
         self.status = "starting"
         self.error: str | None = None
         self.last_poll: float | None = None
-        self.terrain: dict[str, dict[tuple[int, int], terrain_mod.Tile]] = {}
-        self.terrain_progress: dict[str, list[int]] = {}
+        self._init_terrain()
         self._subs: list[queue.Queue] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -233,16 +320,7 @@ class LiveMap:
 
     # -- lifecycle ----------------------------------------------------------
     def start(self, port: int = 8765, host: str = "127.0.0.1") -> str:
-        handler = _make_handler(self)
-        for p in range(port, port + 20):  # find a free port
-            try:
-                self._httpd = ThreadingHTTPServer((host, p), handler)
-                break
-            except OSError:
-                continue
-        if self._httpd is None:
-            raise OSError(f"no free port between {port} and {port + 19}")
-        self._httpd.daemon_threads = True
+        self._httpd = serve(self, port, host)
         for target in (self._httpd.serve_forever, self._poll_loop, self._build_terrain):
             t = threading.Thread(target=target, daemon=True)
             t.start()
@@ -261,35 +339,6 @@ class LiveMap:
         with self._lock:
             for q in self._subs:
                 q.put(None)
-
-    # -- terrain ------------------------------------------------------------
-    def _build_terrain(self) -> None:
-        if not (self.root and self.world):
-            return
-        for dim in ("minecraft:overworld", "minecraft:the_end"):
-            files = terrain_mod.region_files(self.root, self.world, dim)
-            if not files:
-                continue
-            self.terrain_progress[dim] = [0, len(files)]
-            step = self.terrain_step or terrain_mod.auto_step(len(files))
-            tiles: dict[tuple[int, int], terrain_mod.Tile] = {}
-            self.terrain[dim] = tiles
-            for i, path in enumerate(files):
-                if self._stop.is_set():
-                    return
-                t = terrain_mod.read_region_surface(path, step)
-                if t:
-                    tiles[(t.rx, t.rz)] = t
-                self.terrain_progress[dim][0] = i + 1
-
-    def height_at(self, x: float, z: float, dim: str = "minecraft:overworld") -> int | None:
-        tiles = self.terrain.get(dim, {})
-        t = tiles.get((math.floor(x) >> 9, math.floor(z) >> 9))
-        if not t:
-            return None
-        lx, lz = (math.floor(x) & 511) // t.step, (math.floor(z) & 511) // t.step
-        h = t.heights[lz * t.size + lx]
-        return None if h == t.NO_DATA else h
 
     # -- polling ------------------------------------------------------------
     def _poll_loop(self) -> None:
@@ -351,8 +400,7 @@ class LiveMap:
 
     def info(self) -> dict:
         return {"title": self.title, "server": self.source.server_label, "spawn": self.spawn,
-                "terrain": {d: {"done": p[0], "total": p[1], "tiles": len(self.terrain.get(d, {}))}
-                            for d, p in self.terrain_progress.items()}}
+                "terrain": self.terrain_info()}
 
     def _broadcast(self) -> None:
         msg = json.dumps(self.snapshot())
@@ -400,17 +448,23 @@ def _make_handler(live: LiveMap):
             path = unquote(urlparse(self.path).path)
             try:
                 if path in ("/", "/index.html"):
-                    return self._static("live.html")
+                    return self._static(live.PAGE)
                 if path.startswith("/vendor/"):
                     return self._static(path.lstrip("/"))
                 if path == "/api/info":
                     return self._json(live.info())
+                if path.startswith("/api/terrain/"):
+                    return self._terrain(path[len("/api/terrain/"):].split("/"))
+                extra = getattr(live, "api_get", None)
+                if extra:                     # other apps (the history viewer) add their own routes
+                    obj = extra(path)
+                    if obj is not None:
+                        return self._json(obj)
+                    return self._send(404, b"not found", "text/plain")
                 if path == "/api/state":
                     return self._json(live.snapshot())
                 if path == "/api/stream":
                     return self._stream()
-                if path.startswith("/api/terrain/"):
-                    return self._terrain(path[len("/api/terrain/"):].split("/"))
                 self._send(404, b"not found", "text/plain")
             except (BrokenPipeError, ConnectionResetError):
                 pass

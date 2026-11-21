@@ -127,6 +127,16 @@ def _unpack(longs: list[int], bits: int, index: int) -> int:
     return (word >> ((index % per) * bits)) & ((1 << bits) - 1)
 
 
+def _block_name(p) -> str:
+    """A palette entry: ``{"Name": ..., "Properties": ...}``, or (26.3+, data version 5023) just
+    the block name as a string."""
+    if isinstance(p, str):
+        return p
+    if isinstance(p, dict):
+        return p.get("Name", "minecraft:air")
+    return "minecraft:air"
+
+
 def _sections(chunk: dict) -> tuple[dict[int, tuple[list, list[int]]], int, dict]:
     """Return ``({section_y: (palette_names, data)}, min_y, heightmaps)``."""
     level = chunk.get("Level", chunk)  # 1.16-1.17 wrap everything in "Level"
@@ -134,14 +144,14 @@ def _sections(chunk: dict) -> tuple[dict[int, tuple[list, list[int]]], int, dict
     if "sections" in chunk:  # 1.18+
         for s in chunk["sections"]:
             bs = s.get("block_states") or {}
-            pal = [p.get("Name", "minecraft:air") for p in bs.get("palette", [])]
+            pal = [_block_name(p) for p in bs.get("palette", [])]
             if pal:
                 out[s.get("Y", 0)] = (pal, bs.get("data") or [])
         min_y = chunk.get("yPos", -4) * 16
         heightmaps = chunk.get("Heightmaps", {})
     else:  # 1.16-1.17
         for s in level.get("Sections", []):
-            pal = [p.get("Name", "minecraft:air") for p in s.get("Palette", [])]
+            pal = [_block_name(p) for p in s.get("Palette", [])]
             if pal:
                 out[s.get("Y", 0)] = (pal, s.get("BlockStates") or [])
         min_y = 0

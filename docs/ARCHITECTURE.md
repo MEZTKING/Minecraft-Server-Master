@@ -19,7 +19,7 @@ mcsm/
   cli.py             argument parsing and the commands (run_* functions take loaded data)
   gui.py             tkinter desktop window; calls the same run_* functions as the CLI
   assets/icon.png    window icon
-  assets/web/        live.html (3D viewer) + vendored three.js r160 (MIT)
+  assets/web/        live.html (live 3D map), history.html (history viewer) + vendored three.js r160 (MIT)
   source.py          open a folder or .zip (selective "lite" extraction, replay stubs, ensure_full)
   archive.py         merge several backups (any versions) into one ServerData
   analyzer.py        runs all parsers, merges results into ServerData
@@ -31,7 +31,10 @@ mcsm/
   world.py           server.properties, level.dat, region sizes, mods/plugins, json lists
   replays.py         ReplayMod .mcpr + Flashback .zip (+ unfinished folders): start, length, markers
   rcon.py            RCON client (pipelined commands)
-  live.py            live map: RCON/demo sources, polling, trails, recording, local web server + SSE
+  live.py            live map: RCON/demo sources, polling, trails, recording, local web server + SSE;
+                     TerrainServer and serve() shared with the history viewer
+  paths.py           player paths decoded from Flashback chunk files (move_entities), cached as .jsonl tracks
+  history.py         history viewer: paths + events + sessions + replays as JSON, local web server
   terrain.py         region files -> surface height/colour tiles for the 3D map
   flashback.py       write Flashback replay copies (markers, new uuid) and editor states (camera/timelapse)
   timelapse.py       areas, activity windows (tracks/sessions), target-length plan, timelapse keyframes
@@ -85,6 +88,20 @@ download world/region/*.mca ──terrain.read_region_surface──► tiles (he
                           ├─ /api/stream       Server-Sent Events, one snapshot per poll
                           ▼
                  live.html (three.js): terrain meshes, markers, trails, labels
+```
+
+### History viewer data flow
+
+```
+ServerData (one or many backups) ──history_payload──► /api/history  events, sessions, replays, backups
+Flashback replays ──paths.decode_points (move_entities of the recorded player)──►
+    <cache>/<hash>.jsonl  (live-map track format; reused on later runs)
+live-map recordings (--tracks) ─┐
+                                ├─ HistoryMap.paths (merged per current name, thinned) ──► /api/paths
+newest backup's regions ──TerrainServer (near spawn/log-ins first)──► /api/terrain/...
+                                ▼
+                 history.html (three.js): time slider, markers at time T, trails, event pins,
+                 timeline canvas (sessions, recordings, backups, events)
 ```
 
 ## Key decisions

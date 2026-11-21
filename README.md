@@ -144,6 +144,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
 | `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
+| `mcsm history SERVER [MORE...]` | 3D time machine: a time slider over the whole history, with player paths from Flashback recordings, events, sessions and replay coverage ([guide](docs/HISTORY.md)). |
 
 Run `mcsm <command> --help` for every option.
 
@@ -246,6 +247,7 @@ The HTML report always shows times in **your** browser's time zone.
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
+| [docs/HISTORY.md](docs/HISTORY.md) | History viewer: the whole history as one recording, timeline, where positions come from |
 | [HANDOFF.md](HANDOFF.md) | Everything needed to continue development in a new session or account |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |
 | [docs/INSTALLER.md](docs/INSTALLER.md) | Installing and using the Windows app; how the installer is built and released |

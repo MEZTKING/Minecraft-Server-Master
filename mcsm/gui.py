@@ -87,6 +87,9 @@ class App(ttk.Frame):
         self.server_stack = contextlib.ExitStack()  # keeps loaded backups extracted
         self.live_stack = contextlib.ExitStack()
         self.live_url: str | None = None
+        self.history = None                   # running HistoryMap, if any
+        self.history_stack = contextlib.ExitStack()
+        self.history_url: str | None = None
         root.title(f"{APP_NAME} {__version__}")
         root.minsize(760, 560)
         root.geometry("900x760")
@@ -138,6 +141,7 @@ class App(ttk.Frame):
         nb.add(self._tab_export(nb), text="Export data")
         nb.add(self._tab_flashback(nb), text="Flashback")
         nb.add(self._tab_live(nb), text="Live map")
+        nb.add(self._tab_history(nb), text="History")
 
     def _button(self, parent, text, command, **grid) -> ttk.Button:
         b = ttk.Button(parent, text=text, command=command, state="disabled")
@@ -535,6 +539,80 @@ class App(ttk.Frame):
         self.live_stop_btn.configure(state="disabled")
         self.live_open_btn.configure(state="disabled")
 
+    def _tab_history(self, nb) -> ttk.Frame:
+        f = ttk.Frame(nb, padding=12)
+        f.columnconfigure(1, weight=1)
+        ttk.Label(f, text="Everything in your loaded backups as one recording: a 3D map with a time slider over "
+                          "the whole history. Player paths come from your Flashback recordings; joins, deaths and "
+                          "chat from the logs. Load one or more backups first. See docs/HISTORY.md.",
+                  wraplength=660, justify="left").grid(row=0, column=0, columnspan=3, sticky="w")
+        self.hist_replays_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f, text="Read player positions from Flashback recordings (first time: a few minutes; "
+                                "then cached)", variable=self.hist_replays_var).grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 3))
+        self.hist_tracks_var = tk.BooleanVar(value=False)
+        self.hist_tracks_dir = tk.StringVar(value=os.path.join(_documents_dir(), "mcsm-live-tracks"))
+        ttk.Checkbutton(f, text="Also live-map positions from:", variable=self.hist_tracks_var).grid(row=2, column=0, sticky="w", pady=3)
+        ttk.Entry(f, textvariable=self.hist_tracks_dir).grid(row=2, column=1, sticky="ew", padx=4)
+        ttk.Button(f, text="Browse…", command=lambda: self._pick_dir(self.hist_tracks_dir)).grid(row=2, column=2, sticky="w")
+        btns = ttk.Frame(f)
+        btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.hist_start_btn = self._button(btns, "Open history viewer", self._history_start)
+        self.hist_start_btn.pack(side="left")
+        self.hist_open_btn = ttk.Button(btns, text="Open page", state="disabled",
+                                        command=lambda: self.history_url and webbrowser.open(self.history_url))
+        self.hist_open_btn.pack(side="left", padx=6)
+        self.hist_stop_btn = ttk.Button(btns, text="Stop", command=self._history_stop, state="disabled")
+        self.hist_stop_btn.pack(side="left")
+        self.hist_status_var = tk.StringVar(value="Not running.")
+        ttk.Label(f, textvariable=self.hist_status_var, foreground="gray", wraplength=660).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        return f
+
+    def _history_start(self) -> None:
+        if self.history is not None or self.busy or self.data is None:
+            return
+        argv = ["history", *self._common_argv(), "--no-browser"]
+        if not self.hist_replays_var.get():
+            argv.append("--no-replays")
+        if self.hist_tracks_var.get() and self.hist_tracks_dir.get().strip():
+            argv += ["--tracks", self.hist_tracks_dir.get().strip()]
+        args = cli.parse_args(argv)
+        paths = [p.strip() for p in self.server_var.get().split(SEP.strip()) if p.strip()]
+        newest = self.data.backups[-1]["path"] if self.data.backups else (paths[-1] if paths else None)
+        stack = contextlib.ExitStack()
+
+        def work(data):
+            try:
+                print("Starting the history viewer…")
+                return cli.start_history(args, data, stack, newest)
+            except BaseException:
+                stack.close()
+                raise
+
+        def after(result):
+            hm, url = result
+            self.history, self.history_url, self.history_stack = hm, url, stack
+            self.hist_status_var.set(f"Running at {url}. Player paths and terrain keep loading in the "
+                                     "background; the page fills in as they arrive. Keep this window open.")
+            self.hist_start_btn.configure(state="disabled")
+            self.hist_stop_btn.configure(state="normal")
+            self.hist_open_btn.configure(state="normal")
+            self.log(f"History viewer running at {url}\n")
+            webbrowser.open(url)
+
+        self._run("History viewer", work, after)
+
+    def _history_stop(self) -> None:
+        if self.history is not None:
+            self.history.stop()
+            self.history = None
+        self.history_stack.close()
+        self.history_url = None
+        self.hist_status_var.set("Stopped.")
+        self.hist_start_btn.configure(state="normal" if self.data is not None else "disabled")
+        self.hist_stop_btn.configure(state="disabled")
+        self.hist_open_btn.configure(state="disabled")
+
     def _tab_export(self, nb) -> ttk.Frame:
         f = ttk.Frame(nb, padding=12)
         ttk.Label(f, text="Raw data for spreadsheets or your own tools (see docs/DATA_MODEL.md).",
@@ -849,6 +927,7 @@ def main() -> int:
 
     def on_close():
         app._live_stop()  # stop the live map server and remove temp files
+        app._history_stop()
         app.server_stack.close()
         root.destroy()
 

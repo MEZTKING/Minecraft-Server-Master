@@ -460,6 +460,40 @@ class TestGUI(ServerTestCase):
             import gc
             gc.collect()
 
+    def test_history_tab(self):
+        import time
+        import tkinter as tk
+        import urllib.request
+        from mcsm import gui
+        gui.webbrowser.open = lambda url: None
+        tmp = tempfile.mkdtemp()
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            app.server_var.set(build_server(os.path.join(tmp, "s")))
+            app._load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            app.hist_replays_var.set(False)
+            app._history_start()
+            while app.history is None and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertIsNotNone(app.history, app.log_text.get("1.0", "end")[-1500:])
+            h = json.loads(urllib.request.urlopen(app.history_url + "api/history", timeout=5).read())
+            self.assertIn("Steve", h["players"])
+            app._history_stop()
+            self.assertIsNone(app.history)
+            app.server_stack.close()
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 class TestFlashbackAndUnfinished(unittest.TestCase):
     @classmethod
@@ -870,6 +904,144 @@ class TestRenamedPlayer(unittest.TestCase):
         from mcsm.players import name_aliases
         ev = m.Event(utc(2024, 5, 1), m.EV_JOIN, "Newname", "", "", None, {"formerly": "Oldname"})
         self.assertEqual(name_aliases([ev], {})["oldname"], ("Newname", None))
+
+
+def _fb_chunk(records: list[tuple[str, bytes]], with_local: tuple | None = None) -> bytes:
+    """A Flashback chunk file with the given (action, payload) records (ServerReplay action order)."""
+    import struct
+
+    def vi(n):
+        out = b""
+        while True:
+            b, n = n & 0x7F, n >> 7
+            out += bytes([b | (0x80 if n else 0)])
+            if not n:
+                return out
+    names = ["flashback:action/level_chunk_cached", "flashback:action/configuration_packet",
+             "flashback:action/create_local_player", "flashback:action/game_packet",
+             "flashback:action/move_entities", "flashback:action/next_tick"]
+    body = struct.pack(">I", 0xD780E884) + vi(len(names))
+    for n in names:
+        body += vi(len(n)) + n.encode()
+    body += struct.pack(">I", 0)       # empty snapshot
+    for name, payload in records:
+        body += vi(names.index("flashback:action/" + name)) + struct.pack(">I", len(payload)) + payload
+    return body
+
+
+def _fb_move(entities: list[tuple[int, float, float, float]], dim: str = "minecraft:overworld") -> bytes:
+    import struct
+
+    def vi(n):
+        out = b""
+        while True:
+            b, n = n & 0x7F, n >> 7
+            out += bytes([b | (0x80 if n else 0)])
+            if not n:
+                return out
+    p = vi(1) + vi(len(dim)) + dim.encode() + vi(len(entities))
+    for eid, x, y, z in entities:
+        p += vi(eid) + struct.pack(">dddfff", x, y, z, 90.0, 0.0, 90.0) + b"\x01"
+    return p
+
+
+class TestHistory(unittest.TestCase):
+    """Player paths from Flashback recordings, and the history viewer's data and web server."""
+
+    @classmethod
+    def setUpClass(cls):
+        import struct
+        from fixtures import build_server_26_1
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-hist-")
+        cls.root = build_server_26_1(os.path.join(cls.tmp, "server"))
+        # Steve (entity 7) walks east 1 block per second for 2 minutes, over two chunk files.
+        # Entity 9 (someone else) stands still. Recording starts 18:30 UTC (see fixtures).
+        local = struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 10.0, 64.0, -3.0) + b"\0" * 40
+        chunks = []
+        for c in range(2):
+            recs = [("create_local_player", local)] if c == 0 else []
+            for t in range(1200):
+                g = c * 1200 + t
+                ents = [(7, 10.0 + g / 20, 64.0, -3.0)]
+                if g == 0:
+                    ents.append((9, 500.0, 70.0, 500.0))
+                recs.append(("move_entities", _fb_move(ents)))
+                recs.append(("next_tick", b""))
+            chunks.append(_fb_chunk(recs))
+        cls.replay = os.path.join(cls.root, "recordings", "players", f"Recordings for_ Steve ({STEVE})",
+                                  "2024-05-03--20-30-00.zip")
+        with zipfile.ZipFile(cls.replay) as zf:
+            meta, arcade = zf.read("metadata.json"), zf.read("arcade_replay_meta.json")
+        with zipfile.ZipFile(cls.replay, "w") as zf:
+            zf.writestr("metadata.json", meta)
+            zf.writestr("arcade_replay_meta.json", arcade)
+            zf.writestr("c0.flashback", chunks[0])
+            zf.writestr("c1.flashback", chunks[1])
+        cls.data = analyze(cls.root)
+        cls.cache = os.path.join(cls.tmp, "cache")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_decode_points(self):
+        from mcsm import paths
+        pts = list(paths.decode_points(self.replay))
+        self.assertEqual(pts[0][:5], (20, "minecraft:overworld", 10.95, 64.0, -3.0))    # after 20 ticks: moved 19/20 block
+        self.assertEqual(pts[-1][0], 2400)                                               # carried into c1
+        self.assertAlmostEqual(pts[-1][2], 10.0 + 2399 / 20)
+        self.assertEqual(len(pts), 120)                                                  # one per second
+        self.assertTrue(all(p[2] < 500 for p in pts))                                   # never the other entity
+
+    def test_tracks_and_cache(self):
+        from mcsm import paths
+        files, warns = paths.tracks_from_replays(self.data, lambda r: os.path.join(self.root, r.path), self.cache)
+        self.assertEqual((len(files), warns), (1, []))     # the 3.4.1 file (no timeline) is skipped
+        rows = [json.loads(line) for line in open(files[0], encoding="utf-8")]
+        self.assertEqual(rows[0]["t"], int(utc(2024, 5, 3, 18, 30, 1).timestamp() * 1000))
+        self.assertEqual(rows[0]["players"][0]["name"], "Steve")
+        mtime = os.path.getmtime(files[0])
+        again, _ = paths.tracks_from_replays(self.data, lambda r: os.path.join(self.root, r.path), self.cache)
+        self.assertEqual((again, os.path.getmtime(again[0])), (files, mtime))      # reused, not rewritten
+        # Same format as live-map recordings, so the timelapse can use it.
+        from mcsm import timelapse
+        self.assertEqual(len(timelapse.load_tracks(files)), 120)
+
+    def test_thin(self):
+        from mcsm.history import thin
+        pts = [[i * 1000, 0.0, 64.0, 0.0, "minecraft:overworld"] for i in range(100)]   # standing still
+        self.assertEqual([p[0] for p in thin(pts)], [0, 30000, 60000, 90000, 99000])
+        self.assertEqual(len(thin([[0, 0, 0, 0, "a"], [1000, 0.1, 0, 0, "b"]])), 2)     # dimension change kept
+
+    def test_server(self):
+        import time as _time
+        import urllib.request
+        from mcsm.history import HistoryMap
+        hm = HistoryMap(self.data, lambda r: os.path.join(self.root, r.path), cache_dir=self.cache)
+        url = hm.start(8791)
+        try:
+            get = lambda p: json.loads(urllib.request.urlopen(url + p, timeout=10).read())   # noqa: E731
+            h = get("api/history")
+            self.assertIn("Steve", h["players"])
+            self.assertTrue(any(r["estimated"] for r in h["replays"]))                     # the 3.4.1 file
+            join = next(e for e in h["events"] if e["type"] == "join" and e.get("pos"))
+            self.assertEqual(join["dim"], "minecraft:overworld")
+            for _ in range(100):
+                info = get("api/info")
+                if info["paths"]["done"] >= info["paths"]["total"] > 0:
+                    break
+                _time.sleep(0.05)
+            p = get("api/paths")
+            self.assertGreater(len(p["players"]["Steve"]), 50)
+            page = urllib.request.urlopen(url, timeout=10).read().decode()
+            self.assertIn("api/history", page)
+        finally:
+            hm.stop()
+
+    def test_palette_strings_26_3(self):
+        from mcsm.terrain import _sections
+        chunk = {"sections": [{"Y": 4, "block_states": {"palette": ["minecraft:grass_block", {"Name": "minecraft:oak_log"}]}}]}
+        self.assertEqual(_sections(chunk)[0][4][0], ["minecraft:grass_block", "minecraft:oak_log"])
 
 
 def _zip_dir(src: str, dst: str, wrapper: str = "") -> str:

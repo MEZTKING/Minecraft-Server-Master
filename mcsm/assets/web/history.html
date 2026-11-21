@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server History</title>
+<!--
+  History viewer ("everything as one recording"), served by mcsm/history.py on http://127.0.0.1:<port>/.
+  Data:  /api/info, /api/history, /api/paths, /api/terrain/<dim>[/<rx>/<rz>].
+  Times are epoch milliseconds (UTC) and are shown in this computer's time zone.
+  Coordinates map 1:1 from Minecraft (x east, y up, z south) to three.js.
+  three.js r160 is vendored in ./vendor (MIT licence).
+-->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #cfe3f5; --panel: rgba(252,252,251,.95); --border: #e2e1dc; --text: #0b0b0b; --text-2: #52514e; --muted: #7a7975;
+  --accent: #2a78d6; --good: #1a7f37; --warn: #9a6700; --bad: #c62828; --chip: #f0efec; --track: #e7e6e2;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #101820; --panel: rgba(26,26,25,.94); --border: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e88;
+    --accent: #3987e5; --good: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --chip: #242422; --track: #2c2c29;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101820; --panel: rgba(26,26,25,.94); --border: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e88;
+  --accent: #3987e5; --good: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --chip: #242422; --track: #2c2c29;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#scene { position: fixed; inset: 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(6px); }
+#panel { position: fixed; top: 12px; left: 12px; width: 310px; max-height: calc(100% - 190px); overflow: auto; padding: 12px; }
+#panel h1 { font-size: 15px; margin: 0 0 2px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin: 14px 0 4px; font-weight: 600; }
+.sub { color: var(--text-2); font-size: 12px; }
+.row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+select, button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--text); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 64px; }
+ul { list-style: none; margin: 0; padding: 0; }
+#players li { padding: 5px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+#players li:hover, #now li:hover, #recs li:hover { background: var(--chip); }
+#players li.following { border-color: var(--accent); }
+#players li.offline { opacity: .5; }
+.name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.meta { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+#now li, #recs li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+#now .when, #recs .when { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.empty { color: var(--muted); font-size: 12px; padding: 2px 6px; }
+.note { font-size: 12px; color: var(--text-2); margin-top: 8px; }
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
+.label.stale { opacity: .55; font-style: italic; }
+#timeline { position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 8px 10px 10px; }
+#clock { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 190px; }
+#canvasWrap { position: relative; margin-top: 8px; height: 92px; cursor: crosshair; touch-action: none; }
+#tl { width: 100%; height: 100%; display: block; }
+#cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+#hoverTip { position: absolute; top: -26px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 6px; font-size: 11px; pointer-events: none; white-space: nowrap; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-2); margin-top: 4px; }
+.legend i { display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+#help { position: fixed; right: 12px; top: 12px; padding: 6px 10px; font-size: 12px; color: var(--text-2); max-width: 260px; }
+#toggle { display: none; }
+@media (max-width: 720px) {
+  #panel { left: 8px; right: 8px; width: auto; top: 8px; max-height: calc(100% - 230px); }
+  #panel.collapsed > :not(.head) { display: none; }
+  #toggle { display: inline-block; }
+  #timeline { left: 8px; right: 8px; bottom: 8px; }
+  #clock { min-width: 0; font-size: 13px; }
+  #help { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="labels"></div>
+
+<aside id="panel" class="card">
+  <div class="head row" style="margin-top:0;justify-content:space-between">
+    <div><h1 id="title">Server History</h1><div class="sub" id="range"></div></div>
+    <button id="toggle" type="button">Panel</button>
+  </div>
+  <div class="row">
+    <label>Dimension <select id="dim">
+      <option value="minecraft:overworld">Overworld</option>
+      <option value="minecraft:the_nether">Nether</option>
+      <option value="minecraft:the_end">The End</option>
+    </select></label>
+    <button id="fit" type="button">Show everyone</button>
+    <button id="theme" type="button">Theme</button>
+  </div>
+  <div class="row">
+    <label>Trail <select id="trailLen">
+      <option value="60000">1 min</option>
+      <option value="600000" selected>10 min</option>
+      <option value="3600000">1 hour</option>
+      <option value="86400000">1 day</option>
+    </select></label>
+    <label><input type="checkbox" id="allPaths"> All paths</label>
+    <label><input type="checkbox" id="pins" checked> Event pins</label>
+  </div>
+  <h2>Players</h2>
+  <ul id="players"></ul>
+  <h2>Happening now</h2>
+  <ul id="now"></ul>
+  <h2>Recordings at this moment</h2>
+  <ul id="recs"></ul>
+  <div class="note" id="status"></div>
+</aside>
+<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses</div>
+
+<section id="timeline" class="card">
+  <div class="row" style="margin-top:0">
+    <button id="play" class="primary" type="button">Play</button>
+    <label>Speed <select id="speed">
+      <option value="1">1×</option>
+      <option value="10">10×</option>
+      <option value="60" selected>1 min/s</option>
+      <option value="600">10 min/s</option>
+      <option value="3600">1 h/s</option>
+    </select></label>
+    <label><input type="checkbox" id="skip" checked> Skip quiet time</label>
+    <button id="prev" type="button" title="Previous time someone came online">◀ Prev</button>
+    <button id="next" type="button" title="Next time someone came online">Next ▶</button>
+    <label>View <select id="zoom">
+      <option value="0">Everything</option>
+      <option value="2592000000">30 days</option>
+      <option value="604800000">7 days</option>
+      <option value="86400000" selected>1 day</option>
+      <option value="7200000">2 hours</option>
+    </select></label>
+    <span id="clock"></span>
+  </div>
+  <div id="canvasWrap"><canvas id="tl"></canvas><div id="cursor"></div><div id="hoverTip" hidden></div></div>
+  <div class="legend">
+    <span><i style="background:var(--accent);opacity:.35"></i>online (from logs)</span>
+    <span><i style="background:var(--accent)"></i>recording (one row per player, in their colour)</span>
+    <span><i style="background:var(--warn)"></i>backup</span>
+    <span><i style="background:var(--bad)"></i>death</span>
+    <span><i style="background:var(--text-2)"></i>other events</span>
+  </div>
+</section>
+
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "./vendor/OrbitControls.js";
+
+const $ = s => document.querySelector(s);
+const PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+const colourOf = {};
+function playerColour(name) {
+  if (!(name in colourOf)) colourOf[name] = PALETTE[Object.keys(colourOf).length % PALETTE.length];
+  return colourOf[name];
+}
+const EVENT_COLOUR = { death: "#c62828", join: "#1a7f37", leave: "#7a7975", chat: "#2a78d6", advancement: "#eda100",
+  command: "#6250d6", crash: "#c62828", server_start: "#7a7975", replay_marker: "#e87ba4" };
+const EVENT_LABEL = { death: "Death", join: "Joined", leave: "Left", chat: "Chat", advancement: "Advancement",
+  command: "Command", crash: "Server crash", server_start: "Server started", replay_marker: "Marker" };
+const fmt = t => new Date(t).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const fmtShort = t => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const hms = ms => { const s = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(x).padStart(2, "0")}`; };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const TRACK_GAP = 60000;   // ms; a longer gap between path points means "not recorded"
+
+// ---------- theme ----------
+{ const t = store.get("mcsm-theme"); if (t) document.documentElement.dataset.theme = t; }
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+$("#theme").onclick = () => {
+  document.documentElement.dataset.theme = isDark() ? "light" : "dark";
+  store.set("mcsm-theme", document.documentElement.dataset.theme);
+  applySky(); drawTimeline();
+};
+$("#toggle").onclick = () => $("#panel").classList.toggle("collapsed");
+if (matchMedia("(max-width: 720px)").matches) $("#panel").classList.add("collapsed");   // phones: map first
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+$("#scene").appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 30000);
+camera.position.set(80, 140, 120);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 64, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(0.4, 1, 0.25); scene.add(sun);
+const grid = new THREE.GridHelper(1024, 64, 0x888888, 0xaaaaaa);
+grid.position.y = 63; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
+function applySky() {
+  const dark = isDark(), d = $("#dim").value;
+  const sky = d === "minecraft:the_nether" ? (dark ? 0x2a0d0d : 0x6b2a22) : d === "minecraft:the_end" ? (dark ? 0x0d0a17 : 0x2b2440) : (dark ? 0x101820 : 0xcfe3f5);
+  scene.background = new THREE.Color(sky); scene.fog = new THREE.Fog(sky, 800, 6000);
+}
+applySky();
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeCanvas(); }
+addEventListener("resize", resize);
+
+// ---------- terrain (same tiles as the live map) ----------
+const terrainGroups = {}, loadedTiles = new Set();
+let terrainBounds = null;
+async function loadTerrain(dim) {
+  let list;
+  try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}`)).json(); } catch (e) { return; }
+  if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
+  for (const t of list.tiles) {
+    const key = `${dim}|${t.rx}|${t.rz}`;
+    if (loadedTiles.has(key)) continue;
+    loadedTiles.add(key);
+    const buf = await (await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`)).arrayBuffer();
+    terrainGroups[dim].add(tileMesh(t, buf));
+  }
+  updateDimVisibility();
+}
+function tileMesh(t, buf) {
+  const n = t.size, heights = new Int16Array(buf, 0, n * n), rgb = new Uint8Array(buf, n * n * 2, n * n * 3);
+  const pos = new Float32Array(n * n * 3), col = new Float32Array(n * n * 3), idx = [], NO = -32768;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i, h = heights[k];
+    const x = t.rx * 512 + i * t.step + t.step / 2, z = t.rz * 512 + j * t.step + t.step / 2;
+    pos.set([x, h === NO ? 0 : h + 1, z], k * 3);
+    col.set([rgb[k * 3] / 255, rgb[k * 3 + 1] / 255, rgb[k * 3 + 2] / 255], k * 3);
+    if (h !== NO) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
+  }
+  for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+    const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+    if (heights[a] === NO || heights[b] === NO || heights[c] === NO || heights[d] === NO) continue;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  if (minX < Infinity) terrainBounds = terrainBounds ? { minX: Math.min(terrainBounds.minX, minX), maxX: Math.max(terrainBounds.maxX, maxX), minZ: Math.min(terrainBounds.minZ, minZ), maxZ: Math.max(terrainBounds.maxZ, maxZ) } : { minX, maxX, minZ, maxZ };
+  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+
+// ---------- data ----------
+let H = null;                 // /api/history
+let P = {};                   // player -> [[t,x,y,z,dim], ...]
+let T = 0;                    // current time (ms)
+const sessionsBy = {};        // player -> sorted [{start,end}]
+let starts = [];              // sorted session starts (for prev/next/skip)
+const lower = (arr, t, key) => { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (key(arr[mid]) <= t) lo = mid + 1; else hi = mid; } return lo; };   // first index with key > t
+
+function onlineAt(name, t) {
+  const ss = sessionsBy[name]; if (!ss) return null;
+  const i = lower(ss, t, s => s.start) - 1;
+  if (i < 0) return null;
+  const s = ss[i];
+  return (s.end == null ? t <= H.range[1] : t <= s.end) ? s : null;
+}
+// Interpolated position at t, or the last point if it is recent; {pos, dim, fresh}.
+function positionAt(name, t) {
+  const pts = P[name]; if (!pts || !pts.length) return null;
+  const i = lower(pts, t, p => p[0]);
+  const a = pts[i - 1], b = pts[i];
+  if (a && b && b[0] - a[0] <= TRACK_GAP && a[4] === b[4]) {
+    const f = (t - a[0]) / Math.max(1, b[0] - a[0]);
+    return { pos: [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f], dim: a[4], fresh: true };
+  }
+  if (a && t - a[0] <= TRACK_GAP) return { pos: [a[1], a[2], a[3]], dim: a[4], fresh: true };
+  return null;
+}
+// Last known position during this session (path point or join position), shown faded.
+function lastKnown(name, session, t) {
+  let best = null;
+  const pts = P[name];
+  if (pts && pts.length) {
+    const i = lower(pts, t, p => p[0]) - 1;
+    if (i >= 0 && pts[i][0] >= session.start) best = { t: pts[i][0], pos: [pts[i][1], pts[i][2], pts[i][3]], dim: pts[i][4] };
+  }
+  const j = joinsBy[name];
+  if (j) {
+    const k = lower(j, t, e => e.t) - 1;
+    if (k >= 0 && j[k].t >= session.start - 5000 && (!best || j[k].t > best.t)) best = { t: j[k].t, pos: j[k].pos, dim: j[k].dim };
+  }
+  return best;
+}
+const joinsBy = {};
+
+// ---------- player markers ----------
+const markers = {};
+const markerGeo = new THREE.BoxGeometry(0.8, 1.9, 0.8);
+function marker(name) {
+  if (markers[name]) return markers[name];
+  const c = new THREE.Color(playerColour(name));
+  const group = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: c, transparent: true });
+  const body = new THREE.Mesh(markerGeo, mat); body.position.y = 0.95; group.add(body);
+  scene.add(group);
+  const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
+  scene.add(trail);
+  const label = document.createElement("div");
+  label.className = "label"; label.textContent = name; label.style.borderBottom = `2px solid ${playerColour(name)}`;
+  $("#labels").appendChild(label);
+  return (markers[name] = { group, mat, trail, label, cur: null });
+}
+
+// All paths, faint (one LineSegments per player; segments only across short gaps).
+let allPathObjs = [];
+function buildAllPaths() {
+  allPathObjs.forEach(o => { scene.remove(o); o.geometry.dispose(); });
+  allPathObjs = [];
+  if (!$("#allPaths").checked) return;
+  const d = $("#dim").value;
+  for (const [name, pts] of Object.entries(P)) {
+    const v = [];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (a[4] !== d || b[4] !== d || b[0] - a[0] > TRACK_GAP * 2) continue;
+      v.push(a[1], a[2] + 0.1, a[3], b[1], b[2] + 0.1, b[3]);
+    }
+    if (!v.length) continue;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+    const o = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: new THREE.Color(playerColour(name)), transparent: true, opacity: 0.28 }));
+    scene.add(o); allPathObjs.push(o);
+  }
+}
+$("#allPaths").onchange = buildAllPaths;
+
+// Event pins: events in the trail window that have a position (own, or the player's path).
+const pinGroup = new THREE.Group(); scene.add(pinGroup);
+const pinGeo = new THREE.OctahedronGeometry(0.9);
+const pinMats = {};
+const pinMat = type => pinMats[type] || (pinMats[type] = new THREE.MeshLambertMaterial({ color: new THREE.Color(EVENT_COLOUR[type] || "#7a7975") }));
+function eventPos(e) {
+  if (e._pos !== undefined) return e._pos;
+  let r = null;
+  if (e.pos) r = { pos: e.pos, dim: e.dim };
+  else if (e.player && P[canon(e.player)]) { const p = positionAt(canon(e.player), e.t); if (p) r = { pos: p.pos, dim: p.dim }; }
+  if (pathsFinal || r) e._pos = r;   // positions can appear while paths are still loading
+  return r;
+}
+const canon = n => (H && H.aliases[n]) || n;
+
+// ---------- update for the current time ----------
+let lastPanel = 0, lastTrail = 0;
+function update(now, force) {
+  const d = $("#dim").value, trailLen = +$("#trailLen").value;
+  $("#clock").textContent = fmt(T);
+  positionCursor();
+  const doTrail = force || now - lastTrail > 90;
+  for (const name of H.players) {
+    const m = marker(name);
+    const live = positionAt(name, T);
+    const sess = onlineAt(name, T);
+    let shown = live, stale = false;
+    if (!shown && sess) { const k = lastKnown(name, sess, T); if (k) { shown = k; stale = true; } }
+    m.cur = shown ? { ...shown, stale, online: !!sess, recorded: !!live } : null;
+    const vis = !!shown && shown.dim === d;
+    m.group.visible = vis;
+    if (vis) {
+      m.group.position.set(shown.pos[0], shown.pos[1], shown.pos[2]);
+      m.mat.opacity = stale ? 0.45 : 1;
+    }
+    if (doTrail) {
+      const pts = P[name] || [];
+      const a = lower(pts, T - trailLen, p => p[0]), b = lower(pts, T, p => p[0]);
+      const v = [];
+      for (let i = a; i < b; i++) if (pts[i][4] === d) v.push(new THREE.Vector3(pts[i][1], pts[i][2] + 0.2, pts[i][3]));
+      if (live && live.dim === d && v.length) v.push(new THREE.Vector3(live.pos[0], live.pos[1] + 0.2, live.pos[2]));
+      m.trail.geometry.dispose(); m.trail.geometry = new THREE.BufferGeometry().setFromPoints(v);
+    }
+    if (name === following && m.cur && vis) {
+      const delta = m.group.position.clone().sub(controls.target);
+      controls.target.add(delta); camera.position.add(delta);
+    }
+  }
+  if (doTrail) {
+    lastTrail = now;
+    pinGroup.clear();
+    if ($("#pins").checked && H) {
+      const a = lower(H.events, T - trailLen, e => e.t), b = lower(H.events, T, e => e.t);
+      for (let i = Math.max(a, b - 400); i < b; i++) {
+        const e = H.events[i];
+        if (e.type === "leave" || e.type === "server_start") continue;
+        const p = eventPos(e);
+        if (!p || p.dim !== d) continue;
+        const mesh = new THREE.Mesh(pinGeo, pinMat(e.type));
+        mesh.position.set(p.pos[0], p.pos[1] + 3.2, p.pos[2]);
+        pinGroup.add(mesh);
+      }
+    }
+  }
+  if (force || now - lastPanel > 250) { lastPanel = now; renderPanel(); }
+}
+
+// ---------- panel ----------
+function renderPanel() {
+  const d = $("#dim").value;
+  const ul = $("#players"), rows = {};
+  for (const li of [...ul.children]) rows[li.dataset.name] = li;
+  const ordered = H.players.slice().sort((a, b) => (!!markers[b]?.cur?.online - !!markers[a]?.cur?.online) || a.localeCompare(b));
+  ordered.forEach((name, i) => {
+    let li = rows[name];
+    if (!li) {
+      li = document.createElement("li"); li.dataset.name = name;
+      li.innerHTML = `<div class="name"><span class="sw"></span><span class="n"></span></div><div class="meta"></div>`;
+      li.querySelector(".sw").style.background = playerColour(name);
+      li.querySelector(".n").textContent = name;
+    }
+    if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
+    const c = markers[name]?.cur;
+    let meta = "offline";
+    if (c) {
+      const where = `${Math.round(c.pos[0])}, ${Math.round(c.pos[1])}, ${Math.round(c.pos[2])}` + (c.dim !== d ? ` · ${c.dim.replace("minecraft:", "")}` : "");
+      meta = c.recorded ? `recorded · ${where}` : c.online ? `online · last seen at ${where}` : where;
+    } else if (onlineAt(name, T)) meta = "online · position unknown";
+    li.querySelector(".meta").textContent = meta;
+    li.className = `${name === following ? "following" : ""} ${onlineAt(name, T) || c ? "" : "offline"}`;
+  });
+
+  // Happening now: events in the trail window, newest first.
+  const trailLen = +$("#trailLen").value;
+  const a = lower(H.events, T - trailLen, e => e.t), b = lower(H.events, T, e => e.t);
+  const now = $("#now"); now.replaceChildren();
+  for (let i = b - 1; i >= Math.max(a, b - 12); i--) {
+    const e = H.events[i];
+    const li = document.createElement("li");
+    const w = document.createElement("span"); w.className = "when"; w.textContent = `−${hms(T - e.t)}`;
+    const sw = document.createElement("span"); sw.className = "sw"; sw.style.cssText = `display:inline-block;margin-right:4px;background:${EVENT_COLOUR[e.type] || "#7a7975"}`;
+    li.append(w, sw, document.createTextNode(e.type === "chat" ? `<${e.player}> ${e.text}` : e.text));
+    li.title = `${EVENT_LABEL[e.type] || e.type} · ${fmt(e.t)}`;
+    li.onclick = () => { const p = eventPos(e); if (p) { if (p.dim !== $("#dim").value) setDim(p.dim); focusOn(new THREE.Vector3(...p.pos), 50); } };
+    now.appendChild(li);
+  }
+  if (!now.children.length) now.innerHTML = `<li class="empty">Nothing in the last ${$("#trailLen").selectedOptions[0].textContent}.</li>`;
+
+  const recs = $("#recs"); recs.replaceChildren();
+  for (const r of H.replays) {
+    if (r.start > T || r.end < T) continue;
+    const li = document.createElement("li");
+    const w = document.createElement("span"); w.className = "when"; w.textContent = hms(T - r.start);
+    const file = r.path.split("/").pop();
+    li.append(w, document.createTextNode(`${r.player || "?"} · ${file}${r.estimated ? " (no timeline inside)" : ""}`));
+    li.title = `${r.path}\nIn Flashback, open this replay and go to ${hms(T - r.start)}.\nStarts ${fmt(r.start)}, length ${hms(r.end - r.start)}.`;
+    li.onclick = () => { try { navigator.clipboard.writeText(r.path); toastStatus(`Copied path of ${file}`); } catch (e) {} };
+    recs.appendChild(li);
+  }
+  if (!recs.children.length) recs.innerHTML = `<li class="empty">No recording covers this moment.</li>`;
+}
+let following = null;
+$("#players").onclick = e => {
+  const li = e.target.closest("li"); if (!li) return;
+  following = following === li.dataset.name ? null : li.dataset.name;
+  const c = markers[following]?.cur;
+  if (c) { if (c.dim !== $("#dim").value) setDim(c.dim); focusOn(new THREE.Vector3(...c.pos), 60); }
+  update(performance.now(), true);
+};
+function setDim(d) { $("#dim").value = d; applySky(); updateDimVisibility(); loadTerrain(d); buildAllPaths(); update(performance.now(), true); }
+function updateDimVisibility() {
+  const d = $("#dim").value;
+  for (const [dim, g] of Object.entries(terrainGroups)) g.visible = dim === d;
+  grid.visible = !(terrainGroups[d] && terrainGroups[d].children.length);
+}
+$("#dim").onchange = () => { following = null; setDim($("#dim").value); fitAll(); };
+$("#fit").onclick = () => { following = null; fitAll(); update(performance.now(), true); };
+$("#trailLen").onchange = $("#pins").onchange = () => update(performance.now(), true);
+function focusOn(v, dist) {
+  const off = camera.position.clone().sub(controls.target).normalize().multiplyScalar(dist);
+  controls.target.copy(v); camera.position.copy(v).add(off);
+}
+function fitAll() {
+  const d = $("#dim").value, box = new THREE.Box3();
+  for (const m of Object.values(markers)) if (m.cur && m.cur.dim === d) box.expandByPoint(new THREE.Vector3(...m.cur.pos));
+  if (box.isEmpty()) for (const pts of Object.values(P)) {     // else everyone's paths in this dimension
+    const lo = lower(pts, T - 86400000, p => p[0]), hi = lower(pts, T + 86400000, p => p[0]);
+    for (let i = lo; i < hi; i += 5) if (pts[i][4] === d) box.expandByPoint(new THREE.Vector3(pts[i][1], pts[i][2], pts[i][3]));
+  }
+  if (box.isEmpty() && terrainBounds && d === "minecraft:overworld") box.set(new THREE.Vector3(terrainBounds.minX, 60, terrainBounds.minZ), new THREE.Vector3(terrainBounds.maxX, 80, terrainBounds.maxZ));
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
+  camera.position.set(c.x + Math.max(40, size * 0.6), c.y + Math.max(60, size * 0.7), c.z + Math.max(40, size * 0.6));
+  controls.target.copy(c);
+}
+
+// ---------- timeline ----------
+const cv = $("#tl"), ctx = cv.getContext("2d");
+let view = [0, 1];
+function sizeCanvas() { const r = cv.getBoundingClientRect(); cv.width = Math.max(1, r.width * devicePixelRatio); cv.height = Math.max(1, r.height * devicePixelRatio); drawTimeline(); }
+function setView() {
+  if (!H || !H.range) return;
+  const span = +$("#zoom").value, [lo, hi] = H.range;
+  if (!span || span >= hi - lo) view = [lo, hi];
+  else { let a = T - span / 2; a = Math.max(lo, Math.min(hi - span, a)); view = [a, a + span]; }
+  drawTimeline();
+}
+const xOf = t => (t - view[0]) / (view[1] - view[0]) * cv.width;
+function drawTimeline() {
+  if (!H || !H.range) return;
+  const W = cv.width, Hh = cv.height, dpr = devicePixelRatio;
+  ctx.clearRect(0, 0, W, Hh);
+  const rowH = 12 * dpr, gap = 3 * dpr;
+  // One row per player who was online or recorded inside the visible window.
+  const activeIn = n => (sessionsBy[n] || []).some(s => s.start <= view[1] && (s.end ?? H.range[1]) >= view[0])
+    || H.replays.some(r => canon(r.player) === n && r.start <= view[1] && r.end >= view[0]);
+  const players = H.players.filter(activeIn);
+  const top = 14 * dpr, avail = Hh - top - 16 * dpr;
+  const rh = Math.max(3 * dpr, Math.min(rowH, (avail - gap * players.length) / Math.max(1, players.length)));
+  ctx.fillStyle = css("--track"); ctx.fillRect(0, top, W, Hh - top - 14 * dpr);
+  players.forEach((name, k) => {
+    const y = top + k * (rh + gap / 2);
+    ctx.globalAlpha = isDark() ? 0.38 : 0.3; ctx.fillStyle = playerColour(name);
+    for (const s of sessionsBy[name]) {
+      const e = s.end ?? H.range[1];
+      if (e < view[0] || s.start > view[1]) continue;
+      ctx.fillRect(xOf(s.start), y, Math.max(1, xOf(e) - xOf(s.start)), rh);
+    }
+    ctx.globalAlpha = 1; ctx.fillStyle = playerColour(name);
+    for (const r of H.replays) {
+      if (canon(r.player) !== name || r.end < view[0] || r.start > view[1]) continue;
+      ctx.globalAlpha = r.estimated ? 0.45 : 1;
+      ctx.fillRect(xOf(r.start), y + rh * 0.3, Math.max(1.5 * dpr, xOf(r.end) - xOf(r.start)), rh * 0.4);
+    }
+    ctx.globalAlpha = 1;
+  });
+  // events strip
+  const ey = Hh - 12 * dpr;
+  for (const e of H.events) {
+    if (e.t < view[0] || e.t > view[1] || e.type === "leave" || e.type === "join") continue;
+    ctx.fillStyle = e.type === "death" || e.type === "crash" ? css("--bad") : css("--text-2");
+    ctx.globalAlpha = e.type === "death" || e.type === "crash" ? 1 : 0.35;
+    ctx.fillRect(xOf(e.t), ey, Math.max(1, dpr), 10 * dpr);
+  }
+  ctx.globalAlpha = 1;
+  // backups
+  ctx.fillStyle = css("--warn");
+  for (const b of H.backups) if (b.t && b.t >= view[0] && b.t <= view[1]) ctx.fillRect(xOf(b.t) - dpr, 0, 2 * dpr, Hh);
+  // axis labels
+  ctx.fillStyle = css("--text-2"); ctx.font = `${11 * dpr}px system-ui, sans-serif`; ctx.textBaseline = "top";
+  const n = Math.max(2, Math.floor(W / (150 * dpr)));
+  for (let i = 0; i <= n; i++) {
+    const t = view[0] + (view[1] - view[0]) * i / n;
+    const label = fmtShort(t), w = ctx.measureText(label).width;
+    ctx.fillText(label, Math.min(W - w, Math.max(0, xOf(t) - w / 2)), 0);
+  }
+  positionCursor();
+}
+function positionCursor() {
+  const c = $("#cursor"), r = cv.getBoundingClientRect();
+  const x = (T - view[0]) / (view[1] - view[0]) * r.width;
+  c.hidden = x < 0 || x > r.width; c.style.left = `${x - 1}px`;
+}
+function timeAtX(clientX) { const r = cv.getBoundingClientRect(); return view[0] + (clientX - r.left) / r.width * (view[1] - view[0]); }
+let dragging = false;
+const wrap = $("#canvasWrap");
+wrap.addEventListener("pointerdown", e => { dragging = true; wrap.setPointerCapture(e.pointerId); seek(timeAtX(e.clientX), false); });
+wrap.addEventListener("pointermove", e => {
+  const t = timeAtX(e.clientX), tip = $("#hoverTip"), r = cv.getBoundingClientRect();
+  tip.hidden = false; tip.textContent = fmtShort(t); tip.style.left = `${e.clientX - r.left}px`;
+  if (dragging) seek(t, false);
+});
+wrap.addEventListener("pointerup", () => { dragging = false; setView(); });
+wrap.addEventListener("pointerleave", () => { $("#hoverTip").hidden = true; });
+$("#zoom").onchange = setView;
+
+function seek(t, recentre = true) {
+  if (!H || !H.range) return;
+  T = Math.max(H.range[0], Math.min(H.range[1], t));
+  store.set("mcsm-history-t", String(T));
+  if (recentre && (T < view[0] || T > view[1])) setView();
+  update(performance.now(), true);
+}
+function nextStart(t) { const i = lower(starts, t, x => x); return i < starts.length ? starts[i] : null; }
+function prevStart(t) { const i = lower(starts, t - 1000, x => x) - 1; return i >= 0 ? starts[i] : null; }
+$("#next").onclick = () => { const t = nextStart(T + 1000); if (t != null) seek(t); };
+$("#prev").onclick = () => { const t = prevStart(T); if (t != null) seek(t); };
+function anyoneOnline(t) { return H.players.some(n => onlineAt(n, t)) || H.players.some(n => positionAt(n, t)); }
+
+// ---------- playback ----------
+let playing = false, lastFrame = performance.now();
+function setPlaying(p) { playing = p; $("#play").textContent = p ? "Pause" : "Play"; }
+$("#play").onclick = () => setPlaying(!playing);
+addEventListener("keydown", e => {
+  if (e.target.closest("select, input, button")) return;
+  if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+  if (e.code === "ArrowRight") seek(T + 60000 * (e.shiftKey ? 60 : 1));
+  if (e.code === "ArrowLeft") seek(T - 60000 * (e.shiftKey ? 60 : 1));
+});
+const tmp = new THREE.Vector3();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(250, now - lastFrame); lastFrame = now;
+  if (H && H.range) {
+    if (playing) {
+      T += dt * +$("#speed").value;
+      if ($("#skip").checked && !anyoneOnline(T)) { const t = nextStart(T); if (t != null) T = t; }
+      if (T >= H.range[1]) { T = H.range[1]; setPlaying(false); }
+      if (T > view[1] || T < view[0]) setView();
+      update(now, false);
+    } else if (following) update(now, false);
+    for (const [name, m] of Object.entries(markers)) {
+      if (!m.group.visible) { m.label.style.display = "none"; continue; }
+      m.group.scale.setScalar(Math.max(1, camera.position.distanceTo(m.group.position) / 70));
+      tmp.copy(m.group.position); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
+      const on = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+      m.label.style.display = on ? "" : "none";
+      m.label.classList.toggle("stale", !!m.cur?.stale);
+      if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---------- loading ----------
+let pathsFinal = false;
+function toastStatus(text) { $("#status").textContent = text; }
+async function loadPaths() {
+  try {
+    const info = await (await fetch("api/info")).json();
+    const pr = info.paths;
+    const res = await (await fetch("api/paths")).json();
+    P = res.players || {};
+    for (const n of Object.keys(P)) if (!H.players.includes(n)) H.players.push(n);
+    pathsFinal = !pr.enabled || pr.done >= pr.total;
+    const t = info.terrain[$("#dim").value];
+    const bits = [];
+    if (pr.enabled && !pathsFinal) bits.push(`Reading positions from recordings… ${pr.done}/${pr.total}`);
+    else bits.push(`${res.points.toLocaleString()} path points from ${Object.keys(P).length} player${Object.keys(P).length === 1 ? "" : "s"}.`);
+    if (t && t.done < t.total) bits.push(`Building terrain… ${t.done}/${t.total}`);
+    else if (t) bits.push(`Terrain from the newest backup (${t.tiles} regions).`);
+    else if (!Object.keys(info.terrain).length) bits.push("No terrain: the newest backup has no region files.");
+    if (info.warnings && info.warnings.length) bits.push(`${info.warnings.length} recording(s) could not be read.`);
+    toastStatus(bits.join(" "));
+    await loadTerrain($("#dim").value);
+    buildAllPaths();
+    update(performance.now(), true);
+    if (!pathsFinal || (t && t.done < t.total)) setTimeout(loadPaths, 3000);
+  } catch (e) { setTimeout(loadPaths, 5000); }
+}
+async function init() {
+  H = await (await fetch("api/history")).json();
+  $("#title").textContent = H.title; document.title = `${H.title} – History`;
+  if (!H.range) { toastStatus("No events, sessions or recordings found in this backup."); return; }
+  $("#range").textContent = `${fmtShort(H.range[0])} → ${fmtShort(H.range[1])}`;
+  H.players.forEach(playerColour);
+  for (const s of H.sessions) (sessionsBy[canon(s.player)] ||= []).push(s);
+  for (const ss of Object.values(sessionsBy)) ss.sort((a, b) => a.start - b.start);
+  starts = H.sessions.map(s => s.start).sort((a, b) => a - b);
+  for (const e of H.events) if (e.type === "join" && e.pos && e.player) (joinsBy[canon(e.player)] ||= []).push(e);
+  if (H.spawn) controls.target.set(H.spawn[0], H.spawn[1], H.spawn[2]);
+  const saved = +store.get("mcsm-history-t");
+  T = saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
+  resize(); setView(); update(performance.now(), true);
+  await loadPaths();
+  fitAll();
+}
+resize();
+requestAnimationFrame(frame);
+init();
+</script>
+</body>
+</html>

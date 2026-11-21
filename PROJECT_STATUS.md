@@ -61,7 +61,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Activity-aware area timelapse in Flashback (Phase A): fixed camera + timelapse keyframes, 3:00 target or fixed speed, date/time SRT, chapters | ✅ Done, not yet tried in a real Flashback | `mcsm/timelapse.py`, `mcsm timelapse`, app Flashback tab | `docs/TIMELAPSE.md` |
 | Merge many backups (any versions) into one history; Backups tab with progress over time; server-version timeline | ✅ Done, not yet tried on the owner's backups | `mcsm/archive.py`, all commands, app *+ Add backup* | `docs/BACKUPS.md` |
 | Selective zip reading (no region unpacking; replay stubs) | ✅ Done | `mcsm/source.py` | `docs/BACKUPS.md` |
-| "Everything as one recording" 3D time-machine map | 📝 Designed, research done | n/a | Backlog #0b Phase 2 |
+| "Everything as one recording" 3D time-machine map (Phase 2a): time slider, recorded player's path from Flashback recordings (cached), log-in positions, events pinned in 3D, sessions + replay coverage timeline, playback, app History tab | ✅ Done, checked on the owner's real backup (216 recordings) | `mcsm/paths.py`, `history.py`, `assets/web/history.html`, `mcsm history`, app History tab | `docs/HISTORY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -152,6 +152,18 @@ in my backup file as if its one recording"
   game packet, or a heuristic (the local player is the entity whose first position equals the
   create_local_player position). The arcade `ExactEntityPosition.write` layout is not yet
   verified. **A real replay sample from the owner is needed** to confirm before building.
+- ✅ **Phase 2a done (2026-11-21)**: `mcsm history` / app History tab (docs/HISTORY.md).
+  Recorded player's path decoded from every Flashback recording (`move_entities`; entity found
+  by matching `create_local_player`), cached as `.jsonl` in the live-map track format; time
+  slider + playback (skip quiet time, prev/next log-in); markers solid when recorded, faded at
+  last known position (path or log-in) while online; trails; event pins at the player's
+  position; "Recordings at this moment" with the offset to seek to in Flashback; timeline with
+  online/recording rows, deaths, backups. Terrain from the newest backup, built near spawn and
+  log-in spots first. On the real backup: 216 recordings in a few minutes, ~100k points.
+  **Still to do (Phase 2b):** identify *other* players inside recordings (needs the
+  version-specific add-entity packet); terrain per backup (see the world change); terrain speed
+  for big worlds (1,569 regions take well over an hour; cache tiles or a faster reader);
+  "edit" (the owner's open question); open Flashback at the moment directly; Nether surface.
 - **Phase 2: "everything as one recording" 3D time-machine viewer**: a time slider across
   the whole history. Player paths, events pinned in 3D, sessions, replays as coverage bars. Click
   to open or sync the replay at that moment. Terrain from the nearest backup (switching backups
@@ -289,6 +301,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-20 | Zip backups are read selectively; replays become metadata stubs until needed | Real backups are 15+ GB, mostly region files |
 | 2026-11-19 | Player/dimension folders are found by known paths first, then by searching the world folder | Survives future layout changes (26.1 moved everything) |
 | 2026-11-19 | Releases are published from GitHub's web UI (`release: published` trigger) | Session git access can't push tags |
+| 2026-11-21 | History viewer positions come from Flashback's version-independent `move_entities` action, not version-specific game packets; only the recorded player is tracked for now | Works for every Minecraft version without packet decoding; identifying other entities needs per-protocol work |
+| 2026-11-21 | Decoded paths are cached as `.jsonl` in the live-map track format (`%LOCALAPPDATA%\mcsm\paths`, keyed by file name + size + mtime) | Instant later runs; the same files feed `mcsm timelapse --tracks` |
+| 2026-11-21 | Web servers don't set SO_REUSEADDR on Windows | There it lets a second server silently take a busy port |
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
@@ -300,6 +315,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Timelapse over many days fast-forwards idle time at very high tick rates; Flashback export of
   such spans may be slow (not measured).
 - Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
+- **Terrain is slow for big worlds** (pure-Python region reader): the owner's 1,569 overworld
+  regions take well over an hour for the live map and history viewer. Regions near spawn and
+  log-ins come first. A tile cache or faster reader is the fix.
+- History viewer: path time = recording start + ticks × 50 ms, so server lag (slow ticks) and
+  paused time inside a recording shift later points slightly. Only the recorded player of
+  each recording is tracked; ReplayMod `.mcpr` recordings give no paths yet.
 
 - **Not yet tested by the owner on real data:** log formats from their server, the
   installer's GUI wizard on a real Windows desktop, the live map against the real server
@@ -313,6 +334,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-21:** History viewer (`mcsm history`, app History tab, docs/HISTORY.md): the whole
+  history on a 3D map with a time slider; player paths decoded from Flashback recordings
+  (`mcsm/paths.py`, cached). Terrain: 26.3 chunks (palette entries as plain strings) no longer
+  crash the terrain builder (live map too); one bad region is skipped; regions near spawn and
+  log-ins are built first. Local web servers no longer share a busy port on Windows.
 
 - **2026-11-21:** First run against the owner's real backup (local, 26.3, 438 logs, 10,109
   events, 216 replays): stats, advancements and time zone now load (backlog #0.1/#0.2 confirmed).
