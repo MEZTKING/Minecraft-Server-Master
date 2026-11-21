@@ -88,6 +88,13 @@ Problems found:
    is needed.
    ServerReplay 3.4.1's Flashback output differs from what Flashback master writes. Needs a sample
    replay (`metadata.json` + `c0.flashback`) from the owner → fix the reader.
+   **2026-11-21, checked on the real backup:** all 216 replays there come from ServerReplay
+   **3.5.2+26.2 (40) and 3.6.0+26.3 (176)** and are healthy: `total_ticks` = sum of chunk
+   durations = number of `next_tick` actions, no 1-tick lengths, and start (save − length −
+   paused) lands 3–17 s after the file-name time (the file name is UTC on this server). So the
+   50 ms problem belonged to **3.4.1** recordings (the old report); newer ServerReplay versions
+   don't have it. The existing estimate covers old 3.4.1 files; a 3.4.1 sample would confirm
+   it (the `May19_2026` backup should contain some).
 4. ✅ *Fixed* — Player folders are named `Recordings for_ NAME (uuid)` (custom `player_recording_name`):
    extract the uuid/name.
 5. ✅ *Mostly fixed* — `level.dat` in 26.1: spawn (`spawn.pos`), difficulty (`difficulty_settings`),
@@ -302,7 +309,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - **2026-11-21:** First run against the owner's real backup (local, 26.3, 438 logs, 10,109
   events, 216 replays): stats, advancements and time zone now load (backlog #0.1/#0.2 confirmed).
   Renamed players are merged into one (`5ou1s` → Vakirath, `InsidiousCrow` → Crow_Shroom); join
-  events gain `uuid`. Test `TestRenamedPlayer`.
+  events gain `uuid`. Test `TestRenamedPlayer`. Real replays (ServerReplay 3.5.2/3.6.0) checked:
+  lengths, starts and the Flashback chunk layout (action names, `next_tick` counts,
+  `move_entities`) are as the reader expects. The 50 ms lengths were a 3.4.1 problem.
 
 - **2026-11-20:** `HANDOFF.md` written: the work moves to a new session/account. Ledger idea added
   to the backlog.

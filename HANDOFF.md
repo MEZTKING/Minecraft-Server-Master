@@ -93,7 +93,8 @@ repo (private data). Ask them to upload it or a new one again if needed. Facts:
 - ServerReplay player folders are named `Recordings for_ NAME (uuid)` (custom
   `player_recording_name`; the colon becomes `_` on Windows). All recordings are under
   `recordings/players/`.
-- Two players have no uuid in usercache (probably Geyser/Bedrock or an expired cache).
+- Two players had no uuid in usercache: `5ou1s` and `InsidiousCrow` are old names of Vakirath and
+  Crow_Shroom (found 2026-11-21 from `UUID of player` log lines; now merged).
 - **Ledger** is installed. It is a block-logging mod that records block changes with player and
   time in a database (SQLite by default; exact file name and location to be confirmed). This is a strong candidate source for
   **block-by-block build timelapses** (backlog #1 Phase B/C) without decoding replay packets.
@@ -123,7 +124,8 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    - run `mcsm summary/report` on it and compare with §6;
    - fix whatever is still wrong (stats, time zone, replay lengths);
    - add a regression fixture built from what you learn (no private data in fixtures).
-2. **Fix the replay length** using a real replay: inspect `metadata.json`
+2. *(2026-11-21: newer ServerReplay files are fine; the bug was 3.4.1 only. See §8. Only a
+   3.4.1 sample remains to check, e.g. from the `May19_2026` backup.)* **Fix the replay length** using a real replay: inspect `metadata.json`
    (`total_ticks`, `chunks.*.duration`) and `arcade_replay_meta.json`, and count
    `next_tick` actions in the `cN.flashback` files (action ids in arcade files = enum
    ordinal; see §8). If metadata is truly wrong, derive the length from tick counts.
@@ -182,6 +184,12 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
   entity id appears only in `move_entities`. Heuristic: the id whose first position equals
   this position. The `ExactEntityPosition.write` layout used in its `move_entities` is **not
   verified** against Flashback's reader layout above: check it with a real file.
+- **Verified 2026-11-21 on real ServerReplay 3.5.2/3.6.0 files:** namespaces are
+  `flashback:action/…` for all but the last (`arcade-replay:action/encoded_simple_voice_chat_sound_optional`);
+  `next_tick` count per chunk = `chunks.*.duration`; `move_entities` parses with Flashback's
+  layout above (f64 x,y,z, f32 yaw,pitch,headYaw, bool) and gives sensible coordinates, so it is
+  the same as Flashback's. File-name times are UTC on the owner's server (start from save time
+  is 3–17 s after the file-name time). These versions write correct `total_ticks`.
 - Output: `<recordings>/<player folder>/<date>/` raw folder → `<date>.zip`. Date pattern
   and time zone come from `DateTimeUtils.getFormattedDate` (arcade-utils), **not verified**
   (README example `2024-05-11--19-19-55`; treated as server local time).
