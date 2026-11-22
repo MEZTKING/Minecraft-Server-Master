@@ -9,6 +9,7 @@ events    search events from the terminal
 replays   list replay recordings found on the server
 changes   Minecraft version, mods and datapacks changed between backups
 video-text timed in-game texts for a finished Flashback video
+world-text real 3D text in the world of a copy of a Flashback recording
 sync      make video markers/subtitles for a replay (+ music beat sync)
 flashback copy a Flashback replay with server events as markers in its timeline
 timelapse activity-aware timelapse of an area, set up in Flashback
@@ -28,6 +29,8 @@ from contextlib import ExitStack
 import os
 import sys
 import tarfile
+import json
+import shutil
 import zipfile
 from datetime import date, datetime, timedelta  # noqa: F401
 
@@ -890,6 +893,71 @@ def run_video_text(data: m.ServerData, args) -> int:
     return 0
 
 
+def cmd_world_text(args) -> int:
+    """Put real in-world text (Minecraft text display entities) into a copy of a Flashback recording."""
+    from . import flashback as fbm, videotext as vt, worldtext as wt
+    src = args.replay
+    if not os.path.isfile(src):
+        raise FileNotFoundError(src)
+    with zipfile.ZipFile(src) as zf:
+        meta = json.loads(zf.read("metadata.json").decode("utf-8"))
+    uid = str(meta.get("uuid") or "")
+    yaw = args.yaw
+    if args.at:
+        try:
+            x, y, z = (float(v) for v in args.at.split(","))
+        except ValueError:
+            raise SystemExit("--at needs X,Y,Z (e.g. --at 120,80,-560)")
+    else:
+        state = args.state or fbm.find_editor_state(uid)
+        if not state:
+            raise SystemExit("No Flashback edit found for this recording: give --at X,Y,Z instead.")
+        scenes = vt.load_scenes(state)
+        idx = args.scene if args.scene is not None else 0
+        scene = scenes[idx]
+        clock = vt.scene_clock(scene, int(meta.get("total_ticks") or 0) or None)
+        tick = clock.replay_tick(args.in_front_at) if clock else args.in_front_at * 20
+        cam = wt.camera_at(scene, tick)
+        if cam is None:
+            raise SystemExit("That scene has no camera keyframes: give --at X,Y,Z instead.")
+        pos, cyaw, cpitch = cam
+        x, y, z = wt.in_front(pos, cyaw, min(cpitch, 20), args.distance)
+        if yaw is None:
+            yaw = (cyaw + 180) % 360            # a fixed text faces back at that camera
+        print(f"Camera at {args.in_front_at:g} s of '{scene.get('name')}': ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}), "
+              f"looking {cyaw:.0f}deg -> text at ({x:.1f}, {y:.1f}, {z:.1f})")
+    colour = args.colour.lower()
+    if colour not in wt.COLOURS and not (colour.startswith("#") and len(colour) == 7):
+        raise SystemExit(f"--colour: one of {', '.join(wt.COLOURS)} or #RRGGBB")
+    text = wt.WorldText(args.text, x, y, z, size=args.size, colour=colour, bold=args.bold, facing=args.facing,
+                        yaw=yaw or 0.0, shadow=not args.no_shadow, glow=not args.no_glow)
+    fb_dir = None
+    if args.output:
+        dst = args.output
+    else:
+        fb_dir = fbm.find_flashback_dir(args.flashback_dir, str(meta.get("version_string") or "") or None)
+        if not fb_dir:
+            raise SystemExit("Flashback folder not found: give -o FILE or --flashback-dir")
+        base = os.path.splitext(os.path.basename(src))[0] + " (text)"
+        dst = os.path.join(fb_dir, "replays", base + ".zip")
+        n = 2
+        while os.path.exists(dst):
+            dst = os.path.join(fb_dir, "replays", f"{base} {n}.zip")
+            n += 1
+    new = wt.write_world_text_copy(src, dst, [text])
+    print(f"Wrote       : {dst}  ({new['_chunks']} chunk files, original unchanged)")
+    if fb_dir:
+        old_state = fbm.find_editor_state(uid)
+        if old_state:
+            target = os.path.join(fb_dir, "editor_states", f"{new['uuid']}.json")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if not os.path.exists(target):
+                shutil.copy2(old_state, target)
+                print(f"Your edit   : copied to the copy ({target})")
+        print("In Flashback: open the replay named '" + new["name"] + "', check the text, then export as usual.")
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -1089,6 +1157,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--font", default="Arial", help="font for the styled subtitles (default Arial)")
     p.add_argument("--output-dir", "-o", metavar="DIR", help="where to write (default: next to the video)")
     p.set_defaults(func=cmd_video_text)
+
+    p = sub.add_parser("world-text", help="put real 3D text into the world of a copy of a Flashback recording",
+                       description="Adds a Minecraft text display (real in-world text: lit by the world, hidden behind "
+                                   "blocks) to a copy of a recording. Open the copy in Flashback (your edit is copied to "
+                                   "it) and export again.")
+    p.add_argument("--replay", required=True, help="the Flashback recording (.zip)")
+    p.add_argument("--text", required=True)
+    where = p.add_mutually_exclusive_group(required=True)
+    where.add_argument("--at", metavar="X,Y,Z", help="world position of the text")
+    where.add_argument("--in-front-at", type=float, metavar="SECONDS",
+                       help="place it in front of the camera at this second of the exported video (from your edit)")
+    p.add_argument("--distance", type=float, default=30.0, help="blocks in front of the camera (default 30)")
+    p.add_argument("--state", metavar="FILE", help="Flashback editor state (default: found)")
+    p.add_argument("--scene", type=int, help="scene number in the edit, from 0 (default 0)")
+    p.add_argument("--size", type=float, default=4.0, help="letter height in blocks (default 4)")
+    p.add_argument("--colour", "--color", default="white", help="Minecraft colour name (gold, aqua...) or #RRGGBB")
+    p.add_argument("--bold", action="store_true")
+    p.add_argument("--facing", choices=["center", "vertical", "fixed"], default="center",
+                   help="center: always faces the camera (default); vertical: turns but stays upright; fixed: like a sign")
+    p.add_argument("--yaw", type=float, help="for --facing fixed: direction it faces (degrees)")
+    p.add_argument("--no-shadow", action="store_true")
+    p.add_argument("--no-glow", action="store_true", help="lit by the world instead of always bright")
+    p.add_argument("--flashback-dir", help="Flashback folder to put the copy in (default: the one for its version)")
+    p.add_argument("-o", "--output", metavar="FILE", help="write the copy here instead of into Flashback")
+    p.set_defaults(func=cmd_world_text)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")

@@ -141,6 +141,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm export SERVER --sqlite s.db --json s.json --csv out/` | Data exports ([schema](docs/DATA_MODEL.md)). |
 | `mcsm events SERVER --type death --player Steve --since 2024-05-01` | Search events in the terminal. |
 | `mcsm video-text SERVER --video FILE.mp4` | Timed in-game texts (chat, joins, deaths, advancements, date) for a video exported from Flashback, lined up automatically from your Flashback edit; styled `.ass` + `.srt` ([guide](docs/VIDEO_TEXT.md)). |
+| `mcsm world-text --replay REC.zip --text "..." --in-front-at SECONDS` | Real 3D text in the world (lit, hidden behind blocks) in a copy of a Flashback recording; export again in Flashback ([guide](docs/VIDEO_TEXT.md#text-in-the-world-real-3d-text)). |
 | `mcsm changes SERVER MORE...` | Minecraft version, mods, plugins and datapacks changed between backups ([guide](docs/BACKUPS.md#versions-mods-and-datapacks-over-time)). |
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |

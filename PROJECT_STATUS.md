@@ -70,6 +70,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Optional tidy of the original backup folder: duplicates moved aside (never deleted), optional dated names, undo | ✅ Done (tested on fixtures; not run on the owner's folder) | `mcsm/library.py` (`tidy_*`), `mcsm library tidy`, app *Tidy the original folder…* | `docs/LIBRARY.md` |
 | Flashback in launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge) with version matching; video projects in the library (recordings + a copy of the Flashback edits) | ✅ Done, detection checked on the owner's PC | `mcsm/flashback.py`, `mcsm/library.py` (`add_projects`), `mcsm library add-projects/projects`, app *Add video projects…* | `docs/LIBRARY.md`, `docs/FLASHBACK.md`, `docs/HISTORY.md` |
 | Text on finished videos (Phase 1): Flashback scene found from the video length, video time -> server time (timelapse included), suggested texts, styled .ass + .srt | ✅ Done, checked on the owner's "Thanks for playing" intro (length match 0.03 s; advancement timing confirmed on screen) | `mcsm/videotext.py`, `mcsm video-text` | `docs/VIDEO_TEXT.md` |
+| Real in-world text in a copy of a Flashback recording (text display entities in every chunk snapshot; place at X,Y,Z or in front of the edit's camera); on-screen 3D titles shown as examples | ✅ Done, packets byte-identical to the game's own (26.1.2/26.2/26.3); not yet opened in Flashback | `mcsm/worldtext.py`, `mcsm world-text` | `docs/VIDEO_TEXT.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -403,6 +404,8 @@ everyone, add/remove mods or datapacks and understand what to do or when".
   version, ServerReplay/Flashback versions, test), adding or removing a mod or datapack (what
   happens to its blocks/items/data), and a "what changed since the last backup" summary to share
   with the players.
+- Note from the owner: Flashback (Prism) shows warnings at start, likely from the HerosJourney
+  datapack, that don't affect anything; a check could recognise datapack/mod warnings like this.
 - **Open questions:** is a shared view for the other admins needed (a page in the library, or a
   Discord post together with 0i)?
 
@@ -592,6 +595,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | The Flashback folder for a recording is the launcher instance with the recording's Minecraft version (else the most recently used) | Flashback opens a recording only in its own version; the owner keeps one instance per version |
 | 2026-11-22 | The library remembers each imported archive's path, size and date | Re-scanning a 600 GB folder must not unpack everything again to find the one new backup |
 | 2026-11-22 | A finished video is matched to its Flashback scene by length; time mapping follows Flashback's TIMELAPSE rule from its source (pairs with rising `ticks` only, else normal speed) | Matched the owner's two exported videos to 0.05 s; no need to ask which edit made which video |
+| 2026-11-22 | In-world text = Minecraft text display entities written into the snapshot of every chunk file of a replay copy; ids/layouts taken from the version's own server jar (data reports + the game's packet codecs) | Real 3D text with lighting and occlusion; byte-exact with the game, no guessing per version |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -635,6 +639,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Real in-world text:** `mcsm world-text` adds a Minecraft text display to a copy
+  of a Flashback recording (at X,Y,Z or in front of the edit's camera at a video second); the copy
+  gets the original edit. Packet data for 26.1.2/26.2/26.3 from the game's own data reports and
+  codecs, verified byte for byte in tests. Owner's note: Prism Flashback shows harmless warnings at
+  start, likely from the HerosJourney datapack.
 - **2026-11-22:** **Text on finished videos, phase 1:** `mcsm video-text` lines a Flashback export up
   with the server's history and writes styled `.ass` (Minecraft-like chat, date, titles) and `.srt`
   captions. Fix: recordings on a different drive than the server folder couldn't be read

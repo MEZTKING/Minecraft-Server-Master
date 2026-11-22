@@ -43,6 +43,7 @@ mcsm/
                      (heightmap + lazily decoded section palettes only), tile cache; read in a
                      process pool by live.TerrainServer
   videotext.py       finished Flashback video <-> server time (export range + timelapse), timed texts, .ass/.srt
+  worldtext.py       text display entities written into a Flashback replay copy (in-world text)
   flashback.py       write Flashback replay copies (markers, new uuid) and editor states (camera/timelapse)
   timelapse.py       areas, activity windows (tracks/sessions), target-length plan, timelapse keyframes
   sync.py            VideoTimeline and event -> Marker conversion

@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sqlite3
+import struct
 import sys
 import tempfile
 import time
@@ -2011,3 +2012,88 @@ class TestVideoText(unittest.TestCase):
             self.assertTrue(r.path.endswith("2024-05-03--18-00-00.mcpr"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestWorldText(unittest.TestCase):
+    """In-world text: packets must match what Minecraft itself writes (bytes from the 26.1.2 / 26.2 /
+    26.3 server jars' own codecs, encoded 2026-11-22)."""
+
+    ADD = {775: "c0c4070123456789abcdef0fedcba987654321830140592000000000004051900000000000c0691800000000000000400000",
+           776: "c0c4070123456789abcdef0fedcba987654321840140592000000000004051900000000000c0691800000000000000400000",
+           777: "c0c4070123456789abcdef0fedcba987654321870140592000000000004051900000000000c0691800000000000000400000"}
+    DATA = ("c0c4070c274100000041000000410000000f000011034080000017050800155468616e6b20796f7520666f7220706c6179696e67"
+            "1801e8071901001b0001ff")
+    STYLED_TEXT = "0a080005636f6c6f720004676f6c64080004746578740004476f6c64010004626f6c640100"
+
+    def test_packets_match_the_game(self):
+        import uuid
+        from mcsm import worldtext as wt
+        uid = uuid.UUID("0123456789abcdef0fedcba987654321")
+        for proto, golden in self.ADD.items():
+            type_id = wt.PROTOCOLS[proto][2]
+            self.assertEqual(wt.add_entity_packet(123456, uid, type_id, 100.5, 70.25, -200.75, yaw=90.0).hex(), golden)
+        t = wt.WorldText("Thank you for playing", 0, 0, 0, size=2.0, facing="fixed", glow=False, view_range=4.0,
+                         line_width=1000)
+        self.assertEqual(wt.text_data_packet(123456, t).hex(), self.DATA)
+        self.assertEqual(wt.text_component("Gold", "gold", True).hex(), self.STYLED_TEXT)
+
+    def test_copy_with_text(self):
+        import io as _io
+        from mcsm import worldtext as wt
+        from mcsm.replays import write_flashback_chunk
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, "rec.zip")
+            buf = _io.BytesIO()
+            write_flashback_chunk(buf, 1_700_000_000_000, ticks_before=3)
+            chunk = buf.getvalue()
+            with zipfile.ZipFile(src, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "u-orig", "name": "Rec", "protocol_version": 777,
+                                                         "version_string": "26.3", "total_ticks": 10}))
+                zf.writestr("c0.flashback", chunk)
+                zf.writestr("c1.flashback", chunk)
+                zf.writestr("level_chunk_caches/0", b"x" * 100)
+            dst = os.path.join(tmp, "rec (text).zip")
+            meta = wt.write_world_text_copy(src, dst, [wt.WorldText("Our First Adventure", 1, 70, 2, colour="gold")])
+            self.assertEqual(meta["_chunks"], 2)
+            self.assertEqual(meta["original_uuid_mcsm"], "u-orig")
+            self.assertNotEqual(meta["uuid"], "u-orig")
+            with zipfile.ZipFile(dst) as zf:
+                new = zf.read("c0.flashback")
+                self.assertEqual(zf.read("level_chunk_caches/0"), b"x" * 100)
+            self.assertIn(b"Our First Adventure", new)
+            self.assertGreater(len(new), len(chunk))
+            self.assertEqual(new[-(len(chunk) - (chunk.index(b"game_packet") + 0)):][-20:], chunk[-20:])  # records kept
+            # the snapshot grew by exactly the two added records; everything after it is unchanged
+            i = 4
+            n, i = wt._read_varint(chunk, i)
+            for _ in range(n):
+                ln, i = wt._read_varint(chunk, i)
+                i += ln
+            old_size = struct.unpack(">I", chunk[i:i + 4])[0]
+            new_size = struct.unpack(">I", new[i:i + 4])[0]
+            self.assertEqual(new[i + 4 + new_size:], chunk[i + 4 + old_size:])
+            with zipfile.ZipFile(src) as zf:
+                self.assertEqual(zf.read("c0.flashback"), chunk)                         # original untouched
+            with zipfile.ZipFile(src, "a") as zf:
+                pass
+            bad = os.path.join(tmp, "old.zip")
+            with zipfile.ZipFile(bad, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 770, "version_string": "1.21.5"}))
+            with self.assertRaises(ValueError):
+                wt.write_world_text_copy(bad, os.path.join(tmp, "x.zip"), [wt.WorldText("a", 0, 0, 0)])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_in_front_of_camera(self):
+        from mcsm import worldtext as wt
+        scene = {"keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": {
+            "0": {"position": [0, 64, 0], "yaw": 0, "pitch": 0}, "100": {"position": [10, 64, 0], "yaw": 90, "pitch": 0}}}]}
+        pos, yaw, pitch = wt.camera_at(scene, 50)
+        self.assertEqual(pos, [5.0, 64.0, 0.0])
+        self.assertAlmostEqual(yaw, 45.0)
+        x, y, z = wt.in_front([0, 64, 0], 0, 0, 20)          # yaw 0 looks south (+z)
+        self.assertAlmostEqual(z, 20.0)
+        self.assertAlmostEqual(x, 0.0)
+        x, y, z = wt.in_front([0, 64, 0], 90, 0, 20)         # yaw 90 looks west (-x)
+        self.assertAlmostEqual(x, -20.0)

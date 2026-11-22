@@ -1,0 +1,248 @@
+"""Real in-world text in a Flashback recording (a copy of it).
+
+Minecraft has *text display* entities: text that exists in the world, is lit by it and is hidden
+behind blocks. This module writes such entities into the **snapshot** at the start of every
+chunk file (``cN.flashback``) of a *copy* of a recording, so the text is there wherever you are in
+the replay. Open the copy in Flashback (the original edit is copied to it) and export again: the
+text is part of the world in the video.
+
+Packet layouts were checked byte for byte against packets encoded by the game itself
+(Minecraft 26.1.2 / 26.2 / 26.3 server jars, ``ClientboundAddEntityPacket`` and
+``ClientboundSetEntityDataPacket`` stream codecs, 2026-11-22):
+
+* add entity: ``VarInt id, UUID, VarInt type, f64 x, y, z, LpVec3 velocity (0 = one zero byte),
+  angle pitch, angle yaw, angle head yaw, VarInt data``
+* set entity data: ``VarInt id``, then ``(u8 index, VarInt serializer, value)`` ... ``0xFF``.
+  Display: 12 scale (Vector3f, serializer 39), 15 billboard (byte), 16 brightness (VarInt),
+  17 view range (float). Text display: 23 text (component as network NBT), 24 line width,
+  25 background ARGB, 27 flags (1 shadow, 2 see-through, 4 default background, 8 left, 16 right).
+
+Recording layout (see :mod:`mcsm.paths`): a chunk file is ``magic, VarInt n, n action names, u32
+snapshot size, snapshot, records``; snapshot and records are ``VarInt action, u32 size, payload``;
+a ``flashback:action/game_packet`` payload is ``VarInt packet id + packet``.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import math
+import os
+import shutil
+import struct
+import uuid as uuid_mod
+import zipfile
+from dataclasses import dataclass
+
+# protocol -> (add_entity packet id, set_entity_data packet id, text_display entity type id)
+# From the game's own data reports (java net.minecraft.data.Main --reports) for each version.
+PROTOCOLS = {
+    775: (1, 99, 131),     # 26.1 / 26.1.1 / 26.1.2
+    776: (1, 99, 132),     # 26.2
+    777: (1, 101, 135),    # 26.3
+}
+GAME_PACKET = "flashback:action/game_packet"
+FLASHBACK_MAGIC = 0xD780E884
+
+SER_BYTE, SER_INT, SER_FLOAT, SER_COMPONENT, SER_VECTOR3 = 0, 1, 3, 5, 39
+BILLBOARD = {"fixed": 0, "vertical": 1, "horizontal": 2, "center": 3}
+COLOURS = ("black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold", "gray",
+           "dark_gray", "blue", "green", "aqua", "red", "light_purple", "yellow", "white")
+LINE_HEIGHT = 0.25          # blocks per text line at scale 1 (9 font pixels + spacing, ~1/40 block each)
+
+
+@dataclass
+class WorldText:
+    text: str
+    x: float
+    y: float
+    z: float
+    size: float = 3.0               # letter height in blocks
+    colour: str = "white"           # a Minecraft colour name or #RRGGBB
+    bold: bool = False
+    facing: str = "center"          # center (always faces the camera), vertical, fixed
+    yaw: float = 0.0                # for "fixed": which way the text faces
+    shadow: bool = True
+    background: int = 0             # ARGB; 0 = none
+    glow: bool = True               # full brightness (readable at night)
+    view_range: float = 8.0         # x64 blocks
+    line_width: int = 100000        # pixels before wrapping (large = never wrap)
+
+
+# --- encoding -----------------------------------------------------------------------------
+
+def _varint(v: int) -> bytes:
+    v &= 0xFFFFFFFF
+    out = bytearray()
+    while True:
+        b = v & 0x7F
+        v >>= 7
+        out.append(b | (0x80 if v else 0))
+        if not v:
+            return bytes(out)
+
+
+def _read_varint(b: bytes, i: int) -> tuple[int, int]:
+    n = shift = 0
+    while True:
+        c = b[i]
+        i += 1
+        n |= (c & 0x7F) << shift
+        if not c & 0x80:
+            return n, i
+        shift += 7
+
+
+def _nbt_str(s: str) -> bytes:
+    raw = s.encode("utf-8")
+    return struct.pack(">H", len(raw)) + raw
+
+
+def text_component(text: str, colour: str = "white", bold: bool = False) -> bytes:
+    """A text component as network NBT (nameless root): a plain string tag when unstyled,
+    else a compound — exactly as the game writes it."""
+    if (not colour or colour == "white") and not bold:
+        return b"\x08" + _nbt_str(text)
+    out = b"\x0a"
+    if colour and colour != "white":
+        out += b"\x08" + _nbt_str("color") + _nbt_str(colour)
+    out += b"\x08" + _nbt_str("text") + _nbt_str(text)
+    if bold:
+        out += b"\x01" + _nbt_str("bold") + b"\x01"
+    return out + b"\x00"
+
+
+def _angle(deg: float) -> bytes:
+    return bytes([int(math.floor(deg * 256.0 / 360.0)) & 0xFF])
+
+
+def add_entity_packet(entity_id: int, uid: uuid_mod.UUID, type_id: int, x: float, y: float, z: float,
+                      yaw: float = 0.0, pitch: float = 0.0) -> bytes:
+    return (_varint(entity_id) + uid.bytes + _varint(type_id) + struct.pack(">ddd", x, y, z)
+            + b"\x00"                                   # velocity: LpVec3 zero
+            + _angle(pitch) + _angle(yaw) + b"\x00" + _varint(0))
+
+
+def text_data_packet(entity_id: int, t: WorldText) -> bytes:
+    scale = max(0.01, t.size / LINE_HEIGHT)
+    flags = 0x01 if t.shadow else 0
+    out = _varint(entity_id)
+    out += bytes([12]) + _varint(SER_VECTOR3) + struct.pack(">fff", scale, scale, scale)
+    out += bytes([15]) + _varint(SER_BYTE) + bytes([BILLBOARD.get(t.facing, 3)])
+    if t.glow:
+        out += bytes([16]) + _varint(SER_INT) + _varint(15 << 4 | 15 << 20)
+    out += bytes([17]) + _varint(SER_FLOAT) + struct.pack(">f", t.view_range)
+    out += bytes([23]) + _varint(SER_COMPONENT) + text_component(t.text, t.colour, t.bold)
+    out += bytes([24]) + _varint(SER_INT) + _varint(t.line_width)
+    out += bytes([25]) + _varint(SER_INT) + _varint(t.background)
+    out += bytes([27]) + _varint(SER_BYTE) + bytes([flags])
+    return out + b"\xff"
+
+
+# --- writing into a recording -------------------------------------------------------------
+
+def _record(action: int, payload: bytes) -> bytes:
+    return _varint(action) + struct.pack(">I", len(payload)) + payload
+
+
+def add_to_chunk(chunk: bytes, records: list[bytes]) -> bytes:
+    """Append game-packet records to the snapshot of one ``cN.flashback`` file."""
+    if struct.unpack(">I", chunk[:4])[0] != FLASHBACK_MAGIC:
+        raise ValueError("not a Flashback chunk file")
+    i = 4
+    n, i = _read_varint(chunk, i)
+    names = []
+    for _ in range(n):
+        ln, i = _read_varint(chunk, i)
+        names.append(chunk[i:i + ln].decode("utf-8"))
+        i += ln
+    if GAME_PACKET not in names:
+        raise ValueError("this chunk has no game packets")
+    action = names.index(GAME_PACKET)
+    size = struct.unpack(">I", chunk[i:i + 4])[0]
+    snap = chunk[i + 4:i + 4 + size]
+    extra = b"".join(_record(action, r) for r in records)
+    return chunk[:i] + struct.pack(">I", size + len(extra)) + snap + extra + chunk[i + 4 + size:]
+
+
+def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)") -> dict:
+    """Copy a Flashback recording with *texts* placed in its world. The original isn't changed.
+    Returns the copy's metadata (new uuid; ``original_uuid_mcsm`` = the original's)."""
+    if os.path.abspath(src) == os.path.abspath(dst):
+        raise ValueError("refusing to overwrite the original recording")
+    with zipfile.ZipFile(src) as zin:
+        meta = json.loads(zin.read("metadata.json").decode("utf-8"))
+        proto = int(meta.get("protocol_version") or 0)
+        if proto not in PROTOCOLS:
+            known = ", ".join(str(p) for p in sorted(PROTOCOLS))
+            raise ValueError(f"Minecraft {meta.get('version_string') or '?'} (protocol {proto}) isn't supported "
+                             f"yet for in-world text (supported: {known} = 26.1.x, 26.2, 26.3)")
+        add_id, data_id, type_id = PROTOCOLS[proto]
+        records = []
+        for k, t in enumerate(texts):
+            eid = 2_000_000_000 + k                      # far above anything the server hands out
+            uid = uuid_mod.uuid4()
+            records.append(_varint(add_id) + add_entity_packet(eid, uid, type_id, t.x, t.y, t.z, t.yaw, 0.0))
+            records.append(_varint(data_id) + text_data_packet(eid, t))
+        meta["original_uuid_mcsm"] = meta.get("uuid")
+        meta["uuid"] = str(uuid_mod.uuid4())
+        meta["name"] = (meta.get("name") or "Replay") + name_suffix
+        meta["mcsm_world_text"] = [t.__dict__ for t in texts]
+        os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
+        tmp = dst + ".part"
+        chunks = 0
+        try:
+            with zipfile.ZipFile(tmp, "w") as zout:
+                for info in zin.infolist():
+                    if info.filename == "metadata.json":
+                        zout.writestr(info, json.dumps(meta, indent=2), compress_type=zipfile.ZIP_DEFLATED)
+                        continue
+                    out_info = zipfile.ZipInfo(info.filename, info.date_time)
+                    out_info.compress_type = info.compress_type
+                    out_info.external_attr = info.external_attr
+                    if info.filename.endswith(".flashback") and "/" not in info.filename:
+                        zout.writestr(out_info, add_to_chunk(zin.read(info), records))
+                        chunks += 1
+                        continue
+                    with zin.open(info) as fin, zout.open(out_info, "w", force_zip64=True) as fout:
+                        shutil.copyfileobj(fin, fout, 1 << 20)
+            os.replace(tmp, dst)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
+    meta["_chunks"] = chunks
+    return meta
+
+
+# --- placing text where the camera looks ---------------------------------------------------
+
+def camera_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
+    """Camera ``(position, yaw, pitch)`` at replay *tick* from the scene's CAMERA keyframes
+    (linear between keyframes; orbit/entity-tracking cameras are not followed)."""
+    for t in scene.get("keyframeTracks") or []:
+        if t.get("keyframeType") == "CAMERA" and t.get("enabled", True):
+            keys = sorted((int(k), v) for k, v in (t.get("keyframesByTick") or {}).items()
+                          if isinstance(v, dict) and v.get("position"))
+            if not keys:
+                return None
+            if tick <= keys[0][0]:
+                k = keys[0][1]
+                return list(k["position"]), float(k.get("yaw", 0)), float(k.get("pitch", 0))
+            for (t1, a), (t2, b) in zip(keys, keys[1:]):
+                if t1 <= tick <= t2:
+                    f = (tick - t1) / max(1, t2 - t1)
+                    pos = [pa + (pb - pa) * f for pa, pb in zip(a["position"], b["position"])]
+                    dyaw = ((float(b.get("yaw", 0)) - float(a.get("yaw", 0)) + 180) % 360) - 180
+                    return (pos, float(a.get("yaw", 0)) + dyaw * f,
+                            float(a.get("pitch", 0)) + (float(b.get("pitch", 0)) - float(a.get("pitch", 0))) * f)
+            k = keys[-1][1]
+            return list(k["position"]), float(k.get("yaw", 0)), float(k.get("pitch", 0))
+    return None
+
+
+def in_front(position: list[float], yaw: float, pitch: float, distance: float) -> tuple[float, float, float]:
+    """The point *distance* blocks in front of a camera (Minecraft yaw/pitch, degrees)."""
+    ry, rp = math.radians(yaw), math.radians(pitch)
+    dx, dy, dz = -math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp)
+    return position[0] + dx * distance, position[1] + dy * distance, position[2] + dz * distance
