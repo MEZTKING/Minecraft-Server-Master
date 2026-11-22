@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (quiet but busy: building, map art, exploring as moments, 0t).
+`CLAUDE.md`). Last updated: 2026-11-22 (timelapse of a build from its moment, 0t step 4).
 
 ## What this project is
 
@@ -690,7 +690,8 @@ event (0r), mark highlights while watching.
 
 ✅ **Steps 1-3 done 2026-11-22** (owner: "Yes, build it"): movement stretches (`mcsm/activity.py`) as moments in
 the list, the story and on the map (area outlined), stats between backups in their description, Keep = best
-3 minutes. Still to do: Keep → timelapse of the area, and the surface comparison between backups.
+3 minutes. ✅ Step 4 (owner: "Timelapse of builds"): the Timelapse button on building/map-art moments (Fable's
+design). Still to do: the surface comparison between backups.
 
 **The ask:** "sometimes players can spend long hours looking like their doing nothing but they have lots
 going on. like making a massive map on the ground or looking for something" (the moments finder only sees
@@ -942,6 +943,20 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Build timelapse after Fable's review: the point of view is whoever was near the build (not the
+  longest file), the app's own copies and duplicate files are left out, renamed players' positions found, the plan
+  reads nothing (recorded sizes), free space checked per target folder, the export runs in the background with
+  progress and removes half-made copies on failure. AFK (owner: "sometimes people will go afk"): idle minutes at
+  a build's start/end are cut, builds score by active time, timelapses fast-forward AFK minutes. All 120 build
+  moments on the owner's library can be planned.
+
+- **2026-11-22:** **Timelapse of a build** (Fable's design): `timelapse.plan_moment` / `export_moment` film a building
+  or map-art moment from the builder's own recordings (the point of view with the most activity), with activity
+  windows from the positions read from the recordings (`samples_from_tracks`), one speed across all files
+  (about 3 minutes in all), the same fixed camera (map art from above), one Flashback copy per file
+  "(timelapse n of N)" with one scene, and an order list. History viewer: Timelapse button (plan with size and
+  free space, then export). Owner's library: D_HumanCrafter's 4 h 11 min build = 9 parts, 81x, 2:56, 1.1 GB.
 
 - **2026-11-22:** Quiet but busy, tuned on the owner's library (1.5 M positions from 8 players, read once in ~20 min,
   then cached): "exploring" now needs ground the player had never been to (running around the base all evening

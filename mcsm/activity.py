@@ -110,6 +110,10 @@ def _building(player: str, mins: list[dict], L: dict) -> list[dict]:
     reach, gap = L["build_reach"], L["gap_min"] * L["minute_ms"]
 
     def close():
+        while run and run[0]["move"] < L["active_move"]:      # AFK before or after the work isn't part of it
+            run.pop(0)
+        while run and run[-1]["move"] < L["active_move"]:
+            run.pop()
         if len(run) >= L["build_min_min"]:
             active = sum(1 for c in run if c["move"] >= L["active_move"])
             if active >= L["active_share"] * len(run):

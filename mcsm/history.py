@@ -252,7 +252,69 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path == "/api/timelapse/job":
+            job = getattr(self, "_tl_job", None) or {"running": False, "log": [], "result": None, "error": None}
+            return {**job, "log": job["log"][-5:]}
         return None
+
+    def timelapse(self, moment_id: str, export: bool = False) -> dict:
+        """A timelapse of a build moment: the plan (nothing is read or written), or start making the
+        Flashback copies in the background (progress: GET /api/timelapse/job)."""
+        import shutil
+        import threading
+        from . import timelapse as tl
+        mom = next((x for x in (getattr(self, "_moments", None) or []) if x["id"] == moment_id), None)
+        if mom is None or mom.get("mode") not in ("building", "map_art"):
+            raise ValueError("that isn't a building moment (reload the page)")
+        if self.replay_file is None:
+            raise ValueError("recordings are not available in this session")
+        _n, tracks = getattr(self, "_tracks", (0, {}))
+        if not tracks:
+            raise ValueError("the players' positions haven't been read yet: wait until the status line says they are")
+        pm = tl.plan_moment(self.data, mom, tracks)
+        out_dir = os.path.dirname(os.path.abspath(self.highlights.path))
+        # where each copy goes (each recording's Minecraft version can have its own Flashback), and space there
+        need: dict[str, int] = {}
+        for p in pm["parts"]:
+            folder = tl.target_folder(p["replay"], self.flashback_dir, out_dir, self.flashback_pick)
+            need[folder] = need.get(folder, 0) + (p["replay"].size_bytes or 0)
+        short = []
+        free_total = 0
+        for folder, size in need.items():
+            probe = folder
+            while probe and not os.path.exists(probe):
+                probe = os.path.dirname(probe)
+            try:
+                free = shutil.disk_usage(probe or out_dir).free
+            except OSError:
+                continue
+            free_total += free
+            if size > free * 0.9:
+                short.append(f"{folder}: {free / 1e9:.1f} GB free, needs {size / 1e9:.1f} GB")
+        summary = {"pov": pm["pov"], "speed": pm["speed"], "seconds": pm["seconds"], "bytes": pm["bytes"],
+                   "free": free_total or None, "folders": sorted(need), "short": short,
+                   "parts": [{"n": p["n"], "file": p["replay"].path.split("/")[-1], "seconds": p["seconds"]}
+                             for p in pm["parts"]], "flashback_dir": self.flashback_dir}
+        if not export:
+            return summary
+        if short:
+            raise ValueError("not enough free space: " + "; ".join(short))
+        if not self._export_lock.acquire(blocking=False):
+            raise ValueError("an export is already running")
+        self._tl_job = {"running": True, "log": [], "result": None, "error": None}
+
+        def work():
+            try:
+                r = tl.export_moment(self.data, mom, tracks, self.replay_file, self.flashback_dir, out_dir,
+                                     pick_dir=self.flashback_pick, progress=self._tl_job["log"].append)
+                self._tl_job["result"] = {**summary, **{k: v for k, v in r.items() if k in ("parts", "order", "folder")}}
+            except Exception as exc:                     # noqa: BLE001 -- shown on the page
+                self._tl_job["error"] = f"{type(exc).__name__}: {exc}"
+            finally:
+                self._tl_job["running"] = False
+                self._export_lock.release()
+        threading.Thread(target=work, daemon=True).start()
+        return {"started": True, **summary}
 
     def moments(self) -> dict:
         """The important moments of the whole history, best first. The log events' moments come at once;
@@ -299,6 +361,8 @@ class HistoryMap(TerrainServer):
             players = hl.players_in(self.data, int(body.get("start", 0)), int(body.get("end", 0)))
             self.highlights.put(body, players)
             return self.highlights_info()
+        if path in ("/api/timelapse/plan", "/api/timelapse/export"):
+            return self.timelapse(str(body.get("id", "")), export=path.endswith("export"))
         if path == "/api/highlights/delete":
             self.highlights.delete(str(body.get("id", "")))
             return self.highlights_info()

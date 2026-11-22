@@ -904,6 +904,35 @@ function renderMoments() {
     const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
     btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined)" : "Watch this moment on the map",
         () => { showArea(m); seek(m.start); playUntil = m.end; setPlaying(true); });
+    if (m.mode === "building" || m.mode === "map_art") {
+      const tlb = btn("Timelapse", "A timelapse of this build for Flashback: a fixed camera over the area, the hours of work in about 3 minutes", async () => {
+        try {
+          $("#hlStatus").textContent = "Planning the timelapse…";
+          const p = await post("api/timelapse/plan", { id: m.id });
+          const gb = b => (b / 1e9).toFixed(1) + " GB";
+          const parts = p.parts.map(x => `  ${x.n}. ${x.file} (${hms(x.seconds * 1000)})`).join("\n");
+          if (!confirm(`Timelapse of "${m.title}"\n\nFilmed from ${p.pov}'s recordings at ${p.speed}x while building: about ${hms(p.seconds * 1000)} in all, `
+              + `in ${p.parts.length} part${p.parts.length > 1 ? "s" : ""} (one Flashback copy each, export them in order):\n${parts}\n\n`
+              + `The copies take ${gb(p.bytes)}${p.free ? ` (${gb(p.free)} free)` : ""}, in ${p.folders.join(", ")}. `
+              + (p.short.length ? `\n\nNot enough space: ${p.short.join("; ")}` : "")
+              + `\n\nYour original recordings are not changed. Make them?`)) { $("#hlStatus").textContent = ""; return; }
+          tlb.disabled = true;
+          await post("api/timelapse/export", { id: m.id });
+          for (;;) {                                     // the copies are made in the background
+            await new Promise(res => setTimeout(res, 2000));
+            const j = await (await fetch("api/timelapse/job")).json();
+            $("#hlStatus").textContent = `Making the timelapse… ${j.log.length ? j.log[j.log.length - 1] : ""}`;
+            if (j.running) continue;
+            if (j.error) throw new Error(j.error);
+            const r = j.result;
+            $("#hlStatus").textContent = `Timelapse ready: ${r.parts.length} cop${r.parts.length === 1 ? "y" : "ies"} named "… (timelapse 1 of ${r.parts.length})" `
+              + `in Flashback. Open each in order and Export its scene; then put the videos one after another. Order list: ${r.order}`;
+            break;
+          }
+        } catch (e) { $("#hlStatus").textContent = `Timelapse: ${e.message}`; }
+        tlb.disabled = false;
+      });
+    }
     const span0 = m.clip || [m.start, m.end];
     const kept = (HL.highlights || []).some(h => h.moment === m.id || (h.start === span0[0] && h.end === span0[1]));
     if (m.mode) li.onmouseenter = () => showArea(m, false);     // outline only; the camera stays

@@ -261,3 +261,229 @@ def describe(p: Plan, tz=None) -> list[str]:
 def _fmt(sec: float) -> str:
     sec = max(0, int(round(sec)))
     return f"{sec // 60}:{sec % 60:02d}"
+
+
+# --- a timelapse of a build found by the moments finder (see mcsm.moments._work_moments) -------------
+# Design by Fable (2026-11-22): the builder's own recordings in time order (the fixed camera needs the
+# chunks around the build, which only a recording made there has), activity windows from the positions
+# read from the recordings (only the moment's players count), one speed across all files so the parts
+# join seamlessly, the same camera in every part, one Flashback copy per file ("2 of 5").
+
+MAX_CAMERA_SIZE = 160          # huge map-art areas: keep the camera within render distance
+MIN_ACTIVE_S = 20              # a file with less activity than this inside the area is skipped
+
+
+def samples_from_tracks(tracks: dict[str, list[list]], players: list[str], start_ms: int, end_ms: int,
+                        idle_move: float = 3.0):
+    """Positions read from recordings (``{player: [[t_ms, x, y, z, dimension, ...]]}``) in the shape
+    :func:`windows_from_tracks` takes (``[(datetime, [{name, x, y, z, dimension}])]``), one per second.
+    Minutes in which a player moved less than *idle_move* blocks (AFK) are left out, so a timelapse
+    fast-forwards them like time with nobody there."""
+    import math
+    from .timeutil import from_epoch_ms
+    by_second: dict[int, dict[str, dict]] = {}
+    for name in players:
+        pts = [p for p in tracks.get(name) or [] if start_ms <= p[0] <= end_ms]
+        moved: dict[int, float] = {}
+        for a, b in zip(pts, pts[1:]):
+            if a[4] == b[4] and b[0] - a[0] < 120_000:
+                d = math.dist(a[1:4], b[1:4])
+                if d <= 60:
+                    moved[b[0] // 60_000] = moved.get(b[0] // 60_000, 0.0) + d
+        for p in pts:
+            if moved.get(p[0] // 60_000, 0.0) < idle_move:
+                continue
+            by_second.setdefault(p[0] // 1000, {})[name] = {"name": name, "x": p[1], "y": p[2], "z": p[3],
+                                                            "dimension": p[4]}
+    return [(from_epoch_ms(sec * 1000), list(v.values())) for sec, v in sorted(by_second.items())]
+
+
+def clip_windows(windows: list[Window], start: datetime, end: datetime) -> list[Window]:
+    out = []
+    for w in windows:
+        a, b = max(w.start, start), min(w.end, end)
+        if b > a:
+            out.append(Window(a, b, set(w.players)))
+    return out
+
+
+def moment_area(moment: dict, grow: float = 8.0) -> Area:
+    x0, z0, x1, z1 = moment["area"]
+    return Area("the build", x0 - grow, z0 - grow, x1 + grow, z1 + grow,
+                dimension=moment.get("dim") or "minecraft:overworld")
+
+
+def moment_camera(moment: dict, area: Area) -> tuple[float, float, float, float, float]:
+    """A fixed camera over the build: south of it looking down (map art: steeply down)."""
+    cx, cz = area.centre
+    half = min(MAX_CAMERA_SIZE, max(area.x2 - area.x1, area.z2 - area.z1)) / 2
+    capped = Area(area.name, cx - half, cz - half, cx + half, cz + half, dimension=area.dimension)
+    ground = float(moment.get("y") if moment.get("y") is not None else 64.0)
+    x, y, z, yaw, pitch = auto_camera(capped, ground_y=ground)
+    if moment.get("mode") == "map_art":
+        size = 2 * half
+        x, y, z, pitch = cx, ground + size * 0.9 + 10, cz + size * 0.12, 80.0
+    return x, y, z, yaw, pitch
+
+
+def plan_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
+                target_seconds: float = 180.0, gap_seconds: float = 0.5) -> dict:
+    """What a timelapse of a build moment would be (nothing is written): the point of view, the files in
+    order with their own plan at one shared speed, the camera, total length and size."""
+    import bisect
+    area = moment_area(moment)
+    # player names as the moments use them (renames and letter case don't hide anyone's positions)
+    canon = {n.lower(): p.name for p in data.players.values() for n in p.names_seen + [p.name]}
+    by_name: dict[str, list] = {}
+    for n, pts in tracks.items():
+        by_name.setdefault(canon.get(n.lower(), n).lower(), []).extend(pts)
+    for pts in by_name.values():
+        pts.sort(key=lambda q: q[0])
+    tracks = {n: pts for n, pts in by_name.items()}
+    wanted = {r["path"] for r in moment.get("recordings") or []}
+    reps, seen_starts = [], set()
+    for r in sorted(data.replays, key=lambda r: (r.start or 0, r.path)):
+        if (r.path in wanted and r.format == "flashback" and r.start is not None and not r.unfinished
+                and r.recorded_player and not r.raw_meta.get("duration_note")
+                and not any(c in r.path for c in ("(timelapse", "(highlights)", "(text)"))
+                and (r.recorded_player.lower(), r.start) not in seen_starts):     # the same file twice
+            seen_starts.add((r.recorded_player.lower(), r.start))
+            reps.append(r)
+    if not reps:
+        raise ValueError("no recording with a timeline covers this build")
+    start, end = from_ms(moment["start"]), from_ms(moment["end"])
+    samples = samples_from_tracks(tracks, [p.lower() for p in moment.get("players") or []],
+                                  moment["start"], moment["end"])
+    windows = windows_from_tracks(samples, area, start, end, merge_gap=120.0, pad=5.0)
+    if not windows:
+        raise ValueError("the players' positions don't show them in the area (are the positions read yet?)")
+    # the point of view: the player whose own files cover the most activity
+    by_pov: dict[str, list] = {}
+    for r in reps:
+        by_pov.setdefault(r.recorded_player or "?", []).append(r)
+    players = set(moment.get("players") or [])
+
+    near = Area(area.name, area.x1 - 96, area.z1 - 96, area.x2 + 96, area.z2 + 96, dimension=area.dimension)
+
+    def covered(who, rs):
+        """Seconds of activity filmed from close by: the recorder's own position near the build."""
+        own = tracks.get(who.lower()) or []
+        times = [p[0] for p in own]
+        secs = 0
+        for r in rs:
+            for w in clip_windows(windows, r.start, r.end):
+                a = bisect.bisect_left(times, int(w.start.timestamp() * 1000))
+                b = bisect.bisect_right(times, int(w.end.timestamp() * 1000))
+                secs += len({own[i][0] // 1000 for i in range(a, b) if near.contains(own[i][1], own[i][2], own[i][3], own[i][4])})
+        return secs
+    scores = {k: covered(k, v) for k, v in by_pov.items()}
+    pov = max(by_pov, key=lambda k: (scores[k], k in players, -len(by_pov[k])))
+    if scores[pov] <= 0:
+        raise ValueError("nobody who recorded was near the build while it was worked on")
+    files = []
+    for r in sorted(by_pov[pov], key=lambda r: r.start):
+        ws = clip_windows(windows, r.start, r.end)
+        if sum(w.seconds for w in ws) >= MIN_ACTIVE_S:
+            files.append((r, ws))
+    if not files:
+        raise ValueError("the recordings show too little of the build")
+    active = sum(w.seconds for _r, ws in files for w in ws)
+    gaps = sum(len(ws) - 1 for _r, ws in files)            # breaks inside a file (the files are cut apart)
+    budget = target_seconds - gaps * gap_seconds
+    if budget < target_seconds / 3:                    # many breaks: make it longer rather than fail
+        budget = target_seconds / 3
+    speed = max(1.0, active / budget)
+    cam = moment_camera(moment, area)
+    parts = []
+    for i, (r, ws) in enumerate(files, 1):
+        pl = plan(ws, speed=speed, gap_seconds=gap_seconds)
+        parts.append({"replay": r, "plan": pl, "n": i, "seconds": round(pl.total_seconds, 1)})
+    return {"pov": pov, "area": area, "camera": cam, "speed": round(speed, 1), "parts": parts,
+            "bytes": sum(p["replay"].size_bytes or 0 for p in parts),
+            "seconds": round(sum(p["seconds"] for p in parts), 1), "active_seconds": round(active),
+            "windows": len(windows)}
+
+
+def from_ms(ms: int) -> datetime:
+    from .timeutil import from_epoch_ms
+    return from_epoch_ms(ms)
+
+
+def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
+                  replay_file, flashback_dir: str | None, out_dir: str, pick_dir=None,
+                  target_seconds: float = 180.0, progress=None) -> dict:
+    """Write the timelapse of a build moment: one Flashback copy per recording of the chosen point of
+    view, each with the fixed camera, the timelapse and one scene, plus an order list."""
+    from . import flashback as fbm
+    say = progress or (lambda _m: None)
+    pm = plan_moment(data, moment, tracks, target_seconds)
+    title = moment.get("title") or "Build"
+    total = len(pm["parts"])
+    written, folders, made = [], set(), []
+    try:
+        _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made)
+    except BaseException:
+        for f in made:                                   # leave nothing half-made behind
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        raise
+    os.makedirs(out_dir, exist_ok=True)
+    return _write_order(pm, title, written, out_dir, folders)
+
+
+def target_folder(r, flashback_dir, out_dir, pick_dir=None) -> str:
+    fb = (pick_dir(r) if pick_dir else None) or flashback_dir
+    return os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+
+
+def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made):
+    from . import flashback as fbm
+    for part in pm["parts"]:
+        r, pl = part["replay"], part["plan"]
+        fb = (pick_dir(r) if pick_dir else None) or flashback_dir
+        target = os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+        folders.add(target)
+        keys = timelapse_keyframes(pl, r.start)
+        markers = []
+        for seg in pl.segments:
+            if seg.kind == "active":
+                markers.append(fbm.FlashbackMarker(fbm.tick_of((seg.real_start - r.start).total_seconds()),
+                                                   f"{', '.join(sorted(seg.players)) or 'Someone'} building",
+                                                   fbm.MARKER_COLOURS["activity_start"]))
+        suffix = f" (timelapse {part['n']} of {total})"
+        base = os.path.splitext(os.path.basename(r.path.rstrip("/")))[0]
+        dst = os.path.join(target, f"{base}{suffix}.zip")
+        k = 2
+        while os.path.exists(dst):
+            dst = os.path.join(target, f"{base}{suffix} {k}.zip")
+            k += 1
+        say(f"Copying part {part['n']} of {total}: {r.path}…")
+        made.append(dst)
+        meta = fbm.write_replay_copy(replay_file(r), dst, markers, suffix)
+        state = fbm.editor_state(f"Timelapse {part['n']}/{total}: {title}"[:60], fbm.camera_keyframe(*pm["camera"]),
+                                 keys, (keys[0][0], keys[-1][0]))
+        if fb:
+            state_file = fbm.install_editor_state(fb, meta["uuid"], state)
+        else:
+            state_file = os.path.join(os.path.dirname(dst), f"{meta['uuid']}.json")
+            with open(state_file, "w", encoding="utf-8") as fh:
+                json.dump(state, fh, separators=(",", ":"))
+        made.append(state_file)
+        written.append({"n": part["n"], "file": dst, "editor_state": state_file, "seconds": part["seconds"],
+                        "recorded_by": r.recorded_player})
+
+
+def _write_order(pm, title, written, out_dir, folders) -> dict:
+    order = os.path.join(out_dir, f"timelapse order - {''.join(c for c in title if c.isalnum() or c in ' -_')[:60].strip()}.txt")
+    with open(order, "w", encoding="utf-8") as fh:
+        fh.write(f"Timelapse: {title}\nFilmed from {pm['pov']}'s recordings, {pm['speed']:g}x while building, "
+                 f"about {_fmt(pm['seconds'])} in all.\n\nIn Flashback, open each copy in this order and Export "
+                 "its scene; then put the videos one after another.\n\n")
+        for w in written:
+            fh.write(f"{w['n']}. {os.path.basename(w['file'])}  ({_fmt(w['seconds'])})\n")
+        fh.write("\nJoining the exported videos with ffmpeg: list them in a text file as lines  file 'part1.mp4'  "
+                 "and run:  ffmpeg -f concat -safe 0 -i list.txt -c copy timelapse.mp4\n")
+    return {"parts": written, "order": order, "pov": pm["pov"], "speed": pm["speed"], "seconds": pm["seconds"],
+            "folder": sorted(folders)[0] if len(folders) == 1 else sorted(folders)}

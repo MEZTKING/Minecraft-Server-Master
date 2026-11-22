@@ -3561,3 +3561,107 @@ class TestQuietButBusy(unittest.TestCase):
         hours = (w["end"] - w["start"]) / 3_600_000
         self.assertAlmostEqual(w["score"], round(mo.WEIGHTS["work"] * math.log2(1 + hours) * (1 + 0.5), 1), places=1)
         self.assertEqual(mo.find_moments(d), [])                            # no positions: nothing to find
+
+
+class TestBuildTimelapse(unittest.TestCase):
+    """A timelapse of a build moment: the builder's own files, one speed, one camera, Flashback copies."""
+
+    def test_plan_and_export(self):
+        import math
+        from datetime import datetime, timezone
+        from mcsm import models as m, timelapse as tl
+        tmp = tempfile.mkdtemp()
+        try:
+            t0 = datetime(2026, 4, 10, 16, 0, tzinfo=timezone.utc)
+            ms0 = int(t0.timestamp() * 1000)
+
+            def rec(name, minutes):
+                path = os.path.join(tmp, name)
+                ticks = minutes * 60 * 20
+                with zipfile.ZipFile(path, "w") as zf:
+                    zf.writestr("metadata.json", json.dumps({"uuid": name, "protocol_version": 775, "total_ticks": ticks,
+                                                             "version_string": "26.1.2",
+                                                             "chunks": {"c0.flashback": {"duration": ticks}}}))
+                    zf.writestr("c0.flashback", TestWorldTextTiming._chunk(ticks))
+                return path
+            files = {"b1.zip": rec("b1.zip", 60), "b2.zip": rec("b2.zip", 60), "v.zip": rec("v.zip", 130)}
+            d = m.ServerData(root=tmp)
+            d.replays = [m.Replay("b1.zip", t0, 60 * 60_000, format="flashback", recorded_player="Builder"),
+                         m.Replay("b2.zip", datetime.fromtimestamp((ms0 + 60 * 60_000) / 1000, timezone.utc), 60 * 60_000,
+                                  format="flashback", recorded_player="Builder"),
+                         m.Replay("v.zip", t0, 130 * 60_000, format="flashback", recorded_player="Visitor")]
+            # Builder works in the area for 2 hours, with a 20-minute break in the middle
+            pts = [[ms0 + s * 1000, 100 + 10 * math.sin(s / 9), 70, 200 + 10 * math.cos(s / 7), "minecraft:overworld"]
+                   for s in range(0, 120 * 60, 2) if not 50 * 60 <= s < 70 * 60]
+            moment = {"id": "x", "title": "Builder: building", "mode": "building", "start": ms0, "end": ms0 + 120 * 60_000,
+                      "area": [88, 188, 112, 212], "dim": "minecraft:overworld", "y": 70, "players": ["Builder"],
+                      "recordings": [{"path": p} for p in ("b1.zip", "b2.zip", "v.zip")]}
+            pm = tl.plan_moment(d, moment, {"Builder": pts})
+            self.assertEqual(pm["pov"], "Builder")                        # not the longer bystander file
+            self.assertEqual([p["replay"].path for p in pm["parts"]], ["b1.zip", "b2.zip"])
+            self.assertAlmostEqual(pm["seconds"], 180, delta=3)
+            speeds = {round(p["plan"].active_speed, 6) for p in pm["parts"]}
+            self.assertEqual(len(speeds), 1)                                  # one speed across the parts
+            self.assertAlmostEqual(speeds.pop(), pm["speed"], delta=0.06)
+            fb = os.path.join(tmp, "fb")
+            r = tl.export_moment(d, moment, {"Builder": pts}, lambda rp: files[rp.path], fb, os.path.join(tmp, "out"))
+            self.assertEqual([os.path.basename(p["file"]) for p in r["parts"]],
+                             ["b1 (timelapse 1 of 2).zip", "b2 (timelapse 2 of 2).zip"])
+            cams = []
+            for p in r["parts"]:
+                with open(p["editor_state"], encoding="utf-8") as fh:
+                    st = json.load(fh)
+                self.assertEqual(len(st["scenes"]), 1)
+                tracks = {t["keyframeType"]: t["keyframesByTick"] for t in st["scenes"][0]["keyframeTracks"]}
+                keys = sorted(int(k) for k in tracks["TIMELAPSE"])
+                self.assertEqual((st["scenes"][0]["exportStartTicks"], st["scenes"][0]["exportEndTicks"]), (keys[0], keys[-1]))
+                self.assertTrue(0 <= keys[0] and keys[-1] <= 60 * 60 * 20)
+                cams.append(list(tracks["CAMERA"].values())[0]["position"])
+            self.assertEqual(cams[0], cams[1])                                # the same camera in every part
+            self.assertTrue(os.path.exists(r["order"]))
+            with self.assertRaises(ValueError):                               # no positions: nothing to film
+                tl.plan_moment(d, moment, {})
+            # a bystander far away whose one file covers more time doesn't win: the builder was there
+            far = [[ms0 + k * 2000, 3000.0, 70.0, 3000.0, "minecraft:overworld"] for k in range(0, 130 * 30)]
+            self.assertEqual(tl.plan_moment(d, moment, {"Builder": pts, "Visitor": far})["pov"], "Builder")
+            # a renamed player (positions under the old name, other letter case) is still found
+            d.players["builder"] = m.PlayerProfile(uuid=None, name="Builder", names_seen=["OldName", "Builder"])
+            self.assertEqual(tl.plan_moment(d, moment, {"oldname": pts})["pov"], "Builder")
+            # a failure half-way leaves nothing behind
+            fb2 = os.path.join(tmp, "fb2")
+            calls = []
+
+            def broken(rp):
+                calls.append(rp.path)
+                if len(calls) > 1:
+                    raise OSError("disk unplugged")
+                return files[rp.path]
+            with self.assertRaises(OSError):
+                tl.export_moment(d, moment, {"Builder": pts}, broken, fb2, os.path.join(tmp, "out2"))
+            left = [f for _r, _d, fs in os.walk(fb2) for f in fs]
+            self.assertEqual(left, [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestAfk(unittest.TestCase):
+    """AFK: not part of a build, not filmed in a timelapse."""
+
+    def test_afk(self):
+        import math
+        from mcsm import activity, timelapse as tl
+        t0 = 1_700_000_000_000
+
+        def path(minutes, fn):
+            return [[t0 + s * 1000, *fn(s), "minecraft:overworld"] for s in range(0, minutes * 60, 2)]
+
+        def work_then_afk(s):                          # 60 min building, then 40 min standing still
+            if s < 60 * 60:
+                return 100 + 15 * math.sin(s / 7), 70.0, 200 + 15 * math.cos(s / 9)
+            return 100.0, 70.0, 215.0
+        pts = path(100, work_then_afk)
+        st = activity.find_stretches({"Builder": pts})
+        b = next(s for s in st if s["kind"] == "building")
+        self.assertLessEqual(b["end"] - t0, 61 * 60_000)              # the AFK tail isn't part of the build
+        samples = tl.samples_from_tracks({"Builder": pts}, ["Builder"], t0, t0 + 100 * 60_000)
+        self.assertTrue(samples and max(s[0].timestamp() for s in samples) * 1000 <= t0 + 61 * 60_000)

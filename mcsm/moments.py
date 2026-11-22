@@ -44,7 +44,7 @@ MAX_MS = 10 * 60 * 1000          # ... as long as the moment stays this short
 PAD_BEFORE_MS = 30 * 1000
 PAD_AFTER_MS = 15 * 1000
 REGULAR_S = 3600                 # players with at least this much playtime count for advancement rarity
-APP_COPIES = ("(highlights)", "(text)")   # replay copies the app made: not more recordings, not more markers
+APP_COPIES = ("(highlights)", "(text)", "(timelapse")   # replay copies the app made: not more recordings, not more markers
 KINDS = ("death", "advancement", "first_join", "chat", "marker")
 
 
@@ -207,20 +207,22 @@ def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans",
         lead = max(g, key=lambda s: s["minutes"])
         kind = "map_art" if any(s["kind"] == "map_art" for s in g) else lead["kind"]
         hours = (end - start) / 3_600_000
+        active_h = max(s["active_minutes"] for s in g) / 60    # time really working (AFK doesn't count)
         online = sorted(set(sessions.overlapping(start, end)))
         extra = 0                                         # over hours everyone is online at some point: count the workers
         together = 1 + w["together"] * min(w["together_max"], len(players) - 1)
         recs = replays.overlapping(start, end)
         views = {r.recorded_player or r.path for r in replays.overlapping(*lead["clip"])}   # who films the best part
         cover = 1 + w["per_view"] * min(w["views_max"], max(0, len(views) - 1))
-        score = w["work"] * math.log2(1 + hours) * together * cover
+        score = w["work"] * math.log2(1 + active_h) * together * cover
         area = [min(s["area"][0] for s in g), min(s["area"][1] for s in g), max(s["area"][2] for s in g),
                 max(s["area"][3] for s in g)]
         length = f"{int(hours)} h {round((hours % 1) * 60)} min" if hours >= 1 else f"{round(hours * 60)} min"
         where = f"at {round(lead['centre'][0])}, {round(lead['centre'][2])}" if kind in ("building", "map_art") \
             else f"{sum(s['km'] for s in g):.1f} km"
         stats = _stats_note(data, players, start)
-        why = [f"{WORK_LABEL[kind]} for {length}", f"{len(players)} player{'s' if len(players) > 1 else ''}"]
+        why = [f"{WORK_LABEL[kind]} for {length}", f"{round(active_h * 60)} min of it active",
+               f"{len(players)} player{'s' if len(players) > 1 else ''}"]
         if stats:
             why.append(stats)
         if extra:
