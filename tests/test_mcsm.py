@@ -3459,3 +3459,26 @@ class TestMoments(unittest.TestCase):
             self.assertEqual(store.list()[0]["moment"], "abc")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestStoryCommand(unittest.TestCase):
+    """`mcsm story`: which library world, and the history viewer opened in story mode."""
+
+    def test_world_choice(self):
+        from mcsm import cli, library as lib
+        seen = []
+        old_list, old_hist = lib.list_worlds, cli.cmd_history
+        tmp = tempfile.mkdtemp()
+        try:
+            cli.cmd_history = lambda a: seen.append(a) or 0
+            for worlds, expect in (([], 2), ([{"path": "A"}, {"path": "B"}], 2), ([{"path": os.path.join(tmp, "W")}], 0)):
+                lib.list_worlds = lambda *_a, _w=worlds, **_k: _w
+                self.assertEqual(cli.main(["story", "--library", tmp, "--no-browser"]), expect)
+            self.assertEqual(len(seen), 1)
+            self.assertTrue(seen[0].story)
+            self.assertEqual(seen[0].server, [os.path.join(tmp, "W")])
+            self.assertEqual(cli.main(["story", os.path.join(tmp, "X"), "--no-browser"]), 0)   # a world given
+            self.assertEqual(seen[1].server, [os.path.join(tmp, "X")])
+        finally:
+            lib.list_worlds, cli.cmd_history = old_list, old_hist
+            shutil.rmtree(tmp, ignore_errors=True)

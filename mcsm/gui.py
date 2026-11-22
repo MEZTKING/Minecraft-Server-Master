@@ -55,6 +55,8 @@ BUTTON_TIPS = {
     "Add my Flashback replays": "Copy everything in your Flashback replay folder into the selected world.",
     "Add video projects…": "Add a folder of video projects: the recordings each video uses, plus a copy of your "
                            "Flashback edits for them.",
+    "Watch the server story": "Load the selected world (every backup and recording) and open the history viewer at "
+                              "the very beginning in story mode: press Play and the important moments play in order.",
     "Load this world (all its backups and recordings)": "Load the selected library world: every backup and recording "
                                                         "in it, as one history.",
     "Refresh": "Read the library folder again.",
@@ -443,6 +445,7 @@ class App(ttk.Frame):
         bottom = ttk.Frame(f)
         bottom.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Button(bottom, text="Load this world (all its backups and recordings)", command=self._lib_load).pack(side="left")
+        ttk.Button(bottom, text="Watch the server story", command=self._lib_story).pack(side="left", padx=4)
         ttk.Button(bottom, text="Refresh", command=self._lib_refresh).pack(side="left", padx=4)
         ttk.Button(bottom, text="Tidy the original folder…", command=self._lib_tidy).pack(side="left", padx=(16, 0))
         ttk.Button(bottom, text="Undo tidy…", command=self._lib_tidy_undo).pack(side="left", padx=4)
@@ -640,6 +643,27 @@ class App(ttk.Frame):
             return
         self.server_var.set(w)
         self._load()
+
+    def _lib_story(self) -> None:
+        """Load the selected library world (if it isn't loaded yet) and open its story in the history viewer."""
+        if self.busy:
+            messagebox.showinfo(APP_NAME, "Wait for the current task to finish, then try again.")
+            return
+        w = self._lib_selected_world()
+        if not w or w == "__empty":
+            messagebox.showinfo(APP_NAME, "Import a backup first, then select its world.")
+            return
+        if self.data is not None and os.path.normcase(str(self.data.library_world or "")) == os.path.normcase(w):
+            self._history_start(story=True)
+            return
+        self.server_var.set(w)
+        self.log("Loading the whole world for its story (every backup and recording; about a minute)…\n")
+
+        def then():
+            if self.history is not None:          # a viewer for the previously loaded server: replace it
+                self._history_stop()
+            self._history_start(story=True)
+        self._load(then=then)
 
     def _tab_report(self, nb) -> ttk.Frame:
         f = ttk.Frame(nb, padding=12)
@@ -1287,8 +1311,15 @@ class App(ttk.Frame):
             row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         return f
 
-    def _history_start(self) -> None:
-        if self.history is not None or self.busy or self.data is None:
+    def _history_start(self, story: bool = False) -> None:
+        if self.history is not None and self.history_url:
+            webbrowser.open(self.history_url + ("?story=1" if story else ""))      # already running
+            return
+        if self.data is None:
+            messagebox.showinfo(APP_NAME, "Load your server or a library world first (Library tab: select the world, "
+                                          "then 'Load this world' or 'Watch the server story').")
+            return
+        if self.busy:
             return
         argv = ["history", *self._common_argv(), "--no-browser"]
         if not self.hist_replays_var.get():
@@ -1322,7 +1353,7 @@ class App(ttk.Frame):
             self.hist_stop_btn.configure(state="normal")
             self.hist_open_btn.configure(state="normal")
             self.log(f"History viewer running at {url}\n")
-            webbrowser.open(url)
+            webbrowser.open(url + ("?story=1" if story else ""))
 
         self._run("History viewer", work, after)
 
@@ -1491,7 +1522,7 @@ class App(ttk.Frame):
             self.mode_var.set("manual")
 
     # ----------------------------------------------------------------- actions
-    def _load(self):
+    def _load(self, then=None):
         path = self.server_var.get().strip()
         if not path:
             messagebox.showinfo(APP_NAME, "Choose your server .zip or folder first.")
@@ -1517,6 +1548,7 @@ class App(ttk.Frame):
                     root = stack.enter_context(open_server(servers[0]))
                     print(f"Reading {servers[0]}")
                     data = analyze(root, tz=tz, latest_log_date=latest)
+                    data.library_world = world
                 else:
                     from .archive import analyze_many
                     data = analyze_many(servers, stack, tz=tz, latest_log_date=latest, progress=print,
@@ -1546,6 +1578,8 @@ class App(ttk.Frame):
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 cli.run_summary(data)
             self.log(buf.getvalue())
+            if then:
+                then()
 
         self._run("Loading server", work, after)
 

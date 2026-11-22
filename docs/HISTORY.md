@@ -43,6 +43,24 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
   mark a highlight's start / end.
 - The page remembers the last time you looked at (in this browser only).
 
+## The server story, start to finish
+
+**Library** tab → select the world → **Watch the server story** (or `mcsm story`, which uses the only
+world in your library, or `mcsm story <world folder>`). The app loads every backup and recording of that
+world (about a minute) and opens the history viewer at the very beginning with **Story** ticked.
+
+- Press **Play**: the important moments (below) play in time order, each at 10× real time; between them a
+  title card shows the date, what happened and who was there, and time jumps to the next one. The map
+  frames the players of each moment.
+- **good moments / best moments / every moment** chooses how many are played.
+- **⏮ Beginning** goes back to the start, **◀ Moment / Moment ▶** to the previous or next moment (also with
+  Story off), and the indicator next to the clock shows "Day N of all days played · moment n/N".
+- **Story so far** in the panel lists the moments reached, newest first, by day; click one to go there.
+- Untick **Story** to play normally again (speed, Skip quiet time).
+
+Player positions come from the recordings and are read in the background the first time (the status
+line shows the progress), so early in a first session players may show only as events.
+
 ## Important moments
 
 The panel lists the **important moments of the whole history**, found automatically from the logs:

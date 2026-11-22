@@ -46,7 +46,16 @@ button:disabled { opacity: .5; cursor: default; }
 #hl li, #moments li { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
 #moments li.norec { opacity: .55; }
 #moments .score { float: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-#moments li.day { border: 0; padding: 8px 2px 0; color: var(--text-2); font-size: 12px; font-weight: 600; }
+#moments li.day, #storyFeed li.day { border: 0; padding: 8px 2px 0; color: var(--text-2); font-size: 12px; font-weight: 600; }
+#storyFeed li { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 5px; cursor: pointer; }
+#storyFeed li.cur { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+#chapter { color: var(--text-2); font-size: 12px; margin-left: 8px; font-variant-numeric: tabular-nums; }
+#storyCard { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); max-width: min(640px, 80vw);
+  padding: 12px 18px; text-align: center; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff;
+  pointer-events: none; transition: opacity .6s; opacity: 0; z-index: 5; }
+#storyCard.on { opacity: 1; }
+#storyCard .d { font-size: 12px; opacity: .8; } #storyCard .h { font-size: 20px; font-weight: 600; margin: 4px 0; }
+#storyCard .p { font-size: 13px; opacity: .9; }
 #hl li.editing { border-color: var(--accent); }
 #hl .t { font-weight: 600; }
 #hl .acts { display: flex; gap: 4px; margin-top: 4px; }
@@ -124,6 +133,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   </div>
   <h2>Players</h2>
   <ul id="players"></ul>
+  <h2 id="storyHead" hidden>Story so far</h2>
+  <ul id="storyFeed" hidden></ul>
   <h2>Happening now</h2>
   <ul id="now"></ul>
   <h2>Recordings at this moment</h2>
@@ -163,6 +174,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   <div class="note" id="hlStatus"></div>
   <div class="note" id="status"></div>
 </aside>
+<div id="storyCard"><div class="d"></div><div class="h"></div><div class="p"></div></div>
 <div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses · I / O mark a highlight's start / end</div>
 
 <section id="timeline" class="card">
@@ -178,6 +190,14 @@ ul { list-style: none; margin: 0; padding: 0; }
     <label><input type="checkbox" id="skip" checked> Skip quiet time</label>
     <button id="prev" type="button" title="Previous time someone came online">◀ Prev</button>
     <button id="next" type="button" title="Next time someone came online">Next ▶</button>
+    <button id="begin" type="button" title="Go to the very beginning of the server">⏮ Beginning</button>
+    <label title="Play the important moments in order: each at 10× real time, then a title card and on to the next">
+      <input type="checkbox" id="story"> Story</label>
+    <select id="storyMin" title="Which moments the story plays">
+      <option value="0">every moment</option><option value="8" selected>good moments</option><option value="15">best moments</option>
+    </select>
+    <button id="mPrev" type="button" title="Previous important moment">◀ Moment</button>
+    <button id="mNext" type="button" title="Next important moment">Moment ▶</button>
     <label>View <select id="zoom">
       <option value="0">Everything</option>
       <option value="2592000000">30 days</option>
@@ -185,7 +205,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="86400000" selected>1 day</option>
       <option value="7200000">2 hours</option>
     </select></label>
-    <span id="clock"></span>
+    <span id="clock"></span><span id="chapter"></span>
   </div>
   <div id="canvasWrap"><canvas id="tl"></canvas><div id="cursor"></div><div id="hoverTip" hidden></div></div>
   <div class="legend">
@@ -540,7 +560,7 @@ function update(now, force) {
       }
     }
   }
-  if (force || now - lastPanel > 250) { lastPanel = now; renderPanel(); }
+  if (force || now - lastPanel > 250) { lastPanel = now; renderPanel(); if (storyOn) renderStory(); renderChapter(); }
 }
 
 // ---------- panel ----------
@@ -892,6 +912,87 @@ function renderMoments() {
 for (const id of ["#mKind", "#mPlayer", "#mRec", "#mOrder"]) $(id).onchange = () => { momShown = 20; renderMoments(); };
 $("#mMore").onclick = () => { momShown += 20; renderMoments(); };
 
+// ---------- story: the important moments in order, start to finish ----------
+// Each moment of the chosen level plays at 10x real time; between moments a title card shows for 2 s and
+// time jumps to the next one. The feed lists the moments reached so far, newest first, by day.
+let STORY = [], storyOn = false, storyShown = -1, storyHold = 0, DAYS = [];
+const STORY_SPEED = 10;
+function buildStory() {
+  const min = +$("#storyMin").value;
+  STORY = MOM.filter(m => m.score >= min).sort((a, b) => a.start - b.start);
+  storyShown = -2; renderStory();
+}
+function storyIndexAt(t) {                          // the last moment that started at or before t
+  let lo = 0, hi = STORY.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (STORY[mid].start <= t) lo = mid + 1; else hi = mid; }
+  return lo - 1;
+}
+function showCard(m) {
+  const c = $("#storyCard");
+  c.querySelector(".d").textContent = new Date(m.start).toLocaleString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  c.querySelector(".h").textContent = m.title;
+  c.querySelector(".p").textContent = m.players.join(", ") + (m.recordings.length ? ` · ${m.recordings.length} recording${m.recordings.length > 1 ? "s" : ""}` : "");
+  c.classList.add("on"); clearTimeout(showCard.t); showCard.t = setTimeout(() => c.classList.remove("on"), 2600);
+}
+function storyStep(now, dt) {
+  if (now < storyHold) return;                      // the title card is showing
+  const i = storyIndexAt(T), m = i >= 0 ? STORY[i] : null;
+  if (m && T <= m.end) { T += dt * STORY_SPEED; return; }
+  const nx = STORY[i + 1];
+  if (!nx) {
+    setPlaying(false);
+    toastStatus(!MOM.length ? "The important moments are still being found: try again in a moment."
+      : STORY.length ? "The end of the story." : "No moments at this level: choose 'every moment'.");
+    return;
+  }
+  T = nx.start; storyHold = now + 2000; showCard(nx);
+  update(now, true); fitAll();
+}
+function renderStory() {
+  const i = storyIndexAt(T), key = i * 2 + (i >= 0 && T <= STORY[i].end ? 1 : 0);
+  if (key === storyShown) return;
+  storyShown = key;
+  const ul = $("#storyFeed"); ul.replaceChildren();
+  let day = "";
+  for (let k = i; k >= Math.max(0, i - 40); k--) {
+    const m = STORY[k];
+    const d = new Date(m.start).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+    if (d !== day) { day = d; const h = document.createElement("li"); h.className = "day"; h.textContent = d; ul.appendChild(h); }
+    const li = document.createElement("li"); if (k === i && T <= m.end) li.className = "cur";
+    const t = document.createElement("div"); t.className = "t"; t.textContent = m.title;
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.textContent = `${new Date(m.start).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} · ${m.players.join(", ")}`;
+    li.title = m.events.slice(0, 10).map(e => e.text).join("\n");
+    li.append(t, meta); li.onclick = () => { seek(m.start); fitAll(); };
+    ul.appendChild(li);
+  }
+  if (!ul.children.length) ul.innerHTML = `<li class="empty" style="border:0;cursor:default">${STORY.length ? "The story starts with the first moment." : "No moments at this level."}</li>`;
+}
+function renderChapter() {
+  if (!DAYS.length) return;
+  const today = new Date(T).toDateString();
+  let n = 0; while (n < DAYS.length && DAYS[n] <= T) n++;
+  const i = storyIndexAt(T);
+  $("#chapter").textContent = `Day ${Math.max(1, n)} of ${DAYS.length} played` + (storyOn && STORY.length ? ` · moment ${Math.max(0, i + 1)}/${STORY.length}` : "");
+  $("#chapter").title = today;
+}
+function setStory(on) {
+  storyOn = on; $("#story").checked = on;
+  $("#storyHead").hidden = $("#storyFeed").hidden = !on;
+  if (on) { buildStory(); if (MOM.length && storyIndexAt(T) < 0) toastStatus("Press Play: the story plays the moments in order."); }
+}
+$("#story").onchange = () => setStory($("#story").checked);
+$("#storyMin").onchange = () => { buildStory(); renderChapter(); };
+$("#begin").onclick = () => { seek(starts.length ? starts[0] : H.range[0]); fitAll(); };
+function stepMoment(dir) {
+  const list = storyOn ? STORY : [...MOM].sort((a, b) => a.start - b.start);
+  if (!list.length) return;
+  const m = dir > 0 ? list.find(x => x.start > T + 1000) : [...list].reverse().find(x => x.start < T - 1000);
+  if (m) { seek(m.start); fitAll(); showCard(m); }
+}
+$("#mPrev").onclick = () => stepMoment(-1);
+$("#mNext").onclick = () => stepMoment(1);
+
 // ---------- playback ----------
 let playing = false, lastFrame = performance.now();
 function setPlaying(p) { playing = p; if (!p) playUntil = null; $("#play").textContent = p ? "Pause" : "Play"; }
@@ -910,7 +1011,11 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   if (H && H.range) {
-    if (playing) {
+    if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
+      storyStep(now, dt);
+      if (T > view[1] || T < view[0]) setView();
+      update(now, false);
+    } else if (playing) {
       T += dt * +$("#speed").value;
       if (playUntil != null && T >= playUntil) { T = playUntil; playUntil = null; setPlaying(false); }
       if ($("#skip").checked && playUntil == null && !anyoneOnline(T)) { const t = nextStart(T); if (t != null) T = t; }
@@ -990,10 +1095,12 @@ async function init() {
   starts = H.sessions.map(s => s.start).sort((a, b) => a - b);
   for (const e of H.events) if (e.type === "join" && e.pos && e.player) (joinsBy[canon(e.player)] ||= []).push(e);
   if (H.spawn) controls.target.set(H.spawn[0], H.spawn[1], H.spawn[2]);
-  const saved = +store.get("mcsm-history-t");
-  T = saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
+  const saved = +store.get("mcsm-history-t"), storyLink = new URLSearchParams(location.search).has("story");
+  T = storyLink ? (starts.length ? starts[0] : H.range[0])          // the whole story: from the very beginning
+    : saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
+  DAYS = [...new Set(starts.map(t => new Date(t).toDateString()))].map(d => new Date(d).getTime()).sort((a, b) => a - b);
   resize(); setView(); update(performance.now(), true);
-  showSpan(); loadHighlights().then(loadMoments);
+  showSpan(); loadHighlights().then(loadMoments).then(() => { if (storyLink) setStory(true); else if (storyOn) buildStory(); });
   await loadPaths();
   fitAll();
 }

@@ -495,6 +495,9 @@ def cmd_history(args) -> int:
     if not args.no_replays and n:
         print(f"Paths       : reading player positions from {n} Flashback recordings in the background "
               f"(cached in {args.cache or default_cache_dir()})")
+    if getattr(args, "story", False):
+        url += "?story=1"
+        print(f"Server story: {url}  (press Play; the important moments play in order)", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     _print_warnings(data)
@@ -1003,6 +1006,29 @@ def cmd_video_editor(args) -> int:
     return 0
 
 
+def cmd_story(args) -> int:
+    """The whole server's story, start to finish: the history viewer on a whole library world."""
+    from . import library as lib
+    world = args.world
+    if not world:
+        lib_dir = args.library or lib.default_library_dir()
+        worlds = lib.list_worlds(lib_dir, count_recordings=False) if os.path.isdir(lib_dir) else []
+        if len(worlds) != 1:
+            names = ", ".join(w["path"] for w in worlds) or f"none in {lib_dir}"
+            print(f"Give the library world (worlds: {names})", file=sys.stderr)
+            return 2
+        world = worlds[0]["path"]
+    argv = ["history", world]
+    if args.no_browser:
+        argv.append("--no-browser")
+    if args.http_port:
+        argv += ["--http-port", str(args.http_port)]
+    h = parse_args(argv)
+    h.story = True
+    print(f"Loading {world} (all its backups and recordings; about a minute the first time)…", flush=True)
+    return cmd_history(h)
+
+
 def cmd_flashback_link(args) -> int:
     """The Flashback companion mod: is it running, which replay is open; or install it."""
     from . import flashlink
@@ -1270,6 +1296,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--http-port", type=int, default=8790)
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(func=cmd_video_editor)
+
+    p = sub.add_parser("story", help="the whole server's story, start to finish (history viewer playing the "
+                                     "important moments in order) for a library world")
+    p.add_argument("world", nargs="?", help="library world folder (default: the only world in your library)")
+    p.add_argument("--library", metavar="DIR", help="library folder (default: the one the app uses)")
+    p.add_argument("--http-port", type=int)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=cmd_story)
 
     p = sub.add_parser("flashback-link", help="the Flashback companion mod: status, or install it into an instance")
     p.add_argument("action", choices=["status", "install"])

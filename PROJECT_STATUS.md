@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (event finder: important moments in the history viewer, 0r).
+`CLAUDE.md`). Last updated: 2026-11-22 (the server story, start to finish: 0s).
 
 ## What this project is
 
@@ -76,6 +76,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Editor on a Flashback edit before exporting (0p phase 1): the app's 3D map through the edit's camera (terrain from the backup after the recording, players as boxes), Camera/Map view, texts/song/beats, copy into the edit's Flashback folder | ✅ Done; tried on the owner's welcome-clip edit (composition matches the real export at 30 s) | `videotext.analyse_edit`, `videoeditor.py` (`tiles`, `tile_file`, `tracks_all`, `copy_key`), `videotext.html` (Clock, MAP3D), `mcsm video-editor --edit`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Server story (0s): Library tab "Watch the server story" / `mcsm story` loads the whole world and opens the history viewer at the beginning in story mode (moments in order at 10×, title cards, jump between moments, Day N of M, story feed, Beginning / Moment buttons) | ✅ Done (Fable's design); on the owner's library: 16 Apr 2025, 256 days, 121 good moments, played through the first ones | `history.html`, `cli.py` (`cmd_story`), `gui.py` (`_lib_story`) | `docs/HISTORY.md` |
 | Important moments (0r): events of the whole history grouped into moments, scored (deaths, PvP, rare advancements, first joins, chat, markers; x players online; x recordings), ranked list in the history viewer with filters, ▶ Play, Keep → highlight → Flashback export | ✅ Done; on the owner's library 827 moments in 2.7 s, 272 with recordings; top: the PvP fight of 24 May with 5 recordings | `mcsm/moments.py`, `history.py` (`/api/moments`), `history.html` | `docs/HISTORY.md` |
 | Real blocks in the editor's map (textured from the installed client jar): visible faces within ~80 blocks of the camera path, block outline boxes from the game's models, crossed plants, tints; smooth terrain beyond | ✅ Done; on the owner's edit 178 chunks, 89k faces in 1.1 s; camera view at 30 s matches the real export (blocks, torch, spire, build, player) | `mcsm/blockmesh.py`, `videoeditor.py` (`/api/blocks`, `/blocktex`), `videotext.html` (`loadBlocks`, atlas) | `docs/VIDEO_TEXT.md` |
 | Flashback companion mod `mcsm-link` (Fabric, Minecraft 26.1.x): local token-protected link server in the game; status, seek + camera, real frames; editor view "Flashback (real)"; app/CLI install into an instance | ✅ Built (CI + locally) and smoke-tested in a test Minecraft 26.1.2 (link server, token check, real frame); not yet tried with Flashback and a replay open (owner test) | `companion/` (McsmLink.java), `mcsm/flashlink.py`, `videoeditor.py` (`/api/link*`, `/link/frame`), `videotext.html`, Videos tab, `mcsm flashback-link` | `docs/VIDEO_TEXT.md`, `companion/README.md` |
@@ -669,6 +670,9 @@ events, so organising that files so far were important."
 
 ### 0s. The whole server history, start to finish (raised 2026-11-22)
 
+✅ **Done 2026-11-22** (owner: "History viewer next") as Fable designed it: a story mode in the existing viewer,
+not a second viewer.
+
 **The ask:** "as the live map stands i guess you can make that a seperate thing where you can see
 everything that happens sequentuilly form the beginning until the end".
 
@@ -907,6 +911,15 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Story mode after Fable's review: a running viewer for another world is replaced; ▶ Play on one
+  moment/highlight plays just that with Story on; single-backup worlds aren't reloaded; no lost clicks while busy;
+  clearer message while the moments are still loading; the feed's current mark clears after a moment ends.
+
+- **2026-11-22:** **The server story** (0s): `mcsm story` and the Library tab's *Watch the server story* load
+  the whole world and open the history viewer at the beginning with Story on; Play goes through the
+  important moments in order (10× during a moment, a 2 s title card, a jump to the next), with ⏮ Beginning,
+  ◀ Moment / Moment ▶, "Day N of M" and a "Story so far" feed. The app's `_load` can chain the viewer.
 
 - **2026-11-22:** Moments, after Fable's review: at most 10 minutes long; PvP from the log parser's killer
   (not a name inside the text, e.g. an item); rarity among regular players (1 h+), cap 5; no "first join" on
