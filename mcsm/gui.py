@@ -89,6 +89,9 @@ BUTTON_TIPS = {
     "Update": "Download the new version, check it's genuine (SHA-256), then close, update and reopen the app.",
     "Later": "Hide this version's notice (you'll be told about the next one).",
     "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
+    "Open a Flashback edit…": "Open the live editor on a Flashback edit that you haven't exported yet: the picture "
+                              "is the app's 3D map seen through your edit's camera, with the players, so you can "
+                              "place texts and the song first, then put them in Flashback and export once.",
     "Chat & events as subtitles": "Write subtitle files with the chat, joins, deaths and advancements at the right "
                                   "moments of the video.",
 }
@@ -1043,6 +1046,10 @@ class App(ttk.Frame):
         btns.grid(row=2, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(btns, text="Open live editor", command=self._vid_live).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="Chat & events as subtitles", command=self._vid_subtitles).pack(side="left")
+        ttk.Label(f, text="Not exported yet? Open the Flashback edit itself: the editor shows the app's 3D map through "
+                          "your edit's camera, so you can place texts and the song before exporting.",
+                  wraplength=680, justify="left").grid(row=4, column=0, columnspan=3, sticky="w", pady=(14, 3))
+        ttk.Button(f, text="Open a Flashback edit…", command=self._vid_edit).grid(row=5, column=0, sticky="w")
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
@@ -1061,6 +1068,34 @@ class App(ttk.Frame):
         url = self.vid_editor.start()
         self.vid_status_var.set(f"Live editor open in your browser: {url}")
         webbrowser.open(url)
+
+    def _vid_edit(self) -> None:
+        """The live editor for a Flashback edit that hasn't been exported (no video)."""
+        from .flashback import flashback_folders
+        from .videoeditor import VideoEditor
+        folders = flashback_folders()
+        start = os.path.join(folders[0]["path"], "editor_states") if folders else None
+        p = filedialog.askopenfilename(title="Choose the Flashback edit (a .json in the editor_states folder)",
+                                       initialdir=start, filetypes=[("Flashback edits", "*.json")])
+        if not p:
+            return
+        world = self._vid_world_dir()
+
+        def work(_):
+            print("Reading the edit and finding its recording…")
+            ed = VideoEditor(None, world, edit=p)
+            return ed, ed.start()
+
+        def after(r):
+            ed, url = r
+            if getattr(self, "vid_editor", None):
+                self.vid_editor.stop()
+            self.vid_editor = ed
+            m = ed.vinfo["matches"][0]
+            self.vid_status_var.set(f"Live editor for '{m['name']}' ({ed.vinfo['duration']:.1f} s) open in your browser: {url}")
+            webbrowser.open(url)
+
+        self._run("Opening the Flashback edit", work, after)
 
     def _vid_world_dir(self) -> str | None:
         from . import library as lib

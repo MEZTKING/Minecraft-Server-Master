@@ -2990,3 +2990,47 @@ class TestVideoMusic(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestEditorFromEdit(unittest.TestCase):
+    """The live editor opened on a Flashback edit that hasn't been exported (no video)."""
+
+    def test_edit_mode(self):
+        from mcsm import videotext as vt, videoeditor as ve
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            fb, match = TestVideoMusic()._setup(tmp)
+            info = vt.analyse_edit(match["state"])
+            self.assertIsNone(info["video"])
+            self.assertEqual(info["edit"], match["state"])
+            self.assertAlmostEqual(info["duration"], 10.0, places=1)          # ticks 100-300 = 10 s
+            m = info["matches"][0]
+            self.assertEqual((m["start"], m["end"], m["match"], m["uuid"]), (100, 300, "edit", "orig"))
+            with self.assertRaises(ValueError):
+                vt.analyse_edit(match["state"], scene=3)
+            info["matches"][0]["recording"] = match["recording"]
+            ed = ve.VideoEditor(None, info=info)
+            self.assertEqual(ed.copy_key(), match["state"] + "#scene0")
+            self.assertIsNone(ed.file_for("/video"))
+            self.assertIsNone(ed.file_for("/tile/0/0/2"))                      # no library backup: no terrain
+            self.assertEqual(ed.tiles()["tiles"], [])
+            self.assertEqual(ed.page_info()["edit"], match["state"])
+            self.assertIn("players", ed.tracks_all(0))
+            # one Flashback copy per edit, found again by its key
+            items = [{"kind": "world", "lines": [["Hi", 2]], "start": 1.0}]
+            r1 = ed._make({"target": "world", "items": items, "match": 0}, lambda _m: None)
+            r2 = ed._make({"target": "world", "items": items, "match": 0}, lambda _m: None)
+            self.assertTrue(r2["replaced"])
+            self.assertEqual(r1["replay"], r2["replay"])
+            with self.assertRaises(ValueError):                                  # nothing exported to draw on
+                ed._make({"target": "video", "items": items, "match": 0}, lambda _m: None)
+            with self.assertRaises(ValueError):
+                ve.VideoEditor(None)
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old
+            shutil.rmtree(tmp, ignore_errors=True)

@@ -8,6 +8,26 @@ A page opens in your browser where the video plays with **all your texts and pic
 you change them**. Everything is done there; the Videos tab only picks the video (and can still write
 the chat and events as subtitles, see below).
 
+### Before exporting: open the Flashback edit itself
+
+You don't need an exported video. In the Videos tab press **Open a Flashback edit…** and choose the
+edit (`flashback/editor_states/<replay id>.json` in your Flashback folder; the scene open in Flashback
+is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
+
+- The picture is the **app's 3D map seen through your edit's camera**: the terrain from the library
+  backup made right after the recording (blocky colours, no textures), the players as coloured boxes
+  with their names, moving along their recorded paths (sampled about once a second, so close-ups are
+  approximate). The timeline is the edit's export range, with any timelapse taken into account.
+- **Camera view / Map view** (next to the time): *Map view* looks at the map from above, with your
+  camera's path as a yellow line and the camera as a red marker (drag to turn, scroll to zoom). Texts are
+  shown in *Camera view*.
+- Everything else works as with a video: texts in the world, follow a player, chains, the song and
+  beats. **Put world texts & song in Flashback** makes the copy in the same Flashback folder as the
+  edit (one copy per edit and scene; making it again replaces it). Open it in Flashback, check, and
+  export once. *Make the video* needs an exported video, so it's hidden here; open that video in the
+  editor afterwards for on-screen texts and pictures (your texts are kept per video, so add the
+  on-screen ones there).
+
 ### Adding things
 
 - **+ Title in the world**: real Minecraft text in the scene (projected with your edit's camera, so it

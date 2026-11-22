@@ -976,8 +976,11 @@ def cmd_video_editor(args) -> int:
     if not world and args.library:
         worlds = lib.list_worlds(args.library, count_recordings=False)
         world = worlds[0]["path"] if len(worlds) == 1 else None
+    if not args.video and not args.edit:
+        print("Give --video (a finished video) or --edit (a Flashback edit .json)", file=sys.stderr)
+        return 2
     print("Finding the Flashback edit and recording…", flush=True)
-    ed = VideoEditor(args.video, world)
+    ed = VideoEditor(args.video, world, edit=args.edit, scene=None if args.scene is None else args.scene - 1)
     url = ed.start(args.http_port)
     print(f"Live editor running at {url}  (Ctrl+C to stop)", flush=True)
     if not args.no_browser:
@@ -1222,7 +1225,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_world_text)
 
     p = sub.add_parser("video-editor", help="live editor for text on a finished Flashback video (in the browser)")
-    p.add_argument("--video", required=True, help="the finished video exported from Flashback")
+    p.add_argument("--video", help="the finished video exported from Flashback")
+    p.add_argument("--edit", metavar="STATE.json", help="a Flashback edit (editor_states/<id>.json) that hasn't "
+                   "been exported: the page shows the app's 3D map from its camera instead of a video")
+    p.add_argument("--scene", type=int, help="with --edit: scene number (1 = first; default: the one open in Flashback)")
     p.add_argument("--world", metavar="DIR", help="library world folder (to find the recording)")
     p.add_argument("--library", metavar="DIR", help="library folder with one world (alternative to --world)")
     p.add_argument("--http-port", type=int, default=8790)

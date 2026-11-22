@@ -18,7 +18,8 @@ body { margin:0; background:var(--bg); color:var(--text); font:13px system-ui, s
 #stage { flex:1; display:flex; flex-direction:column; min-width:0; }
 #viewWrap { flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
 #box { position:relative; }
-video, canvas#over { position:absolute; inset:0; width:100%; height:100%; }
+video, canvas#over, canvas#map3d { position:absolute; inset:0; width:100%; height:100%; }
+#viewSeg { display:inline-flex; } #viewSeg button { padding:4px 9px; }
 canvas#over { cursor:default; }
 #bar { padding:6px 10px; display:flex; gap:6px; align-items:center; border-top:1px solid var(--line); flex-wrap:wrap; }
 #time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:120px; }
@@ -50,13 +51,14 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 </head>
 <body>
 <div id="stage">
-  <div id="viewWrap"><div id="box"><video id="vid" src="/video" preload="auto" playsinline></video><canvas id="over"></canvas></div></div>
+  <div id="viewWrap"><div id="box"><video id="vid" src="/video" preload="auto" playsinline></video><canvas id="map3d" hidden></canvas><canvas id="over"></canvas></div></div>
   <div id="bar">
     <button id="play" type="button" title="Play / pause (Space)">Play</button>
     <button id="back" type="button" class="small" title="Back 1 s (Shift+←)">−1 s</button>
     <button id="fwd" type="button" class="small" title="Forward 1 s (Shift+→)">+1 s</button>
     <button id="toSel" type="button" title="Play from 2 s before the selected text appears">Play selected</button>
     <span id="time">0:00.0</span>
+    <span class="seg" id="viewSeg" hidden><button id="vCam" type="button" class="on" title="See the app's map through your edit's camera, with your texts">Camera view</button><button id="vMap" type="button" title="Look at the map from above: your camera's path, where it is now, and the players (drag to turn, scroll to zoom)">Map view</button></span>
     <span class="hint" style="margin-left:auto">Drag a text on the video to move it · drag bars below to change when · <kbd>I</kbd>/<kbd>O</kbd> start/end at the playhead · <kbd>Ctrl+Z</kbd> undo</span>
   </div>
   <canvas id="tl"></canvas>
@@ -179,7 +181,32 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const vid = $("#vid"), over = $("#over"), ctx = over.getContext("2d"), tl = $("#tl"), tctx = tl.getContext("2d");
+let vid = $("#vid");
+const over = $("#over"), ctx = over.getContext("2d"), tl = $("#tl"), tctx = tl.getContext("2d");
+// Without an exported video the page plays a clock instead (same methods and events as <video>),
+// and the picture is the app's 3D map seen through the edit's camera.
+class Clock extends EventTarget {
+  constructor(duration) { super(); this.duration = duration; this._t = 0; this.paused = true; this._last = 0; }
+  get currentTime() { return this._t; }
+  set currentTime(v) { this._t = Math.max(0, Math.min(this.duration, +v || 0)); this.dispatchEvent(new Event("timeupdate")); }
+  play() {
+    if (!this.paused) return Promise.resolve();
+    if (this._t >= this.duration) this._t = 0;
+    this.paused = false; this._last = performance.now(); this.dispatchEvent(new Event("play"));
+    const step = now => {
+      if (this.paused) return;
+      this._t = Math.min(this.duration, this._t + (now - this._last) / 1000); this._last = now;
+      this.dispatchEvent(new Event("timeupdate"));
+      if (this._t >= this.duration) return this.pause();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    return Promise.resolve();
+  }
+  pause() { if (!this.paused) { this.paused = true; this.dispatchEvent(new Event("pause")); } }
+}
+let NOVIDEO = false, VIEW = "camera", ALLTRACKS = {};
+const PCOL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6", "#e34948", "#008300"];
 let INFO = null, CAM = { samples: [], step: 0.1 }, ITEMS = [], SEL = null, MATCH = 0;
 const UNDO = [], REDO = [];
 let MUSIC = null;                    // {file, name, duration, start, offset, bpm, first_beat, markers, on_video, volume}
@@ -324,6 +351,24 @@ function draw() {
   const W = over.width, H = over.height, t = vid.currentTime;
   ctx.clearRect(0, 0, W, H); HITS.length = 0;
   const cam = camAt(t);
+  if (NOVIDEO) {
+    const players = Object.keys(ALLTRACKS).map((name, i) => ({ name, pos: trackAt(name, t), colour: PCOL[i % PCOL.length] }))
+      .filter(p => p.pos);
+    if (window.MAP3D && cam) MAP3D.render(cam, CAM.samples, players, VIEW);
+    if (VIEW === "map") {                                  // texts are placed through the camera: shown in Camera view
+      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(8, H - 34 * devicePixelRatio, 360 * devicePixelRatio, 26 * devicePixelRatio);
+      ctx.fillStyle = "#fff"; ctx.font = `${12 * devicePixelRatio}px system-ui`;
+      ctx.fillText("Map view: the line is your camera's path. Texts show in Camera view.", 16, H - 17 * devicePixelRatio);
+      drawTimeline(); syncSong(); return;
+    }
+    if (cam) for (const p of players) {                    // names over the players' heads
+      const pr = project(cam, [p.pos[0], p.pos[1] + 2.3, p.pos[2]], W, H); if (!pr || pr[2] < 0.5) continue;
+      const fs = Math.max(10, Math.min(16, pr[2] * 0.5)) * devicePixelRatio;
+      ctx.font = `bold ${fs}px system-ui`; ctx.textAlign = "center"; const w = ctx.measureText(p.name).width;
+      ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(pr[0] - w / 2 - 4, pr[1] - fs, w + 8, fs * 1.3);
+      ctx.fillStyle = p.colour; ctx.fillText(p.name, pr[0], pr[1]); ctx.textAlign = "start";
+    }
+  }
   for (const it of ITEMS) {
     if (t > endOf(it)) continue;
     const fo = fadeOut(it, t);
@@ -722,9 +767,11 @@ $("#play").onclick = () => vid.paused ? vid.play() : vid.pause();
 $("#back").onclick = () => vid.currentTime = Math.max(0, vid.currentTime - 1);
 $("#fwd").onclick = () => vid.currentTime = Math.min(INFO.duration, vid.currentTime + 1);
 $("#toSel").onclick = () => { if (SEL) { vid.currentTime = Math.max(0, startOf(SEL) - 2); vid.play(); } };
-vid.addEventListener("play", () => $("#play").textContent = "Pause");
-vid.addEventListener("pause", () => { $("#play").textContent = "Play"; song.pause(); });
-vid.addEventListener("timeupdate", () => { if (INFO) $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`; });
+function hookVideo() {
+  vid.addEventListener("play", () => $("#play").textContent = "Pause");
+  vid.addEventListener("pause", () => { $("#play").textContent = "Play"; song.pause(); });
+  vid.addEventListener("timeupdate", () => { if (INFO) $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`; });
+}
 document.addEventListener("keydown", e => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && document.activeElement.type !== "range") return;
   const k = e.key.toLowerCase();
@@ -767,6 +814,7 @@ function fit() {
   let w = wrap.clientWidth, h = w / ar; if (h > wrap.clientHeight) { h = wrap.clientHeight; w = h * ar; }
   $("#box").style.width = w + "px"; $("#box").style.height = h + "px";
   over.width = Math.round(w * devicePixelRatio); over.height = Math.round(h * devicePixelRatio);
+  if (NOVIDEO && window.MAP3D) MAP3D.resize(w, h);
   tl.width = Math.round(tl.clientWidth * devicePixelRatio); tl.height = Math.round(tl.clientHeight * devicePixelRatio);
 }
 window.addEventListener("resize", fit);
@@ -786,14 +834,131 @@ window.addEventListener("resize", fit);
     sel.appendChild(o); });
   sel.value = MATCH;
   if (MATCH) CAM = await (await post("/api/camera", { match: MATCH })).json();
+  NOVIDEO = !INFO.video;
+  if (NOVIDEO) {                                           // a Flashback edit that hasn't been exported
+    $("#vid").remove(); vid = new Clock(INFO.duration);
+    $("#map3d").hidden = false; $("#viewSeg").hidden = false;
+    $("#makeScreen").hidden = true; $("#mOnVideo").closest("label").hidden = true;
+    $("#addScreen").title += " (shown on the map preview; drawn on the video after you export from Flashback)";
+    const startMap = () => { MAP3D.init($("#map3d")); fit(); MAP3D.loadTerrain(msg => { $("#what").textContent = whatLine() + (msg ? " · " + msg : ""); }); };
+    if (window.MAP3D) startMap(); else window.addEventListener("map3d-ready", startMap, { once: true });
+    post("/api/tracks", { match: MATCH }).then(r => r.json()).then(j => {
+      ALLTRACKS = j.players || {}; Object.assign(TRACKS, ALLTRACKS); });
+  }
+  hookVideo();
   const st = stillFrom();
-  $("#what").textContent = `${INFO.video.split(/[\\/]/).pop()} · ${INFO.duration.toFixed(1)} s · ` +
+  const whatLine = () => NOVIDEO ?
+    `Flashback edit '${INFO.matches[0].name}' · ${INFO.duration.toFixed(1)} s (its export range) · not exported yet: the picture is the app's map, seen through your edit's camera` :
+    `${INFO.video.split(/[\\/]/).pop()} · ${INFO.duration.toFixed(1)} s · ` +
     (INFO.matches.length ? (st != null ? `camera stops at ${st.toFixed(1)} s (green on the timeline)` : "no still ending") : "no Flashback edit found: only 'on the video' texts");
+  $("#what").textContent = whatLine();
   SEL = ITEMS[0] || null; renderList(); fillEditor(); fit();
   ITEMS.filter(i => i.follow).forEach(i => loadTrack(i.follow));
-  vid.addEventListener("loadedmetadata", () => { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); });
+  if (NOVIDEO) { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); }
+  else vid.addEventListener("loadedmetadata", () => { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); });
   draw();
 })();
+$("#vCam").onclick = () => { VIEW = "camera"; $("#vCam").classList.add("on"); $("#vMap").classList.remove("on"); over.style.pointerEvents = ""; };
+$("#vMap").onclick = () => { VIEW = "map"; $("#vMap").classList.add("on"); $("#vCam").classList.remove("on"); over.style.pointerEvents = "none"; };
+</script>
+
+<!-- The app's 3D map for an edit without a video: terrain from the library backup made after the
+     recording (same tiles as the history viewer), players as boxes, seen through the edit's camera. -->
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "./vendor/OrbitControls.js";
+const rad = d => d * Math.PI / 180;
+let renderer, scene, camView, camMap, controls, pathLine, camMarker, boxes = {}, mapPlaced = false, lastPath = null;
+const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+function init(canvas) {
+  if (renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  scene = new THREE.Scene();
+  const sky = 0x9ec9ff; scene.background = new THREE.Color(sky); scene.fog = new THREE.Fog(sky, 180, 900);
+  scene.add(new THREE.HemisphereLight(0xeef6ff, 0x6b5a45, 1.2));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(0.4, 1, 0.25); scene.add(sun);
+  camView = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 3000);
+  camMap = new THREE.PerspectiveCamera(55, 16 / 9, 0.5, 8000);
+  controls = new OrbitControls(camMap, canvas); controls.enableDamping = true; controls.enabled = false;
+  pathLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd23f }));
+  pathLine.visible = false; scene.add(pathLine);
+  camMarker = new THREE.Mesh(new THREE.ConeGeometry(1.2, 3, 4), new THREE.MeshBasicMaterial({ color: 0xff4040 }));
+  camMarker.visible = false; scene.add(camMarker);
+}
+function tileMesh(t, buf) {
+  // vertices spread over the whole region (a hair wider than the samples) so regions meet without gaps
+  const n = 512 / t.step, heights = new Int16Array(buf, 0, n * n), rgb = new Uint8Array(buf, n * n * 2, n * n * 3), NO = -32768;
+  const pos = new Float32Array(n * n * 3), col = new Float32Array(n * n * 3), idx = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i, h = heights[k];
+    pos.set([t.rx * 512 + i * 512 / (n - 1), h === NO ? 0 : h + 1, t.rz * 512 + j * 512 / (n - 1)], k * 3);
+    col.set([rgb[k * 3] / 255, rgb[k * 3 + 1] / 255, rgb[k * 3 + 2] / 255], k * 3);
+  }
+  for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+    const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+    if (heights[a] === NO || heights[b] === NO || heights[c] === NO || heights[d] === NO) continue;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return new THREE.Mesh(g, terrainMat);
+}
+async function loadTerrain(say) {
+  let list;
+  try { list = await (await fetch("/api/tiles")).json(); } catch (e) { say("couldn't load the map"); return; }
+  if (!list.tiles.length) { say(list.message || "no terrain"); return; }
+  let done = 0;
+  for (const t of list.tiles) {
+    say(`loading the map ${done}/${list.tiles.length} (the first time reads the backup)`);
+    try {
+      const r = await fetch(`/tile/${t.rx}/${t.rz}/${t.step}`);
+      if (r.ok) scene.add(tileMesh(t, await r.arrayBuffer()));
+    } catch (e) { /* skip that region */ }
+    done++;
+  }
+  say(`map from the backup ${list.backup}`);
+}
+function resize(w, h) {
+  if (!renderer) return;
+  renderer.setSize(w, h, false);
+  camView.aspect = camMap.aspect = w / h; camView.updateProjectionMatrix(); camMap.updateProjectionMatrix();
+}
+function render(cam, samples, players, view) {
+  if (!renderer) return;
+  const f = [-Math.sin(rad(cam.yaw)) * Math.cos(rad(cam.pitch)), -Math.sin(rad(cam.pitch)), Math.cos(rad(cam.yaw)) * Math.cos(rad(cam.pitch))];
+  camView.position.set(...cam.pos); camView.fov = cam.fov; camView.updateProjectionMatrix();
+  camView.lookAt(cam.pos[0] + f[0], cam.pos[1] + f[1], cam.pos[2] + f[2]);
+  const seen = new Set();
+  for (const p of players) {
+    seen.add(p.name);
+    let b = boxes[p.name];
+    if (!b) { b = boxes[p.name] = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.8, 0.6), new THREE.MeshLambertMaterial({ color: p.colour })); scene.add(b); }
+    b.visible = true; b.position.set(p.pos[0], p.pos[1] + 0.9, p.pos[2]);
+  }
+  for (const [n, b] of Object.entries(boxes)) if (!seen.has(n)) b.visible = false;
+  const map = view === "map";
+  controls.enabled = map; pathLine.visible = map; camMarker.visible = map;
+  if (map) {
+    if (samples !== lastPath) {
+      lastPath = samples;
+      pathLine.geometry.dispose();
+      pathLine.geometry = new THREE.BufferGeometry().setFromPoints(samples.filter((_, i) => i % 4 === 0).map(s => new THREE.Vector3(s[0], s[1], s[2])));
+    }
+    if (!mapPlaced) {                                    // first look: above and behind the camera
+      mapPlaced = true; controls.target.set(...cam.pos);
+      camMap.position.set(cam.pos[0] - f[0] * 60, cam.pos[1] + 70, cam.pos[2] - f[2] * 60);
+    }
+    camMarker.position.set(...cam.pos);
+    camMarker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...f));
+    controls.update();
+    renderer.render(scene, camMap);
+  } else renderer.render(scene, camView);
+}
+window.MAP3D = { init, loadTerrain, resize, render };
+window.dispatchEvent(new Event("map3d-ready"));
 </script>
 </body>
 </html>

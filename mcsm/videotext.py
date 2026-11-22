@@ -693,14 +693,46 @@ def _replay_meta(path: str) -> dict:
 def analyse_video(video: str, world_dir: str | None = None) -> dict:
     """Everything needed to put text on a finished Flashback video: its length and size, the
     matching Flashback edits (best first), the recording, and where the camera holds still at the end."""
-    from .flashback import flashback_folders
-    from .library import is_world_dir, recording_uuids
     dur = video_duration(video)
     if dur is None:
         raise RuntimeError("ffprobe (part of ffmpeg) is needed to read the video's length")
     size = video_size(video) or (1920, 1080)
     matches = find_scenes_for_video(dur, video_mtime=os.path.getmtime(video))
     out = {"video": video, "duration": dur, "width": size[0], "height": size[1], "matches": matches}
+    _attach_recordings(matches, world_dir)
+    return out
+
+
+def analyse_edit(state: str, scene: int | None = None, world_dir: str | None = None) -> dict:
+    """Like :func:`analyse_video`, for a Flashback edit that hasn't been exported yet: the scene
+    (*scene*, default the one open in Flashback) with its export range stands in for the video."""
+    with open(state, encoding="utf-8") as fh:
+        data = json.load(fh)
+    scenes = [s for s in data.get("scenes") or [] if isinstance(s, dict)]
+    if not scenes:
+        raise ValueError("this Flashback edit has no scenes")
+    if scene is None:
+        scene = int(data.get("sceneIndex") or 0)
+    if not (0 <= scene < len(scenes)):
+        raise ValueError(f"this edit has {len(scenes)} scene(s); there is no scene {scene + 1}")
+    sc = scenes[scene]
+    clock = scene_clock(sc)
+    if clock is None:
+        raise ValueError("this scene has no export range yet: set the export start and end in Flashback first")
+    m = {"state": state, "uuid": os.path.splitext(os.path.basename(state))[0], "scene": scene,
+         "name": sc.get("name") or f"Scene {scene + 1}", "instance": "", "saved": os.path.getmtime(state),
+         "copy": "mcsm_copy_of" in data, "length": clock.duration, "match": "edit", "start": clock.start,
+         "end": clock.end}
+    out = {"video": None, "edit": state, "duration": clock.duration, "width": 1920, "height": 1080, "matches": [m]}
+    _attach_recordings(out["matches"], world_dir)
+    return out
+
+
+def _attach_recordings(matches: list[dict], world_dir: str | None) -> None:
+    """Find each match's recording (an app-made copy leads back to its original) and where the
+    camera stops at the end."""
+    from .flashback import flashback_folders
+    from .library import is_world_dir, recording_uuids
     roots, cache = [], None
     if world_dir and is_world_dir(world_dir):
         roots.append(os.path.join(world_dir, "recordings"))
@@ -723,14 +755,11 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
     own = [mt for mt in matches if not mt.get("copy") and mt.get("recording")]
     if own:                                     # your own edits first; the app's copies only as a fallback
         matches[:] = own + [mt for mt in matches if mt not in own]
-    for mt in matches:
-        mt["still_from"] = None
-        if True:                                    # needs only the edit, not the recording
-            sc = scene_for_match(mt)
-            clock = scene_clock(sc)
-            still = still_camera_at_end(sc)
-            mt["still_from"] = clock.video_time(still[0]) if (still and clock) else None
-    return out
+    for mt in matches:                          # needs only the edit, not the recording
+        sc = scene_for_match(mt)
+        clock = scene_clock(sc)
+        still = still_camera_at_end(sc)
+        mt["still_from"] = clock.video_time(still[0]) if (still and clock) else None
 
 
 def fov_at(scene: dict, tick: float, default: float = 70.0) -> float:

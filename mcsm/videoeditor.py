@@ -19,6 +19,9 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   POST /api/music           {"name": "song.mp3", "data": base64}  keep a song for the project
   POST /api/beats           {"file": name}  detect its tempo and first beat
   GET  /music/<file>        a song kept for the projects (played along in the page)
+  GET  /api/tiles           (edit without a video) the terrain regions around the camera path
+  GET  /tile/<rx>/<rz>/<step>  one region's surface: int16 heights + RGB (as the history viewer)
+  POST /api/tracks          {"match": i}  every player's path through the video
 
 Projects are kept in ``%LOCALAPPDATA%/mcsm/video-text/`` (one file per video), never next to the video.
 """
@@ -37,9 +40,18 @@ from .live import serve
 class VideoEditor:
     PAGE = "videotext.html"
 
-    def __init__(self, video: str, world_dir: str | None = None, info: dict | None = None):
+    def __init__(self, video: str | None, world_dir: str | None = None, info: dict | None = None,
+                 edit: str | None = None, scene: int | None = None):
+        """*video*: a finished video; or *edit* (a Flashback editor state) and *scene* for an edit
+        that hasn't been exported: the page then shows the app's 3D map from the edit's camera."""
         self.video = video
-        self.vinfo = info or vt.analyse_video(video, world_dir)
+        if video:
+            self.vinfo = info or vt.analyse_video(video, world_dir)
+        else:
+            if not edit and not (info and info.get("edit")):
+                raise ValueError("give a video or a Flashback edit")
+            self.vinfo = info or vt.analyse_edit(edit, scene, world_dir)
+        self.edit = self.vinfo.get("edit")
         self.job: dict = {"running": False, "log": [], "result": None, "error": None}
         self.world_dir = world_dir
         self._ground: dict = {}                 # (root) -> GroundProbe
@@ -75,7 +87,8 @@ class VideoEditor:
 
     def page_info(self) -> dict:
         i = self.vinfo
-        return {"video": i["video"], "duration": i["duration"], "width": i["width"], "height": i["height"],
+        return {"video": i["video"], "edit": i.get("edit"), "duration": i["duration"], "width": i["width"],
+                "height": i["height"],
                 "font": vt.minecraft_font(),
                 "matches": [{"name": m["name"], "match": m["match"], "still_from": m.get("still_from"),
                              "recording": m.get("recording"), "uuid": m["uuid"]} for m in i["matches"]],
@@ -131,9 +144,114 @@ class VideoEditor:
             return None
         return {**music, "file": self.song_path(music["file"])}
 
+    def copy_key(self) -> str:
+        """What the app's Flashback copy is remembered by: the video, or the edit and scene."""
+        if self.video:
+            return self.video
+        m = self.vinfo["matches"][0]
+        return f"{self.edit}#scene{m['scene']}"
+
+    # --- the 3D map for an edit without a video ----------------------------------------------------
+    def _terrain_source(self):
+        from . import worldpick as wp
+        if hasattr(self, "_tsrc"):
+            return self._tsrc
+        m = self.vinfo["matches"][0] if self.vinfo["matches"] else {}
+        world = self.world_dir or wp.world_of_recording(m.get("recording"))
+        found = wp.backup_for(world, wp.recording_date(m.get("recording") or "")) if world else None
+        self._tsrc = found
+        return found
+
+    def tiles(self) -> dict:
+        """Regions near the camera path: close ones every 2 blocks, the rest every 4 (at most 49)."""
+        from . import terrain
+        found = self._terrain_source()
+        if not found:
+            return {"tiles": [], "message": "no library backup of this world: the map has no terrain"}
+        root, wdir = found
+        have = {}
+        for p in terrain.region_files(root, wdir, "minecraft:overworld"):
+            try:
+                _r, rx, rz, _e = os.path.basename(p).split(".")
+                have[(int(rx), int(rz))] = p
+            except ValueError:
+                continue
+        near, around = set(), set()
+        for x, _y, z, *_ in self.camera_path(0)["samples"][::10]:
+            rx, rz = int(x) >> 9, int(z) >> 9
+            near.add((rx, rz))
+            for dx in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    around.add((rx + dx, rz + dz))
+        keys = sorted(near) + sorted(around - near)
+        out = [{"rx": rx, "rz": rz, "step": 2 if (rx, rz) in near else 4} for rx, rz in keys if (rx, rz) in have][:49]
+        self._regions = have
+        return {"tiles": out, "backup": os.path.basename(root)}
+
+    def tile_file(self, rx: int, rz: int, step: int) -> str | None:
+        """One region's surface as a file (int16 heights, little-endian, then RGB), cached."""
+        import array
+        import sys
+        from . import terrain
+        if not hasattr(self, "_regions"):
+            self.tiles()
+        p = getattr(self, "_regions", {}).get((rx, rz))
+        if not p or step not in (1, 2, 4, 8, 16):
+            return None
+        src = self._terrain_source()
+        key = hashlib.sha1(f"{src[0]}|{rx}|{rz}|{step}".encode()).hexdigest()[:20]
+        out = os.path.join(os.path.dirname(self.project_file()), "tiles", key + ".bin")
+        if os.path.exists(out):
+            return out
+        t = terrain.read_region_cached(p, step, terrain.default_cache_dir())
+        if t is None:
+            return None
+        heights = array.array("h", t.heights)
+        if sys.byteorder != "little":
+            heights.byteswap()
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out + ".part", "wb") as fh:
+            fh.write(heights.tobytes() + bytes(t.colours))
+        os.replace(out + ".part", out)
+        return out
+
+    def tracks_all(self, index: int) -> dict:
+        """Every player's path through the video: ``{name: [[video second, x, y, z], ...]}``."""
+        from . import paths, replays
+        import uuid as uuid_mod
+        m = self.vinfo["matches"][index]
+        if not m.get("recording"):
+            return {"players": {}}
+        if not hasattr(self, "_all_tracks"):
+            self._all_tracks = {}
+        if index in self._all_tracks:
+            return {"players": self._all_tracks[index]}
+        clock = vt.scene_clock(vt.scene_for_match(m))
+        pmap = self.players_map(index)
+        rec_player = replays._recorded_player(m["recording"].replace(os.sep, "/"))
+        rec_name = next((n for u, n in pmap.items() if rec_player and str(uuid_mod.UUID(bytes=u)) == rec_player),
+                        rec_player) or "recorded player"
+        out: dict[str, list] = {}
+        for tick, who, _dim, x, y, z, _yaw, _pitch in paths.decode_entities(m["recording"], pmap):
+            if tick > clock.end + 40:
+                break
+            if tick < clock.start - 40:
+                continue
+            v = clock.video_time(min(max(tick, clock.start), clock.end))
+            if v is not None:
+                out.setdefault(who or rec_name, []).append([round(v, 3), round(x, 2), round(y, 2), round(z, 2)])
+        self._all_tracks[index] = out
+        return {"players": out}
+
     def file_for(self, path: str) -> str | None:
         if path == "/video":
             return self.video
+        if path.startswith("/tile/"):
+            try:
+                rx, rz, step = (int(v) for v in path[len("/tile/"):].split("/"))
+            except ValueError:
+                return None
+            return self.tile_file(rx, rz, step)
         if path.startswith("/music/"):
             from . import videomusic as vm
             name = path[len("/music/"):]
@@ -175,6 +293,8 @@ class VideoEditor:
     def api_get(self, path: str):
         if path == "/api/project":
             return self.load_project()
+        if path == "/api/tiles":
+            return self.tiles()
         if path == "/api/job":
             with self._lock:
                 return dict(self.job, log=self.job["log"][-30:])
@@ -271,7 +391,7 @@ class VideoEditor:
 
     def project_file(self) -> str:
         base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
-        key = hashlib.sha1(os.path.normcase(os.path.abspath(self.video)).encode()).hexdigest()[:16]
+        key = hashlib.sha1(os.path.normcase(os.path.abspath(self.copy_key())).encode()).hexdigest()[:16]
         return os.path.join(base, "mcsm", "video-text", key + ".json")
 
     def load_project(self) -> dict:
@@ -282,13 +402,13 @@ class VideoEditor:
                 return data
         except (OSError, ValueError):
             pass
-        return {"video": self.video, "match": 0, "items": [
+        return {"video": self.copy_key(), "match": 0, "items": [
             {"id": 1, "name": "Title", "kind": "world" if self.vinfo["matches"] else "screen",
              "lines": [["Welcome to", 3.0], ["Our First Expedition", 5.5]], "start": None, "until": None,
              "animation": "pop"}]}
 
     def save_project(self, body: dict) -> dict:
-        data = {"video": self.video, "match": int(body.get("match", 0)), "items": list(body.get("items") or []),
+        data = {"video": self.copy_key(), "match": int(body.get("match", 0)), "items": list(body.get("items") or []),
                 "music": body.get("music") if isinstance(body.get("music"), dict) else None}
         p = self.project_file()
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -316,6 +436,8 @@ class VideoEditor:
             return self.add_music(body)
         if path == "/api/beats":
             return self.beats(body)
+        if path == "/api/tracks":
+            return self.tracks_all(int(body.get("match", 0)))
         return None
 
     def _start(self, body: dict) -> dict:
@@ -349,12 +471,16 @@ class VideoEditor:
         if b.get("target") == "world":
             match = self.vinfo["matches"][int(b.get("match", 0))]
             music = self.music_for(b.get("music"))
-            r = vt.make_items_in_world(match, items, self.video, progress=say,
+            # an edit opened directly: its copy goes into the same Flashback folder
+            fb = os.path.dirname(os.path.dirname(os.path.abspath(self.edit))) if self.edit else None
+            r = vt.make_items_in_world(match, items, self.copy_key(), fb, progress=say,
                                        players=self.players_map(int(b.get("match", 0))),
                                        music=music, music_dir=self.music_dir())
             say(("Replaced" if r.get("replaced") else "Made") + f" '{r['name']}' in {r['flashback']}")
             return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False),
                     "beats": r.get("beats", 0), "music_warning": r.get("music_warning", "")}
+        if not self.video:
+            raise ValueError("there's no exported video yet: put the texts in Flashback and export there")
         m = self.vinfo["matches"][int(b.get("match", 0))] if self.vinfo["matches"] else {}
         out = vt.make_items_on_screen(self.video, items, self.vinfo["duration"],
                                       max(0.0, self.vinfo["duration"] - 4), progress=say,
