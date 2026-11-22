@@ -966,6 +966,32 @@ def cmd_world_text(args) -> int:
     return 0
 
 
+def cmd_video_editor(args) -> int:
+    """Live text editor for a finished Flashback video, in the browser."""
+    import time as _time
+    import webbrowser
+    from . import library as lib
+    from .videoeditor import VideoEditor
+    world = args.world
+    if not world and args.library:
+        worlds = lib.list_worlds(args.library, count_recordings=False)
+        world = worlds[0]["path"] if len(worlds) == 1 else None
+    print("Finding the Flashback edit and recording…", flush=True)
+    ed = VideoEditor(args.video, world)
+    url = ed.start(args.http_port)
+    print(f"Live editor running at {url}  (Ctrl+C to stop)", flush=True)
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        while True:
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    finally:
+        ed.stop()
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -1194,6 +1220,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--flashback-dir", help="Flashback folder to put the copy in (default: the one for its version)")
     p.add_argument("-o", "--output", metavar="FILE", help="write the copy here instead of into Flashback")
     p.set_defaults(func=cmd_world_text)
+
+    p = sub.add_parser("video-editor", help="live editor for text on a finished Flashback video (in the browser)")
+    p.add_argument("--video", required=True, help="the finished video exported from Flashback")
+    p.add_argument("--world", metavar="DIR", help="library world folder (to find the recording)")
+    p.add_argument("--library", metavar="DIR", help="library folder with one world (alternative to --world)")
+    p.add_argument("--http-port", type=int, default=8790)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=cmd_video_editor)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")

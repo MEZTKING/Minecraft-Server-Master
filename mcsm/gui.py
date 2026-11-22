@@ -81,6 +81,8 @@ BUTTON_TIPS = {
     "Open history viewer": "Open the 3D time machine: a time slider over the whole history, player paths, events "
                            "and highlights for videos.",
     "Open page": "Open the running viewer's page in your browser again.",
+    "Open live editor": "Open a page in your browser where the video plays with the text on it, and changes "
+                        "(position, size, colour, animation, timing) show instantly. Make it from there too.",
     "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
     "Put it in the world (Flashback)": "Put the text into the Minecraft world itself: makes a copy of the recording "
                                        "with your edit; open it in Flashback and press Export.",
@@ -989,6 +991,7 @@ class App(ttk.Frame):
         ttk.Label(place, text="  (negative = left / down)", foreground="gray").pack(side="left")
         btns = ttk.Frame(f)
         btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ttk.Button(btns, text="Open live editor", command=self._vid_live).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="Put it in the world (Flashback)", command=self._vid_world).pack(side="left")
         ttk.Button(btns, text="Put it on the video (new file)", command=self._vid_screen).pack(side="left", padx=6)
         ttk.Button(btns, text="Preview", command=self._vid_preview).pack(side="left")
@@ -1061,6 +1064,19 @@ class App(ttk.Frame):
             return out
 
         self._run("Preview of the world position", work, lambda out: open_path(out))
+
+    def _vid_live(self) -> None:
+        """The live editor page: the video plays with the text drawn on it while you change it."""
+        from .videoeditor import VideoEditor
+        if not self.vid_info:
+            messagebox.showinfo(APP_NAME, "Choose a video first.")
+            return
+        if getattr(self, "vid_editor", None):
+            self.vid_editor.stop()
+        self.vid_editor = VideoEditor(self.vid_info["video"], info=self.vid_info)
+        url = self.vid_editor.start()
+        self.vid_status_var.set(f"Live editor open in your browser: {url}")
+        webbrowser.open(url)
 
     def _vid_world_dir(self) -> str | None:
         from . import library as lib

@@ -1,6 +1,21 @@
 # Text on finished videos (no editing skills needed)
 
-## The easy way: the app's Videos tab
+## The easiest way: the live editor
+
+In the **Videos** tab choose your video, then press **Open live editor** (or
+`mcsm video-editor --video FILE --world <library world>`). A page opens in your browser:
+
+- your video plays with the text drawn on it **while you change it**: text, when it appears, animation
+  and speed, colour, border, shadow, box, and for text in the world its place (right, up, distance,
+  size). Drag the sliders and watch it move;
+- **In the world** shows the text where it will really be in the scene, worked out from your edit's
+  camera, so it moves correctly as the camera moves (exact where the camera stands still; close while it
+  moves, because Flashback smooths camera paths). **On the video** shows the drawn-on title instead;
+- **Go to the text** jumps to 3 seconds before it appears and plays;
+- **Put it in the world (Flashback)** / **Put it on the video** make the real thing from the page.
+  Making it again for the same video replaces the earlier Flashback copy.
+
+## The app's Videos tab
 
 1. **Finished video → Choose…**: pick the video you exported from Flashback. The app finds the
    Flashback edit it came from (even if you changed the edit afterwards, e.g. made it longer), the

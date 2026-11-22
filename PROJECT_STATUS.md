@@ -74,6 +74,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Real in-world text in a copy of a Flashback recording (text display entities in every chunk snapshot; place at X,Y,Z or in front of the edit's camera); on-screen 3D titles shown as examples | ✅ Done, packets byte-identical to the game's own (26.1.2/26.2/26.3); works in the owner's Flashback 26.1.2 (in the world, hidden by players walking past) | `mcsm/worldtext.py`, `mcsm world-text` | `docs/VIDEO_TEXT.md` |
 | App Videos tab: pick a finished video -> edit (also when changed after export) + recording + still ending found; big/small title in the world (Flashback copy + edit with the video's export range) or burned onto a copy (Minecraft Ten font, black border or 3D; hardware encoder when it really works); preview | ✅ Done; checked on the owner's welcome clip (edit found 0.2 s, camera still from 57.65 s) | `mcsm/videotext.py` (`analyse_video`, `make_in_world`, `make_on_screen`), `worldtext.py` (border), `library.recording_uuids`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -705,6 +706,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Live text editor** (owner's request): `mcsm video-editor` / Videos tab *Open live
+  editor*: the video plays in the browser with the text drawn live (in the world: projected with the
+  edit's camera path; on the video: the title layout) while text, timing, animation, look and place
+  change; make buttons on the page. The shared web server now streams files with HTTP Range (seeking).
+  Fix: lines of in-world text overlapped (each line now stands its own height below the previous one),
+  seen in the owner's Flashback screenshot and the editor.
 - **2026-11-22:** "Put it in the world" again for the same video **replaces** its copy (same name and
   id, edit kept) instead of adding another ~1 GB copy; copies remember their video (`mcsm_video`).
   Fix: a camera that is still from 0 s was treated as "not found".

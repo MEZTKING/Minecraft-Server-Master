@@ -671,11 +671,14 @@ def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float 
     cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
     ry = math.radians(yaw)
     cx, cz = cx - math.cos(ry) * right, cz - math.sin(ry) * right          # the camera's right
-    texts, y = [], cy + distance * 0.32 + up       # upper part of the picture, like a title
+    # Upper part of the picture, like a title. A text display stands on its position (the letters
+    # go up from it), so each line stands its own height plus a small gap below the previous one.
+    texts, top = [], cy + distance * 0.32 + up
     for text, size in lines:
         size *= size_scale
-        y -= size * 1.35
-        texts.append((text, size, cx, y + size * 1.35, cz))
+        base = top - size
+        texts.append((text, size, cx, base, cz))
+        top = base - size * 0.25
     return {"scene": sc, "clock": clock, "seconds": secs, "tick": tick, "camera": pos, "yaw": yaw, "pitch": pitch,
             "fov": fov_at(sc, tick), "texts": texts}
 

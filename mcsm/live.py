@@ -585,6 +585,11 @@ def _make_handler(live: LiveMap):
                     layer = parse_qs(urlparse(self.path).query).get("layer", [""])[0]
                     return self._terrain(path[len("/api/terrain/"):].split("/"),
                                          int(layer) if layer.isdigit() else None)
+                file_for = getattr(live, "file_for", None)
+                if file_for:                  # big files (videos) streamed with seeking support
+                    fp = file_for(path)
+                    if fp:
+                        return self._file(fp)
                 extra = getattr(live, "api_get", None)
                 if extra:                     # other apps (the history viewer) add their own routes
                     obj = extra(path)
@@ -626,6 +631,47 @@ def _make_handler(live: LiveMap):
             if obj is None:
                 return self._send(404, b"not found", "text/plain")
             self._json(obj)
+
+        def _file(self, full: str):
+            """Send a file from disk; honours a ``Range: bytes=a-b`` request (video seeking)."""
+            size = os.path.getsize(full)
+            ctype = {".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
+                     ".webm": "video/webm"}.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+            start, end, code = 0, size - 1, 200
+            rng = self.headers.get("Range", "")
+            if rng.startswith("bytes="):
+                a, _, b = rng[6:].split(",")[0].partition("-")
+                try:
+                    if a:
+                        start = int(a)
+                        end = int(b) if b else size - 1
+                    elif b:
+                        start = max(0, size - int(b))
+                    end = min(end, size - 1)
+                    code = 206
+                except ValueError:
+                    pass
+                if start > end or start >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    return self.end_headers()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            if code == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.end_headers()
+            with open(full, "rb") as fh:
+                fh.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = fh.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
 
         def _static(self, rel: str):
             full = os.path.realpath(os.path.join(WEB_DIR, rel))

@@ -2460,3 +2460,53 @@ class TestReplaceTextCopy(unittest.TestCase):
             self.assertFalse(r3["replaced"])                                          # another video: own copy
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestVideoEditor(unittest.TestCase):
+    """The live editor page's server: video with seeking, camera path, making the world copy."""
+
+    def test_server(self):
+        import urllib.request
+        from mcsm.videoeditor import VideoEditor
+        tmp = tempfile.mkdtemp()
+        try:
+            video = os.path.join(tmp, "clip.mp4")
+            with open(video, "wb") as fh:
+                fh.write(bytes(range(256)) * 40)                         # 10240 bytes
+            cam = {"position": [0, 64, 0], "yaw": 0, "pitch": 0}
+            state = os.path.join(tmp, "s.json")
+            with open(state, "w") as fh:
+                json.dump({"scenes": [{"name": "S", "exportStartTicks": 0, "exportEndTicks": 40, "keyframeTracks": [
+                    {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "40": cam}}]}]}, fh)
+            info = {"video": video, "duration": 2.0, "width": 1920, "height": 1080,
+                    "matches": [{"name": "S", "match": "exact", "state": state, "scene": 0, "uuid": "u", "start": 0,
+                                 "end": 40, "recording": None, "still_from": 0.5}]}
+            ed = VideoEditor(video, info=info)
+            url = ed.start(18790)
+            try:
+                page = urllib.request.urlopen(url).read()
+                self.assertIn(b"Text on your video", page)
+                got = json.loads(urllib.request.urlopen(url + "api/info").read())
+                self.assertEqual(len(got["camera"]["samples"]), 41)          # every 0.05 s over 2 s
+                self.assertEqual(got["camera"]["samples"][0][:3], [0, 64, 0])
+                req = urllib.request.Request(url + "video", headers={"Range": "bytes=100-199"})
+                r = urllib.request.urlopen(req)
+                self.assertEqual(r.status, 206)
+                self.assertEqual(r.headers["Content-Range"], "bytes 100-199/10240")
+                self.assertEqual(r.read(), (bytes(range(256)) * 40)[100:200])
+                post = urllib.request.Request(url + "api/make", data=json.dumps({"target": "world", "lines": [["Hi", 3]]}).encode(),
+                                              headers={"Content-Type": "application/json"}, method="POST")
+                with self.assertRaises(urllib.error.HTTPError):               # no X-MCSM header: refused
+                    urllib.request.urlopen(post)
+                post.add_header("X-MCSM", "1")
+                self.assertTrue(json.loads(urllib.request.urlopen(post).read())["started"])
+                for _ in range(50):
+                    job = json.loads(urllib.request.urlopen(url + "api/job").read())
+                    if not job["running"]:
+                        break
+                    time.sleep(0.1)
+                self.assertIn("recording", job["error"])                     # no recording in this test: told why
+            finally:
+                ed.stop()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
