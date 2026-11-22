@@ -1213,6 +1213,8 @@ class TestHistory(unittest.TestCase):
             return root
         old = server("old", {0: 64, 1: 64})
         new = server("new", {1: 80, 2: 70})
+        changed = os.path.join(new, "world", "region", "r.1.0.mca")           # a later save (fast CI clocks
+        os.utime(changed, (time.time() + 60, time.time() + 60))               # can give both the same time)
         shutil.copy2(os.path.join(old, "world", "region", "r.0.0.mca"),       # unchanged region
                      os.path.join(new, "world", "region", "r.0.0.mca"))
         hm = HistoryMap(self.data, None, new, os.path.join(new, "world"), 4, cache_dir=self.cache,
