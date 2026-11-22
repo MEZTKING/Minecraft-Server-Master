@@ -715,6 +715,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** The owner's library is built (`F:\Game Backup\mcsm-library`, world `Main_world`):
+  15 backups (April 2025 1.21.5 to November 2026 26.3, incl. January 2026 unpacked from the `.7z`),
+  3,177 recordings stored once, 2 video projects with 3 Flashback edits copied. 301 GB on disk against
+  ~650 GB of original folders (copy mode: originals only read). The import itself found and drove the
+  library fixes listed below (review fixes, re-scan index, Windows names).
 - **2026-11-22:** Editor: **text that follows a player**: the text displays ride the player
   (`set_passengers`, 107 in 26.1.2/26.2, 109 in 26.3, from the game's data reports), stacked and bordered
   with the display translation (camera-facing space); the player's entity id at that moment comes from
