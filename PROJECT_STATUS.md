@@ -73,6 +73,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Text on finished videos (Phase 1): Flashback scene found from the video length, video time -> server time (timelapse included), suggested texts, styled .ass + .srt | ✅ Done, checked on the owner's "Thanks for playing" intro (length match 0.03 s; advancement timing confirmed on screen) | `mcsm/videotext.py`, `mcsm video-text` | `docs/VIDEO_TEXT.md` |
 | Real in-world text in a copy of a Flashback recording (text display entities in every chunk snapshot; place at X,Y,Z or in front of the edit's camera); on-screen 3D titles shown as examples | ✅ Done, packets byte-identical to the game's own (26.1.2/26.2/26.3); works in the owner's Flashback 26.1.2 (in the world, hidden by players walking past) | `mcsm/worldtext.py`, `mcsm world-text` | `docs/VIDEO_TEXT.md` |
 | App Videos tab: pick a finished video -> edit (also when changed after export) + recording + still ending found; big/small title in the world (Flashback copy + edit with the video's export range) or burned onto a copy (Minecraft Ten font, black border or 3D; hardware encoder when it really works); preview | ✅ Done; checked on the owner's welcome clip (edit found 0.2 s, camera still from 57.65 s) | `mcsm/videotext.py` (`analyse_video`, `make_in_world`, `make_on_screen`), `worldtext.py` (border), `library.recording_uuids`, `gui.py` | `docs/VIDEO_TEXT.md` |
+| Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -473,6 +474,42 @@ GitHub Release (tag `vX.Y.Z`) to ship one.
 - **Open questions:** also offer the latest *test* build (from GitHub Actions, needs sign-in), or only
   releases?
 
+### 0m. Animated text (requested 2026-11-22)
+
+**The ask:** "add an option to animate the text and also make the words appear one by one fading /
+instant with enthusiasm. All these should be available options as well as the necessary all needed
+to make a good high quality in app text."
+
+**Design:**
+- Animations, in the world and on the video: **none**, **fade in**, **pop** (springs from nothing to a
+  little too big and settles: "enthusiasm"), and **word by word** (instant / fading / popping, with a
+  gap between words); optional **fade out** at the end.
+- In the world: display entities interpolate scale changes smoothly (data 8 = start delay,
+  9 = duration, 12 = scale), so a pop is a few packets; opacity (data 26) is stepped every tick for
+  fades. Word by word = one text display per word, placed along the camera's right using Minecraft's
+  font widths so the line keeps its layout.
+- Look options: colour, border on/off + colour + thickness, shadow, glow (always bright) or lit by
+  the world, background box (colour + opacity), letter size, distance, height.
+- On the video (.ass): fade = alpha animation, pop = scale animation, word by word = per-word alpha
+  animation inside one line (layout stays fixed).
+
+✅ **Done 2026-11-22** as designed (Videos tab "Animation" row + look options; animation packets checked
+byte for byte against Minecraft 26.1.2's codec). Demos made on the owner's welcome clip. Not yet seen
+in Flashback: the in-world animations.
+
+### 0n. Music beats over the landscape (requested 2026-11-22, for later)
+
+**The ask:** "a music beats system that can hover over the mountains etc and is in sync with the
+beats of whatever music i add".
+
+**Proposed design:** use the existing beat detection (`mcsm/music.py`, beat grid of a song) to put
+in-world elements over the landscape (text, glowing block/item displays, shapes) that pulse on each
+beat: scale up and back (display interpolation), flash brightness, or appear in a rhythm. The beat
+times are mapped to replay ticks through the edit's time mapping (timelapse included), so after
+exporting in Flashback the pulses fall exactly on the beats; the app then adds the song to the video
+with ffmpeg at the matching offset. Options: which song, where (in front of the camera / over a spot
+on the map), what pulses, how strong, every beat or every bar.
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -668,6 +705,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Animated text** in the world and on the video: fades in, pops in (springs out and
+  settles), words one by one (instant / fading / popping) and fade out, with speed and word-gap
+  settings; plus border colour, shadow, always-bright and a background box. Backlog: music beats over
+  the landscape (#0n).
 - **2026-11-22:** In-world text **tried in the owner's Flashback: it works** (real text in the world,
   hidden by a player walking in front). New: it can **appear and disappear at chosen moments**: added
   at that tick of the recording (into the right chunk file, after the right number of tick markers)

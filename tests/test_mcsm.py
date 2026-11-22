@@ -2287,3 +2287,50 @@ class TestWorldTextTiming(unittest.TestCase):
                 self.assertEqual(self._events(zf.read("c2.flashback")), [(-1, add), (-1, data)])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestTextAnimation(unittest.TestCase):
+    """Animated text: in the world (game-checked packets, per-word layout, timing) and on screen."""
+
+    def test_animation_packets_match_the_game(self):
+        from mcsm import worldtext as wt
+        # encoded by Minecraft 26.1.2's own codec (2026-11-22)
+        self.assertEqual(wt.scale_packet(7, 2.0, 5).hex(), "070801000901050c27400000004000000040000000ff")
+        self.assertEqual(wt.opacity_packet(7, 128).hex(), "071a0080ff")
+
+    def test_words_are_laid_out_along_the_line(self):
+        from mcsm import worldtext as wt
+        t = wt.WorldText("Our First Expedition", 0, 100, 0, size=5.0, camera_yaw=0.0, appear_tick=100,
+                         animation="words-pop", word_gap_ticks=6)
+        parts = wt.split_words(t)
+        self.assertEqual([p.text for p in parts], ["Our", "First", "Expedition"])
+        self.assertEqual([p.appear_tick for p in parts], [100, 106, 112])
+        self.assertEqual({p.animation for p in parts}, {"pop"})
+        xs = [p.x for p in parts]                    # camera looks south: its right is -x
+        self.assertTrue(xs[0] > xs[1] > xs[2])
+        self.assertAlmostEqual(sum(p.z for p in parts), 0.0)
+        self.assertEqual(wt.text_width_px("Our"), 18)
+        self.assertEqual(wt.text_width_px("il"), 5)
+
+    def test_pop_and_fade_timeline(self):
+        from mcsm import worldtext as wt
+        pop = wt._plan_entity(1, wt.WorldText("Hi", 0, 0, 0, appear_tick=50, animation="pop", anim_ticks=10), 1, 99, 131)
+        self.assertEqual([u[0] for u in pop.updates], [51, 57])          # grow too big, then settle
+        self.assertIn(b"\x09\x01\x06", pop.updates[0][1])               # interpolated over 6 ticks
+        self.assertIn(b"\x09\x01\x00", pop.updates[0][2])               # instant copy for snapshots
+        fade = wt._plan_entity(2, wt.WorldText("Hi", 0, 0, 0, appear_tick=50, disappear_tick=200, animation="fade",
+                                               anim_ticks=4, fade_out_ticks=4), 1, 99, 131)
+        self.assertEqual([u[0] for u in fade.updates], [51, 52, 53, 54, 196, 197, 198, 199])
+        self.assertTrue(fade.updates[-1][1].endswith(bytes([26]) + b"\x00\x1a\xff"))  # ends faint, then removed
+
+    def test_screen_animations(self):
+        from mcsm import videotext as vt
+        titles = vt.screen_titles([("Welcome to", 0.07), ("Our First Expedition", 0.13)], 10.0, 20.0,
+                                  animation="words-pop", anim=0.4, word_gap=0.3)
+        self.assertAlmostEqual(titles[1].start, 10.0 + 0.3 + 0.4)       # the big line follows the small one
+        ass = vt.titles_ass(titles, 1920, 1080, font="Arial Black")
+        self.assertIn(r"{\alpha&HFF&\fscy0\t(300,301,\alpha&H00&)\t(300,700,0.6,\fscy100)}First", ass)
+        pop = vt.titles_ass(vt.screen_titles([("Hi", 0.1)], 0, 5, animation="pop", anim=0.5), 1920, 1080, "x")
+        self.assertIn(r"\fscx0\fscy0\t(0,300,\fscx118\fscy118)\t(300,500,\fscx100\fscy100)", pop)
+        boxed = vt.titles_ass(vt.screen_titles([("Hi", 0.1)], 0, 5, box="black"), 1920, 1080, "x")
+        self.assertIn("Dialogue: 0,0:00:00.00,0:00:05.00,box", boxed)

@@ -75,6 +75,32 @@ class WorldText:
     camera_yaw: float | None = None  # where it's seen from (needed for the border)
     appear_tick: int | None = None   # replay tick it appears at (None: there from the start)
     disappear_tick: int | None = None  # replay tick it goes away at (None: stays)
+    animation: str = "none"         # none, fade, pop, words, words-fade, words-pop (see ANIMATIONS)
+    anim_ticks: int = 8             # how long one fade/pop takes (20 ticks = 1 s)
+    word_gap_ticks: int = 6         # words one by one: time between words
+    fade_out_ticks: int = 0         # fade out before disappearing (0 = vanish)
+    outline_colour: str = ""        # set internally for border copies
+    opacity: int = 255              # 26..255 (text below ~26 isn't drawn by Minecraft)
+
+
+ANIMATIONS = {
+    "none": "appears at once",
+    "fade": "fades in",
+    "pop": "pops in: springs from nothing to a little too big, then settles",
+    "words": "words appear one by one, instantly",
+    "words-fade": "words fade in one by one",
+    "words-pop": "words pop in one by one",
+}
+
+# Advance widths (pixels, 1/40 block at scale 1) of Minecraft's default font; others are 6.
+_GLYPH = {" ": 4, "!": 2, '"': 4, "'": 2, "(": 4, ")": 4, "*": 4, ",": 2, ".": 2, ":": 2, ";": 2, "<": 5,
+          ">": 5, "@": 7, "I": 4, "[": 4, "]": 4, "`": 3, "f": 5, "i": 2, "k": 5, "l": 3, "t": 4, "{": 4,
+          "|": 2, "}": 4, "~": 7}
+
+
+def text_width_px(text: str, bold: bool = False) -> int:
+    """Width of *text* in Minecraft font pixels (bold adds one per character)."""
+    return sum(_GLYPH.get(ch, 6) + (1 if bold and ch != " " else 0) for ch in text)
 
 
 # --- encoding -----------------------------------------------------------------------------
@@ -131,8 +157,23 @@ def add_entity_packet(entity_id: int, uid: uuid_mod.UUID, type_id: int, x: float
             + _angle(pitch) + _angle(yaw) + b"\x00" + _varint(0))
 
 
-def text_data_packet(entity_id: int, t: WorldText) -> bytes:
-    scale = max(0.01, t.size / LINE_HEIGHT)
+def _scale_of(t: WorldText) -> float:
+    return max(0.01, t.size / LINE_HEIGHT)
+
+
+def scale_packet(entity_id: int, scale: float, duration: int) -> bytes:
+    """Change the size, animated smoothly by the game over *duration* ticks."""
+    return (_varint(entity_id) + bytes([8]) + _varint(SER_INT) + _varint(0)
+            + bytes([9]) + _varint(SER_INT) + _varint(max(0, duration))
+            + bytes([12]) + _varint(SER_VECTOR3) + struct.pack(">fff", scale, scale, scale) + b"\xff")
+
+
+def opacity_packet(entity_id: int, opacity: int) -> bytes:
+    return _varint(entity_id) + bytes([26]) + _varint(SER_BYTE) + bytes([max(0, min(255, opacity)) & 0xFF]) + b"\xff"
+
+
+def text_data_packet(entity_id: int, t: WorldText, scale: float | None = None) -> bytes:
+    scale = _scale_of(t) if scale is None else scale
     flags = 0x01 if t.shadow else 0
     out = _varint(entity_id)
     out += bytes([12]) + _varint(SER_VECTOR3) + struct.pack(">fff", scale, scale, scale)
@@ -143,6 +184,8 @@ def text_data_packet(entity_id: int, t: WorldText) -> bytes:
     out += bytes([23]) + _varint(SER_COMPONENT) + text_component(t.text, t.colour, t.bold)
     out += bytes([24]) + _varint(SER_INT) + _varint(t.line_width)
     out += bytes([25]) + _varint(SER_INT) + _varint(t.background)
+    if t.opacity != 255:
+        out += bytes([26]) + _varint(SER_BYTE) + bytes([max(0, min(255, t.opacity)) & 0xFF])
     out += bytes([27]) + _varint(SER_BYTE) + bytes([flags])
     return out + b"\xff"
 
@@ -239,11 +282,80 @@ def with_outline(t: WorldText) -> list[WorldText]:
     back = max(0.05, w * 0.5)
     out = []
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)):
-        out.append(WorldText(t.text, t.x + rx * dx * w + fx * back, t.y + dy * w, t.z + rz * dx * w + fz * back,
-                             size=t.size, colour=t.outline, bold=t.bold, facing=t.facing, yaw=t.yaw, shadow=False,
-                             background=0, glow=t.glow, view_range=t.view_range, line_width=t.line_width))
+        out.append(WorldText(**{**t.__dict__, "x": t.x + rx * dx * w + fx * back, "y": t.y + dy * w,
+                                "z": t.z + rz * dx * w + fz * back, "colour": t.outline, "shadow": False,
+                                "background": 0, "outline": ""}))
     out.append(WorldText(**{**t.__dict__, "outline": "", "shadow": False}))
     return out
+
+
+def split_words(t: WorldText) -> list[WorldText]:
+    """For word-by-word animations: one text per word, placed along the line (as seen from the
+    camera direction *camera_yaw*) so the line looks the same as one text; word i appears
+    *word_gap_ticks* after word i-1."""
+    if not t.animation.startswith("words"):
+        return [t]
+    words = t.text.split()
+    if len(words) < 2:
+        return [WorldText(**{**t.__dict__, "animation": t.animation.replace("words-", "").replace("words", "none")})]
+    px = 0.025 * _scale_of(t)                                       # blocks per font pixel
+    total = text_width_px(t.text, t.bold)
+    yaw = math.radians(t.camera_yaw if t.camera_yaw is not None else t.yaw)
+    rx, rz = -math.cos(yaw), -math.sin(yaw)                          # the camera's right
+    single = {"words": "none", "words-fade": "fade", "words-pop": "pop"}[t.animation]
+    out, left = [], 0
+    for i, w in enumerate(words):
+        wpx = text_width_px(w, t.bold)
+        centre = (left + wpx / 2 - total / 2) * px
+        appear = (t.appear_tick or 0) + i * t.word_gap_ticks if t.appear_tick is not None else None
+        out.append(WorldText(**{**t.__dict__, "text": w, "x": t.x + rx * centre, "z": t.z + rz * centre,
+                                "animation": single, "appear_tick": appear}))
+        left += wpx + text_width_px(" ", t.bold)
+    return out
+
+
+@dataclass
+class _Entity:
+    eid: int
+    appear: int | None
+    gone: int | None
+    start: list[bytes]                       # sent when it appears (add + first look)
+    final: list[bytes]                       # its settled look (for snapshots after the animation)
+    updates: list[tuple[int, bytes, bytes]]  # (tick, animated packet, instant packet)
+    settled: int                             # tick from which *final* is right
+
+
+def _plan_entity(eid: int, t: WorldText, add_id: int, data_id: int, type_id: int) -> _Entity:
+    uid = uuid_mod.uuid4()
+    add = _varint(add_id) + add_entity_packet(eid, uid, type_id, t.x, t.y, t.z, t.yaw, 0.0)
+    final = [add, _varint(data_id) + text_data_packet(eid, t)]
+    a = t.appear_tick
+    updates: list[tuple[int, bytes, bytes]] = []
+    start, settled = final, (a or 0)
+    target, n = _scale_of(t), max(1, t.anim_ticks)
+    if a is not None and t.animation == "pop":
+        start = [add, _varint(data_id) + text_data_packet(eid, t, scale=target * 0.02)]
+        up = max(1, round(n * 0.6))
+        updates.append((a + 1, _varint(data_id) + scale_packet(eid, target * 1.18, up),
+                        _varint(data_id) + scale_packet(eid, target * 1.18, 0)))
+        updates.append((a + 1 + up, _varint(data_id) + scale_packet(eid, target, n - up + 2),
+                        _varint(data_id) + scale_packet(eid, target, 0)))
+        settled = a + 1 + n + 2
+    elif a is not None and t.animation == "fade":
+        lo = 26
+        start = [add, _varint(data_id) + text_data_packet(eid, WorldText(**{**t.__dict__, "opacity": lo}))]
+        for k in range(1, n + 1):
+            op = lo + (t.opacity - lo) * k // n
+            pk = _varint(data_id) + opacity_packet(eid, op)
+            updates.append((a + k, pk, pk))
+        settled = a + n + 1
+    if t.disappear_tick is not None and t.fade_out_ticks > 0:
+        m = t.fade_out_ticks
+        for k in range(1, m + 1):
+            op = t.opacity - (t.opacity - 26) * k // m
+            pk = _varint(data_id) + opacity_packet(eid, op)
+            updates.append((t.disappear_tick - m + k - 1, pk, pk))
+    return _Entity(eid, a, t.disappear_tick, start, final, updates, settled)
 
 
 def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)") -> dict:
@@ -260,14 +372,9 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                              f"yet for in-world text (supported: {known} = 26.1.x, 26.2, 26.3)")
         add_id, data_id, type_id = PROTOCOLS[proto]
         texts_in = texts
-        texts = [part for t in texts_in for part in with_outline(t)]
-        spawns = []                                       # (appear, disappear, packets to add, entity id)
-        for k, t in enumerate(texts):
-            eid = 2_000_000_000 + k                      # far above anything the server hands out
-            uid = uuid_mod.uuid4()
-            pk = [_varint(add_id) + add_entity_packet(eid, uid, type_id, t.x, t.y, t.z, t.yaw, 0.0),
-                  _varint(data_id) + text_data_packet(eid, t)]
-            spawns.append((t.appear_tick, t.disappear_tick, pk, eid))
+        texts = [part for t in texts_in for word in split_words(t) for part in with_outline(word)]
+        # far above any entity id the server hands out
+        ents = [_plan_entity(2_000_000_000 + k, t, add_id, data_id, type_id) for k, t in enumerate(texts)]
         remove_id = REMOVE_ENTITIES[proto]
         # where each chunk file starts (replay ticks), from the metadata's chunk list
         starts, pos = {}, 0
@@ -280,15 +387,23 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
             c0 = starts.get(name, 0)
             c1 = c0 + length
             snap, timed = [], {}
-            for appear, gone, pk, eid in spawns:
-                a = appear if appear is not None else -1
-                g = gone if gone is not None else 1 << 60
-                if a <= c0 < g:
-                    snap += pk                            # already there when this chunk starts
+            for e in ents:
+                a = e.appear if e.appear is not None else -1
+                g = e.gone if e.gone is not None else 1 << 60
+                if a <= c0 < g:                           # already there when this chunk starts
+                    if c0 >= e.settled:
+                        snap += e.final
+                    else:
+                        snap += e.start
+                    snap += [instant for t_, _anim, instant in e.updates if t_ <= c0 and (c0 < e.settled or
+                                                                                          t_ >= e.settled)]
                 elif c0 < a < c1:
-                    timed.setdefault(a - c0, []).extend(pk)
-                if c0 < g < c1 and (a <= c0 or a < g):
-                    timed.setdefault(g - c0, []).append(_varint(remove_id) + _varint(1) + _varint(eid))
+                    timed.setdefault(a - c0, []).extend(e.start)
+                for t_, anim, _instant in e.updates:
+                    if c0 < t_ < c1 and t_ > a:
+                        timed.setdefault(t_ - c0, []).append(anim)
+                if c0 < g < c1 and a < g:
+                    timed.setdefault(g - c0, []).append(_varint(remove_id) + _varint(1) + _varint(e.eid))
             return snap, timed
         meta["original_uuid_mcsm"] = meta.get("uuid")
         meta["uuid"] = str(uuid_mod.uuid4())

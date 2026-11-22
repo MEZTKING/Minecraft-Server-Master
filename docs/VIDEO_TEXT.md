@@ -13,7 +13,12 @@
 4. **Look:** colour (white by default), **black border**, and for on-screen text optionally
    **3D letters**. On-screen text uses Minecraft's own logo font ("Minecraft Ten") when it's
    installed, else Arial Black.
-5. Then either:
+5. **Animation:** appears at once, **fades in**, **pops in** (springs out a little too big, then
+   settles), or **words one by one** (instantly, fading or popping), with the **speed**, the time
+   **between words** and an optional **fade out** at the end. With two lines, the big line starts once
+   the small one has appeared. More look options: **border colour**, **shadow**, **always bright**
+   (in the world; off = lit by the world, dark at night) and a **dark box** behind the text.
+6. Then either:
    - **Put it in the world (Flashback)**: real Minecraft text in the scene (lit by the world,
      hidden behind blocks). A copy of the recording named `… (text)` and a copy of your edit (with
      the same export range as your video) go into the Flashback folder for its Minecraft version.
@@ -108,6 +113,10 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
 - **When:** `--appear-at SECONDS` / `--until SECONDS` (seconds of your exported video, from your
   edit): the text is added to the world at that tick of the recording and removed at "until".
   Without them it's there the whole recording. `--border` adds the black border.
+- **Animations in the world:** pops use the game's own smooth size animation (display interpolation),
+  fades step the text's opacity every tick, and words one by one are one text per word, placed with
+  Minecraft's font widths so the line looks the same. If you jump to a later moment in Flashback, the
+  text is shown as it is at that moment (no replayed animation).
 - **Versions:** recordings made with Minecraft 26.1.x, 26.2 and 26.3. The packets were checked
   byte for byte against what those Minecraft versions write themselves.
 - The text is added at the start of every chunk file of the recording, so it's there wherever you

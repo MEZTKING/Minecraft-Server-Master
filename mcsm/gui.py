@@ -946,17 +946,63 @@ class App(ttk.Frame):
         ttk.Checkbutton(look, text="black border", variable=self.vid_border_var).pack(side="left")
         self.vid_3d_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(look, text="3D letters (on the video only)", variable=self.vid_3d_var).pack(side="left", padx=8)
+        look2 = ttk.Frame(f)
+        look2.grid(row=7, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(look2, text="   border colour:").pack(side="left")
+        self.vid_border_colour_var = tk.StringVar(value="black")
+        ttk.Combobox(look2, textvariable=self.vid_border_colour_var, width=9, state="readonly",
+                     values=["black", "dark_gray", "gold", "dark_blue", "dark_red", "white"]).pack(side="left", padx=4)
+        self.vid_shadow_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(look2, text="shadow", variable=self.vid_shadow_var).pack(side="left", padx=4)
+        self.vid_glow_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(look2, text="always bright (in the world)", variable=self.vid_glow_var).pack(side="left", padx=4)
+        self.vid_box_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(look2, text="dark box behind", variable=self.vid_box_var).pack(side="left", padx=4)
+        anim = ttk.Frame(f)
+        anim.grid(row=8, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(anim, text="5. Animation:").pack(side="left")
+        self.vid_anim_var = tk.StringVar(value=self.ANIM_LABELS[1][1])
+        ttk.Combobox(anim, textvariable=self.vid_anim_var, width=34, state="readonly",
+                     values=[label for _k, label in self.ANIM_LABELS]).pack(side="left", padx=8)
+        ttk.Label(anim, text="speed (s):").pack(side="left")
+        self.vid_anim_speed_var = tk.StringVar(value="0.4")
+        ttk.Entry(anim, textvariable=self.vid_anim_speed_var, width=5).pack(side="left", padx=4)
+        ttk.Label(anim, text="between words (s):").pack(side="left")
+        self.vid_word_gap_var = tk.StringVar(value="0.3")
+        ttk.Entry(anim, textvariable=self.vid_word_gap_var, width=5).pack(side="left", padx=4)
+        ttk.Label(anim, text="fade out (s):").pack(side="left")
+        self.vid_fade_out_var = tk.StringVar(value="0")
+        ttk.Entry(anim, textvariable=self.vid_fade_out_var, width=5).pack(side="left", padx=4)
         btns = ttk.Frame(f)
-        btns.grid(row=7, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        btns.grid(row=9, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(btns, text="Put it in the world (Flashback)", command=self._vid_world).pack(side="left")
         ttk.Button(btns, text="Put it on the video (new file)", command=self._vid_screen).pack(side="left", padx=6)
         ttk.Button(btns, text="Preview", command=self._vid_preview).pack(side="left")
         ttk.Button(btns, text="Chat & events as subtitles", command=self._vid_subtitles).pack(side="left", padx=6)
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
-            row=8, column=0, columnspan=3, sticky="w", pady=(10, 0))
+            row=10, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.vid_info = None
         return f
+
+    ANIM_LABELS = [("none", "Appears at once"), ("fade", "Fades in"),
+                   ("pop", "Pops in (springs out, then settles)"), ("words", "Words one by one, instantly"),
+                   ("words-fade", "Words one by one, fading in"), ("words-pop", "Words one by one, popping in")]
+
+    def _vid_look(self) -> dict:
+        """Animation and look options from the Videos tab (seconds as typed)."""
+        def num(var, name):
+            try:
+                return max(0.0, float(var.get() or 0))
+            except ValueError:
+                messagebox.showerror(APP_NAME, f"'{name}' must be a number of seconds")
+                raise
+        key = next((k for k, label in self.ANIM_LABELS if label == self.vid_anim_var.get()), "fade")
+        return {"animation": key, "anim": max(0.05, num(self.vid_anim_speed_var, "speed")),
+                "word_gap": max(0.05, num(self.vid_word_gap_var, "between words")),
+                "fade_out": num(self.vid_fade_out_var, "fade out"),
+                "border_colour": self.vid_border_colour_var.get(), "shadow": self.vid_shadow_var.get(),
+                "box": "black" if self.vid_box_var.get() else ""}
 
     def _vid_world_dir(self) -> str | None:
         from . import library as lib
@@ -1035,9 +1081,11 @@ class App(ttk.Frame):
         at = self._vid_when()
         until = self._vid_until()
         colour, border = self.vid_colour_var.get(), self.vid_border_var.get()
+        look = self._vid_look()
+        look["glow"] = self.vid_glow_var.get()
 
         def work(_):
-            return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until)
+            return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until, **look)
 
         def after(r):
             when = f"appears at {r['appears_at']:.1f} s" if r.get("appears_at") is not None else "there all the time"
@@ -1075,12 +1123,12 @@ class App(ttk.Frame):
         if not lines:
             return
         start, end = self._vid_times()
-        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "3d")
-        video, colour = self.vid_info["video"], self.vid_colour_var.get()
+        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "plain")
+        video, colour, look = self.vid_info["video"], self.vid_colour_var.get(), self._vid_look()
 
         def work(_):
             print("Making the video (your original isn't changed)…")
-            return vt.make_on_screen(video, lines, start, end, style, colour, progress=print)
+            return vt.make_on_screen(video, lines, start, end, style, colour, progress=print, **look)
 
         def after(out):
             self.vid_status_var.set(f"Done: {out}")
@@ -1095,14 +1143,12 @@ class App(ttk.Frame):
             messagebox.showinfo(APP_NAME, "Choose a video first.")
             return
         start, end = self._vid_times()
-        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "3d")
-        lines, info, colour = self._vid_lines(False), self.vid_info, self.vid_colour_var.get()
+        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "plain")
+        lines, info, colour, look = self._vid_lines(False), self.vid_info, self.vid_colour_var.get(), self._vid_look()
+        look["animation"] = "none"                        # a still frame shows the settled text
 
         def work(_):
-            titles, y = [], 0.16
-            for text, h in lines:
-                titles.append(vt.Title(text, start, end, size=h, y=y + h / 2, colour=colour, style=style, fade_in=0))
-                y += h * 1.25
+            titles = vt.screen_titles(lines, start, end, style, colour, **look)
             work_dir = tempfile.mkdtemp(prefix="mcsm-preview-")
             with open(os.path.join(work_dir, "t.ass"), "w", encoding="utf-8") as fh:
                 fh.write(vt.titles_ass(titles, info["width"], info["height"]))

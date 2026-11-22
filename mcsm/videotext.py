@@ -419,13 +419,43 @@ class Title:
     size: float = 0.12              # letter height as a share of the video height
     y: float = 0.25                 # vertical centre as a share of the video height (0 = top)
     colour: str = "white"
-    style: str = "outline"          # outline: black border (Minecraft look); 3d: extruded letters
-    fade_in: float = 0.7
+    style: str = "outline"          # outline: border (Minecraft look); 3d: extruded letters; plain
+    fade_in: float = 0.7            # used by animation "fade"
     fade_out: float = 0.0
+    animation: str = "fade"         # none, fade, pop, words, words-fade, words-pop
+    anim: float = 0.4               # how long one pop/word fade takes (seconds)
+    word_gap: float = 0.3           # words one by one: seconds between words
+    border_colour: str = "black"
+    border: float = 1.0             # border thickness (1 = normal)
+    shadow: bool = True
+    box: str = ""                   # background box colour ("" = none)
+
+
+TITLE_ANIMATIONS = ("none", "fade", "pop", "words", "words-fade", "words-pop")
+
+
+def _word_tags(t: Title, words: list[str]) -> str:
+    """One line whose words appear one by one (the layout stays fixed: each word is drawn from the
+    start, invisible until its moment)."""
+    bs = "\\"
+    out = []
+    for i, w in enumerate(words):
+        a = int((i * t.word_gap) * 1000)
+        d = max(1, int(t.anim * 1000))
+        if t.animation == "words":
+            tags = f"{bs}alpha&HFF&{bs}t({a},{a + 1},{bs}alpha&H00&)"
+        elif t.animation == "words-fade":
+            tags = f"{bs}alpha&HFF&{bs}t({a},{a + d},{bs}alpha&H00&)"
+        else:                                           # words-pop: grows up from the line, snappy
+            tags = (f"{bs}alpha&HFF&{bs}fscy0{bs}t({a},{a + 1},{bs}alpha&H00&)"
+                    f"{bs}t({a},{a + d},0.6,{bs}fscy100)")
+        out.append("{" + tags + "}" + _ass_escape(w))
+    return " ".join(out)
 
 
 def titles_ass(titles: list[Title], width: int, height: int, font: str | None = None) -> str:
-    """Big titles as an .ass script (layered for the 3D look)."""
+    """Big titles as an .ass script: styles (border / 3D / plain, optional box) and animations
+    (fade, pop, words one by one)."""
     font = font or minecraft_font()
     head = ["[Script Info]", "; written by mcsm", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
             "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
@@ -433,28 +463,43 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
             "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
             "MarginR, MarginV, Encoding",
             f"Style: t,{font},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,2,0,1,0,0,5,0,0,0,1",
+            f"Style: box,{font},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H60000000,0,0,0,0,100,100,2,0,3,0,0,5,0,0,0,1",
             "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+    bs = "\\"
     lines, layer = [], 0
     for t in titles:
         px = max(10, int(t.size * height))
         cx, cy = width // 2, int(t.y * height)
-        bs = "\\"                                    # ASS override codes start with a backslash
-        fad = f"{bs}fad({int(t.fade_in * 1000)},{int(t.fade_out * 1000)})"
         span = f"{_ass_time(t.start)},{_ass_time(t.end)}"
-        text = _ass_escape(t.text)
+        words = t.text.split()
+        by_word = t.animation.startswith("words") and len(words) > 1
+        fade_in = t.fade_in if t.animation == "fade" else (t.anim * 0.5 if t.animation == "pop" else 0.0)
+        fad = f"{bs}fad({int(fade_in * 1000)},{int(t.fade_out * 1000)})"
+        pop = ""
+        if t.animation == "pop":
+            d = max(2, int(t.anim * 1000))
+            pop = f"{bs}fscx0{bs}fscy0{bs}t(0,{d * 6 // 10},{bs}fscx118{bs}fscy118){bs}t({d * 6 // 10},{d},{bs}fscx100{bs}fscy100)"
+        body = _word_tags(t, words) if by_word else _ass_escape(t.text)
+        if t.box:
+            pad = max(4, px // 6)
+            lines.append(f"Dialogue: {layer},{span},box,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c&HFFFFFF&"
+                         f"{bs}alpha&HFF&{bs}3c{_bgr(t.box)}{bs}3a&H60&{bs}bord{pad}}}{_ass_escape(t.text)}")
+            layer += 1
         if t.style == "3d":
             depth = max(4, px // 7)
             for i in range(depth, 0, -1):
                 shade = int(150 - 90 * i / depth) // 2
-                lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx + i // 3},{cy + i})"
+                lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx + i // 3},{cy + i})"
                              f"{bs}1c&H{shade:02X}{shade:02X}{shade:02X}&{bs}bord{max(2, px // 45)}"
-                             f"{bs}3c&H101010&}}{text}")
+                             f"{bs}3c&H101010&}}{body}")
                 layer += 1
-            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
-                         f"{bs}bord{max(2, px // 45)}{bs}3c&H181818&}}{text}")
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{max(2, px // 45)}{bs}3c&H181818&}}{body}")
         else:
-            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
-                         f"{bs}bord{max(2, px // 12)}{bs}3c&H000000&{bs}shad{max(1, px // 25)}{bs}4c&H000000&}}{text}")
+            bord = max(0, int(px / 12 * t.border)) if t.style == "outline" else 0
+            shad = max(1, px // 25) if t.shadow else 0
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{bord}{bs}3c{_bgr(t.border_colour)}{bs}shad{shad}{bs}4c&H000000&}}{body}")
         layer += 1
     return "\n".join(head + lines) + "\n"
 
@@ -549,7 +594,10 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
 
 def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, colour: str = "white",
                   outline: bool = True, distance: float = 55.0, flashback_dir: str | None = None,
-                  progress=None, until_seconds: float | None = None, always: bool = False) -> dict:
+                  progress=None, until_seconds: float | None = None, always: bool = False,
+                  animation: str = "none", anim: float = 0.4, word_gap: float = 0.3, fade_out: float = 0.0,
+                  border_colour: str = "black", glow: bool = True, shadow: bool = False,
+                  box: str = "") -> dict:
     """Put *lines* (text, letter height in blocks; first = top) into the world of a copy of the
     matched recording, in front of the camera at *at_seconds* of the video (None: where the camera
     stops at the end). The text appears at that moment and stays until *until_seconds* (None: to
@@ -572,11 +620,22 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     gone = None if (always or until_seconds is None) else int(clock.replay_tick(min(until_seconds, clock.duration)))
     cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
     texts, y = [], cy + distance * 0.32            # upper part of the picture, like a title
+    start = appear
+    box_argb = 0
+    if box:
+        r_, g_, b_ = (int(_bgr(box)[i:i + 2], 16) for i in (6, 4, 2))
+        box_argb = (0x90 << 24) | (r_ << 16) | (g_ << 8) | b_
+        box_argb = box_argb - (1 << 32) if box_argb >= 1 << 31 else box_argb
     for text, size in lines:
         y -= size * 1.35
         texts.append(wt.WorldText(text, cx, y + size * 1.35, cz, size=size, colour=colour, bold=True,
-                                  outline="black" if outline else "", camera_yaw=yaw,
-                                  appear_tick=appear, disappear_tick=gone))
+                                  outline=border_colour if outline else "", camera_yaw=yaw,
+                                  appear_tick=start, disappear_tick=gone, animation=animation,
+                                  anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),
+                                  fade_out_ticks=int(fade_out * 20), glow=glow, shadow=shadow, background=box_argb))
+        if start is not None and animation != "none":   # the next line starts when this one has appeared
+            n = len(text.split()) if animation.startswith("words") else 1
+            start += (n - 1) * max(1, int(word_gap * 20)) + max(1, int(anim * 20))
     with zipfile.ZipFile(src) as zf:
         mc = json.loads(zf.read("metadata.json").decode("utf-8")).get("version_string")
     fb = flashback_dir or fbm.find_flashback_dir(None, mc)
@@ -596,15 +655,30 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
             "appears_at": None if always else secs, "until": until_seconds}
 
 
-def make_on_screen(video: str, lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
-                   colour: str = "white", out: str | None = None, progress=None) -> str:
-    """A copy of *video* with *lines* (text, share of the picture height) as big titles from
-    *start* to *end* seconds."""
-    size = video_size(video) or (1920, 1080)
-    titles, y = [], 0.16
+def screen_titles(lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
+                  colour: str = "white", animation: str = "fade", anim: float = 0.4, word_gap: float = 0.3,
+                  fade_out: float = 0.0, border_colour: str = "black", shadow: bool = True,
+                  box: str = "") -> list[Title]:
+    """Titles for *lines* (text, share of the picture height), top to bottom; with an animation the
+    next line starts once the previous one has appeared."""
+    titles, y, t0 = [], 0.16, start
     for text, h in lines:
-        titles.append(Title(text, start, end, size=h, y=y + h / 2, colour=colour, style=style))
+        titles.append(Title(text, t0, end, size=h, y=y + h / 2, colour=colour, style=style, fade_in=anim,
+                            fade_out=fade_out, animation=animation, anim=anim, word_gap=word_gap,
+                            border_colour=border_colour, shadow=shadow, box=box))
         y += h * 1.25
+        if animation != "none":
+            n = len(text.split()) if animation.startswith("words") else 1
+            t0 += (n - 1) * word_gap + anim
+    return titles
+
+
+def make_on_screen(video: str, lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
+                   colour: str = "white", out: str | None = None, progress=None, **look) -> str:
+    """A copy of *video* with *lines* (text, share of the picture height) as big titles from
+    *start* to *end* seconds; *look*: see :func:`screen_titles`."""
+    size = video_size(video) or (1920, 1080)
+    titles = screen_titles(lines, start, end, style, colour, **look)
     if out is None:
         stem, ext = os.path.splitext(video)
         out, n = f"{stem} (with text){ext}", 2
