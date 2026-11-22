@@ -612,7 +612,7 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
         matches[:] = own + [mt for mt in matches if mt not in own]
     for mt in matches:
         mt["still_from"] = None
-        if mt["recording"]:
+        if True:                                    # needs only the edit, not the recording
             sc = scene_for_match(mt)
             clock = scene_clock(sc)
             still = still_camera_at_end(sc)

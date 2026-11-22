@@ -20,6 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Caches (terrain tiles, decoded paths) default to %LOCALAPPDATA%\mcsm: keep tests out of the real one.
 os.environ["LOCALAPPDATA"] = tempfile.mkdtemp(prefix="mcsm-test-appdata-")
+# App settings (%APPDATA%\mcsm\settings.json: library folder, update channel) too.
+os.environ["APPDATA"] = tempfile.mkdtemp(prefix="mcsm-test-roaming-")
 
 from fixtures import ALEX, REPLAY_START_MS, STEVE, build_server, write_click_track  # noqa: E402,F401
 

@@ -47,6 +47,14 @@ MODES = ("auto", "link", "copy", "move")
 
 
 def default_library_dir() -> str:
+    """The library folder chosen last time (remembered in the app's settings), else Documents."""
+    try:
+        from .updater import load_settings
+        chosen = load_settings().get("library")
+        if chosen and os.path.isdir(chosen):
+            return chosen
+    except Exception:  # noqa: BLE001 -- settings are a convenience only
+        pass
     home = os.path.expanduser("~")
     docs = os.path.join(home, "Documents")
     return os.path.join(docs if os.path.isdir(docs) else home, "mcsm-library")
@@ -78,6 +86,18 @@ def is_library(path: str) -> bool:
 
 def is_world_dir(path: str) -> bool:
     return os.path.isfile(os.path.join(path, WORLD_MARKER)) and os.path.isdir(os.path.join(path, "backups"))
+
+
+def remember_library(library: str) -> None:
+    """Remember *library* as the folder to use from now on (app settings)."""
+    try:
+        from .updater import load_settings, save_settings
+        s = load_settings()
+        if s.get("library") != library:
+            s["library"] = library
+            save_settings(s)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def ensure_library(library: str) -> str:

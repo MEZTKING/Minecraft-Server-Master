@@ -405,6 +405,8 @@ class App(ttk.Frame):
             row=0, column=0, columnspan=3, sticky="w")
         ttk.Label(f, text="Library folder:").grid(row=1, column=0, sticky="w", pady=(8, 3))
         self.lib_dir_var = tk.StringVar(value=lib.default_library_dir())
+        self.lib_dir_var.trace_add("write", lambda *_: lib.is_library(self.lib_dir_var.get())
+                                   and lib.remember_library(self.lib_dir_var.get()))
         ttk.Entry(f, textvariable=self.lib_dir_var).grid(row=1, column=1, sticky="ew", padx=4, pady=(8, 3))
         lb = ttk.Frame(f)
         lb.grid(row=1, column=2, sticky="w", pady=(8, 3))
