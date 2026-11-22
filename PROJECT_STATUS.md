@@ -705,6 +705,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Fix (found by the owner in Flashback): an in-world text copy could be made **from an
+  earlier text copy**, so the old text stayed in the world. The app's own copies are now recognised by
+  their recording (`original_uuid_mcsm` / `mcsm_world_text` in its metadata; a mark in the edit file is
+  lost when Flashback re-saves it) and the original recording is always used; adding text to a copy
+  is refused; every copy gets its own entity ids.
 - **2026-11-22:** **Animated text** in the world and on the video: fades in, pops in (springs out and
   settles), words one by one (instant / fading / popping) and fade out, with speed and word-gap
   settings; plus border colour, shadow, always-bright and a background box. Backlog: music beats over

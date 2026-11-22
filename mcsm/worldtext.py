@@ -365,6 +365,9 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
         raise ValueError("refusing to overwrite the original recording")
     with zipfile.ZipFile(src) as zin:
         meta = json.loads(zin.read("metadata.json").decode("utf-8"))
+        if meta.get("mcsm_world_text"):
+            raise ValueError("this recording is a copy that already has text added; use the original recording "
+                             f"(id {meta.get('original_uuid_mcsm') or '?'}) so old text doesn't stay in it")
         proto = int(meta.get("protocol_version") or 0)
         if proto not in PROTOCOLS:
             known = ", ".join(str(p) for p in sorted(PROTOCOLS))
@@ -373,8 +376,10 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
         add_id, data_id, type_id = PROTOCOLS[proto]
         texts_in = texts
         texts = [part for t in texts_in for word in split_words(t) for part in with_outline(word)]
-        # far above any entity id the server hands out
-        ents = [_plan_entity(2_000_000_000 + k, t, add_id, data_id, type_id) for k, t in enumerate(texts)]
+        # far above any entity id the server hands out, and different for every copy
+        import random
+        base = 1_500_000_000 + random.randrange(0, 600_000) * 1000
+        ents = [_plan_entity(base + k, t, add_id, data_id, type_id) for k, t in enumerate(texts)]
         remove_id = REMOVE_ENTITIES[proto]
         # where each chunk file starts (replay ticks), from the metadata's chunk list
         starts, pos = {}, 0

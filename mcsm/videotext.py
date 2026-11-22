@@ -565,6 +565,14 @@ def burn_in(video: str, ass_text: str, out: str, progress=None) -> str:
 
 # --- one-stop: analyse a finished video, then make the text in the world and/or on screen -----
 
+def _replay_meta(path: str) -> dict:
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return json.loads(zf.read("metadata.json").decode("utf-8", "replace"))
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return {}
+
+
 def analyse_video(video: str, world_dir: str | None = None) -> dict:
     """Everything needed to put text on a finished Flashback video: its length and size, the
     matching Flashback edits (best first), the recording, and where the camera holds still at the end."""
@@ -584,6 +592,20 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
     by_uuid = recording_uuids(roots, cache) if matches else {}
     for mt in matches:
         mt["recording"] = by_uuid.get(mt["uuid"])
+        # A replay the app made (text added) is never used as a source: go back to its original.
+        meta = _replay_meta(mt["recording"]) if mt["recording"] else {}
+        if meta.get("original_uuid_mcsm") or meta.get("mcsm_world_text"):
+            mt["copy"] = True
+            original = meta.get("original_uuid_mcsm")
+            while original and original in by_uuid:
+                omega = _replay_meta(by_uuid[original])
+                if not (omega.get("original_uuid_mcsm") or omega.get("mcsm_world_text")):
+                    break
+                original = omega.get("original_uuid_mcsm")
+            mt["recording"] = by_uuid.get(original) if original else None
+    own = [mt for mt in matches if not mt.get("copy") and mt.get("recording")]
+    if own:                                     # your own edits first; the app's copies only as a fallback
+        matches[:] = own + [mt for mt in matches if mt not in own]
         if mt["recording"]:
             sc = scene_for_match(mt)
             clock = scene_clock(sc)

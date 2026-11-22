@@ -2334,3 +2334,73 @@ class TestTextAnimation(unittest.TestCase):
         self.assertIn(r"\fscx0\fscy0\t(0,300,\fscx118\fscy118)\t(300,500,\fscx100\fscy100)", pop)
         boxed = vt.titles_ass(vt.screen_titles([("Hi", 0.1)], 0, 5, box="black"), 1920, 1080, "x")
         self.assertIn("Dialogue: 0,0:00:00.00,0:00:05.00,box", boxed)
+
+
+class TestNoTextResidue(unittest.TestCase):
+    """A copy with text must never become the source of another copy (its old text would stay)."""
+
+    def test_copy_with_text_is_refused_and_ids_differ(self):
+        from mcsm import worldtext as wt
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, "rec.zip")
+            chunk = TestWorldTextTiming._chunk(5)
+            with zipfile.ZipFile(src, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "orig", "protocol_version": 775,
+                                                         "chunks": {"c0.flashback": {"duration": 5}}}))
+                zf.writestr("c0.flashback", chunk)
+            a, b = os.path.join(tmp, "a.zip"), os.path.join(tmp, "b.zip")
+            wt.write_world_text_copy(src, a, [wt.WorldText("One", 0, 70, 0)])
+            wt.write_world_text_copy(src, b, [wt.WorldText("Two", 0, 70, 0)])
+            with self.assertRaises(ValueError):                       # text on top of text: refused
+                wt.write_world_text_copy(a, os.path.join(tmp, "c.zip"), [wt.WorldText("Three", 0, 70, 0)])
+
+            def first_id(path):
+                with zipfile.ZipFile(path) as zf:
+                    data = zf.read("c0.flashback")
+                names, i = wt._header(data)
+                size = struct.unpack(">I", data[i:i + 4])[0]
+                snap = data[i + 4:i + 4 + size]
+                _a, k = wt._read_varint(snap, 0)
+                payload = snap[k + 4:]
+                _pid, k = wt._read_varint(payload, 0)
+                eid, _ = wt._read_varint(payload, k)
+                return eid
+            self.assertNotEqual(first_id(a), first_id(b))              # copies never share entity ids
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_analysis_goes_back_to_the_original(self):
+        from mcsm import videotext as vt
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "fb")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            os.makedirs(os.path.join(fb, "replays"))
+            scene = {"scenes": [{"name": "S", "exportStartTicks": 0, "exportEndTicks": 200, "keyframeTracks": []}]}
+            for u in ("orig", "copy1"):
+                with open(os.path.join(fb, "editor_states", u + ".json"), "w") as fh:
+                    json.dump(scene, fh)                               # Flashback dropped any mark in the edit
+            for name, meta in (("orig.zip", {"uuid": "orig"}),
+                               ("copy1.zip", {"uuid": "copy1", "original_uuid_mcsm": "orig", "mcsm_world_text": [{}]})):
+                with zipfile.ZipFile(os.path.join(fb, "replays", name), "w") as zf:
+                    zf.writestr("metadata.json", json.dumps(meta))
+            video = os.path.join(tmp, "v.mp4")
+            open(video, "wb").close()
+            old = os.environ.get("MCSM_FLASHBACK_DIR"), vt.video_duration, vt.video_size
+            os.environ["MCSM_FLASHBACK_DIR"] = fb
+            vt.video_duration, vt.video_size = (lambda v: 10.0), (lambda v: (1920, 1080))
+            try:
+                info = vt.analyse_video(video)
+            finally:
+                vt.video_duration, vt.video_size = old[1], old[2]
+                if old[0] is None:
+                    os.environ.pop("MCSM_FLASHBACK_DIR", None)
+                else:
+                    os.environ["MCSM_FLASHBACK_DIR"] = old[0]
+            self.assertEqual(info["matches"][0]["uuid"], "orig")
+            self.assertTrue(info["matches"][0]["recording"].endswith("orig.zip"))
+            for m_ in info["matches"]:                                 # even the copy's edit points at the original
+                self.assertTrue(m_["recording"].endswith("orig.zip"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
