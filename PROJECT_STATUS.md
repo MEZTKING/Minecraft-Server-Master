@@ -603,6 +603,22 @@ open it in the editor (works today).
   camera moves, or is the goal only to avoid the round trip for texts and music? Which Flashback
   features matter most to have in the editor (camera keyframes, timelapse, orbit/follow cameras)?
 
+**Fable's advice (2026-11-22) on 0q-0s:** order **0r → 0s (small) → 0q in stages**. 0r is the owner's actual
+goal, pure Python on data already loaded, and lands in Flashback natively through 0c (copy with markers + one
+scene per event), with no version risk. 0s mostly exists (needs its own entry, the whole library, play-through
+with quiet-time skipping, "next important event" from 0r). 0q is the only part that can break with a Flashback
+update: keep it thin (v1 a read-only Events window: list, filter, jump, "set export range to this event"; v2
+live texts as client-side text displays re-added each tick; v3 snap keyframes to beat markers; never custom
+keyframe types), with a sidecar `<replay uuid>.mcsm.json`, an allow-list of tested Flashback versions, a
+`@Pseudo` mixin with `require = 0` and a try/finally around the ImGui window. Retire the real-view bridge
+(stream, path/play, the 4 ms pump); freeze browser camera keyframing and the block view; keep the browser
+editor for finished videos plus song/beat detection. Postpone block-diff "big builds" in 0r.
+0r scoring: cluster events < 3 min apart into moments; weights killed by a player 6, other death 3,
+advancement 1/share-of-holders (max 8), first-ever join 5, chat 0.3 per message (max 4); × (1 + 0.5 × extra
+players in view, max 3); × coverage (no recording = greyed); pad 30 s before, 15 s after; weights in one dict
+with tests. Presented as a ranked list by day in the history viewer (chips: kind, player, has recording;
+score breakdown on hover); ticking turns a moment into a highlight → existing Flashback export.
+
 ### 0q. A native Flashback add-on instead of the bridge (raised 2026-11-22)
 
 **The ask (after trying the real view):** "tried it its not great, lets just make a mod for flashback so"
