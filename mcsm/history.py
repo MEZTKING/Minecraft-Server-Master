@@ -248,7 +248,16 @@ class HistoryMap(TerrainServer):
             return self.paths()
         if path == "/api/highlights":
             return self.highlights_info()
+        if path == "/api/moments":
+            return self.moments()
         return None
+
+    def moments(self) -> dict:
+        """The important moments of the whole history, best first (worked out once)."""
+        from . import moments as mo
+        if getattr(self, "_moments", None) is None:
+            self._moments = mo.find_moments(self.data)
+        return {"moments": self._moments, "weights": mo.WEIGHTS}
 
     # -- highlights ----------------------------------------------------------
     def highlights_info(self) -> dict:

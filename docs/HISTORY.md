@@ -43,6 +43,28 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
   mark a highlight's start / end.
 - The page remembers the last time you looked at (in this browser only).
 
+## Important moments
+
+The panel lists the **important moments of the whole history**, found automatically from the logs:
+deaths (killed by another player counts most; someone dying again and again counts less each time),
+advancements (the rarer, the more: 1 divided by the share of regular players, with an hour or more of
+playtime, who got it), a player's first join (not on the first day of the logs, when everyone seems
+new), conversations and markers placed in replays (not the app's own copies). Events less than 3
+minutes apart form one moment, at most 10 minutes long; each moment starts 30 s before its first event
+and ends 15 s after its last. Its score grows with the number of other players online and with the
+number of players whose recordings show it (points of view). Hover a moment to see why it scored and its events.
+
+- Filters: kind of event, a player, **with a recording** (moments no recording shows can't become a
+  video), order **best first** or **by date** (grouped by day).
+- **▶ Play** watches it on the map. **Keep** makes it a highlight (below); then **Export to Flashback**
+  makes the replay copies with markers and one ready scene per highlight, as for highlights you mark
+  yourself.
+
+On the owner's library (15 backups, 3,177 recordings, 10,599 events) it finds about 800 moments in a few
+seconds; about a third are shown by at least one recording. Keeping the same moment twice gives one
+highlight. The weights are in `mcsm/moments.py`
+(`WEIGHTS`).
+
 ## Highlights for videos
 
 Mark the moments you want in a video while you browse the history, then send them to

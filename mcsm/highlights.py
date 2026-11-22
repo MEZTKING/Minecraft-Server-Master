@@ -83,12 +83,19 @@ class Store:
             raise ValueError("a highlight must be at least 1 second long")
         title = str(h.get("title") or "").strip()[:120] or "Highlight"
         note = str(h.get("note") or "").strip()[:2000]
+        moment = str(h.get("moment") or "")[:40]
         with self._lock:
             old = next((x for x in self.items if x["id"] == h.get("id")), None) if h.get("id") else None
+            if old is None and moment and not h.get("id"):      # keeping the same important moment again
+                same = next((x for x in self.items if x.get("moment") == moment), None)
+                if same is not None:
+                    return dict(same)
             if old is None:
                 old = {"id": uuid_mod.uuid4().hex[:12], "created": int(time.time() * 1000)}
                 self.items.append(old)
             old.update({"title": title, "start": start, "end": end, "note": note})
+            if moment:
+                old["moment"] = moment
             if players is not None:
                 old["players"] = players
             self._save()

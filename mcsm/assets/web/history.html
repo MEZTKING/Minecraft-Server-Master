@@ -43,7 +43,10 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 select, button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--text); cursor: pointer; }
 input[type=text] { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); flex: 1; min-width: 0; }
 button:disabled { opacity: .5; cursor: default; }
-#hl li { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
+#hl li, #moments li { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
+#moments li.norec { opacity: .55; }
+#moments .score { float: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+#moments li.day { border: 0; padding: 8px 2px 0; color: var(--text-2); font-size: 12px; font-weight: 600; }
 #hl li.editing { border-color: var(--accent); }
 #hl .t { font-weight: 600; }
 #hl .acts { display: flex; gap: 4px; margin-top: 4px; }
@@ -127,6 +130,23 @@ ul { list-style: none; margin: 0; padding: 0; }
   <ul id="recs"></ul>
   <h2 id="serverHead" hidden>Server at this moment</h2>
   <div id="server" class="meta" hidden></div>
+  <h2>Important moments</h2>
+  <div class="note" style="margin-top:0">Found in the whole history: deaths (by players count most), rare advancements,
+    first joins, conversations and replay markers, more when more players were online and more recordings show it.
+    <b>Keep</b> makes one a highlight below (then Export to Flashback).</div>
+  <div class="row">
+    <select id="mKind" title="Only moments with this kind of event">
+      <option value="">all kinds</option><option value="death">deaths</option><option value="advancement">advancements</option>
+      <option value="first_join">first joins</option><option value="chat">conversations</option><option value="marker">markers</option>
+    </select>
+    <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
+  </div>
+  <div class="row">
+    <label title="Hide moments no recording shows (they can't be made into a video)"><input type="checkbox" id="mRec" checked> with a recording</label>
+    <select id="mOrder" title="How the list is sorted"><option value="score">best first</option><option value="time">by date</option></select>
+  </div>
+  <ul id="moments"></ul>
+  <div class="row"><button id="mMore" type="button" title="Show 20 more">Show more</button><span class="meta" id="mCount"></span></div>
   <h2>Highlights for videos</h2>
   <div class="row" style="margin-top:2px">
     <button id="hlIn" type="button" title="Use the current time as the start (key I)">Start (I)</button>
@@ -826,6 +846,52 @@ $("#hlExport").onclick = async () => {
   $("#hlExport").disabled = !HL.highlights.length;
 };
 
+// ---------- important moments (mcsm/moments.py) ----------
+let MOM = [], momShown = 20;
+async function loadMoments() {
+  try { MOM = (await (await fetch("api/moments")).json()).moments || []; } catch (e) { return; }
+  const sel = $("#mPlayer"), names = [...new Set(MOM.flatMap(m => m.players))].sort((a, b) => a.localeCompare(b));
+  for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
+  renderMoments();
+}
+function renderMoments() {
+  const kind = $("#mKind").value, who = $("#mPlayer").value, rec = $("#mRec").checked, byTime = $("#mOrder").value === "time";
+  let list = MOM.filter(m => (!kind || m.kinds[kind]) && (!who || m.players.includes(who) || m.online.includes(who))
+                             && (!rec || m.recordings.length));
+  if (byTime) list = [...list].sort((a, b) => a.start - b.start);
+  const ul = $("#moments"); ul.replaceChildren();
+  let day = "";
+  for (const m of list.slice(0, momShown)) {
+    const d = new Date(m.start).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+    if (byTime && d !== day) { day = d; const h = document.createElement("li"); h.className = "day"; h.textContent = d; ul.appendChild(h); }
+    const li = document.createElement("li"); if (!m.recordings.length) li.className = "norec";
+    li.title = m.why.join("\n") + "\n\n" + m.events.slice(0, 12).map(e => `${new Date(e.t).toLocaleTimeString()}  ${e.text}`).join("\n")
+      + (m.events.length > 12 ? `\n… ${m.events.length - 12} more` : "");
+    const t = document.createElement("div"); t.className = "t";
+    const sc = document.createElement("span"); sc.className = "score"; sc.textContent = m.score;
+    t.append(sc, document.createTextNode(m.title));
+    const meta = document.createElement("div"); meta.className = "meta";
+    const pov = [...new Set(m.recordings.map(r => r.player || "?"))];
+    meta.textContent = `${fmtShort(m.start)} · ${hms(m.end - m.start)} · ${m.players.join(", ") || "?"} · `
+      + (m.recordings.length ? `${m.recordings.length} recording${m.recordings.length > 1 ? "s" : ""} (${pov.join(", ")})` : "no recording");
+    const acts = document.createElement("div"); acts.className = "acts";
+    const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
+    btn("▶ Play", "Watch this moment on the map", () => { seek(m.start); playUntil = m.end; setPlaying(true); });
+    const kept = (HL.highlights || []).some(h => h.moment === m.id || (h.start === m.start && h.end === m.end));
+    const keep = btn(kept ? "Kept ✓" : "Keep", kept ? "Already a highlight" : "Make this a highlight for a video (Export to Flashback below)", async () => {
+      keep.disabled = true;                              // one click = one highlight
+      try { await post("api/highlights", { title: m.title, start: m.start, end: m.end, moment: m.id }); await loadHighlights(); renderMoments(); }
+      catch (e) { keep.disabled = false; $("#hlStatus").textContent = `Couldn't keep it: ${e.message}`; }
+    }, kept || !m.recordings.length);
+    li.append(t, meta, acts); ul.appendChild(li);
+  }
+  if (!list.length) ul.innerHTML = `<li class="empty" style="border:0">No moments match.</li>`;
+  $("#mCount").textContent = `${Math.min(momShown, list.length)} of ${list.length}`;
+  $("#mMore").hidden = list.length <= momShown;
+}
+for (const id of ["#mKind", "#mPlayer", "#mRec", "#mOrder"]) $(id).onchange = () => { momShown = 20; renderMoments(); };
+$("#mMore").onclick = () => { momShown += 20; renderMoments(); };
+
 // ---------- playback ----------
 let playing = false, lastFrame = performance.now();
 function setPlaying(p) { playing = p; if (!p) playUntil = null; $("#play").textContent = p ? "Pause" : "Play"; }
@@ -927,7 +993,7 @@ async function init() {
   const saved = +store.get("mcsm-history-t");
   T = saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
   resize(); setView(); update(performance.now(), true);
-  showSpan(); loadHighlights();
+  showSpan(); loadHighlights().then(loadMoments);
   await loadPaths();
   fitAll();
 }

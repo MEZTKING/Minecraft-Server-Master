@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (owner's direction: native Flashback add-on, event finder, history start to finish; backlog 0q-0s).
+`CLAUDE.md`). Last updated: 2026-11-22 (event finder: important moments in the history viewer, 0r).
 
 ## What this project is
 
@@ -76,6 +76,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Editor on a Flashback edit before exporting (0p phase 1): the app's 3D map through the edit's camera (terrain from the backup after the recording, players as boxes), Camera/Map view, texts/song/beats, copy into the edit's Flashback folder | ✅ Done; tried on the owner's welcome-clip edit (composition matches the real export at 30 s) | `videotext.analyse_edit`, `videoeditor.py` (`tiles`, `tile_file`, `tracks_all`, `copy_key`), `videotext.html` (Clock, MAP3D), `mcsm video-editor --edit`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Important moments (0r): events of the whole history grouped into moments, scored (deaths, PvP, rare advancements, first joins, chat, markers; x players online; x recordings), ranked list in the history viewer with filters, ▶ Play, Keep → highlight → Flashback export | ✅ Done; on the owner's library 827 moments in 2.7 s, 272 with recordings; top: the PvP fight of 24 May with 5 recordings | `mcsm/moments.py`, `history.py` (`/api/moments`), `history.html` | `docs/HISTORY.md` |
 | Real blocks in the editor's map (textured from the installed client jar): visible faces within ~80 blocks of the camera path, block outline boxes from the game's models, crossed plants, tints; smooth terrain beyond | ✅ Done; on the owner's edit 178 chunks, 89k faces in 1.1 s; camera view at 30 s matches the real export (blocks, torch, spire, build, player) | `mcsm/blockmesh.py`, `videoeditor.py` (`/api/blocks`, `/blocktex`), `videotext.html` (`loadBlocks`, atlas) | `docs/VIDEO_TEXT.md` |
 | Flashback companion mod `mcsm-link` (Fabric, Minecraft 26.1.x): local token-protected link server in the game; status, seek + camera, real frames; editor view "Flashback (real)"; app/CLI install into an instance | ✅ Built (CI + locally) and smoke-tested in a test Minecraft 26.1.2 (link server, token check, real frame); not yet tried with Flashback and a replay open (owner test) | `companion/` (McsmLink.java), `mcsm/flashlink.py`, `videoeditor.py` (`/api/link*`, `/link/frame`), `videotext.html`, Videos tab, `mcsm flashback-link` | `docs/VIDEO_TEXT.md`, `companion/README.md` |
 | Camera keyframes in the editor (0p phase 2): Flashback's interpolation (centripetal Catmull-Rom SMOOTH, eases, HOLD), keyframe row on the timeline, fly camera, add/move/delete/type keyframes, snap to beats, undo; written into the copy's edit only | ✅ Done; tried on the owner's edit (13 keyframes, added one by flying, undo/reset, original file untouched) | `worldtext.camera_at`/`apply_camera`/`set_camera_track`, `videotext.scene_for_match` (`camera_override`), `videoeditor.py` (`/api/camera` with keyframes), `videotext.html` | `docs/VIDEO_TEXT.md` |
@@ -647,6 +648,10 @@ window in the same frame through a small mixin, since Flashback has no plug-in A
 
 ### 0r. Find the important events in all recordings (raised 2026-11-22)
 
+✅ **First version done 2026-11-22** (owner: "Yes, event finder"), with Fable's weights; repeats of the same
+player's same kind in one moment count half each time (a player dying 13 times to skeletons topped the
+first run). "Together" uses players online (not yet who was in view); big builds from block changes postponed.
+
 **The ask:** "is there a way to use the recordings to make any use of it. i want to edit all important
 events, so organising that files so far were important."
 
@@ -902,6 +907,16 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Moments, after Fable's review: at most 10 minutes long; PvP from the log parser's killer
+  (not a name inside the text, e.g. an item); rarity among regular players (1 h+), cap 5; no "first join" on
+  the logs' first day or for renamed players; the app's replay copies left out; recordings counted per
+  point of view; Keep remembers the moment (no duplicates); overlaps by bisect (2.7 s → 0.04 s).
+
+- **2026-11-22:** **Important moments** (event finder, 0r): `moments.find_moments` groups the history's
+  events into moments and scores them (weights in one dict, advised by Fable); the history viewer lists
+  them with filters (kind, player, with a recording, best first / by date), ▶ Play and Keep (makes a
+  highlight, so the existing Flashback export applies). Owner's library: 827 moments, 272 with recordings.
 
 - **2026-11-22:** Owner tried the real view (link 0.2): "its not great". Logged their direction in the
   backlog: a native Flashback add-on instead of the bridge (0q), an event finder over all recordings

@@ -3392,3 +3392,70 @@ class TestLinkStream(unittest.TestCase):
             self.assertEqual(seen[2][1], {"tick": 150})
         finally:
             srv.shutdown()
+
+
+class TestMoments(unittest.TestCase):
+    """The important moments: grouping, scoring, rarity, repeats, recordings (with Fable's review cases)."""
+
+    def test_find_moments(self):
+        from datetime import datetime, timedelta, timezone
+        from mcsm import models as m, moments as mo
+        t0 = datetime(2026, 5, 24, 20, 0, tzinfo=timezone.utc)
+        at = lambda minutes: t0 + timedelta(minutes=minutes)     # noqa: E731
+        d = m.ServerData(root="x")
+        for n, secs in (("Alex", 7200), ("Steve", 7200), ("Bob", 7200), ("Visitor", 10)):
+            d.players[n.lower()] = m.PlayerProfile(uuid=None, name=n, names_seen=[n], session_count=1,
+                                                   session_seconds=secs)
+        d.log_files = [m.LogFileInfo("logs/first.log", "2026-05-20", "filename", 10, at(-4 * 24 * 60), at(-4 * 24 * 60 + 5))]
+        ev = lambda minute, typ, who, text, **data: m.Event(at(minute), typ, who, text, data=data)   # noqa: E731
+        d.events = [
+            ev(-4 * 24 * 60 + 1, m.EV_JOIN, "Visitor", "Visitor joined the game"),     # the logs' first day: not a first join
+            ev(0, m.EV_JOIN, "Bob", "Bob joined the game"),                             # first join (moment)
+            ev(30, m.EV_DEATH, "Alex", "Alex was slain by Steve", killer="Steve"),       # PvP ...
+            ev(31, m.EV_DEATH, "Alex", "Alex was slain by Steve", killer="Steve"),       # ... a repeat counts half
+            ev(32, m.EV_CHAT, "Steve", "gg"),
+            ev(60, m.EV_DEATH, "Alex", "Alex was slain by Zombie using [Steve's Sword]", killer="Zombie"),
+            ev(90, m.EV_ADVANCEMENT, "Alex", "Alex has made the advancement [Rare One]", title="Rare One"),
+            ev(120, m.EV_ADVANCEMENT, "Alex", "Alex has made the advancement [Common]", title="Common"),
+            ev(121, m.EV_ADVANCEMENT, "Steve", "Steve has made the advancement [Common]", title="Common"),
+            ev(122, m.EV_ADVANCEMENT, "Bob", "Bob has made the advancement [Common]", title="Common"),
+            ev(300, m.EV_LEAVE, "Bob", "Bob left the game"),                            # not a moment
+        ] + [ev(400 + 2 * k, m.EV_CHAT, "Alex", f"message {k}") for k in range(20)]    # 40 min of chat
+        d.sessions = [m.Session(n, at(-10), at(500)) for n in ("Alex", "Steve", "Bob")]
+        d.replays = [m.Replay(path="rec.zip", start=at(25), duration_ms=20 * 60 * 1000, format="flashback",
+                              recorded_player="Steve"),
+                     m.Replay(path="rec (highlights).zip", start=at(25), duration_ms=20 * 60 * 1000,
+                              format="flashback", recorded_player="Steve")]       # the app's copy: not counted
+        ms = mo.find_moments(d)
+        pvp = ms[0]
+        self.assertEqual(pvp["kinds"], {"death": 2, "chat": 1})
+        self.assertEqual(pvp["players"], ["Alex", "Steve"])                     # the killer is in it
+        self.assertEqual(pvp["score"], round((6 + 6 * 0.5 + 0.3) * (1 + 0.5 * 1), 1))   # Bob online too
+        self.assertEqual(pvp["recordings"], [{"path": "rec.zip", "player": "Steve"}])
+        self.assertEqual(pvp["start"], int(at(30).timestamp() * 1000) - mo.PAD_BEFORE_MS)
+        zombie = next(x for x in ms if "Zombie" in x["title"])
+        self.assertEqual(zombie["score"], round(3 * (1 + 0.5 * 2), 1))           # a name in an item isn't PvP
+        rare = next(x for x in ms if "Rare One" in x["title"])
+        self.assertEqual(rare["score"], round(3.0 * (1 + 0.5 * 2), 1))           # 1 / (1 of 3 regulars)
+        common = next(x for x in ms if "Common" in x["title"])
+        self.assertEqual(common["score"], 3.0)                                   # 1 each, all three in it
+        titles = [x["title"] for x in ms]
+        self.assertIn("Bob joins for the first time", titles)
+        self.assertNotIn("Visitor joins for the first time", titles)
+        chats = [x for x in ms if x["title"].startswith("Chat:")]
+        self.assertGreaterEqual(len(chats), 4)                                   # 40 minutes split up
+        self.assertTrue(all(x["end"] - x["start"] <= mo.MAX_MS + mo.PAD_BEFORE_MS + mo.PAD_AFTER_MS for x in ms))
+        self.assertEqual(len({x["id"] for x in ms}), len(ms))
+
+    def test_keep_twice_is_one_highlight(self):
+        from mcsm import highlights as hl
+        tmp = tempfile.mkdtemp()
+        try:
+            store = hl.Store(os.path.join(tmp, "h.json"))
+            a = store.put({"title": "Fight", "start": 1000, "end": 9000, "moment": "abc"})
+            b = store.put({"title": "Fight", "start": 1000, "end": 9000, "moment": "abc"})
+            self.assertEqual(a["id"], b["id"])
+            self.assertEqual(len(store.list()), 1)
+            self.assertEqual(store.list()[0]["moment"], "abc")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
