@@ -56,10 +56,14 @@ Choose a scene and press **Open** (or double-click). From the command line:
      running, other replay open). `mcsm flashback-link status` shows the connection too.
 
   The mod only listens on this computer (127.0.0.1) and needs a secret token from your Minecraft
-  folder. The picture is fitted by height (the same vertical field of view as the camera the texts are
-  drawn with); Flashback's game area can be wider or narrower than your video. Jumping backwards in time
-  makes Flashback re-read the recording, so it can take a moment; playing updates as fast as the game
-  answers. Texts aren't in the replay until you press *Put … in Flashback*: until then the page draws them
+  folder. The picture is a **live stream** from the game (JPEG frames, about 25-30 a second), fitted by
+  height (the same vertical field of view as the camera the texts are drawn with); Flashback's game area
+  can be wider or narrower than your video. While paused, moving the playhead or flying puts Flashback
+  there (jumping backwards makes Flashback re-read the recording, so it can take a moment). **Playing**
+  lets Flashback play the replay itself while the mod moves the camera along your edit's path every
+  frame, and the editor's playhead follows the game. The mod also keeps Minecraft from slowing itself
+  down while it's in the background. Mod 0.2 or newer is needed for this (install it again from the
+  Videos tab after updating the app; close Minecraft first). Texts aren't in the replay until you press *Put … in Flashback*: until then the page draws them
   over the picture.
 - Everything else works as with a video: texts in the world, follow a player, chains, the song and
   beats. **Put world texts & song in Flashback** makes the copy in the same Flashback folder as the

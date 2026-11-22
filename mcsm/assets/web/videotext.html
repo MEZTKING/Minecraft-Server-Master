@@ -1066,50 +1066,74 @@ window.addEventListener("resize", fit);
   draw();
 })();
 // --- views: the app's map through the camera, the map from above, or the real picture from Flashback
-const REAL = { ok: false, busy: false, n: 0, last: "", msg: "" };
+const REAL = { ok: false, busy: false, last: "", msg: "", playing: false, pathFor: null, timer: null, clockBusy: false };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function setView(v) {
   VIEW = v;
   for (const [id, name] of [["#vCam", "camera"], ["#vMap", "map"], ["#vReal", "real"]]) $(id).classList.toggle("on", v === name);
   over.style.pointerEvents = v === "map" ? "none" : "";
   $("#map3d").hidden = v === "real"; $("#realImg").hidden = v !== "real";
-  if (v === "real") startReal();
+  if (v === "real") startReal(); else stopReal();
 }
 $("#vCam").onclick = () => setView("camera");
 $("#vMap").onclick = () => setView("map");
 $("#vReal").onclick = () => setView("real");
+// The real picture: Minecraft streams what it draws (JPEG frames on one connection, shown by the <img>).
+// Paused: the editor puts Flashback where its camera is, only when that changes. Playing: Flashback plays
+// the replay itself, the mod moves the camera along the editor's path every frame, and the page follows
+// the game's clock.
 async function startReal() {
   REAL.msg = "Connecting to Flashback…"; REAL.ok = false;
   let st;
   try { st = await (await fetch("/api/link")).json(); } catch (e) { st = { message: "The editor stopped answering" }; }
   if (!st.connected || !st.matches) { REAL.msg = st.message || "Not connected to Flashback"; return; }
-  REAL.ok = true; REAL.msg = ""; REAL.last = ""; realLoop();
+  const r = await post("/api/link/stream", { width: Math.min(1280, Math.round(over.width)), fps: 30 });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.url) { REAL.msg = j.error || "No picture from Flashback (update the link mod: Videos tab, Install the Flashback link…)"; return; }
+  $("#realImg").src = j.url;
+  REAL.ok = true; REAL.msg = ""; REAL.last = ""; REAL.pathFor = null;
+  clearInterval(REAL.timer); REAL.timer = setInterval(realSync, 100);
 }
-function loadImg(url) {
-  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+function stopReal() {
+  clearInterval(REAL.timer); REAL.timer = null;
+  if (REAL.playing) { REAL.playing = false; post("/api/link/pause", {}); }
+  $("#realImg").removeAttribute("src");                  // closes the stream
+  REAL.ok = false;
 }
-// Each round: put Flashback where the editor's camera is (time and place), wait for the game to draw it,
-// show the picture. Texts are drawn over it by the page as usual.
-async function realLoop() {
-  if (REAL.busy) return;
+async function sendPath() {                              // the camera path in replay ticks, at feet height
+  if (REAL.pathFor === CAM.samples) return;
+  const p = [];
+  CAM.samples.forEach((s, i) => { const v = i * CAM.step; p.push(Math.round(replayTick(v) * 100) / 100, s[0], s[1] - EYE, s[2], s[3], s[4], s[5]); });
+  await post("/api/link/path", { p }); REAL.pathFor = CAM.samples;
+}
+async function realSync() {
+  if (VIEW !== "real" || !REAL.ok || REAL.busy) return;
   REAL.busy = true;
   try {
-    while (VIEW === "real" && REAL.ok) {
-      const t = vid.currentTime, c = FLY || camAt(t); if (!c) break;
-      const tick = Math.round(replayTick(t));
-      const key = JSON.stringify([tick, c.pos.map(v => v.toFixed(2)), c.yaw.toFixed(1), c.pitch.toFixed(1), (c.fov || 70).toFixed(1)]);
-      const moved = key !== REAL.last; REAL.last = key;
-      if (moved) {
-        const r = await post("/api/link/view", { tick, x: c.pos[0], y: c.pos[1] - EYE, z: c.pos[2], yaw: c.yaw, pitch: c.pitch, fov: c.fov || 70 });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || j.error) { REAL.msg = j.error || "Flashback stopped answering"; REAL.ok = false; break; }
-        await sleep(vid.paused ? 120 : 30);                  // let the game draw the new moment
+    if (!vid.paused && !FLY) {
+      if (!REAL.playing) {
+        REAL.playing = true; await sendPath();
+        await post("/api/link/play", { tick: Math.round(replayTick(vid.currentTime)) });
       }
-      const im = await loadImg(`/link/frame/${Math.round(over.width)}/${REAL.n++}.png`);
-      if (!im) { REAL.msg = "No picture from Flashback (is the game minimised?)"; await sleep(1000); REAL.msg = ""; continue; }
-      $("#realImg").src = im.src;
-      if (!moved) await sleep(vid.paused ? 500 : 0);
+      const c = await (await fetch("/api/link/clock")).json().catch(() => ({}));
+      const v = c.tick != null ? videoTime(c.tick) : null;
+      if (v != null) {                                   // the game leads; keep the editor's playhead with it
+        const err = v - vid.currentTime;
+        vid.currentTime = Math.abs(err) > 0.3 ? v : vid.currentTime + err * 0.5;
+      }
+      return;
     }
+    if (REAL.playing) { REAL.playing = false; await post("/api/link/pause", {}); REAL.last = ""; }
+    const t = vid.currentTime, c = FLY || camAt(t); if (!c) return;
+    const tick = Math.round(replayTick(t));
+    const key = JSON.stringify([tick, c.pos.map(v => v.toFixed(2)), c.yaw.toFixed(1), c.pitch.toFixed(1), (c.fov || 70).toFixed(1)]);
+    if (key === REAL.last) return;
+    REAL.last = key;
+    const r = await post("/api/link/view", { tick, x: c.pos[0], y: c.pos[1] - EYE, z: c.pos[2], yaw: c.yaw, pitch: c.pitch, fov: c.fov || 70 });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) { REAL.msg = j.error || "Flashback stopped answering"; REAL.ok = false; stopReal(); }
+  } catch (e) {
+    REAL.msg = "Lost the connection to Flashback"; stopReal();
   } finally { REAL.busy = false; }
 }
 </script>

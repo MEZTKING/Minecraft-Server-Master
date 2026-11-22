@@ -72,6 +72,27 @@ class Link:
             body["roll"] = roll
         return self.json("POST", "/view", body)
 
+    def stream_url(self, width: int = 960, fps: int = 30) -> str:
+        """A one-time link to the live picture (MJPEG) the page can show directly; the long-lived
+        token never leaves the app."""
+        t = self.json("POST", "/ticket", {})
+        if not t.get("ticket"):
+            raise RuntimeError(t.get("error") or "no ticket (is the link mod 0.2 or newer?)")
+        return f"http://127.0.0.1:{self.port}/stream?k={t['ticket']}&w={int(width)}&fps={int(fps)}"
+
+    def clock(self) -> dict:
+        return self.json("GET", "/clock", timeout=3.0)
+
+    def path(self, points: list[float]) -> dict:
+        """The editor's camera path: flat ``[tick, x, y, z, yaw, pitch, fov, ...]`` (feet height)."""
+        return self.json("POST", "/path", {"p": points})
+
+    def play(self, tick: int) -> dict:
+        return self.json("POST", "/play", {"tick": tick})
+
+    def pause(self) -> dict:
+        return self.json("POST", "/pause", {})
+
     def frame(self, width: int = 960) -> bytes:
         code, data = self.request("GET", f"/frame?width={int(width)}")
         if code != 200:

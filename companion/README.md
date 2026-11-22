@@ -9,7 +9,11 @@ picture** from a running Flashback, instead of the app's own map.
 - `GET /status`: is a Flashback replay open, its id and name, the current tick, its length, the export
   range. `POST /view`: pause, go to a tick and put the camera at a position/angle/FOV/roll (the way
   Flashback's own camera keyframes do: the local spectator player). `GET /frame?width=N`: the picture the
-  game draws right now, as PNG.
+  game draws right now, as PNG. `POST /ticket` + `GET /stream?k=<ticket>&w=&fps=`: a live MJPEG stream
+  (frames captured on the game side every 1/fps s, copied off the render thread and encoded with LWJGL's
+  stb as JPEG; only the newest frame is sent; one-time tickets, so the long-lived token never reaches the
+  page). `POST /path` (the editor's camera path in ticks), `POST /play {tick}` / `POST /pause` (Flashback
+  plays, the mod puts the camera on the path every frame), `GET /clock` (the replay tick).
 - Flashback has no API for other mods, so it is used through reflection with the names in its own code
   (`Flashback.getReplayServer`, `ReplayServer.goToReplayTick/getReplayTick/replayPaused`,
   `EditorStateManager.getCurrent().replayVisuals.setFov/overrideRoll`), checked against Flashback 0.40

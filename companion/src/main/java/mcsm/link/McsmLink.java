@@ -8,17 +8,20 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.stb.STBIWriteCallback;
+import org.lwjgl.stb.STBImageWrite;
+import org.lwjgl.system.MemoryUtil;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +31,13 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,6 +53,12 @@ import java.util.regex.Pattern;
  *   <li>{@code POST /view} {@code {"tick": n, "x", "y", "z", "yaw", "pitch", "fov", "roll"}}: pause the
  *       replay, go to that tick and put the camera there (like Flashback's own camera keyframes do).</li>
  *   <li>{@code GET /frame?width=960}: the picture the game draws right now, as PNG.</li>
+ *   <li>{@code POST /ticket}: a one-time ticket for {@code GET /stream?k=ticket&w=960&fps=30}, a live
+ *       MJPEG stream (multipart/x-mixed-replace) the editor page shows directly. Frames are captured on
+ *       the game side every 1/fps s and encoded as JPEG off the render thread; only the newest is sent.</li>
+ *   <li>{@code POST /path} {@code {"p": [tick, x, y, z, yaw, pitch, fov, ...]}}: the editor's camera path;
+ *       {@code POST /play {"tick"}} lets Flashback play the replay from there while the mod puts the
+ *       camera on the path every frame; {@code POST /pause}; {@code GET /clock}: the replay tick now.</li>
  * </ul>
  *
  * <p>Flashback has no API for other mods, so it is used through reflection with the names of its own
@@ -51,18 +66,192 @@ import java.util.regex.Pattern;
  * the request fails with a message instead of the game crashing.
  */
 public class McsmLink implements ClientModInitializer {
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.2.0";
     static String token;
     static int port = -1;
+    static final SecureRandom RANDOM = new SecureRandom();
+
+    // live stream: newest frame, who's watching, one capture in flight at a time
+    static final Object FRAME = new Object();
+    static volatile byte[] latestJpg;
+    static volatile int latestTick;
+    static volatile long latestSeq;
+    static final AtomicInteger streamers = new AtomicInteger();
+    static final AtomicBoolean capturing = new AtomicBoolean();
+    static volatile long captureStarted, lastCapture, lastNudge;
+    static volatile int streamWidth = 960, streamFps = 30;
+    static final Map<String, Long> tickets = new ConcurrentHashMap<>();
+    // following the editor's camera path while Flashback plays
+    static volatile double[] path;
+    static volatile boolean following;
+    static final AtomicBoolean followPending = new AtomicBoolean();
+
+    static final ScheduledExecutorService PUMP = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "mcsm-link-pump"));
+    static final ExecutorService ENCODER = Executors.newSingleThreadExecutor(r -> daemon(r, "mcsm-link-jpeg"));
+
+    private static Thread daemon(Runnable r, String name) {
+        Thread t = new Thread(r, name);
+        t.setDaemon(true);
+        return t;
+    }
 
     @Override
     public void onInitializeClient() {
         byte[] b = new byte[24];
-        new SecureRandom().nextBytes(b);
+        RANDOM.nextBytes(b);
         token = HexFormat.of().formatHex(b);
-        Thread t = new Thread(McsmLink::serve, "mcsm-link");
-        t.setDaemon(true);
-        t.start();
+        daemon(McsmLink::serve, "mcsm-link").start();
+        PUMP.scheduleAtFixedRate(McsmLink::pump, 50, 4, TimeUnit.MILLISECONDS);
+    }
+
+    /** Every few ms: move the camera along the path (once per game frame) and take stream frames. */
+    private static void pump() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (following && path != null && followPending.compareAndSet(false, true)) {
+                mc.execute(() -> {
+                    try {
+                        followPath();
+                    } catch (Throwable ignored) {
+                    } finally {
+                        followPending.set(false);
+                    }
+                });
+            }
+            long now = System.currentTimeMillis();
+            if (streamers.get() > 0) {
+                if (now - lastNudge > 1000) {             // keep the game from slowing down while you're in the editor
+                    lastNudge = now;
+                    mc.execute(() -> mc.getFramerateLimitTracker().onInputReceived());
+                }
+                if (capturing.get() && now - captureStarted > 3000) capturing.set(false);   // a lost readback
+                if (now - lastCapture >= 1000 / Math.max(1, streamFps) && capturing.compareAndSet(false, true)) {
+                    lastCapture = now;
+                    captureStarted = now;
+                    mc.execute(McsmLink::capture);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void capture() {
+        Minecraft mc = Minecraft.getInstance();
+        int tick = currentTick();
+        try {
+            var target = mc.getMainRenderTarget();
+            int down = Math.max(1, Math.round(target.width / (float) Math.max(160, streamWidth)));
+            Screenshot.takeScreenshot(target, down, (NativeImage img) -> {
+                ByteBuffer copy = null;
+                int w = img.getWidth(), h = img.getHeight(), comp = img.format().components();
+                try (img) {
+                    copy = MemoryUtil.memAlloc(w * h * comp);
+                    MemoryUtil.memCopy(img.getPointer(), MemoryUtil.memAddress(copy), (long) w * h * comp);
+                } catch (Throwable e) {
+                    if (copy != null) MemoryUtil.memFree(copy);
+                    capturing.set(false);
+                    return;
+                }
+                ByteBuffer pixels = copy;
+                ENCODER.execute(() -> {
+                    try {
+                        byte[] jpg = jpeg(pixels, w, h, comp, 80);
+                        synchronized (FRAME) {
+                            latestJpg = jpg;
+                            latestTick = tick;
+                            latestSeq++;
+                            FRAME.notifyAll();
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        MemoryUtil.memFree(pixels);
+                        capturing.set(false);
+                    }
+                });
+            });
+        } catch (Throwable e) {
+            capturing.set(false);
+        }
+    }
+
+    private static byte[] jpeg(ByteBuffer pixels, int w, int h, int comp, int quality) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(w * h / 4);
+        STBIWriteCallback cb = STBIWriteCallback.create((ctx, data, size) -> {
+            ByteBuffer b = STBIWriteCallback.getData(data, size);
+            byte[] a = new byte[size];
+            b.get(a);
+            out.write(a, 0, size);
+        });
+        try {
+            STBImageWrite.stbi_write_jpg_to_func(cb, 0L, w, h, comp, pixels, quality);
+        } finally {
+            cb.free();
+        }
+        return out.toByteArray();
+    }
+
+    private static int currentTick() {
+        try {
+            Object rs = replayServer();
+            return rs == null ? -1 : (int) rs.getClass().getMethod("getReplayTick").invoke(rs);
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    /** Put the camera where the editor's path has it at the replay's current (partial) tick. */
+    private static void followPath() throws ReflectiveOperationException {
+        double[] p = path;
+        Object rs = replayServer();
+        if (p == null || p.length < 7 || rs == null) return;
+        double t;
+        try {
+            t = (double) rs.getClass().getMethod("getPartialReplayTick").invoke(rs);
+        } catch (NoSuchMethodException e) {
+            t = (int) rs.getClass().getMethod("getReplayTick").invoke(rs);
+        }
+        int n = p.length / 7, lo = 0, hi = n - 1;
+        if (t <= p[0]) hi = 0;
+        else if (t >= p[(n - 1) * 7]) lo = n - 1;
+        else {
+            while (hi - lo > 1) {
+                int mid = (lo + hi) >>> 1;
+                if (p[mid * 7] <= t) lo = mid; else hi = mid;
+            }
+        }
+        int a = lo * 7, b = hi * 7;
+        double k = hi == lo ? 0 : (t - p[a]) / Math.max(1e-6, p[b] - p[a]);
+        double dyaw = ((p[b + 4] - p[a + 4] + 540) % 360) - 180;
+        setCamera(p[a + 1] + (p[b + 1] - p[a + 1]) * k, p[a + 2] + (p[b + 2] - p[a + 2]) * k,
+                p[a + 3] + (p[b + 3] - p[a + 3]) * k, p[a + 4] + dyaw * k, p[a + 5] + (p[b + 5] - p[a + 5]) * k,
+                p[a + 6] + (p[b + 6] - p[a + 6]) * k, Double.NaN);
+    }
+
+    /** Like Flashback's camera keyframes: the spectator player there, no smoothing from the last frame. */
+    private static void setCamera(double x, double y, double z, double yaw, double pitch, double fov, double roll)
+            throws ReflectiveOperationException {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player != null) {
+            if (mc.getCameraEntity() != player && mc.getConnection() != null) mc.getConnection().sendCommand("spectate");
+            player.snapTo(x, y, z, (float) yaw, (float) pitch);
+            player.getInterpolation().cancel();
+            player.setDeltaMovement(Vec3.ZERO);
+            player.xo = player.xOld = x;
+            player.yo = player.yOld = y;
+            player.zo = player.zOld = z;
+            player.yRotO = (float) yaw;
+            player.xRotO = (float) pitch;
+        }
+        Object es = editorState();
+        if (es != null) {
+            Object visuals = es.getClass().getField("replayVisuals").get(es);
+            if (!Double.isNaN(fov)) visuals.getClass().getMethod("setFov", float.class).invoke(visuals, (float) fov);
+            if (!Double.isNaN(roll)) {
+                visuals.getClass().getField("overrideRoll").setBoolean(visuals, Math.abs(roll) > 0.01);
+                visuals.getClass().getField("overrideRollAmount").setFloat(visuals, (float) roll);
+            }
+        }
     }
 
     // --- server ---------------------------------------------------------------------------------------
@@ -122,6 +311,11 @@ public class McsmLink implements ClientModInitializer {
             String method = parts[0], target = parts.length > 1 ? parts[1] : "/";
             OutputStream out = s.getOutputStream();
             String host = headers.getOrDefault("host", "");
+            boolean hostOk = host.equals("127.0.0.1:" + port) || host.equals("localhost:" + port);
+            if (method.equals("GET") && target.startsWith("/stream?") && hostOk) {
+                stream(s, out, target.substring(target.indexOf('?') + 1));
+                return;
+            }
             if (!token.equals(headers.get("x-mcsm-token"))
                     || !(host.equals("127.0.0.1:" + port) || host.equals("localhost:" + port))) {
                 send(out, 403, "text/plain", "forbidden".getBytes(StandardCharsets.UTF_8));
@@ -137,6 +331,22 @@ public class McsmLink implements ClientModInitializer {
                     send(out, 200, "application/json", onClient(() -> view(json)).getBytes(StandardCharsets.UTF_8));
                 } else if (method.equals("GET") && path.equals("/frame")) {
                     send(out, 200, "image/png", frame(intParam(query, "width", 960)));
+                } else if (method.equals("POST") && path.equals("/ticket")) {
+                    byte[] t = new byte[16];
+                    RANDOM.nextBytes(t);
+                    String k = HexFormat.of().formatHex(t);
+                    tickets.put(k, System.currentTimeMillis());
+                    send(out, 200, "application/json", ("{\"ticket\": \"" + k + "\"}").getBytes(StandardCharsets.UTF_8));
+                } else if (method.equals("GET") && path.equals("/clock")) {
+                    send(out, 200, "application/json", clock().getBytes(StandardCharsets.UTF_8));
+                } else if (method.equals("POST") && path.equals("/path")) {
+                    McsmLink.path = numbers(new String(body, StandardCharsets.UTF_8));
+                    send(out, 200, "application/json", ("{\"ok\": true, \"points\": " + McsmLink.path.length / 7 + "}")
+                            .getBytes(StandardCharsets.UTF_8));
+                } else if (method.equals("POST") && (path.equals("/play") || path.equals("/pause"))) {
+                    boolean play = path.equals("/play");
+                    String json = new String(body, StandardCharsets.UTF_8);
+                    send(out, 200, "application/json", onClient(() -> play(play, json)).getBytes(StandardCharsets.UTF_8));
                 } else {
                     send(out, 404, "text/plain", "not found".getBytes(StandardCharsets.UTF_8));
                 }
@@ -147,6 +357,100 @@ public class McsmLink implements ClientModInitializer {
             }
         } catch (IOException | RuntimeException ignored) {
         }
+    }
+
+    /** The live picture: one JPEG after another on this connection, until it closes. */
+    private static void stream(Socket s, OutputStream out, String query) throws IOException {
+        String k = "";
+        for (String kv : query.split("&")) if (kv.startsWith("k=")) k = kv.substring(2);
+        Long made = tickets.remove(k);
+        if (made == null || System.currentTimeMillis() - made > 60000 || streamers.get() >= 3) {
+            send(out, 403, "text/plain", "forbidden".getBytes(StandardCharsets.UTF_8));
+            return;
+        }
+        streamWidth = Math.max(160, Math.min(3840, intParam(query, "w", 960)));
+        streamFps = Math.max(1, Math.min(60, intParam(query, "fps", 30)));
+        out.write(("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=mcsmframe\r\n"
+                + "Cache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        s.setSoTimeout(0);
+        streamers.incrementAndGet();
+        try {
+            long seen = -1;
+            while (true) {
+                byte[] jpg;
+                int tick;
+                synchronized (FRAME) {
+                    long waited = 0;
+                    while (latestSeq == seen && waited < 2000) {
+                        try {
+                            FRAME.wait(250);
+                        } catch (InterruptedException e) {
+                            return;
+                        }
+                        waited += 250;
+                    }
+                    if (latestSeq == seen || latestJpg == null) continue;
+                    seen = latestSeq;
+                    jpg = latestJpg;
+                    tick = latestTick;
+                }
+                out.write(("--mcsmframe\r\nContent-Type: image/jpeg\r\nContent-Length: " + jpg.length + "\r\nX-Tick: "
+                        + tick + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                out.write(jpg);
+                out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+        } finally {
+            streamers.decrementAndGet();
+        }
+    }
+
+    private static String clock() {
+        try {
+            Object rs = replayServer();
+            if (rs == null) return "{\"tick\": null}";
+            int tick = (int) rs.getClass().getMethod("getReplayTick").invoke(rs);
+            boolean paused = rs.getClass().getField("replayPaused").getBoolean(rs);
+            return "{\"tick\": " + tick + ", \"paused\": " + paused + ", \"following\": " + following
+                    + ", \"fps\": " + Minecraft.getInstance().getFps() + ", \"frames\": " + latestSeq + "}";
+        } catch (ReflectiveOperationException | LinkageError e) {
+            return "{\"tick\": null, \"error\": " + quote(String.valueOf(e)) + "}";
+        }
+    }
+
+    private static String play(boolean play, String json) {
+        try {
+            Object rs = replayServer();
+            if (rs == null) return "{\"error\": \"no Flashback replay is open\"}";
+            if (play) {
+                Matcher m = NUM.matcher(json);
+                while (m.find()) {
+                    if (m.group(1).equals("tick") && !m.group(2).equals("null")) {
+                        int tick = (int) Math.round(Double.parseDouble(m.group(2)));
+                        int now = (int) rs.getClass().getMethod("getReplayTick").invoke(rs);
+                        if (tick != now) rs.getClass().getMethod("goToReplayTick", int.class).invoke(rs, tick);
+                    }
+                }
+                following = path != null;
+            } else {
+                following = false;
+            }
+            rs.getClass().getField("replayPaused").setBoolean(rs, !play);
+            return "{\"ok\": true}";
+        } catch (ReflectiveOperationException | LinkageError e) {
+            return "{\"error\": " + quote("Flashback not found or changed: " + e) + "}";
+        }
+    }
+
+    private static double[] numbers(String json) {
+        int a = json.indexOf('['), b = json.lastIndexOf(']');
+        if (a < 0 || b <= a) return null;
+        String[] parts = json.substring(a + 1, b).split(",");
+        int n = parts.length - parts.length % 7;
+        double[] out = new double[n];
+        for (int i = 0; i < n; i++) out[i] = Double.parseDouble(parts[i].trim());
+        return n >= 7 ? out : null;
     }
 
     private static String readLine(InputStream in) throws IOException {
@@ -221,34 +525,19 @@ public class McsmLink implements ClientModInitializer {
         Map<String, String> v = new HashMap<>();
         Matcher m = NUM.matcher(json);
         while (m.find()) v.put(m.group(1), m.group(2));
-        Minecraft mc = Minecraft.getInstance();
         try {
             Object rs = replayServer();
             if (rs == null) return "{\"error\": \"no Flashback replay is open\"}";
+            following = false;
             rs.getClass().getField("replayPaused").setBoolean(rs, !"true".equals(v.get("play")));
             if (v.containsKey("tick") && !"null".equals(v.get("tick"))) {
                 int tick = (int) Math.round(Double.parseDouble(v.get("tick")));
                 int now = (int) rs.getClass().getMethod("getReplayTick").invoke(rs);
                 if (tick != now) rs.getClass().getMethod("goToReplayTick", int.class).invoke(rs, tick);
             }
-            LocalPlayer player = mc.player;
-            if (player != null && v.containsKey("x")) {
-                if (mc.getCameraEntity() != player && mc.getConnection() != null) mc.getConnection().sendCommand("spectate");
-                player.snapTo(d(v, "x"), d(v, "y"), d(v, "z"), (float) d(v, "yaw"), (float) d(v, "pitch"));
-                player.getInterpolation().cancel();
-                player.setDeltaMovement(Vec3.ZERO);
-            }
-            Object es = editorState();
-            if (es != null) {
-                Object visuals = es.getClass().getField("replayVisuals").get(es);
-                if (v.containsKey("fov")) visuals.getClass().getMethod("setFov", float.class).invoke(visuals, (float) d(v, "fov"));
-                if (v.containsKey("roll")) {
-                    float roll = (float) d(v, "roll");
-                    Field on = visuals.getClass().getField("overrideRoll");
-                    Field amount = visuals.getClass().getField("overrideRollAmount");
-                    on.setBoolean(visuals, Math.abs(roll) > 0.01f);
-                    amount.setFloat(visuals, roll);
-                }
+            if (v.containsKey("x")) {
+                setCamera(d(v, "x"), d(v, "y"), d(v, "z"), d(v, "yaw"), d(v, "pitch"),
+                        v.containsKey("fov") ? d(v, "fov") : Double.NaN, v.containsKey("roll") ? d(v, "roll") : Double.NaN);
             }
             return "{\"ok\": true}";
         } catch (ReflectiveOperationException | LinkageError e) {

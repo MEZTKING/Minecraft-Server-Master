@@ -3346,3 +3346,49 @@ class TestEditPicker(unittest.TestCase):
         finally:
             flashback.flashback_folders = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestLinkStream(unittest.TestCase):
+    """The live picture and playing along: tickets, path, play/pause, clock (stand-in mod)."""
+
+    def test_stream_and_play(self):
+        import http.server
+        import threading
+        from mcsm import flashlink
+        seen = []
+
+        class Fake(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _reply(self, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self._reply({"tick": 1234, "paused": False})
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])) or b"{}")
+                seen.append((self.path, body))
+                self._reply({"ticket": "abc"} if self.path == "/ticket" else {"ok": True})
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            link = flashlink.Link(srv.server_address[1], "secret")
+            url = link.stream_url(800, 24)
+            self.assertEqual(url, f"http://127.0.0.1:{srv.server_address[1]}/stream?k=abc&w=800&fps=24")
+            self.assertNotIn("secret", url)                       # the long-lived token never goes to the page
+            link.path([100, 1, 64, 2, 90, 0, 70])
+            link.play(150)
+            link.pause()
+            self.assertEqual(link.clock()["tick"], 1234)
+            self.assertEqual([p for p, _ in seen], ["/ticket", "/path", "/play", "/pause"])
+            self.assertEqual(seen[1][1], {"p": [100, 1, 64, 2, 90, 0, 70]})
+            self.assertEqual(seen[2][1], {"tick": 150})
+        finally:
+            srv.shutdown()

@@ -28,6 +28,10 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/link            is Minecraft with Flashback and the companion mod running, which replay is open
   POST /api/link/view       {"tick", "x", "y", "z", "yaw", "pitch", "fov"}  put Flashback there (paused)
   GET  /link/frame/<width>/<n>.png  the picture Flashback draws right now (the real view)
+  POST /api/link/stream     {"width", "fps"}  a one-time link to the live picture (shown by the page directly)
+  POST /api/link/path       {"p": [tick, x, y, z, yaw, pitch, fov, ...]}  the camera path Flashback follows
+  POST /api/link/play       {"tick"}  Flashback plays from there, the camera on the path; POST /api/link/pause
+  GET  /api/link/clock      the replay tick now (the page follows the game while playing)
   POST /api/camera          {"match": i, "keyframes": [...]}  (edit mode) the camera as changed in the
                             page: its path is worked out the way Flashback moves it
 
@@ -517,6 +521,13 @@ class VideoEditor:
             return self.tiles()
         if path == "/api/link":
             return self.link_status()
+        if path == "/api/link/clock":
+            link = self._the_link()
+            try:
+                return link.clock() if link else {"tick": None}
+            except OSError:
+                self._link = None
+                return {"tick": None}
         if path == "/api/blocks":
             return self.blocks()
         if path == "/api/job":
@@ -670,6 +681,21 @@ class VideoEditor:
             return self.beats(body)
         if path == "/api/link/view":
             return self.link_view(body)
+        if path in ("/api/link/stream", "/api/link/path", "/api/link/play", "/api/link/pause"):
+            link = self._the_link()
+            if link is None:
+                raise ValueError("Minecraft with Flashback and the companion mod isn't running")
+            try:
+                if path.endswith("stream"):
+                    return {"url": link.stream_url(int(body.get("width", 960)), int(body.get("fps", 30)))}
+                if path.endswith("path"):
+                    return link.path([float(v) for v in body.get("p") or []])
+                if path.endswith("play"):
+                    return link.play(int(body.get("tick", 0)))
+                return link.pause()
+            except (OSError, RuntimeError) as exc:
+                self._link = None
+                raise ValueError(f"lost the connection to Minecraft ({exc})")
         if path == "/api/tracks":
             return self.tracks_all(int(body.get("match", 0)))
         return None

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (editor map: real blocks with Minecraft's textures; camera eye height fix).
+`CLAUDE.md`). Last updated: 2026-11-22 (Flashback link 0.2: live JPEG stream and playing in Flashback; edit picker).
 
 ## What this project is
 
@@ -756,6 +756,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | A video's edit may have changed after exporting: edits saved after the video whose export start fits are offered as "probable", with the range that gives the video's length | The owner lengthened the welcome clip's edit after exporting it |
 | 2026-11-22 | Text borders in the world are black text displays just behind the text | Text displays have only a drop shadow; the owner wanted white blocky text with black borders |
 | 2026-11-22 | Test builds for the updater go to a public pre-release `latest-build` (fixed file name + build.json with SHA-256) | Actions artifacts need a GitHub sign-in to download; the app must update without one |
+| 2026-11-22 | The real view is a live MJPEG stream from the mod, and playing is done by Flashback with the mod following the editor's camera path; scrubbing sends one view per change | Fable's advice after the owner found per-frame request/PNG round trips "extremely slow" (3-4 game frames per editor frame, PNG encode, a seek per frame) |
 | 2026-11-22 | The camera is seen from 1.62 blocks above a CAMERA keyframe's position (`worldtext.eye_at`); keyframes stay as Flashback stores them | Flashback puts the spectator player at the keyframe (player.snapTo), so the picture is from its eyes; found when the block preview put the camera inside the ground |
 | 2026-11-22 | Block textures are read from the Minecraft client jar installed on the PC, never bundled or downloaded | Mojang's assets can't be redistributed; every owner has the game |
 | 2026-11-22 | The companion mod uses Flashback only through reflection and has no build dependency on it | Flashback has no API; this keeps CI building without Flashback's jar and survives Flashback updates that keep the names |
@@ -827,6 +828,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** **Flashback link 0.2** (owner: real view "runs extremely slow frames"; advice from Fable): the
+  mod streams the game picture as MJPEG (captured every 1/fps s on the game side, JPEG via LWJGL stb on a
+  worker thread, newest frame only, one-time tickets), Flashback plays the replay itself while the mod
+  moves the camera along the editor's path each frame, `/clock` keeps the editor's playhead with the game,
+  and the mod keeps Minecraft from throttling while streaming. Test game: ~26 frames/s at 854 px. The
+  editor sends a view only when the playhead or camera changes.
 
 - **2026-11-22:** **Edit picker** (owner: "Yes, add it"): *Open a Flashback edit…* lists every scene of every
   Flashback edit (scene name, recording name and file, export length, camera keyframes, saved, which
