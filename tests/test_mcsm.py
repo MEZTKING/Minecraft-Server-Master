@@ -2673,3 +2673,49 @@ class TestWorldPick(unittest.TestCase):
         self.assertEqual(low[1], 63.0)
         self.assertIsNone(wp.hit_ground(FlatWithMountain(), cam, wp.ray(cam, 0.0, 0.0, 70.0, 1920, 1080, 960, 100)))
         self.assertEqual(wp.recording_date("x/2026-06-06--19-55-14.zip").day, 6)
+
+
+class TestFollowPlayer(unittest.TestCase):
+    def test_text_rides_on_the_player(self):
+        import uuid
+        from mcsm import videotext as vt, worldtext as wt, paths
+        tmp = tempfile.mkdtemp()
+        try:
+            steve = uuid.UUID(STEVE)
+            # a chunk whose snapshot adds Steve (entity 500) with the real add_entity layout, then 20 ticks
+            names = [wt.GAME_PACKET, wt.NEXT_TICK]
+            add = wt._varint(1) + wt.add_entity_packet(500, steve, 155, 10.0, 70.0, 20.0)
+            snap = wt._varint(0) + struct.pack(">I", len(add)) + add
+            chunk = struct.pack(">I", wt.FLASHBACK_MAGIC) + wt._varint(len(names))
+            for n in names:
+                chunk += wt._varint(len(n)) + n.encode()
+            chunk += struct.pack(">I", len(snap)) + snap + (wt._varint(1) + struct.pack(">I", 0)) * 20
+            rec = os.path.join(tmp, "rec.zip")
+            with zipfile.ZipFile(rec, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "r", "protocol_version": 775, "total_ticks": 20,
+                                                         "version_string": "26.1.2",
+                                                         "chunks": {"c0.flashback": {"duration": 20}}}))
+                zf.writestr("c0.flashback", chunk)
+            players = {steve.bytes: "Steve"}
+            seen = paths.players_in_view(rec, 5, players)
+            self.assertEqual(seen["Steve"]["eid"], 500)
+            self.assertEqual((seen["Steve"]["x"], seen["Steve"]["z"]), (10.0, 20.0))
+            fb = os.path.join(tmp, "fb")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            os.makedirs(os.path.join(fb, "replays"))
+            state = os.path.join(fb, "editor_states", "r.json")
+            cam = {"position": [0, 70, 0], "yaw": 0, "pitch": 0}
+            with open(state, "w") as fh:
+                json.dump({"scenes": [{"name": "S", "exportStartTicks": 0, "exportEndTicks": 20, "keyframeTracks": [
+                    {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "20": cam}}]}]}, fh)
+            match = {"recording": rec, "state": state, "scene": 0, "uuid": "r", "start": 0, "end": 20, "still_from": 0.0}
+            r = vt.make_items_in_world(match, [{"kind": "world", "lines": [["TACKY", 1.5]], "start": 0.2, "follow": "Steve"}],
+                                       None, fb, players=players)
+            with zipfile.ZipFile(r["replay"]) as zf:
+                ev = TestWorldTextTiming._events(zf.read("c0.flashback"))
+            self.assertIn((4, wt.SET_PASSENGERS[775]), ev)          # mounted on Steve when it appears
+            with self.assertRaises(ValueError):
+                vt.make_items_in_world(match, [{"kind": "world", "lines": [["X", 1]], "start": 0.2, "follow": "Alex"}],
+                                       None, fb, players=players)    # not in view: told so
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

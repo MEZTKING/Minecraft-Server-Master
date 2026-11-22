@@ -332,3 +332,86 @@ def read_tracks(files: list[str]) -> dict[str, list[list]]:
 
 def epoch_ms(dt: datetime | None) -> int | None:
     return int(dt.timestamp() * 1000) if dt else None
+
+
+def players_in_view(zip_path: str, tick: int, players: dict[bytes, str]) -> dict[str, dict]:
+    """Who is in view at replay *tick*: ``{name: {"eid", "x", "y", "z"}}``, the recorded player
+    included (by the UUID of ``create_local_player``). Reads the recording only up to *tick*."""
+    out: dict[str, dict] = {}
+    with zipfile.ZipFile(zip_path) as z:
+        proto = _protocol(z)
+        add_id = ADD_ENTITY.get(proto, DEFAULT_ADD_ENTITY)
+        remove_id = REMOVE_ENTITIES.get(proto)
+        meta = json.loads(z.read("metadata.json").decode("utf-8", "replace"))
+        chunks, start = [], 0
+        for cn in _chunk_names(z):
+            dur = int(((meta.get("chunks") or {}).get(cn) or {}).get("duration") or 0)
+            chunks.append((cn, start))
+            start += dur
+        # only the chunk file that contains *tick* is needed: its snapshot lists who's in view
+        cn, t0 = next(((c, s) for c, s in reversed(chunks) if s <= tick), chunks[0])
+        b = z.read(cn)
+        i = 4
+        count, i = _varint(b, i)
+        kinds = []
+        for _ in range(count):
+            ln, i = _varint(b, i)
+            kinds.append(b[i:i + ln].decode("utf-8", "replace").rsplit("/", 1)[-1])
+            i += ln
+        snap = _U32.unpack_from(b, i)[0]
+        i += 4
+        nt = kinds.index("next_tick") if "next_tick" in kinds else -1
+        mv = kinds.index("move_entities") if "move_entities" in kinds else -1
+        cl = kinds.index("create_local_player") if "create_local_player" in kinds else -1
+        gp = kinds.index("game_packet") if "game_packet" in kinds else -1
+        by_eid: dict[int, str] = {}
+        local, me, me_name = None, None, None
+        t = t0
+        end = len(b)
+        while i + 5 <= end and t <= tick:
+            aid, i = _varint(b, i)
+            size = _U32.unpack_from(b, i)[0]
+            i += 4
+            if aid == nt:
+                t += 1
+            elif aid == gp and size > 2:
+                pid, k = _varint(b, i)
+                if pid == add_id and size >= 43:
+                    eid, k = _varint(b, k)
+                    name = players.get(bytes(b[k:k + 16]))
+                    if name:
+                        _t, k2 = _varint(b, k + 16)
+                        x, y, zz = _XYZ.unpack_from(b, k2)
+                        by_eid[eid] = name
+                        out[name] = {"eid": eid, "x": x, "y": y, "z": zz}
+                elif pid == remove_id:
+                    n, k = _varint(b, k)
+                    for _ in range(min(n, 10_000)):
+                        eid, k = _varint(b, k)
+                        name = by_eid.pop(eid, None)
+                        if name and out.get(name, {}).get("eid") == eid:
+                            out.pop(name, None)
+            elif aid == cl and size >= 40:
+                me_name = players.get(bytes(b[i:i + 16]))
+                local = _XYZ.unpack_from(b, i + 16)
+            elif aid == mv:
+                p = b[i:i + size]
+                j = 0
+                levels, j = _varint(p, j)
+                for _ in range(levels):
+                    ln, j = _varint(p, j)
+                    j += ln
+                    n, j = _varint(p, j)
+                    for _ in range(n):
+                        eid, j = _varint(p, j)
+                        x, y, zz, _yaw, _pitch, _hy = _POS.unpack_from(p, j)
+                        j += _POS.size + 1
+                        if me is None and local is not None and abs(x - local[0]) < 0.01 and \
+                                abs(y - local[1]) < 0.01 and abs(zz - local[2]) < 0.01:
+                            me = eid
+                        if eid == me and me_name:
+                            out[me_name] = {"eid": eid, "x": x, "y": y, "z": zz, "recorded": True}
+                        elif eid in by_eid:
+                            out[by_eid[eid]].update({"x": x, "y": y, "z": zz})
+            i += size
+    return out

@@ -17,6 +17,10 @@ plays with **all your texts drawn on it while you change them**.
   and stands the text there, upright and turning to face the camera, so it looks like part of the
   landscape; far spots get bigger letters automatically. Far spots are exact; right in front of a low
   camera it can be a block off.
+- **Follow a player:** the text **rides on the player** (above their head) and moves with them; in
+  Flashback the game itself keeps it attached, so it stays in sync however fast they or the camera
+  move. Choose from the players in view when the text appears; *Right*/*Up* move it beside/above the
+  head. The preview in the page follows them about once a second.
 - **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green = where
   the camera stands still). Drag a bar to move it in time, drag its right edge to change how long it
   stays, click elsewhere to move the playhead.

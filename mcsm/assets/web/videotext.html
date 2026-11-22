@@ -112,7 +112,8 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 
     <h2>Place</h2>
     <div class="worldOnly">
-      <div class="seg" style="margin-bottom:6px"><button id="aCam" type="button">In front of the camera</button><button id="aSpot" type="button" title="Then click on the video where it should stand, e.g. a mountain">At a spot in the world…</button></div>
+      <div class="seg" style="margin-bottom:6px"><button id="aCam" type="button">In front of the camera</button><button id="aSpot" type="button" title="Then click on the video where it should stand, e.g. a mountain">At a spot…</button><button id="aFollow" type="button" title="The text rides on a player and moves with them">Follow a player</button></div>
+      <label id="followRow" hidden><span>Player</span><select id="follow"></select></label>
       <div class="hint" id="spotInfo"></div>
       <label><span>Right</span><input id="right" type="range" min="-80" max="80" step="0.5"><span class="val" id="rightV"></span></label>
       <label><span>Up</span><input id="up" type="range" min="-60" max="60" step="0.5"><span class="val" id="upV"></span></label>
@@ -174,7 +175,21 @@ function project(cam, p, W, H) {
   return [W / 2 + x / z * focal, H / 2 - y / z * focal, focal / z];
 }
 const singleOf = a => ({ "words": "none", "words-fade": "fade", "words-pop": "pop" }[a] || a);
+function followPieces(it, t) {
+  const pos = trackAt(it.follow, t); if (!pos) return [];
+  const sizes = it.lines.filter(l => String(l[0]).trim()).map(l => l[1] * it.size), out = [];
+  let i = 0;
+  for (const [text, s0] of it.lines) {
+    if (!String(text).trim()) continue;
+    const size = sizes[i], below = sizes.slice(i + 1).reduce((a, b) => a + b, 0) * 1.25;
+    out.push({ text, x: pos[0], y: pos[1] + 1.8 + 0.3 + it.up + below, z: pos[2], size, wpx: widthPx(text, true),
+               appear: startOf(it), anim: singleOf(it.animation), animT: it.anim, dx: it.right });
+    i++;
+  }
+  return out;
+}
 function worldPieces(it) {
+  if (it.follow) return followPieces(it, vid.currentTime);
   const t0 = startOf(it), cam = camAt(Math.min(t0, INFO.duration)); if (!cam) return [];
   const ry = rad(cam.yaw), sizes = it.lines.filter(l => String(l[0]).trim()).map(l => l[1] * it.size);
   let cx, cy, cz, top;
@@ -237,6 +252,7 @@ function draw() {
       for (const p of worldPieces(it)) {
         const a = animState(p.anim, t, p.appear, p.animT); if (!a) continue; a.alpha *= fo;
         const pr = project(cam, [p.x, p.y + p.size * 0.5, p.z], W, H); if (!pr) continue;
+        if (p.dx) pr[0] += p.dx * pr[2];                       // riding: "right" moves it beside the head
         const r = drawText(it, p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, `"Minecraft", monospace`);
         if (r) HITS.push([it, ...r, pr[2]]);
       }
@@ -366,8 +382,12 @@ function fillEditor() {
   document.querySelectorAll(".worldOnly").forEach(e => e.hidden = SEL.kind !== "world");
   document.querySelectorAll(".screenOnly").forEach(e => e.hidden = SEL.kind !== "screen");
   $("#start").value = SEL.start ?? ""; $("#until").value = SEL.until ?? "";
-  $("#aCam").classList.toggle("on", !SEL.spot); $("#aSpot").classList.toggle("on", !!SEL.spot);
-  $("#distance").closest("label").hidden = !!SEL.spot;
+  $("#aCam").classList.toggle("on", !SEL.spot && !SEL.follow); $("#aSpot").classList.toggle("on", !!SEL.spot && !SEL.follow);
+  $("#aFollow").classList.toggle("on", !!SEL.follow); $("#followRow").hidden = !SEL.follow;
+  if (SEL.follow && ![...$("#follow").options].some(o => o.value === SEL.follow)) {
+    const o = document.createElement("option"); o.value = o.textContent = SEL.follow; $("#follow").appendChild(o); }
+  if (SEL.follow) $("#follow").value = SEL.follow;
+  $("#distance").closest("label").hidden = !!SEL.spot || !!SEL.follow;
   $("#spotInfo").textContent = picking ? "Click on the video where the text should stand (on the ground, a mountain…)." :
     (SEL.spot ? `Standing at ${SEL.spot.map(v => Math.round(v)).join(", ")} in the world.` : "");
   for (const f of FIELDS) { const el = $("#" + f); if (el.type === "checkbox") el.checked = !!SEL[f]; else el.value = SEL[f];
@@ -403,7 +423,33 @@ $("#until").onchange = () => { snapshot(); SEL.until = $("#until").value === "" 
 $("#startNow").onclick = () => setTime("start", vid.currentTime); $("#untilNow").onclick = () => setTime("until", vid.currentTime);
 $("#startStill").onclick = () => setTime("start", null); $("#untilEnd").onclick = () => setTime("until", null);
 function setTime(key, v) { if (!SEL) return; snapshot(); SEL[key] = v == null ? null : Math.round(v * 10) / 10; fillEditor(); changed(true); }
-$("#aCam").onclick = () => { if (SEL && SEL.spot) { snapshot(); SEL.spot = null; fillEditor(); changed(true); } };
+$("#aCam").onclick = () => { if (SEL && (SEL.spot || SEL.follow)) { snapshot(); SEL.spot = null; SEL.follow = null; fillEditor(); changed(true); } };
+$("#aFollow").onclick = async () => {
+  if (!SEL || !INFO.matches.length) return;
+  $("#spotInfo").textContent = "Looking for the players in view when the text appears…";
+  const r = await post("/api/players", { match: MATCH, t: startOf(SEL) });
+  const j = await r.json();
+  if (!r.ok || !j.players || !j.players.length) { $("#spotInfo").textContent = j.error || "Nobody is in view at that moment: move the start time."; return; }
+  const sel = $("#follow"); sel.replaceChildren();
+  j.players.forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
+  snapshot(); SEL.follow = SEL.follow && j.players.includes(SEL.follow) ? SEL.follow : j.players[0]; SEL.spot = null; SEL.right = 0; SEL.up = 0;
+  if (SEL.size > 0.6) SEL.size = 0.35;                             // above a head: about 2-block letters
+  $("#spotInfo").textContent = "The text rides on the player: in Flashback it moves with them exactly. (The preview here follows them about once a second.)";
+  fillEditor(); changed(true); loadTrack(SEL.follow);
+};
+$("#follow").onchange = () => { if (SEL) { snapshot(); SEL.follow = $("#follow").value; loadTrack(SEL.follow); changed(true); } };
+const TRACKS = {};
+async function loadTrack(name) {
+  if (!name || TRACKS[name]) return;
+  TRACKS[name] = [];
+  TRACKS[name] = (await (await post("/api/track", { match: MATCH, name })).json()).points || [];
+}
+function trackAt(name, t) {
+  const p = TRACKS[name]; if (!p || !p.length) return null;
+  let i = p.findIndex(q => q[0] >= t); if (i < 0) return p[p.length - 1].slice(1); if (i === 0) return p[0].slice(1);
+  const a = p[i - 1], b = p[i], k = (t - a[0]) / Math.max(0.001, b[0] - a[0]);
+  return [a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k];
+}
 $("#aSpot").onclick = () => { if (!SEL || !INFO.matches.length) return; picking = true; over.style.cursor = "crosshair"; vid.pause(); fillEditor();
   $("#spotInfo").textContent = "Click on the video where the text should stand: a mountain, a far build, the ground. Far spots are exact; " +
     "right in front of a low camera it can be a block off (the world is read from the backup made after the recording)."; };
@@ -507,6 +553,7 @@ window.addEventListener("resize", fit);
   $("#what").textContent = `${INFO.video.split(/[\\/]/).pop()} · ${INFO.duration.toFixed(1)} s · ` +
     (INFO.matches.length ? (st != null ? `camera stops at ${st.toFixed(1)} s (green on the timeline)` : "no still ending") : "no Flashback edit found: only 'on the video' texts");
   SEL = ITEMS[0] || null; renderList(); fillEditor(); fit();
+  ITEMS.filter(i => i.follow).forEach(i => loadTrack(i.follow));
   vid.addEventListener("loadedmetadata", () => { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); });
   draw();
 })();

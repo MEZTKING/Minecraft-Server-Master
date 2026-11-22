@@ -43,6 +43,8 @@ PROTOCOLS = {
 }
 # remove_entities packet id per protocol (same data reports; also seen in real recordings)
 REMOVE_ENTITIES = {775: 77, 776: 77, 777: 78}
+# set_passengers (vehicle VarInt, count VarInt, passenger VarInts): makes text ride a player
+SET_PASSENGERS = {775: 107, 776: 107, 777: 109}
 GAME_PACKET = "flashback:action/game_packet"
 NEXT_TICK = "flashback:action/next_tick"
 FLASHBACK_MAGIC = 0xD780E884
@@ -80,6 +82,8 @@ class WorldText:
     word_gap_ticks: int = 6         # words one by one: time between words
     fade_out_ticks: int = 0         # fade out before disappearing (0 = vanish)
     outline_colour: str = ""        # set internally for border copies
+    ride: int | None = None          # entity id of a player to ride on (follows them; None = stays put)
+    offset: tuple = (0.0, 0.0, 0.0)  # translation in the text's own space: right, up, towards the camera
     opacity: int = 255              # 26..255 (text below ~26 isn't drawn by Minecraft)
 
 
@@ -177,6 +181,8 @@ def text_data_packet(entity_id: int, t: WorldText, scale: float | None = None) -
     flags = 0x01 if t.shadow else 0
     out = _varint(entity_id)
     out += bytes([12]) + _varint(SER_VECTOR3) + struct.pack(">fff", scale, scale, scale)
+    if any(t.offset):
+        out += bytes([11]) + _varint(SER_VECTOR3) + struct.pack(">fff", *t.offset)
     out += bytes([15]) + _varint(SER_BYTE) + bytes([BILLBOARD.get(t.facing, 3)])
     if t.glow:
         out += bytes([16]) + _varint(SER_INT) + _varint(15 << 4 | 15 << 20)
@@ -276,6 +282,16 @@ def with_outline(t: WorldText) -> list[WorldText]:
     if not t.outline:
         return [t]
     w = t.outline_width or max(0.04, t.size / 14.0)
+    if t.ride is not None:
+        # Riding: all parts sit on the same spot, so the border is made with the offset, which the
+        # game applies in the text's own (camera-facing) space: right/up, the text a little nearer.
+        ox, oy, oz = t.offset
+        out = [WorldText(**{**t.__dict__, "offset": (ox + dx * w, oy + dy * w, oz), "colour": t.outline,
+                            "shadow": False, "background": 0, "outline": ""})
+               for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7))]
+        out.append(WorldText(**{**t.__dict__, "offset": (ox, oy, oz + max(0.02, w * 0.3)), "outline": "",
+                                "shadow": False}))
+        return out
     yaw = math.radians(t.camera_yaw if t.camera_yaw is not None else 0.0)
     fx, fz = -math.sin(yaw), math.cos(yaw)              # the camera's forward direction
     rx, rz = -math.cos(yaw), -math.sin(yaw)             # its right
@@ -308,8 +324,13 @@ def split_words(t: WorldText) -> list[WorldText]:
         wpx = text_width_px(w, t.bold)
         centre = (left + wpx / 2 - total / 2) * px
         appear = (t.appear_tick or 0) + i * t.word_gap_ticks if t.appear_tick is not None else None
-        out.append(WorldText(**{**t.__dict__, "text": w, "x": t.x + rx * centre, "z": t.z + rz * centre,
-                                "animation": single, "appear_tick": appear}))
+        if t.ride is not None:                       # riding: spread along the line with the offset
+            ox, oy, oz = t.offset
+            out.append(WorldText(**{**t.__dict__, "text": w, "offset": (ox + centre, oy, oz),
+                                    "animation": single, "appear_tick": appear}))
+        else:
+            out.append(WorldText(**{**t.__dict__, "text": w, "x": t.x + rx * centre, "z": t.z + rz * centre,
+                                    "animation": single, "appear_tick": appear}))
         left += wpx + text_width_px(" ", t.bold)
     return out
 
@@ -317,6 +338,7 @@ def split_words(t: WorldText) -> list[WorldText]:
 @dataclass
 class _Entity:
     eid: int
+    ride: int | None
     appear: int | None
     gone: int | None
     start: list[bytes]                       # sent when it appears (add + first look)
@@ -355,7 +377,7 @@ def _plan_entity(eid: int, t: WorldText, add_id: int, data_id: int, type_id: int
             op = t.opacity - (t.opacity - 26) * k // m
             pk = _varint(data_id) + opacity_packet(eid, op)
             updates.append((t.disappear_tick - m + k - 1, pk, pk))
-    return _Entity(eid, a, t.disappear_tick, start, final, updates, settled)
+    return _Entity(eid, t.ride, a, t.disappear_tick, start, final, updates, settled)
 
 
 def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)",
@@ -386,6 +408,7 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
         base = 1_500_000_000 + random.randrange(0, 600_000) * 1000
         ents = [_plan_entity(base + k, t, add_id, data_id, type_id) for k, t in enumerate(texts)]
         remove_id = REMOVE_ENTITIES[proto]
+        pass_id = SET_PASSENGERS[proto]
         # where each chunk file starts (replay ticks), from the metadata's chunk list
         starts, pos = {}, 0
         for name, info_ in sorted((meta.get("chunks") or {}).items(),
@@ -414,6 +437,25 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                         timed.setdefault(t_ - c0, []).append(anim)
                 if c0 < g < c1 and a < g:
                     timed.setdefault(g - c0, []).append(_varint(remove_id) + _varint(1) + _varint(e.eid))
+            # Riders: tell the game which texts ride each player, at the start of the file and whenever
+            # one appears (the list replaces the player's passengers, so it always names all of them).
+            riders: dict[int, list[_Entity]] = {}
+            for e in ents:
+                if e.ride is not None:
+                    riders.setdefault(e.ride, []).append(e)
+
+            def alive(es, t_):
+                return [e.eid for e in es if (e.appear if e.appear is not None else -1) <= t_ <
+                        (e.gone if e.gone is not None else 1 << 60)]
+            for vehicle, es in riders.items():
+                now = alive(es, c0)
+                if now:
+                    snap.append(_varint(pass_id) + _varint(vehicle) + _varint(len(now))
+                                + b"".join(_varint(x) for x in now))
+                for t_ in sorted({e.appear for e in es if e.appear is not None and c0 < e.appear < c1}):
+                    now = alive(es, t_)
+                    timed.setdefault(t_ - c0, []).append(_varint(pass_id) + _varint(vehicle) + _varint(len(now))
+                                                         + b"".join(_varint(x) for x in now))
             return snap, timed
         meta["original_uuid_mcsm"] = meta.get("uuid")
         meta["uuid"] = keep_uuid or str(uuid_mod.uuid4())

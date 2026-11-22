@@ -732,10 +732,12 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
                 always: bool = False, animation: str = "none", anim: float = 0.4, word_gap: float = 0.3,
                 fade_out: float = 0.0, border_colour: str = "black", glow: bool = True, shadow: bool = False,
                 box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
-                spot: list[float] | None = None):
-    """The text displays for one text (one or more lines) and the video second it appears at."""
+                spot: list[float] | None = None, follow: dict | None = None):
+    """The text displays for one text (one or more lines) and the video second it appears at.
+    *follow* ``{"eid", "x", "y", "z"}``: the text rides on that player (above their head)."""
     from . import worldtext as wt
-    lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale, spot)
+    lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale,
+                       [follow["x"], follow["y"], follow["z"]] if follow else spot)
     clock, secs, yaw = lay["clock"], lay["seconds"], lay["yaw"]
     appear = None if always else int(lay["tick"])
     gone = None if (always or until_seconds is None) else int(clock.replay_tick(min(until_seconds, clock.duration)))
@@ -746,9 +748,14 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
         r_, g_, b_ = (int(_bgr(box)[i:i + 2], 16) for i in (6, 4, 2))
         box_argb = (0x90 << 24) | (r_ << 16) | (g_ << 8) | b_
         box_argb = box_argb - (1 << 32) if box_argb >= 1 << 31 else box_argb
-    for text, size, x, y, z in lay["texts"]:
+    lift = 0.3 + up                                 # riding: above the head, plus "up"
+    sizes = [sz for _t, sz, *_ in lay["texts"]]
+    for i, (text, size, x, y, z) in enumerate(lay["texts"]):
+        below = sum(sizes[i + 1:]) + 0.25 * sum(sizes[i + 1:])
         texts.append(wt.WorldText(text, x, y, z, size=size, colour=colour, bold=True,
-                                  facing="vertical" if spot else "center",
+                                  facing="center" if follow else ("vertical" if spot else "center"),
+                                  ride=follow["eid"] if follow else None,
+                                  offset=(right, lift + below, 0.0) if follow else (0.0, 0.0, 0.0),
                                   outline=border_colour if outline else "", camera_yaw=yaw,
                                   appear_tick=start, disappear_tick=gone, animation=animation,
                                   anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),
@@ -801,7 +808,8 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
 ITEM_DEFAULTS = {"kind": "world", "lines": [], "start": None, "until": None, "animation": "pop", "anim": 0.4,
                  "word_gap": 0.3, "fade_out": 0.0, "colour": "white", "border": True, "border_colour": "black",
                  "shadow": False, "glow": True, "box": False, "style": "outline", "font": "",
-                 "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16, "spot": None}
+                 "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16, "spot": None,
+                 "follow": None}
 
 
 def _item(raw: dict) -> dict:
@@ -813,18 +821,31 @@ def _item(raw: dict) -> dict:
 
 
 def make_items_in_world(match: dict, items: list[dict], video: str | None = None, flashback_dir: str | None = None,
-                        progress=None) -> dict:
+                        progress=None, players: dict | None = None) -> dict:
     """All 'in the world' texts of an editor project in one Flashback copy (each with its own time,
-    place, animation and look)."""
+    place, animation and look). *players* ``{16-byte uuid: name}`` is needed for texts that follow a
+    player."""
+    from . import paths
     texts = []
     for raw in items:
         it = _item(raw)
         if it["kind"] != "world" or not it["lines"]:
             continue
+        follow = None
+        if it["follow"]:
+            sc = scene_for_match(match)
+            clock = scene_clock(sc)
+            start = it["start"] if it["start"] is not None else (match.get("still_from") or 0) + 0.1
+            tick = int(clock.replay_tick(min(start, clock.duration)))
+            seen = paths.players_in_view(match["recording"], tick, players or {})
+            follow = seen.get(it["follow"])
+            if follow is None:
+                raise ValueError(f"{it['follow']} isn't in view at {start:.1f} s, so the text can't follow them; "
+                                 "pick another moment or player")
         t, _secs = world_texts(match, it["lines"], it["start"], it["colour"], it["border"], it["distance"],
                                it["until"], False, it["animation"], it["anim"], it["word_gap"], it["fade_out"],
                                it["border_colour"], it["glow"], it["shadow"], "black" if it["box"] else "",
-                               it["right"], it["up"], it["size"], it["spot"] or None)
+                               it["right"], it["up"], it["size"], it["spot"] or None, follow)
         texts += t
     if not texts:
         raise ValueError("there are no 'in the world' texts")

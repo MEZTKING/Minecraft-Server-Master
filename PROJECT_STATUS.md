@@ -715,6 +715,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Editor: **text that follows a player**: the text displays ride the player
+  (`set_passengers`, 107 in 26.1.2/26.2, 109 in 26.3, from the game's data reports), stacked and bordered
+  with the display translation (camera-facing space); the player's entity id at that moment comes from
+  the recording (`paths.players_in_view`); preview follows the decoded track. Owner's idea: words
+  reacting with the game, not leaving the screen when the camera moves.
 - **2026-11-22:** Editor: **text at a spot in the world**: click on the video and the camera ray is
   followed through the terrain of the backup saved right after the recording (`mcsm/worldpick.py`,
   every block's surface from the region files) to stand the text there (upright, facing the camera).

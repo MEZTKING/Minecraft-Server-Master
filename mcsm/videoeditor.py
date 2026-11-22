@@ -88,6 +88,67 @@ class VideoEditor:
                 return dict(self.job, log=self.job["log"][-30:])
         return None
 
+    # --- players (for texts that follow one) ----------------------------------------------------
+    def players_map(self, index: int) -> dict:
+        """{16-byte uuid: name} from the usercache of the library backup made after the recording."""
+        import uuid as uuid_mod
+        from . import players, worldpick as wp
+        if not hasattr(self, "_players"):
+            self._players = {}
+        if index in self._players:
+            return self._players[index]
+        m = self.vinfo["matches"][index]
+        out = {}
+        world = self.world_dir or wp.world_of_recording(m.get("recording"))
+        found = wp.backup_for(world, wp.recording_date(m.get("recording") or "")) if world else None
+        if found:
+            for u, name in players.read_usercache(found[0]).items():
+                try:
+                    out[uuid_mod.UUID(u).bytes] = name
+                except ValueError:
+                    pass
+        self._players[index] = out
+        return out
+
+    def players_at(self, index: int, t: float) -> dict:
+        from . import paths
+        m = self.vinfo["matches"][index]
+        if not m.get("recording"):
+            raise ValueError("the recording of this edit wasn't found")
+        clock = vt.scene_clock(vt.scene_for_match(m))
+        tick = int(clock.replay_tick(min(t, clock.duration)))
+        seen = paths.players_in_view(m["recording"], tick, self.players_map(index))
+        return {"players": sorted(seen)}
+
+    def track(self, index: int, name: str) -> dict:
+        """Where *name* is through the video: ``[[video second, x, y, z], ...]`` (about every second)."""
+        from . import paths, replays
+        m = self.vinfo["matches"][index]
+        if not m.get("recording"):
+            return {"points": []}
+        if not hasattr(self, "_tracks"):
+            self._tracks = {}
+        key = (index, name)
+        if key in self._tracks:
+            return {"points": self._tracks[key]}
+        clock = vt.scene_clock(vt.scene_for_match(m))
+        pmap = self.players_map(index)
+        rec_player = replays._recorded_player(m["recording"].replace(os.sep, "/"))
+        rec_name = next((n for u, n in pmap.items() if rec_player and str(__import__("uuid").UUID(bytes=u)) == rec_player),
+                        rec_player)
+        pts = []
+        for tick, who, _dim, x, y, z, _yaw, _pitch in paths.decode_entities(m["recording"], pmap):
+            if tick > clock.end + 40:
+                break
+            if tick < clock.start - 40:
+                continue
+            if who == name or (who is None and rec_name == name):
+                v = clock.video_time(min(max(tick, clock.start), clock.end))
+                if v is not None:
+                    pts.append([round(v, 3), round(x, 3), round(y, 3), round(z, 3)])
+        self._tracks[key] = pts
+        return {"points": pts}
+
     def pick(self, index: int, t: float, sx: float, sy: float) -> dict:
         """The spot on the ground under (sx, sy) (shares of the picture) at video second *t*."""
         from . import worldpick as wp, worldtext as wt
@@ -148,6 +209,10 @@ class VideoEditor:
             return self.camera_path(int(body.get("match", 0)))
         if path == "/api/project":
             return self.save_project(body)
+        if path == "/api/players":
+            return self.players_at(int(body.get("match", 0)), float(body.get("t", 0)))
+        if path == "/api/track":
+            return self.track(int(body.get("match", 0)), str(body.get("name", "")))
         if path == "/api/pick":
             return self.pick(int(body.get("match", 0)), float(body["t"]), float(body["x"]), float(body["y"]))
         if path == "/api/make":
@@ -184,7 +249,8 @@ class VideoEditor:
         self.save_project(b)
         if b.get("target") == "world":
             match = self.vinfo["matches"][int(b.get("match", 0))]
-            r = vt.make_items_in_world(match, items, self.video, progress=say)
+            r = vt.make_items_in_world(match, items, self.video, progress=say,
+                                       players=self.players_map(int(b.get("match", 0))))
             say(("Replaced" if r.get("replaced") else "Made") + f" '{r['name']}' in {r['flashback']}")
             return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False)}
         m = self.vinfo["matches"][int(b.get("match", 0))] if self.vinfo["matches"] else {}
