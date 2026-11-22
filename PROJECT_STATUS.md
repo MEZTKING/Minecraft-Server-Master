@@ -946,6 +946,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Moved the owner's 11 timelapse copies (1.21.11; two builds) and their timelines out of the 26.1.2
+  Flashback into `F:\Game Backup\mcsm-library\Main_world\Flashback for Minecraft 1.21.11` (owner: "Yes, move them").
+
 - **2026-11-22:** Owner's first timelapse: the 1.21.11 copies landed in the 26.1.2 Flashback, which can't open them
   ("make it sorted by version"). Now highlights/timelapse copies only go into a Flashback of exactly the
   recording's version (`find_flashback_dir(..., exact=True)`, `flashback.export_target`), else into
