@@ -828,6 +828,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Edit picker** (owner: "Yes, add it"): *Open a Flashback edit…* lists every scene of every
+  Flashback edit (scene name, recording name and file, export length, camera keyframes, saved, which
+  Flashback; app copies marked, also when Flashback dropped the mark) instead of a file dialog of ids;
+  `mcsm video-editor --list-edits`; `videotext.list_edits`.
+
 - **2026-11-22:** Flashback link, first owner test: connected, but the owner's Flashback had only the app's
   text copy of the welcome recording (its `original_uuid_mcsm` led to an older copy that's gone). The
   editor now also accepts a copy of the same recording by content (same length and chunk files).

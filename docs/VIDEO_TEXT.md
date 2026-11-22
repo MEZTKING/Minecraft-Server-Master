@@ -10,9 +10,13 @@ the chat and events as subtitles, see below).
 
 ### Before exporting: open the Flashback edit itself
 
-You don't need an exported video. In the Videos tab press **Open a Flashback edit…** and choose the
-edit (`flashback/editor_states/<replay id>.json` in your Flashback folder; the scene open in Flashback
-is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
+You don't need an exported video. In the Videos tab press **Open a Flashback edit…**: a list of your
+Flashback edits, newest first, one row per scene with its name, the recording it belongs to (its name
+and file), the export length, the number of camera keyframes, when it was saved and which Flashback it's
+in (*copy* = a copy the app made, with text; empty edits are hidden unless you tick *Show empty edits*).
+Choose a scene and press **Open** (or double-click). From the command line:
+`mcsm video-editor --list-edits` lists them with the `--edit STATE.json --scene N` to open each, then
+`mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
 
 - The picture is the **app's 3D map seen through your edit's camera**, from the library backup made
   right after the recording: **real Minecraft blocks with Minecraft's own textures** within about 80

@@ -89,9 +89,11 @@ BUTTON_TIPS = {
     "Update": "Download the new version, check it's genuine (SHA-256), then close, update and reopen the app.",
     "Later": "Hide this version's notice (you'll be told about the next one).",
     "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
-    "Open a Flashback edit…": "Open the live editor on a Flashback edit that you haven't exported yet: the picture "
+    "Open a Flashback edit…": "Choose one of your Flashback edits by scene name and recording (newest first) and open "
+                              "the live editor on it before exporting: the picture "
                               "is the app's 3D map seen through your edit's camera, with the players, so you can "
                               "place texts and the song first, then put them in Flashback and export once.",
+    "Open": "Open the live editor on the chosen Flashback scene.",
     "Install the Flashback link…": "Copy the small companion mod into the Minecraft instance that has Flashback, so "
                                    "the editor can show the real Minecraft picture (you choose the instance and "
                                    "confirm first).",
@@ -1079,20 +1081,75 @@ class App(ttk.Frame):
         webbrowser.open(url)
 
     def _vid_edit(self) -> None:
-        """The live editor for a Flashback edit that hasn't been exported (no video)."""
-        from .flashback import flashback_folders
-        from .videoeditor import VideoEditor
-        folders = flashback_folders()
-        start = os.path.join(folders[0]["path"], "editor_states") if folders else None
-        p = filedialog.askopenfilename(title="Choose the Flashback edit (a .json in the editor_states folder)",
-                                       initialdir=start, filetypes=[("Flashback edits", "*.json")])
-        if not p:
+        """Choose a Flashback edit by its scene name and recording, then open the live editor on it."""
+        from . import videotext as vt
+        world = self._vid_world_dir()
+        self._run("Reading your Flashback edits", lambda _: vt.list_edits(world), lambda edits: self._vid_edit_pick(edits))
+
+    def _vid_edit_pick(self, edits: list[dict]) -> None:
+        if not edits:
+            messagebox.showinfo(APP_NAME, "No Flashback edits were found (Flashback keeps them in "
+                                          "flashback/editor_states of the Minecraft instance).")
             return
+        win = tk.Toplevel(self.root)
+        win.title("Open a Flashback edit")
+        win.transient(self.root)
+        win.geometry("900x460")
+        ttk.Label(win, text="Your Flashback edits, newest first. Choose a scene and press Open (or double-click). "
+                            "'copy' = a copy the app made (with text).", wraplength=860, justify="left").pack(
+            padx=10, pady=(10, 4), anchor="w")
+        cols = ("scene", "recording", "length", "keys", "saved", "where")
+        tree = ttk.Treeview(win, columns=cols, show="headings", selectmode="browse")
+        for c, label, w in (("scene", "Scene", 170), ("recording", "Recording", 300), ("length", "Length", 70),
+                            ("keys", "Camera keyframes", 110), ("saved", "Saved", 120), ("where", "Flashback", 120)):
+            tree.heading(c, text=label)
+            tree.column(c, width=w, anchor="w")
+        tree.pack(fill="both", expand=True, padx=10)
+        show_empty = tk.BooleanVar(value=False)
+        rows: dict[str, dict] = {}
+
+        def fill():
+            tree.delete(*tree.get_children())
+            rows.clear()
+            for e in edits:
+                if not show_empty.get() and not e["keyframes"] and e["length"] is None:
+                    continue
+                length = f"{int(e['length'] // 60)}:{e['length'] % 60:04.1f}" if e["length"] is not None else "no export range"
+                name = e["scene_name"] + (" (open in Flashback)" if e["current"] else "") + (" · copy" if e["copy"] else "")
+                iid = tree.insert("", "end", values=(name, e["recording_name"], length, e["keyframes"], e["saved_text"],
+                                                     e["instance"]))
+                rows[iid] = e
+            kids = tree.get_children()
+            if kids:
+                tree.selection_set(kids[0])
+        fill()
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=8)
+        ttk.Checkbutton(row, text="Show empty edits (no camera keyframes, no export range)", variable=show_empty,
+                        command=fill).pack(side="left")
+
+        def go(_event=None):
+            sel = tree.selection()
+            if not sel:
+                return
+            e = rows[sel[0]]
+            if e["length"] is None:
+                messagebox.showinfo(APP_NAME, "This scene has no export range yet: set the export start and end in "
+                                              "Flashback first.", parent=win)
+                return
+            win.destroy()
+            self._vid_edit_open(e["state"], e["scene"])
+        tree.bind("<Double-1>", go)
+        ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
+        ttk.Button(row, text="Open", command=go).pack(side="right", padx=6)
+
+    def _vid_edit_open(self, p: str, scene: int | None = None) -> None:
+        from .videoeditor import VideoEditor
         world = self._vid_world_dir()
 
         def work(_):
             print("Reading the edit and finding its recording…")
-            ed = VideoEditor(None, world, edit=p)
+            ed = VideoEditor(None, world, edit=p, scene=scene)
             return ed, ed.start()
 
         def after(r):

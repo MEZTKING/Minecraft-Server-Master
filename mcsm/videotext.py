@@ -731,6 +731,55 @@ def analyse_edit(state: str, scene: int | None = None, world_dir: str | None = N
     return out
 
 
+def list_edits(world_dir: str | None = None) -> list[dict]:
+    """Every scene of every Flashback edit on this PC, newest first, for choosing one by name:
+    ``{state, scene, scene_name, current, uuid, instance, saved, length (export range, s or None),
+    keyframes (camera), recording, recording_name, copy}``."""
+    from datetime import datetime
+    from .flashback import flashback_folders
+    from .library import is_world_dir, recording_uuids
+    from .worldtext import camera_keys
+    folders = flashback_folders()
+    roots, cache = [], None
+    if world_dir and is_world_dir(world_dir):
+        roots.append(os.path.join(world_dir, "recordings"))
+        cache = os.path.join(world_dir, "recordings", ".uuid-index.json")
+    roots += [os.path.join(f["path"], "replays") for f in folders]
+    by_uuid = recording_uuids(roots, cache)
+    out = []
+    for f in folders:
+        d = os.path.join(f["path"], "editor_states")
+        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not name.endswith(".json"):
+                continue
+            path = os.path.join(d, name)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                saved = os.path.getmtime(path)
+            except (OSError, ValueError):
+                continue
+            uuid = name[:-5]
+            rec = by_uuid.get(uuid)
+            meta = _replay_meta(rec) if rec else {}
+            rname = meta.get("name") if meta.get("name") and not str(meta.get("name")).startswith("Unnamed") else None
+            stem = os.path.splitext(os.path.basename(rec))[0] if rec else None
+            rec_name = " · ".join(x for x in (rname, stem) if x) or "recording not found"
+            current = int(data.get("sceneIndex") or 0)
+            for i, sc in enumerate(s_ for s_ in data.get("scenes") or [] if isinstance(s_, dict)):
+                clock = scene_clock(sc)
+                out.append({"state": path, "scene": i, "scene_name": sc.get("name") or f"Scene {i + 1}",
+                            "current": i == current, "uuid": uuid, "instance": f["name"], "saved": saved,
+                            "saved_text": datetime.fromtimestamp(saved).strftime("%Y-%m-%d %H:%M"),
+                            "length": clock.duration if clock else None, "keyframes": len(camera_keys(sc)),
+                            "recording": rec, "recording_name": rec_name,
+                            # Flashback drops the app's mark when it saves an edit: the recording tells too
+                            "copy": "mcsm_copy_of" in data or bool(meta.get("mcsm_world_text")
+                                                                   or meta.get("original_uuid_mcsm"))})
+    out.sort(key=lambda e: (-e["saved"], e["scene"]))
+    return out
+
+
 def _attach_recordings(matches: list[dict], world_dir: str | None) -> None:
     """Find each match's recording (an app-made copy leads back to its original) and where the
     camera stops at the end."""

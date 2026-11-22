@@ -3301,3 +3301,48 @@ class TestLinkKnowsCopies(unittest.TestCase):
             self.assertFalse(VideoEditor._copy_of("copy2", "orig", Link, None))   # no recording to compare
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestEditPicker(unittest.TestCase):
+    """Choosing a Flashback edit by scene name and recording."""
+
+    def test_list_and_pick(self):
+        from mcsm import flashback, videotext as vt
+        tmp = tempfile.mkdtemp()
+        old = flashback.flashback_folders
+        try:
+            fb = os.path.join(tmp, "fb")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            os.makedirs(os.path.join(fb, "replays"))
+            cam = {"position": [0, 64, 0], "yaw": 0, "pitch": 0, "type": "camera"}
+            with open(os.path.join(fb, "editor_states", "aaa.json"), "w") as fh:
+                json.dump({"sceneIndex": 1, "scenes": [
+                    {"name": "Intro", "exportStartTicks": 0, "exportEndTicks": 200, "keyframeTracks": [
+                        {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "200": cam}}]},
+                    {"name": "Empty", "keyframeTracks": []}]}, fh)
+            with zipfile.ZipFile(os.path.join(fb, "replays", "2026-06-06--19-55-14.zip"), "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "aaa", "name": "Our base"}))
+            flashback.flashback_folders = lambda: [{"path": fb, "name": "Test FB", "mc": "26.1.2"}]
+            edits = vt.list_edits()
+            self.assertEqual([e["scene_name"] for e in edits], ["Intro", "Empty"])
+            intro = edits[0]
+            self.assertEqual((intro["length"], intro["keyframes"], intro["current"]), (10.0, 2, False))
+            self.assertEqual(intro["recording_name"], "Our base · 2026-06-06--19-55-14")
+            self.assertTrue(edits[1]["current"] and edits[1]["length"] is None)
+            if not _have_display():
+                return
+            from mcsm import gui
+            root = _new_tk()
+            try:
+                app = gui.App(root)
+                app._vid_edit_pick(edits)
+                win = [w for w in root.winfo_children() if isinstance(w, gui.tk.Toplevel)][-1]
+                tree = next(w for w in win.winfo_children() if isinstance(w, gui.ttk.Treeview))
+                self.assertEqual(len(tree.get_children()), 1)          # the empty scene is hidden
+                self.assertIn("Intro", tree.item(tree.get_children()[0])["values"][0])
+                win.destroy()
+            finally:
+                root.destroy()
+        finally:
+            flashback.flashback_folders = old
+            shutil.rmtree(tmp, ignore_errors=True)
