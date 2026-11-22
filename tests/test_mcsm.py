@@ -2646,3 +2646,30 @@ class TestManyTexts(unittest.TestCase):
                 self.assertTrue(os.path.getsize(out) > 0)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestWorldPick(unittest.TestCase):
+    def test_ray_hits_a_mountain(self):
+        from mcsm import worldpick as wp, videotext as vt
+
+        class FlatWithMountain:
+            def height(self, x, z):                      # flat ground at 62, a mountain (top 150) from z=300
+                return 150 if 300 <= z <= 340 and -20 <= x <= 20 else 62
+        cam = [0.0, 80.0, 0.0]
+        # the centre of the picture, camera looking south and level: straight into the mountain's side
+        d = wp.ray(cam, 0.0, 0.0, 70.0, 1920, 1080, 960, 540)
+        self.assertAlmostEqual(d[2], 1.0, places=6)
+        hit = wp.hit_ground(FlatWithMountain(), cam, d)
+        self.assertTrue(298 <= hit[2] <= 302 and hit[1] == 151.0)
+        # the ray through where a point projects comes back to that point (inverse of project)
+        sx, sy, _ = vt.project(cam, 30.0, -10.0, 70.0, 1920, 1080, (40.0, 120.0, 90.0))
+        d2 = wp.ray(cam, 30.0, -10.0, 70.0, 1920, 1080, sx, sy)
+        target = (40.0, 40.0, 90.0)
+        n = sum(v * v for v in target) ** 0.5
+        for a, b in zip(d2, target):
+            self.assertAlmostEqual(a, b / n, places=6)
+        # lower in the picture: the flat ground in front
+        low = wp.hit_ground(FlatWithMountain(), cam, wp.ray(cam, 0.0, 0.0, 70.0, 1920, 1080, 960, 900))
+        self.assertEqual(low[1], 63.0)
+        self.assertIsNone(wp.hit_ground(FlatWithMountain(), cam, wp.ray(cam, 0.0, 0.0, 70.0, 1920, 1080, 960, 100)))
+        self.assertEqual(wp.recording_date("x/2026-06-06--19-55-14.zip").day, 6)

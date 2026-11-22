@@ -112,6 +112,8 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 
     <h2>Place</h2>
     <div class="worldOnly">
+      <div class="seg" style="margin-bottom:6px"><button id="aCam" type="button">In front of the camera</button><button id="aSpot" type="button" title="Then click on the video where it should stand, e.g. a mountain">At a spot in the world…</button></div>
+      <div class="hint" id="spotInfo"></div>
       <label><span>Right</span><input id="right" type="range" min="-80" max="80" step="0.5"><span class="val" id="rightV"></span></label>
       <label><span>Up</span><input id="up" type="range" min="-60" max="60" step="0.5"><span class="val" id="upV"></span></label>
       <label><span>Distance</span><input id="distance" type="range" min="5" max="200" step="1"><span class="val" id="distanceV"></span></label>
@@ -121,7 +123,7 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
       <label><span>Across</span><input id="x" type="range" min="0" max="1" step="0.005"><span class="val" id="xV"></span></label>
       <label><span>Down</span><input id="y" type="range" min="0" max="1" step="0.005"><span class="val" id="yV"></span></label>
     </div>
-    <label><span>Size ×</span><input id="size" type="range" min="0.2" max="4" step="0.05"><span class="val" id="sizeV"></span></label>
+    <label><span>Size ×</span><input id="size" type="range" min="0.2" max="20" step="0.05"><span class="val" id="sizeV"></span></label>
   </div>
 
   <h2>Make it</h2>
@@ -174,9 +176,12 @@ function project(cam, p, W, H) {
 const singleOf = a => ({ "words": "none", "words-fade": "fade", "words-pop": "pop" }[a] || a);
 function worldPieces(it) {
   const t0 = startOf(it), cam = camAt(Math.min(t0, INFO.duration)); if (!cam) return [];
-  const ry = rad(cam.yaw); let [cx, cy, cz] = inFront(cam.pos, cam.yaw, cam.pitch, it.distance);
+  const ry = rad(cam.yaw), sizes = it.lines.filter(l => String(l[0]).trim()).map(l => l[1] * it.size);
+  let cx, cy, cz, top;
+  if (it.spot) { [cx, cy, cz] = it.spot; top = cy + sizes.reduce((a, b) => a + b, 0) + 0.25 * sizes.slice(0, -1).reduce((a, b) => a + b, 0) + it.up; }
+  else { [cx, cy, cz] = inFront(cam.pos, cam.yaw, cam.pitch, it.distance); top = cy + it.distance * 0.32 + it.up; }
   cx -= Math.cos(ry) * it.right; cz -= Math.sin(ry) * it.right;
-  let top = cy + it.distance * 0.32 + it.up; const out = [], perTick = 1 / 20 / Math.max(0.05, cam.speed || 1);
+  const out = [], perTick = 1 / 20 / Math.max(0.05, cam.speed || 1);
   const animT = Math.max(1, Math.round(it.anim * 20)) * perTick, gapT = Math.max(1, Math.round(it.word_gap * 20)) * perTick;
   let start = t0;
   for (const [text, s0] of it.lines) {
@@ -307,9 +312,22 @@ tl.addEventListener("pointermove", e => {
 tl.addEventListener("pointerup", () => { if (tlDrag) { tlDrag = null; changed(true); } });
 
 // --- dragging texts on the video ----------------------------------------------------------------
-let vDrag = null;
-over.addEventListener("pointerdown", e => {
+let vDrag = null, picking = false;
+over.addEventListener("pointerdown", async e => {
   const r = over.getBoundingClientRect(), dpr = over.width / r.width, x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+  if (picking && SEL) {
+    picking = false; over.style.cursor = "default"; vid.pause();
+    $("#spotInfo").textContent = "Finding that spot in the world… (the first time reads the area's terrain)";
+    const res = await post("/api/pick", { match: MATCH, t: vid.currentTime, x: x / over.width, y: y / over.height });
+    const j = await res.json();
+    if (!res.ok || !j.hit) { $("#spotInfo").textContent = j.error || j.message || "Not found"; return; }
+    snapshot(); SEL.spot = j.hit; SEL.right = 0; SEL.up = 0;
+    if (SEL.size < 2 && j.distance > 80) SEL.size = Math.round(j.distance / 40);     // far away: bigger letters
+    if (SEL.start == null || vid.currentTime < SEL.start) SEL.start = Math.round(vid.currentTime * 10) / 10;
+    fillEditor(); changed(true);
+    $("#spotInfo").textContent = `Standing at ${j.hit.map(v => Math.round(v)).join(", ")}, ${Math.round(j.distance)} blocks away (terrain from the backup ${j.backup}).`;
+    return;
+  }
   const hit = [...HITS].reverse().find(h => x >= h[1] && x <= h[3] && y >= h[2] && y <= h[4]);
   if (!hit) { if (!vid.paused) vid.pause(); else vid.play(); return; }
   select(hit[0]); snapshot();
@@ -348,6 +366,10 @@ function fillEditor() {
   document.querySelectorAll(".worldOnly").forEach(e => e.hidden = SEL.kind !== "world");
   document.querySelectorAll(".screenOnly").forEach(e => e.hidden = SEL.kind !== "screen");
   $("#start").value = SEL.start ?? ""; $("#until").value = SEL.until ?? "";
+  $("#aCam").classList.toggle("on", !SEL.spot); $("#aSpot").classList.toggle("on", !!SEL.spot);
+  $("#distance").closest("label").hidden = !!SEL.spot;
+  $("#spotInfo").textContent = picking ? "Click on the video where the text should stand (on the ground, a mountain…)." :
+    (SEL.spot ? `Standing at ${SEL.spot.map(v => Math.round(v)).join(", ")} in the world.` : "");
   for (const f of FIELDS) { const el = $("#" + f); if (el.type === "checkbox") el.checked = !!SEL[f]; else el.value = SEL[f];
     const v = $("#" + f + "V"); if (v) v.textContent = (+SEL[f]).toFixed(f === "x" || f === "y" ? 2 : 1); }
   const box = $("#lines");
@@ -381,6 +403,10 @@ $("#until").onchange = () => { snapshot(); SEL.until = $("#until").value === "" 
 $("#startNow").onclick = () => setTime("start", vid.currentTime); $("#untilNow").onclick = () => setTime("until", vid.currentTime);
 $("#startStill").onclick = () => setTime("start", null); $("#untilEnd").onclick = () => setTime("until", null);
 function setTime(key, v) { if (!SEL) return; snapshot(); SEL[key] = v == null ? null : Math.round(v * 10) / 10; fillEditor(); changed(true); }
+$("#aCam").onclick = () => { if (SEL && SEL.spot) { snapshot(); SEL.spot = null; fillEditor(); changed(true); } };
+$("#aSpot").onclick = () => { if (!SEL || !INFO.matches.length) return; picking = true; over.style.cursor = "crosshair"; vid.pause(); fillEditor();
+  $("#spotInfo").textContent = "Click on the video where the text should stand: a mountain, a far build, the ground. Far spots are exact; " +
+    "right in front of a low camera it can be a block off (the world is read from the backup made after the recording)."; };
 $("#kWorld").onclick = () => { if (SEL && INFO.matches.length) { snapshot(); SEL.kind = "world"; fillEditor(); changed(true); } };
 $("#kScreen").onclick = () => { if (SEL) { snapshot(); SEL.kind = "screen"; fillEditor(); changed(true); } };
 $("#addLine").onclick = () => { if (!SEL) return; snapshot(); SEL.lines.push(["New line", 3]); fillEditor(); changed(true); };

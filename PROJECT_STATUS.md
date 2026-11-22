@@ -715,6 +715,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Editor: **text at a spot in the world**: click on the video and the camera ray is
+  followed through the terrain of the backup saved right after the recording (`mcsm/worldpick.py`,
+  every block's surface from the region files) to stand the text there (upright, facing the camera).
+  The still ending is found from the edit alone; the app remembers the library folder (settings), and
+  the tests keep out of the real app settings.
 - **2026-11-22:** **Full text editor** (owner: "more texts at different times or throughout the video",
   "any other feature to make it a full usable editor"): any number of texts per video, each in the world
   or on the video with its own lines, timing, animation, look and place; timeline with draggable bars;

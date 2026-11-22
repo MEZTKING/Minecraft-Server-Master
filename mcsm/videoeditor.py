@@ -36,6 +36,8 @@ class VideoEditor:
         self.video = video
         self.vinfo = info or vt.analyse_video(video, world_dir)
         self.job: dict = {"running": False, "log": [], "result": None, "error": None}
+        self.world_dir = world_dir
+        self._ground: dict = {}                 # (root) -> GroundProbe
         self._lock = threading.Lock()
         self.httpd = None
 
@@ -86,6 +88,34 @@ class VideoEditor:
                 return dict(self.job, log=self.job["log"][-30:])
         return None
 
+    def pick(self, index: int, t: float, sx: float, sy: float) -> dict:
+        """The spot on the ground under (sx, sy) (shares of the picture) at video second *t*."""
+        from . import worldpick as wp, worldtext as wt
+        m = self.vinfo["matches"][index]
+        world = self.world_dir or wp.world_of_recording(m.get("recording"))
+        if not world:
+            raise ValueError("the library world isn't known: open the editor from the app with your library set")
+        found = wp.backup_for(world, wp.recording_date(m.get("recording") or ""))
+        if not found:
+            raise ValueError("no backup of this world in the library")
+        root, wdir = found
+        probe = self._ground.get(root) or wp.GroundProbe(root, wdir)
+        self._ground[root] = probe
+        sc = vt.scene_for_match(m)
+        clock = vt.scene_clock(sc)
+        tick = clock.replay_tick(min(t, clock.duration))
+        cam = wt.camera_at(sc, tick)
+        if cam is None:
+            raise ValueError("this edit has no camera keyframes")
+        pos, yaw, pitch = cam
+        w, h = self.vinfo["width"], self.vinfo["height"]
+        hit = wp.hit_ground(probe, pos, wp.ray(pos, yaw, pitch, vt.fov_at(sc, tick), w, h, sx * w, sy * h))
+        if hit is None:
+            return {"hit": None, "message": "That's sky (or outside the saved world): click on the ground."}
+        dist = sum((a - b) ** 2 for a, b in zip(hit, pos)) ** 0.5
+        return {"hit": [round(v, 2) for v in hit], "distance": round(dist, 1),
+                "backup": os.path.basename(root)}
+
     def project_file(self) -> str:
         base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
         key = hashlib.sha1(os.path.normcase(os.path.abspath(self.video)).encode()).hexdigest()[:16]
@@ -118,6 +148,8 @@ class VideoEditor:
             return self.camera_path(int(body.get("match", 0)))
         if path == "/api/project":
             return self.save_project(body)
+        if path == "/api/pick":
+            return self.pick(int(body.get("match", 0)), float(body["t"]), float(body["x"]), float(body["y"]))
         if path == "/api/make":
             return self._start(body)
         return None

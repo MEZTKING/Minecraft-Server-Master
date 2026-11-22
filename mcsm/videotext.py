@@ -657,7 +657,8 @@ def project(cam: list[float], yaw: float, pitch: float, fov: float, width: int, 
 
 
 def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, distance: float = 55.0,
-                 right: float = 0.0, up: float = 0.0, size_scale: float = 1.0) -> dict:
+                 right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
+                 spot: list[float] | None = None) -> dict:
     """Where in-world *lines* go: in front of the camera at *at_seconds* (None: where the camera stops
     at the end), *distance* blocks away, moved *right*/*up* blocks (as seen from the camera), letters
     *size_scale* times bigger. Returns the camera, the tick and ``texts: [(text, size, x, y, z)]``."""
@@ -671,12 +672,18 @@ def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float 
     if cam is None:
         raise ValueError("this edit has no camera keyframes to place the text by")
     pos, yaw, pitch = cam
-    cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
     ry = math.radians(yaw)
+    sizes = [size * size_scale for _t, size in lines]
+    if spot:                    # standing on a spot in the world (e.g. a mountain): lines go up from it
+        cx, cy, cz = spot
+        top = cy + sum(sizes) + 0.25 * sum(sizes[:-1]) + up
+    else:                       # in front of the camera, in the upper part of the picture, like a title
+        cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
+        top = cy + distance * 0.32 + up
     cx, cz = cx - math.cos(ry) * right, cz - math.sin(ry) * right          # the camera's right
-    # Upper part of the picture, like a title. A text display stands on its position (the letters
-    # go up from it), so each line stands its own height plus a small gap below the previous one.
-    texts, top = [], cy + distance * 0.32 + up
+    # A text display stands on its position (the letters go up from it), so each line stands its
+    # own height plus a small gap below the previous one.
+    texts = []
     for text, size in lines:
         size *= size_scale
         base = top - size
@@ -724,10 +731,11 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
                 outline: bool = True, distance: float = 55.0, until_seconds: float | None = None,
                 always: bool = False, animation: str = "none", anim: float = 0.4, word_gap: float = 0.3,
                 fade_out: float = 0.0, border_colour: str = "black", glow: bool = True, shadow: bool = False,
-                box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0):
+                box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
+                spot: list[float] | None = None):
     """The text displays for one text (one or more lines) and the video second it appears at."""
     from . import worldtext as wt
-    lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale)
+    lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale, spot)
     clock, secs, yaw = lay["clock"], lay["seconds"], lay["yaw"]
     appear = None if always else int(lay["tick"])
     gone = None if (always or until_seconds is None) else int(clock.replay_tick(min(until_seconds, clock.duration)))
@@ -740,6 +748,7 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
         box_argb = box_argb - (1 << 32) if box_argb >= 1 << 31 else box_argb
     for text, size, x, y, z in lay["texts"]:
         texts.append(wt.WorldText(text, x, y, z, size=size, colour=colour, bold=True,
+                                  facing="vertical" if spot else "center",
                                   outline=border_colour if outline else "", camera_yaw=yaw,
                                   appear_tick=start, disappear_tick=gone, animation=animation,
                                   anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),
@@ -792,7 +801,7 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
 ITEM_DEFAULTS = {"kind": "world", "lines": [], "start": None, "until": None, "animation": "pop", "anim": 0.4,
                  "word_gap": 0.3, "fade_out": 0.0, "colour": "white", "border": True, "border_colour": "black",
                  "shadow": False, "glow": True, "box": False, "style": "outline", "font": "",
-                 "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16}
+                 "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16, "spot": None}
 
 
 def _item(raw: dict) -> dict:
@@ -815,7 +824,7 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
         t, _secs = world_texts(match, it["lines"], it["start"], it["colour"], it["border"], it["distance"],
                                it["until"], False, it["animation"], it["anim"], it["word_gap"], it["fade_out"],
                                it["border_colour"], it["glow"], it["shadow"], "black" if it["box"] else "",
-                               it["right"], it["up"], it["size"])
+                               it["right"], it["up"], it["size"], it["spot"] or None)
         texts += t
     if not texts:
         raise ValueError("there are no 'in the world' texts")

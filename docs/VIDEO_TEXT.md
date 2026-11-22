@@ -10,6 +10,13 @@ plays with **all your texts drawn on it while you change them**.
   edit's camera, so it moves correctly as the camera moves) or **on the video** (drawn on top).
   Buttons: **+ Title in the world**, **+ Title on the video**, **+ Subtitle** (bottom, dark box, 4 s),
   **+ Corner label** (a place or name, lower left), **Duplicate**, **Delete**.
+- **Where in the world:** *In front of the camera* (a title, placed relative to the camera when it
+  appears; it stays at that spot in the world, so a moving camera leaves it behind) or **At a spot in the
+  world…**: click on the video where the text should stand, e.g. far out on a mountain. The app follows
+  the camera ray through the real terrain (read from the library backup made right after the recording)
+  and stands the text there, upright and turning to face the camera, so it looks like part of the
+  landscape; far spots get bigger letters automatically. Far spots are exact; right in front of a low
+  camera it can be a block off.
 - **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green = where
   the camera stands still). Drag a bar to move it in time, drag its right edge to change how long it
   stays, click elsewhere to move the playhead.
