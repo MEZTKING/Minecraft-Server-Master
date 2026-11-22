@@ -18,7 +18,12 @@
    **between words** and an optional **fade out** at the end. With two lines, the big line starts once
    the small one has appeared. More look options: **border colour**, **shadow**, **always bright**
    (in the world; off = lit by the world, dark at night) and a **dark box** behind the text.
-6. Then either:
+6. **Place in the world (blocks):** move the text **right** / **up** (negative = left / down), set its
+   **distance** from the camera and make it bigger or smaller (**size ×**). **Preview world position**
+   shows a frame of your video with the text drawn where it will be in the world, worked out from your
+   edit's camera position, angle and zoom (checked against the real result in Flashback). Adjust and
+   preview again until it sits right, then put it in the world.
+7. Then either:
    - **Put it in the world (Flashback)**: real Minecraft text in the scene (lit by the world,
      hidden behind blocks). A copy of the recording named `… (text)` and a copy of your edit (with
      the same export range as your video) go into the Flashback folder for its Minecraft version.
@@ -107,6 +112,8 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
   `--bold`, `--no-shadow`, `--no-glow` (lit by the world instead of always bright); the app adds a
   black border (black copies just behind the text, best seen from the camera's direction),
   `--facing center` (always faces the camera, default) / `vertical` / `fixed` with `--yaw`.
+- **Always from the original:** a replay the app already added text to is never used as the source (its
+  old text would stay in the world); the app goes back to the original recording.
 - **Output:** a new replay named `… (text)` with a new id, put into the Flashback folder that
   matches the recording's Minecraft version, plus a copy of your edit for it; or `-o FILE`.
   The original recording and edit are never changed.

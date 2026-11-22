@@ -419,6 +419,7 @@ class Title:
     size: float = 0.12              # letter height as a share of the video height
     y: float = 0.25                 # vertical centre as a share of the video height (0 = top)
     colour: str = "white"
+    x: float = 0.5                  # horizontal centre as a share of the video width
     style: str = "outline"          # outline: border (Minecraft look); 3d: extruded letters; plain
     fade_in: float = 0.7            # used by animation "fade"
     fade_out: float = 0.0
@@ -469,7 +470,7 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
     lines, layer = [], 0
     for t in titles:
         px = max(10, int(t.size * height))
-        cx, cy = width // 2, int(t.y * height)
+        cx, cy = int(t.x * width), int(t.y * height)
         span = f"{_ass_time(t.start)},{_ass_time(t.end)}"
         words = t.text.split()
         by_word = t.animation.startswith("words") and len(words) > 1
@@ -606,6 +607,8 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
     own = [mt for mt in matches if not mt.get("copy") and mt.get("recording")]
     if own:                                     # your own edits first; the app's copies only as a fallback
         matches[:] = own + [mt for mt in matches if mt not in own]
+    for mt in matches:
+        mt["still_from"] = None
         if mt["recording"]:
             sc = scene_for_match(mt)
             clock = scene_clock(sc)
@@ -614,12 +617,90 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
     return out
 
 
+def fov_at(scene: dict, tick: float, default: float = 70.0) -> float:
+    """The camera's field of view (vertical, degrees) at *tick* from the scene's FOV keyframes."""
+    for t in scene.get("keyframeTracks") or []:
+        if t.get("keyframeType") == "FOV" and t.get("enabled", True):
+            keys = sorted((int(k), float(v.get("fov", default))) for k, v in (t.get("keyframesByTick") or {}).items()
+                          if isinstance(v, dict))
+            if not keys:
+                return default
+            if tick <= keys[0][0]:
+                return keys[0][1]
+            for (t1, a), (t2, b) in zip(keys, keys[1:]):
+                if t1 <= tick <= t2:
+                    return a + (b - a) * (tick - t1) / max(1, t2 - t1)
+            return keys[-1][1]
+    return default
+
+
+def project(cam: list[float], yaw: float, pitch: float, fov: float, width: int, height: int,
+            point: tuple[float, float, float]) -> tuple[float, float, float] | None:
+    """Where a world point lands in the picture: ``(x px, y px, pixels per block there)``, or None
+    when it's behind the camera. Minecraft angles: yaw 0 looks south (+z), pitch up is negative."""
+    import math
+    ry, rp = math.radians(yaw), math.radians(pitch)
+    f = (-math.sin(ry) * math.cos(rp), -math.sin(rp), math.cos(ry) * math.cos(rp))
+    r = (-math.cos(ry), 0.0, -math.sin(ry))
+    u = (r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0])
+    d = (point[0] - cam[0], point[1] - cam[1], point[2] - cam[2])
+    z = sum(a * b for a, b in zip(d, f))
+    if z <= 0.1:
+        return None
+    x = sum(a * b for a, b in zip(d, r))
+    y = sum(a * b for a, b in zip(d, u))
+    focal = (height / 2) / math.tan(math.radians(fov) / 2)
+    return width / 2 + x / z * focal, height / 2 - y / z * focal, focal / z
+
+
+def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, distance: float = 55.0,
+                 right: float = 0.0, up: float = 0.0, size_scale: float = 1.0) -> dict:
+    """Where in-world *lines* go: in front of the camera at *at_seconds* (None: where the camera stops
+    at the end), *distance* blocks away, moved *right*/*up* blocks (as seen from the camera), letters
+    *size_scale* times bigger. Returns the camera, the tick and ``texts: [(text, size, x, y, z)]``."""
+    from . import worldtext as wt
+    import math
+    sc = scene_for_match(match)
+    clock = scene_clock(sc)
+    secs = at_seconds if at_seconds is not None else (match.get("still_from") or clock.duration) + 0.1
+    tick = clock.replay_tick(min(secs, clock.duration))
+    cam = wt.camera_at(sc, tick)
+    if cam is None:
+        raise ValueError("this edit has no camera keyframes to place the text by")
+    pos, yaw, pitch = cam
+    cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
+    ry = math.radians(yaw)
+    cx, cz = cx - math.cos(ry) * right, cz - math.sin(ry) * right          # the camera's right
+    texts, y = [], cy + distance * 0.32 + up       # upper part of the picture, like a title
+    for text, size in lines:
+        size *= size_scale
+        y -= size * 1.35
+        texts.append((text, size, cx, y + size * 1.35, cz))
+    return {"scene": sc, "clock": clock, "seconds": secs, "tick": tick, "camera": pos, "yaw": yaw, "pitch": pitch,
+            "fov": fov_at(sc, tick), "texts": texts}
+
+
+def world_preview_titles(layout: dict, width: int, height: int, colour: str = "white",
+                         border_colour: str = "black") -> list[Title]:
+    """On-screen stand-ins drawn where the in-world text will appear (for a preview frame)."""
+    out = []
+    for text, size, x, y, z in layout["texts"]:
+        pr = project(layout["camera"], layout["yaw"], layout["pitch"], layout["fov"], width, height,
+                     (x, y + size * 0.5, z))
+        if pr is None:
+            continue
+        sx, sy, ppb = pr
+        out.append(Title(text, 0, 1e6, size=max(0.005, size * ppb / height), y=sy / height, x=sx / width,
+                         colour=colour, style="outline", animation="none", border_colour=border_colour))
+    return out
+
+
 def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, colour: str = "white",
                   outline: bool = True, distance: float = 55.0, flashback_dir: str | None = None,
                   progress=None, until_seconds: float | None = None, always: bool = False,
                   animation: str = "none", anim: float = 0.4, word_gap: float = 0.3, fade_out: float = 0.0,
                   border_colour: str = "black", glow: bool = True, shadow: bool = False,
-                  box: str = "") -> dict:
+                  box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0) -> dict:
     """Put *lines* (text, letter height in blocks; first = top) into the world of a copy of the
     matched recording, in front of the camera at *at_seconds* of the video (None: where the camera
     stops at the end). The text appears at that moment and stays until *until_seconds* (None: to
@@ -631,26 +712,19 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     src = match.get("recording")
     if not src:
         raise ValueError("the recording of this edit wasn't found (import it into the library first)")
-    sc = scene_for_match(match)
-    clock = scene_clock(sc)
-    secs = at_seconds if at_seconds is not None else (match.get("still_from") or clock.duration) + 0.1
-    cam = wt.camera_at(sc, clock.replay_tick(min(secs, clock.duration)))
-    if cam is None:
-        raise ValueError("this edit has no camera keyframes to place the text by")
-    pos, yaw, pitch = cam
-    appear = None if always else int(clock.replay_tick(min(secs, clock.duration)))
+    lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale)
+    clock, secs, yaw = lay["clock"], lay["seconds"], lay["yaw"]
+    appear = None if always else int(lay["tick"])
     gone = None if (always or until_seconds is None) else int(clock.replay_tick(min(until_seconds, clock.duration)))
-    cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
-    texts, y = [], cy + distance * 0.32            # upper part of the picture, like a title
+    texts = []
     start = appear
     box_argb = 0
     if box:
         r_, g_, b_ = (int(_bgr(box)[i:i + 2], 16) for i in (6, 4, 2))
         box_argb = (0x90 << 24) | (r_ << 16) | (g_ << 8) | b_
         box_argb = box_argb - (1 << 32) if box_argb >= 1 << 31 else box_argb
-    for text, size in lines:
-        y -= size * 1.35
-        texts.append(wt.WorldText(text, cx, y + size * 1.35, cz, size=size, colour=colour, bold=True,
+    for text, size, x, y, z in lay["texts"]:
+        texts.append(wt.WorldText(text, x, y, z, size=size, colour=colour, bold=True,
                                   outline=border_colour if outline else "", camera_yaw=yaw,
                                   appear_tick=start, disappear_tick=gone, animation=animation,
                                   anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),

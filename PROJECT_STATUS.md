@@ -705,6 +705,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Choosing where in-world text goes:** Videos tab "Place in the world" (right, up,
+  distance, size) and **Preview world position**: the in-world text is projected into a frame of the
+  video using the edit's camera and FOV keyframes (matched the owner's Flashback screenshot within ~1.5%
+  of the picture height). Fix: the still-ending time was only worked out for one edit.
 - **2026-11-22:** Fix (found by the owner in Flashback): an in-world text copy could be made **from an
   earlier text copy**, so the old text stayed in the world. The app's own copies are now recognised by
   their recording (`original_uuid_mcsm` / `mcsm_world_text` in its metadata; a mark in the edit file is

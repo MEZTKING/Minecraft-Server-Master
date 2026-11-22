@@ -2404,3 +2404,19 @@ class TestNoTextResidue(unittest.TestCase):
                 self.assertTrue(m_["recording"].endswith("orig.zip"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestWorldPlacement(unittest.TestCase):
+    def test_projection(self):
+        from mcsm import videotext as vt
+        cam = [0.0, 64.0, 0.0]
+        x, y, ppb = vt.project(cam, 0.0, 0.0, 70.0, 1920, 1080, (0.0, 64.0, 50.0))   # straight ahead (south)
+        self.assertAlmostEqual(x, 960)
+        self.assertAlmostEqual(y, 540)
+        right = vt.project(cam, 0.0, 0.0, 70.0, 1920, 1080, (-5.0, 64.0, 50.0))       # -x is the camera's right
+        self.assertGreater(right[0], 960)
+        up = vt.project(cam, 0.0, 0.0, 70.0, 1920, 1080, (0.0, 70.0, 50.0))
+        self.assertLess(up[1], 540)
+        self.assertIsNone(vt.project(cam, 0.0, 0.0, 70.0, 1920, 1080, (0.0, 64.0, -10.0)))   # behind
+        self.assertAlmostEqual(vt.fov_at({"keyframeTracks": [{"keyframeType": "FOV", "keyframesByTick": {
+            "0": {"fov": 30}, "100": {"fov": 70}}}]}, 50), 50.0)

@@ -86,6 +86,9 @@ BUTTON_TIPS = {
                                        "with your edit; open it in Flashback and press Export.",
     "Put it on the video (new file)": "Make a new copy of the video with the text drawn on (the original isn't changed).",
     "Preview": "Show one frame of the video with the text on it.",
+    "Preview world position": "Show where the in-world text will be: one frame at the moment it appears, with the "
+                              "text drawn where it will sit (worked out from your edit's camera). Adjust the "
+                              "'Place in the world' numbers and preview again.",
     "Chat & events as subtitles": "Write subtitle files with the chat, joins, deaths and advancements at the right "
                                   "moments of the video.",
 }
@@ -973,15 +976,27 @@ class App(ttk.Frame):
         ttk.Label(anim, text="fade out (s):").pack(side="left")
         self.vid_fade_out_var = tk.StringVar(value="0")
         ttk.Entry(anim, textvariable=self.vid_fade_out_var, width=5).pack(side="left", padx=4)
+        place = ttk.Frame(f)
+        place.grid(row=9, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(place, text="6. Place in the world (blocks):").pack(side="left")
+        self.vid_place_vars = {}
+        for key, label, default in (("right", "right", "0"), ("up", "up", "0"), ("distance", "distance", "55"),
+                                    ("size", "size ×", "1")):
+            ttk.Label(place, text=f"  {label}").pack(side="left")
+            var = tk.StringVar(value=default)
+            ttk.Entry(place, textvariable=var, width=6).pack(side="left", padx=(3, 0))
+            self.vid_place_vars[key] = var
+        ttk.Label(place, text="  (negative = left / down)", foreground="gray").pack(side="left")
         btns = ttk.Frame(f)
-        btns.grid(row=9, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(btns, text="Put it in the world (Flashback)", command=self._vid_world).pack(side="left")
         ttk.Button(btns, text="Put it on the video (new file)", command=self._vid_screen).pack(side="left", padx=6)
         ttk.Button(btns, text="Preview", command=self._vid_preview).pack(side="left")
+        ttk.Button(btns, text="Preview world position", command=self._vid_world_preview).pack(side="left", padx=(6, 0))
         ttk.Button(btns, text="Chat & events as subtitles", command=self._vid_subtitles).pack(side="left", padx=6)
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
-            row=10, column=0, columnspan=3, sticky="w", pady=(10, 0))
+            row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.vid_info = None
         return f
 
@@ -1003,6 +1018,49 @@ class App(ttk.Frame):
                 "fade_out": num(self.vid_fade_out_var, "fade out"),
                 "border_colour": self.vid_border_colour_var.get(), "shadow": self.vid_shadow_var.get(),
                 "box": "black" if self.vid_box_var.get() else ""}
+
+    def _vid_place(self) -> dict:
+        out = {}
+        for key, var in self.vid_place_vars.items():
+            try:
+                out[key] = float(var.get() or 0)
+            except ValueError:
+                messagebox.showerror(APP_NAME, f"'{key}' must be a number of blocks")
+                raise
+        return {"right": out["right"], "up": out["up"], "distance": max(2.0, out["distance"] or 55.0),
+                "size_scale": max(0.05, out["size"] or 1.0)}
+
+    def _vid_world_preview(self) -> None:
+        """One frame of the video at the moment the text appears, with the text drawn where it will be
+        in the world (worked out from the edit's camera and zoom)."""
+        import tempfile
+        from . import videotext as vt
+        match = self._vid_match()
+        if not match:
+            messagebox.showinfo(APP_NAME, "Choose a video whose Flashback edit was found first.")
+            return
+        lines, at, place, info = self._vid_lines(True), self._vid_when(), self._vid_place(), self.vid_info
+        colour, border = self.vid_colour_var.get(), self.vid_border_colour_var.get()
+
+        def work(_):
+            lay = vt.world_layout(match, lines, at, **place)
+            titles = vt.world_preview_titles(lay, info["width"], info["height"], colour, border)
+            if not titles:
+                raise ValueError("the text would be behind the camera: use a positive distance")
+            work_dir = tempfile.mkdtemp(prefix="mcsm-preview-")
+            with open(os.path.join(work_dir, "t.ass"), "w", encoding="utf-8") as fh:
+                fh.write(vt.titles_ass(titles, info["width"], info["height"]))
+            out = os.path.join(work_dir, "world position.jpg")
+            # "where the camera stops": show the very end (the camera is fully still there)
+            t = info["duration"] - 0.15 if at is None else min(info["duration"] - 0.05, lay["seconds"] + 0.5)
+            subprocess.run([vt.find_tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", info["video"],
+                            "-copyts", "-vf", "ass=t.ass", "-frames:v", "1", out], cwd=work_dir, check=True)
+            x, y, z = lay["texts"][0][2:]
+            print(f"In the world at about ({x:.0f}, {y:.0f}, {z:.0f}); seen from the camera at {lay['seconds']:.1f} s "
+                  f"(field of view {lay['fov']:.0f}). The real text uses Minecraft's own font.")
+            return out
+
+        self._run("Preview of the world position", work, lambda out: open_path(out))
 
     def _vid_world_dir(self) -> str | None:
         from . import library as lib
@@ -1083,6 +1141,8 @@ class App(ttk.Frame):
         colour, border = self.vid_colour_var.get(), self.vid_border_var.get()
         look = self._vid_look()
         look["glow"] = self.vid_glow_var.get()
+
+        look.update(self._vid_place())
 
         def work(_):
             return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until, **look)
