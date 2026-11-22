@@ -1391,6 +1391,57 @@ def list_projects(world_dir: str) -> list[dict]:
     return out
 
 
+def recording_uuids(roots: list[str], cache_file: str | None = None) -> dict[str, str]:
+    """Flashback recording uuid -> file, for every ``.zip`` recording under *roots*. Each file's
+    metadata is read once; *cache_file* remembers them by path, size and date."""
+    cache = _read_json(cache_file) if cache_file else {}
+    seen, out = {}, {}
+    for root in roots:
+        for cur, _dirs, files in os.walk(root) if os.path.isdir(root) else []:
+            for f in files:
+                if not f.lower().endswith(".zip"):
+                    continue
+                p = os.path.join(cur, f)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                key = os.path.normcase(os.path.abspath(p))
+                hit = cache.get(key)
+                if hit and hit[0] == st.st_size and hit[1] == int(st.st_mtime):
+                    u = hit[2]
+                else:
+                    u = None
+                    try:
+                        with zipfile.ZipFile(p) as zf:
+                            if "metadata.json" in zf.namelist():
+                                u = json.loads(zf.read("metadata.json").decode("utf-8", "replace")).get("uuid")
+                    except (OSError, ValueError, zipfile.BadZipFile):
+                        pass
+                seen[key] = [st.st_size, int(st.st_mtime), u]
+                if u:
+                    out.setdefault(str(u), p)
+    if cache_file:
+        try:
+            _write_json(cache_file, seen)
+        except OSError:
+            pass
+    return out
+
+
+def find_recording(uuid: str, world_dir: str | None = None, extra_roots: tuple[str, ...] = ()) -> str | None:
+    """The Flashback recording with this uuid: in the library world, Flashback's own folders, or
+    *extra_roots*."""
+    from .flashback import flashback_folders
+    roots = list(extra_roots)
+    cache = None
+    if world_dir and is_world_dir(world_dir):
+        roots.insert(0, os.path.join(world_dir, "recordings"))
+        cache = os.path.join(world_dir, "recordings", ".uuid-index.json")
+    roots += [os.path.join(f["path"], "replays") for f in flashback_folders()]
+    return recording_uuids(roots, cache).get(uuid)
+
+
 def human_bytes(n: int | float | None) -> str:
     n = float(n or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):

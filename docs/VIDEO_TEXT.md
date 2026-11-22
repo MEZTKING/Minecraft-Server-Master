@@ -1,5 +1,27 @@
 # Text on finished videos (no editing skills needed)
 
+## The easy way: the app's Videos tab
+
+1. **Finished video → Choose…**: pick the video you exported from Flashback. The app finds the
+   Flashback edit it came from (even if you changed the edit afterwards, e.g. made it longer), the
+   recording, and where the camera stops moving at the end.
+2. **Big text** and an optional **small text above** (e.g. "Welcome to" / "Our First Expedition").
+3. **When:** where the camera stops at the end (good for titles), or at a second you choose.
+4. **Look:** colour (white by default), **black border**, and for on-screen text optionally
+   **3D letters**. On-screen text uses Minecraft's own logo font ("Minecraft Ten") when it's
+   installed, else Arial Black.
+5. Then either:
+   - **Put it in the world (Flashback)**: real Minecraft text in the scene (lit by the world,
+     hidden behind blocks). A copy of the recording named `… (text)` and a copy of your edit (with
+     the same export range as your video) go into the Flashback folder for its Minecraft version.
+     Open it in Flashback and press Export: the video comes out with the text in the world.
+   - **Put it on the video (new file)**: `<video> (with text).mp4` next to the original, made with
+     ffmpeg (the fastest encoder your PC really has: NVIDIA, AMD or Intel, else the normal one).
+   - **Preview**: one frame with the on-screen text, to check size and place first.
+   - **Chat & events as subtitles**: the `video-text` files below (load your server first).
+
+Your original video, recording and edit are never changed.
+
 You exported a video from Flashback and want the in-game texts on it: chat, "X joined the game",
 deaths, advancements, the date. Normally that means placing every text by hand in an editor such
 as DaVinci Resolve. `mcsm` does it for you: it works out which real moment on the server each
@@ -74,7 +96,8 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
   `--distance` blocks away (follows CAMERA keyframes; orbit and entity-tracking cameras aren't
   followed, so use `--at` for those).
 - **Look:** `--size` (letter height in blocks), `--colour` (gold, aqua, red… or `#RRGGBB`),
-  `--bold`, `--no-shadow`, `--no-glow` (lit by the world instead of always bright),
+  `--bold`, `--no-shadow`, `--no-glow` (lit by the world instead of always bright); the app adds a
+  black border (black copies just behind the text, best seen from the camera's direction),
   `--facing center` (always faces the camera, default) / `vertical` / `fixed` with `--yaw`.
 - **Output:** a new replay named `… (text)` with a new id, put into the Flashback folder that
   matches the recording's Minecraft version, plus a copy of your edit for it; or `-o FILE`.

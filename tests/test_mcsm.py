@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import struct
 import sys
 import tempfile
@@ -2097,3 +2098,88 @@ class TestWorldText(unittest.TestCase):
         self.assertAlmostEqual(x, 0.0)
         x, y, z = wt.in_front([0, 64, 0], 90, 0, 20)         # yaw 90 looks west (-x)
         self.assertAlmostEqual(x, -20.0)
+
+
+class TestVideoMaking(unittest.TestCase):
+    """Finding the edit of a video whose edit changed later; titles; the app's Videos tab."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="mcsm-vid-")
+        self.fb = os.path.join(self.tmp, "flashback")
+        os.makedirs(os.path.join(self.fb, "editor_states"))
+        os.makedirs(os.path.join(self.fb, "replays"))
+        self.old_env = os.environ.get("MCSM_FLASHBACK_DIR"), os.environ.get("APPDATA")
+        os.environ["MCSM_FLASHBACK_DIR"] = self.fb
+        os.environ["APPDATA"] = os.path.join(self.tmp, "appdata")
+        # an edit whose export (55011..56533 = 76.1 s) was lengthened after a 62.4 s video was exported
+        self.state = os.path.join(self.fb, "editor_states", "73f0f1f3-0000-0000-0000-000000000000.json")
+        cam = lambda x: {"position": [x, 110.0, -93.0], "yaw": -4.4, "pitch": -5.6}   # noqa: E731
+        with open(self.state, "w") as fh:
+            json.dump({"scenes": [{"name": "Scene 1", "exportStartTicks": 55011, "exportEndTicks": 56533,
+                                   "keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": {
+                                       "55048": cam(45.0), "56164": cam(32.7), "56281": cam(32.7)}}]}]}, fh)
+        self.video_mtime = time.time() - 3600
+        os.utime(self.state, (time.time(), time.time()))
+
+    def tearDown(self):
+        for key, val in zip(("MCSM_FLASHBACK_DIR", "APPDATA"), self.old_env):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_changed_edit_is_found_and_still_end(self):
+        from mcsm import videotext as vt
+        found = vt.find_scenes_for_video(62.4, video_mtime=self.video_mtime)
+        self.assertEqual(len(found), 1)
+        m_ = found[0]
+        self.assertEqual((m_["match"], m_["start"], m_["end"]), ("probable", 55011, 56259))
+        sc = vt.scene_for_match(m_)
+        self.assertEqual(vt.still_camera_at_end(sc), (56164.0, 56259.0))
+        self.assertAlmostEqual(vt.scene_clock(sc).video_time(56164), 57.65, places=2)
+        # an edit saved before the video can't be a changed version of it
+        self.assertEqual(vt.find_scenes_for_video(62.4, video_mtime=time.time() + 60), [])
+        # a copy made by mcsm is only offered when nothing else matches
+        from mcsm import worldtext as wt
+        wt.copy_edit(self.state, os.path.join(self.fb, "editor_states", "copy.json"), "73f0f1f3", (55011, 56259))
+        found = vt.find_scenes_for_video(62.4, video_mtime=self.video_mtime)
+        self.assertEqual([f["uuid"] for f in found], ["73f0f1f3-0000-0000-0000-000000000000"])
+
+    def test_titles_and_burn_in(self):
+        from mcsm import videotext as vt
+        ass = vt.titles_ass([vt.Title("Welcome to", 1, 3, size=0.07, y=0.16),
+                             vt.Title("Our First Expedition", 1, 3, size=0.13, y=0.28, style="3d", colour="gold")],
+                            1920, 1080, font="Arial Black")
+        self.assertIn(r"\bord", ass)
+        self.assertIn(r"\fad(700,0)", ass)
+        self.assertNotIn("\x08", ass)                                    # no broken escape codes
+        self.assertNotIn("\x0c", ass)
+        self.assertGreater(ass.count("Our First Expedition"), 5)          # 3D = layered copies
+        ff = vt.find_tool("ffmpeg")
+        if not ff:
+            self.skipTest("ffmpeg not installed")
+        src = os.path.join(self.tmp, "clip.mp4")
+        subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=3:r=10", "-pix_fmt",
+                        "yuv420p", src], check=True)
+        out = vt.make_on_screen(src, [("Hello", 0.2)], 0.5, 3)
+        self.assertTrue(out.endswith("clip (with text).mp4") and os.path.getsize(out) > 0)
+        with self.assertRaises(FileExistsError):
+            vt.burn_in(src, ass, out)
+
+    def test_gui_videos_tab(self):
+        if not _have_display():
+            self.skipTest("no display")
+        from mcsm import gui
+        root = _new_tk()
+        try:
+            app = gui.App(root)
+            self.assertIn("Videos", [app.nb.tab(t, "text") for t in app.nb.tabs()])
+            self.assertEqual(app._vid_lines(True), [("Welcome to", 3.0), ("Our First Expedition", 5.5)])
+            app.vid_small_var.set("")
+            self.assertEqual(app._vid_lines(False), [("Our First Expedition", 0.13)])
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()

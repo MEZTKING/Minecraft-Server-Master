@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import zipfile
 import os
 import shutil
 import subprocess
@@ -114,11 +115,17 @@ def load_scenes(state_file: str) -> list[dict]:
     return [s for s in state.get("scenes") or [] if isinstance(s, dict)]
 
 
-def find_scenes_for_video(duration: float, tolerance: float = 0.6) -> list[dict]:
-    """Exported scenes (in any Flashback folder) whose length matches a video of *duration* s.
-    ``[{state, uuid, scene, name, length}]``, best match first."""
+def find_scenes_for_video(duration: float, tolerance: float = 0.6, video_mtime: float | None = None) -> list[dict]:
+    """Flashback scenes that could have produced a video of *duration* seconds, best first.
+
+    ``[{state, uuid, scene, name, length, instance, match, start, end}]``. *match* is ``exact``
+    (the scene's export range gives that length now) or ``probable``: the edit was saved after
+    the video was made (*video_mtime*) and its export start fits, so the range was probably changed
+    after exporting (e.g. lengthened); *start*/*end* are then the range that gives the video's
+    length.
+    """
     from .flashback import flashback_folders
-    out = []
+    exact, probable = [], []
     for f in flashback_folders():
         d = os.path.join(f["path"], "editor_states")
         for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -127,14 +134,61 @@ def find_scenes_for_video(duration: float, tolerance: float = 0.6) -> list[dict]
             path = os.path.join(d, name)
             try:
                 scenes = load_scenes(path)
+                mtime = os.path.getmtime(path)
+                with open(path, encoding="utf-8") as fh:
+                    made_by_mcsm = "mcsm_copy_of" in fh.read(4096) or False
             except (OSError, ValueError):
                 continue
             for i, sc in enumerate(scenes):
                 clock = scene_clock(sc)
+                base = {"state": path, "uuid": name[:-5], "scene": i, "name": sc.get("name") or f"Scene {i + 1}",
+                        "instance": f["name"], "saved": mtime, "copy": made_by_mcsm}
                 if clock and abs(clock.duration - duration) <= tolerance:
-                    out.append({"state": path, "uuid": name[:-5], "scene": i, "name": sc.get("name") or f"Scene {i + 1}",
-                                "length": clock.duration, "instance": f["name"]})
-    return sorted(out, key=lambda x: abs(x["length"] - duration))
+                    exact.append({**base, "length": clock.duration, "match": "exact",
+                                  "start": clock.start, "end": clock.end})
+                    continue
+                start = sc.get("exportStartTicks", -1)
+                if video_mtime is None or start is None or start < 0 or mtime < video_mtime:
+                    continue
+                # the same start, with the end where the video's length runs out
+                wide = dict(sc, exportEndTicks=start + int(duration * 20 * 50) + 20)
+                wclock = scene_clock(wide)
+                if not wclock:
+                    continue
+                end = int(round(wclock.replay_tick(duration)))
+                check = scene_clock(dict(sc, exportEndTicks=end))
+                if check and abs(check.duration - duration) <= tolerance:
+                    probable.append({**base, "length": check.duration, "match": "probable", "start": start, "end": end})
+    exact.sort(key=lambda x: abs(x["length"] - duration))
+    probable.sort(key=lambda x: x["saved"] - (video_mtime or 0))      # saved soonest after the video
+    found = exact + probable
+    own = [x for x in found if not x["copy"]]                          # mcsm's own copies only as a last resort
+    return own or found
+
+
+def scene_for_match(match: dict) -> dict:
+    """The scene of a :func:`find_scenes_for_video` result, with the export range that made the video."""
+    sc = dict(load_scenes(match["state"])[match["scene"]])
+    sc["exportStartTicks"], sc["exportEndTicks"] = match["start"], match["end"]
+    return sc
+
+
+def still_camera_at_end(scene: dict) -> tuple[float, float] | None:
+    """``(from_tick, to_tick)`` of the part at the end of the export where the camera doesn't
+    move (two CAMERA keyframes with the same position and angle around the export end)."""
+    end = scene.get("exportEndTicks", -1)
+    for t in scene.get("keyframeTracks") or []:
+        if t.get("keyframeType") != "CAMERA" or not t.get("enabled", True):
+            continue
+        keys = sorted((int(k), v) for k, v in (t.get("keyframesByTick") or {}).items() if isinstance(v, dict))
+        same = lambda a, b: (a.get("position") == b.get("position") and a.get("yaw") == b.get("yaw")  # noqa: E731
+                             and a.get("pitch") == b.get("pitch"))
+        for (t1, a), (t2, b) in zip(keys, keys[1:]):
+            if t1 <= end and (t2 >= end or keys[-1][0] == t2) and same(a, b):
+                return float(t1), float(min(end, t2))
+        if keys and keys[-1][0] <= end:
+            return float(keys[-1][0]), float(end)         # after the last keyframe the camera holds
+    return None
 
 
 def video_duration(video: str) -> float | None:
@@ -331,3 +385,223 @@ def save_texts(texts: list[VideoText], path: str, meta: dict | None = None) -> s
     with open(path, "w", encoding="utf-8") as fh:
         json.dump({**(meta or {}), "texts": [t.to_json() for t in texts]}, fh, indent=1, default=str)
     return path
+
+
+# --- big titles and burning them into a copy of the video ---------------------------------
+
+def minecraft_font() -> str:
+    """'Minecraft Ten' (Minecraft's logo font) when it's installed, else Arial Black."""
+    dirs = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
+            os.path.expanduser("~/.fonts"), os.path.expanduser("~/Library/Fonts")]
+    for d in dirs:
+        for name in os.listdir(d) if d and os.path.isdir(d) else []:
+            if name.lower().replace(" ", "") in ("minecraftlogo.ttf", "minecraftten.ttf", "minecraft-ten.ttf"):
+                return "Minecraft Ten"
+    return "Arial Black"
+
+
+def _bgr(colour: str) -> str:
+    names = {"white": (255, 255, 255), "black": (0, 0, 0), "gold": (255, 170, 0), "yellow": (255, 255, 85),
+             "red": (255, 85, 85), "aqua": (85, 255, 255), "green": (85, 255, 85), "gray": (170, 170, 170)}
+    if colour.startswith("#") and len(colour) == 7:
+        r, g, b = int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16)
+    else:
+        r, g, b = names.get(colour, (255, 255, 255))
+    return f"&H{b:02X}{g:02X}{r:02X}&"
+
+
+@dataclass
+class Title:
+    text: str
+    start: float
+    end: float
+    size: float = 0.12              # letter height as a share of the video height
+    y: float = 0.25                 # vertical centre as a share of the video height (0 = top)
+    colour: str = "white"
+    style: str = "outline"          # outline: black border (Minecraft look); 3d: extruded letters
+    fade_in: float = 0.7
+    fade_out: float = 0.0
+
+
+def titles_ass(titles: list[Title], width: int, height: int, font: str | None = None) -> str:
+    """Big titles as an .ass script (layered for the 3D look)."""
+    font = font or minecraft_font()
+    head = ["[Script Info]", "; written by mcsm", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
+            "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+            "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
+            "MarginR, MarginV, Encoding",
+            f"Style: t,{font},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,2,0,1,0,0,5,0,0,0,1",
+            "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+    lines, layer = [], 0
+    for t in titles:
+        px = max(10, int(t.size * height))
+        cx, cy = width // 2, int(t.y * height)
+        bs = "\\"                                    # ASS override codes start with a backslash
+        fad = f"{bs}fad({int(t.fade_in * 1000)},{int(t.fade_out * 1000)})"
+        span = f"{_ass_time(t.start)},{_ass_time(t.end)}"
+        text = _ass_escape(t.text)
+        if t.style == "3d":
+            depth = max(4, px // 7)
+            for i in range(depth, 0, -1):
+                shade = int(150 - 90 * i / depth) // 2
+                lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx + i // 3},{cy + i})"
+                             f"{bs}1c&H{shade:02X}{shade:02X}{shade:02X}&{bs}bord{max(2, px // 45)}"
+                             f"{bs}3c&H101010&}}{text}")
+                layer += 1
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{max(2, px // 45)}{bs}3c&H181818&}}{text}")
+        else:
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{max(2, px // 12)}{bs}3c&H000000&{bs}shad{max(1, px // 25)}{bs}4c&H000000&}}{text}")
+        layer += 1
+    return "\n".join(head + lines) + "\n"
+
+
+def pick_encoder(ffmpeg: str) -> list[str]:
+    """ffmpeg arguments for the fastest H.264 encoder that really works on this PC (a graphics
+    card's encoder when there is one; listed encoders are tried, not trusted), else libx264."""
+    for enc, args in (("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "18"]),
+                      ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "18",
+                                    "-qp_p", "20"]),
+                      ("h264_qsv", ["-c:v", "h264_qsv", "-global_quality", "20"])):
+        try:
+            r = subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x144:d=0.1",
+                                "-c:v", enc, "-f", "null", "-"], capture_output=True, timeout=30)
+            if r.returncode == 0:
+                return args
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
+
+
+def burn_in(video: str, ass_text: str, out: str, progress=None) -> str:
+    """Make a copy of *video* with the texts drawn in (the original is never changed)."""
+    import tempfile
+    ffmpeg = find_tool("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found (install it, or use the .ass/.srt files instead)")
+    if os.path.abspath(out) == os.path.abspath(video):
+        raise ValueError("refusing to overwrite the original video")
+    if os.path.exists(out):
+        raise FileExistsError(out)
+    say = progress or (lambda msg: None)
+    total = video_duration(video) or 0
+    work = tempfile.mkdtemp(prefix="mcsm-text-")
+    try:
+        with open(os.path.join(work, "t.ass"), "w", encoding="utf-8") as fh:
+            fh.write(ass_text)
+        part = out + ".part.mp4"
+        cmd = [ffmpeg, "-v", "error", "-y", "-i", os.path.abspath(video), "-vf", "ass=t.ass",
+               *pick_encoder(ffmpeg), "-pix_fmt", "yuv420p", "-c:a", "copy", "-progress", "pipe:1", "-nostats",
+               os.path.abspath(part)]
+        proc = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        last = -1
+        for line in proc.stdout:
+            if line.startswith("out_time_us=") and total:
+                try:
+                    pct = int(int(line.split("=")[1]) / 1e6 / total * 100)
+                except ValueError:
+                    continue
+                if pct >= last + 5:
+                    last = pct
+                    say(f"  {min(pct, 100)}%")
+        err = proc.stderr.read()
+        if proc.wait() != 0:
+            if os.path.exists(part):
+                os.remove(part)
+            raise RuntimeError(f"ffmpeg failed: {err.strip()[-400:]}")
+        os.replace(part, out)
+        return out
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# --- one-stop: analyse a finished video, then make the text in the world and/or on screen -----
+
+def analyse_video(video: str, world_dir: str | None = None) -> dict:
+    """Everything needed to put text on a finished Flashback video: its length and size, the
+    matching Flashback edits (best first), the recording, and where the camera holds still at the end."""
+    from .flashback import flashback_folders
+    from .library import is_world_dir, recording_uuids
+    dur = video_duration(video)
+    if dur is None:
+        raise RuntimeError("ffprobe (part of ffmpeg) is needed to read the video's length")
+    size = video_size(video) or (1920, 1080)
+    matches = find_scenes_for_video(dur, video_mtime=os.path.getmtime(video))
+    out = {"video": video, "duration": dur, "width": size[0], "height": size[1], "matches": matches}
+    roots, cache = [], None
+    if world_dir and is_world_dir(world_dir):
+        roots.append(os.path.join(world_dir, "recordings"))
+        cache = os.path.join(world_dir, "recordings", ".uuid-index.json")
+    roots += [os.path.join(f["path"], "replays") for f in flashback_folders()]
+    by_uuid = recording_uuids(roots, cache) if matches else {}
+    for mt in matches:
+        mt["recording"] = by_uuid.get(mt["uuid"])
+        if mt["recording"]:
+            sc = scene_for_match(mt)
+            clock = scene_clock(sc)
+            still = still_camera_at_end(sc)
+            mt["still_from"] = clock.video_time(still[0]) if (still and clock) else None
+    return out
+
+
+def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, colour: str = "white",
+                  outline: bool = True, distance: float = 55.0, flashback_dir: str | None = None,
+                  progress=None) -> dict:
+    """Put *lines* (text, letter height in blocks; first = top) into the world of a copy of the
+    matched recording, in front of the camera at *at_seconds* of the video (None: where the camera
+    stops at the end). The copy and a copy of the edit (with the export range of this video) go
+    into the Flashback folder for the recording's Minecraft version."""
+    from . import flashback as fbm, worldtext as wt
+    say = progress or (lambda msg: None)
+    src = match.get("recording")
+    if not src:
+        raise ValueError("the recording of this edit wasn't found (import it into the library first)")
+    sc = scene_for_match(match)
+    clock = scene_clock(sc)
+    secs = at_seconds if at_seconds is not None else (match.get("still_from") or clock.duration) + 0.1
+    cam = wt.camera_at(sc, clock.replay_tick(min(secs, clock.duration)))
+    if cam is None:
+        raise ValueError("this edit has no camera keyframes to place the text by")
+    pos, yaw, pitch = cam
+    cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
+    texts, y = [], cy + distance * 0.32            # upper part of the picture, like a title
+    for text, size in lines:
+        y -= size * 1.35
+        texts.append(wt.WorldText(text, cx, y + size * 1.35, cz, size=size, colour=colour, bold=True,
+                                  outline="black" if outline else "", camera_yaw=yaw))
+    with zipfile.ZipFile(src) as zf:
+        mc = json.loads(zf.read("metadata.json").decode("utf-8")).get("version_string")
+    fb = flashback_dir or fbm.find_flashback_dir(None, mc)
+    if not fb:
+        raise ValueError("no Flashback folder found")
+    base = os.path.splitext(os.path.basename(src))[0] + " (text)"
+    dst = os.path.join(fb, "replays", base + ".zip")
+    n = 2
+    while os.path.exists(dst):
+        dst = os.path.join(fb, "replays", f"{base} {n}.zip")
+        n += 1
+    say(f"Writing a copy of {os.path.basename(src)} with the text in its world…")
+    meta = wt.write_world_text_copy(src, dst, texts)
+    edit = wt.copy_edit(match["state"], os.path.join(fb, "editor_states", meta["uuid"] + ".json"), match["uuid"],
+                        (match["start"], match["end"]))
+    return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb}
+
+
+def make_on_screen(video: str, lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
+                   colour: str = "white", out: str | None = None, progress=None) -> str:
+    """A copy of *video* with *lines* (text, share of the picture height) as big titles from
+    *start* to *end* seconds."""
+    size = video_size(video) or (1920, 1080)
+    titles, y = [], 0.16
+    for text, h in lines:
+        titles.append(Title(text, start, end, size=h, y=y + h / 2, colour=colour, style=style))
+        y += h * 1.25
+    if out is None:
+        stem, ext = os.path.splitext(video)
+        out, n = f"{stem} (with text){ext}", 2
+        while os.path.exists(out):
+            out, n = f"{stem} (with text {n}){ext}", n + 1
+    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress)

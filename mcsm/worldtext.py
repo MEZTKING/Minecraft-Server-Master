@@ -67,6 +67,9 @@ class WorldText:
     glow: bool = True               # full brightness (readable at night)
     view_range: float = 8.0         # x64 blocks
     line_width: int = 100000        # pixels before wrapping (large = never wrap)
+    outline: str = ""               # border colour (e.g. "black"); empty = no border
+    outline_width: float = 0.0      # border thickness in blocks (0 = automatic, about 1/14 of the size)
+    camera_yaw: float | None = None  # where it's seen from (needed for the border)
 
 
 # --- encoding -----------------------------------------------------------------------------
@@ -165,6 +168,27 @@ def add_to_chunk(chunk: bytes, records: list[bytes]) -> bytes:
     return chunk[:i] + struct.pack(">I", size + len(extra)) + snap + extra + chunk[i + 4 + size:]
 
 
+def with_outline(t: WorldText) -> list[WorldText]:
+    """A bordered text as several text displays: copies in the border colour, shifted a little up,
+    down, left and right and set slightly further from the camera, then the text itself in front.
+    (Minecraft text displays only have a drop shadow, no outline.) Best seen from about the
+    direction *camera_yaw* looks from."""
+    if not t.outline:
+        return [t]
+    w = t.outline_width or max(0.04, t.size / 14.0)
+    yaw = math.radians(t.camera_yaw if t.camera_yaw is not None else 0.0)
+    fx, fz = -math.sin(yaw), math.cos(yaw)              # the camera's forward direction
+    rx, rz = -math.cos(yaw), -math.sin(yaw)             # its right
+    back = max(0.05, w * 0.5)
+    out = []
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)):
+        out.append(WorldText(t.text, t.x + rx * dx * w + fx * back, t.y + dy * w, t.z + rz * dx * w + fz * back,
+                             size=t.size, colour=t.outline, bold=t.bold, facing=t.facing, yaw=t.yaw, shadow=False,
+                             background=0, glow=t.glow, view_range=t.view_range, line_width=t.line_width))
+    out.append(WorldText(**{**t.__dict__, "outline": "", "shadow": False}))
+    return out
+
+
 def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)") -> dict:
     """Copy a Flashback recording with *texts* placed in its world. The original isn't changed.
     Returns the copy's metadata (new uuid; ``original_uuid_mcsm`` = the original's)."""
@@ -179,6 +203,8 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                              f"yet for in-world text (supported: {known} = 26.1.x, 26.2, 26.3)")
         add_id, data_id, type_id = PROTOCOLS[proto]
         records = []
+        texts_in = texts
+        texts = [part for t in texts_in for part in with_outline(t)]
         for k, t in enumerate(texts):
             eid = 2_000_000_000 + k                      # far above anything the server hands out
             uid = uuid_mod.uuid4()
@@ -187,7 +213,7 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
         meta["original_uuid_mcsm"] = meta.get("uuid")
         meta["uuid"] = str(uuid_mod.uuid4())
         meta["name"] = (meta.get("name") or "Replay") + name_suffix
-        meta["mcsm_world_text"] = [t.__dict__ for t in texts]
+        meta["mcsm_world_text"] = [t.__dict__ for t in texts_in]
         os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         tmp = dst + ".part"
         chunks = 0
@@ -216,6 +242,25 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
 
 
 # --- placing text where the camera looks ---------------------------------------------------
+
+def copy_edit(state_file: str, target: str, original_uuid: str, export: tuple[int, int] | None = None) -> str:
+    """Copy a Flashback edit (editor state) for a replay copy, marked as made by mcsm; optionally
+    with the export range that made a given video. Never overwrites."""
+    if os.path.exists(target):
+        raise FileExistsError(target)
+    with open(state_file, encoding="utf-8") as fh:
+        state = json.load(fh)
+    if export:
+        idx = int(state.get("sceneIndex") or 0)
+        scenes = state.get("scenes") or []
+        if scenes:
+            sc = scenes[idx if 0 <= idx < len(scenes) else 0]
+            sc["exportStartTicks"], sc["exportEndTicks"] = int(export[0]), int(export[1])
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8") as fh:
+        json.dump({"mcsm_copy_of": original_uuid, **state}, fh)
+    return target
+
 
 def camera_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
     """Camera ``(position, yaw, pitch)`` at replay *tick* from the scene's CAMERA keyframes
