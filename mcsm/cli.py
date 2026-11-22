@@ -704,6 +704,21 @@ def cmd_library(args) -> int:
                   f"{lib.human_bytes(r['bytes_written'])} new on disk ({r['mode']})\n"
                   f"  recordings: {r['recordings_new']} new, {r['recordings_known']} already in the library")
         return 1 if failed else 0
+    if args.action in ("scan", "import-all"):
+        if len(args.paths) != 1:
+            print("give the one folder that holds your backups", file=sys.stderr)
+            return 2
+        plan = lib.scan(args.paths[0], library)
+        print(lib.describe_plan(plan), flush=True)
+        if args.action == "scan":
+            print("\nNothing was changed. Run `mcsm library import-all FOLDER` to import this.")
+            return 0
+        mode = "copy" if args.mode == "auto" else args.mode
+        print(f"\nImporting into {library} ({mode}) ...", flush=True)
+        r = lib.import_all(plan, library, mode, args.world, say)
+        print(f"\nDone: {len(r['imported'])} imported, {len(r['skipped'])} already there, "
+              f"{len(r['failed'])} failed" + "".join(f"\n  failed: {f['path']}: {f['error']}" for f in r["failed"]))
+        return 1 if r["failed"] else 0
     if args.action == "add-recordings":
         worlds = lib.list_worlds(library)
         w = next((x for x in worlds if args.world and x["name"].lower() == args.world.lower()), None)
@@ -891,13 +906,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("library", help="keep all backups and recordings in one library folder",
                        description="One folder per world; each backup in a dated folder; every recording stored "
                                    "once. Give a library world folder as SERVER to any command to load all of it.")
-    p.add_argument("action", choices=["list", "import", "add-recordings"])
-    p.add_argument("paths", nargs="*", help="import: backup folders, .zip or .tgz files; "
-                                            "add-recordings: recording files or folders")
+    p.add_argument("action", choices=["list", "import", "scan", "import-all", "add-recordings"])
+    p.add_argument("paths", nargs="*", help="import: backup folders, .zip or .tgz files; scan / import-all: "
+                                            "a folder full of backups (any host); add-recordings: recording "
+                                            "files or folders")
     p.add_argument("--library", metavar="DIR", help="library folder (default Documents/mcsm-library)")
     p.add_argument("--mode", choices=["auto", "link", "copy", "move"], default="auto",
-                   help="auto (default): hard links on the same drive (no extra space), else copy; "
-                        "move: move the files in")
+                   help="auto (default): hard links on the same drive (no extra space), else copy "
+                        "(import-all: copy, so originals are only read); move: move the files in")
     p.add_argument("--world", help="world folder name in the library (default: from the backup's level name)")
     p.add_argument("--force", action="store_true", help="import even if a backup from the same time is there")
     p.set_defaults(func=cmd_library)

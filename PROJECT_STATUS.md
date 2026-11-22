@@ -65,6 +65,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | History viewer terrain per backup: the map shows the world as it was at the time on the slider (next backup saved at or after it), or one pinned backup; unchanged regions shared | ✅ Done, checked on the owner's May + November backups | `mcsm/live.py` (`TerrainServer` layers), `history.py`, `assets/web/history.html`, `--terrain`, app checkbox | `docs/HISTORY.md` |
 | Highlights for videos: mark spans in the history viewer; export Flashback copies with start/end markers + one export-range scene per highlight, and a CSV clip list | ✅ Done, not yet tried in a real Flashback | `mcsm/highlights.py`, `history.py`, `assets/web/history.html` | `docs/HISTORY.md` |
 | Library: one folder per world for all backups (folders, .zip, PebbleHost .tgz) and recordings (each stored once); link/copy/move; unchanged files hard-linked; a world folder works as SERVER everywhere; app Library tab | ✅ Done, checked on the owner's May + November backups and the May .tgz | `mcsm/library.py`, `archive.py` (recordings), `mcsm library`, app Library tab | `docs/LIBRARY.md` |
+| Import a whole folder of backups from any host: scan + plan (one copy per backup, recordings, ignored/unsupported files), world-only backups (Aternos/Realms/singleplayer) | ✅ Done, scan checked on the owner's 600 GB backup folder | `mcsm/library.py` (`scan`, `import_all`), `mcsm library scan/import-all`, app *Import a whole folder…* | `docs/LIBRARY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -262,6 +263,31 @@ unpacked folder (see changelog for the `Recordings for:` colon fix).
 have no logs, so they would only add terrain. Should Flashback's own replay folder be imported
 automatically?
 
+### 0e. Import a whole folder of backups, from any host (requested 2026-11-22)
+
+**The ask:** "You should make a feature so importing it like this so other users can do the same,
+i dont know if you need to consider taking a backup from which hosting company".
+
+**Design:**
+- `mcsm library scan FOLDER` shows a plan without changing anything; `mcsm library import-all
+  FOLDER` runs it; app: **Import a whole folder…** (scan, show the plan, ask, import).
+- Found by **content, not host name**: a server root (`server.properties`, `logs/`, …), a
+  world-only folder (`level.dat` + `region/`: Aternos/Realms downloads, singleplayer saves), and
+  archives (`.zip` listed cheaply; `.tgz`/`.tar.gz`/`.tar` by name, checked when unpacked).
+- **One copy per backup:** an unpacked folder next to (or around) its archive, a `.tar` next to
+  its `.tgz`, and identical archives (same size + same first/last MiB) are one backup; the fastest
+  copy is used (folder, then `.tar`, then compressed). Importing still skips a backup whose time
+  is already in the library, as a safety net.
+- Recording folders that aren't inside a backup are added as recordings; videos, mods and other
+  files are ignored and counted; `.7z`/`.rar` are listed as "unpack first".
+- World-only backups go into `backups/<date>/<world>/` with a generated `server.properties`
+  (`level-name`) so every tool works on them.
+
+✅ **Done 2026-11-22** as designed. On the owner's `F:\Game Backup\Minecraft Divers` (about
+600 GB) the scan found 15 backups, skipped 5 copies (3 archives next to their unpacked folder,
+June 9's `.tar` next to its `.tgz`, and an identical July 4 `.tgz` in a second folder), found
+1,980 loose recordings, ignored 4 videos + 4 `.jar` (35 GB), and flagged the `.7z`.
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -402,6 +428,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | Library import defaults to hard links on the same drive (else copy); recordings move out of the backup folders into one per-world `recordings` folder | No extra space and instant; the originals stay intact and can be deleted later; each recording stored once |
 | 2026-11-22 | Library backups are named and de-duplicated by snapshot time (last-played / latest.log); worlds matched by level name + seed | Importing the same download twice does nothing; a reset world gets its own folder |
 | 2026-11-22 | Archive member names are made Windows-safe (`:` → `_`) when unpacking `.tgz`/`.zip` | ServerReplay's `Recordings for: NAME` folders can't be created on Windows |
+| 2026-11-22 | Backups are recognised by content, not by hosting company | Hosts change formats and many share the same panel; what matters is server root vs world-only vs archive |
+| 2026-11-22 | Two backups within 2 s of each other count as the same | `.zip` stores times to 2 seconds; a zip and a folder of the same world differed by 0.3 s |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -409,7 +437,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - **Library link mode shares data with the original folder.** Running a server from the
   original afterwards would change the library's copy too (documented). Explorer shows every
   backup at full size although shared files are stored once.
-- **Singleplayer saves are not imported into the library** (no logs; would only add terrain).
+- **Copies of one backup are only recognised by name** (archive next to a folder named like it,
+  `.tar` next to `.tgz`) or by identical bytes; other copies are unpacked and then skipped by
+  snapshot time, which costs time but loses nothing.
 - **Identical events in the same second count once when backups are merged** (also when one
   library backup is loaded): the May backup has one chat message sent twice in one second.
 
@@ -443,6 +473,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Import a whole folder of backups, from any host.** `mcsm library scan FOLDER`
+  (plan only) and `import-all`, app *Import a whole folder of backups…* (plan, ask, import; always
+  copies). Detects server folders, world-only folders (Aternos/Realms/singleplayer, imported
+  with a generated `server.properties`), `.zip`/`.tgz`/`.tar` archives and loose recordings;
+  skips copies of the same backup; lists `.7z`/`.rar` and ignores other files. Fixes: a `.tar`
+  ending in a recording was taken for a `.zip`; recording folders already in the library were
+  added again; backups with neither LastPlayed nor logs are dated by `level.dat`. Tests: Tk
+  windows are created with retries (intermittent init.tcl errors on the Windows CI runner).
 - **2026-11-22:** Library: recordings are de-duplicated by file name + content anywhere in the
   world (ServerReplay renamed its player folders between versions); `add-recordings` keeps the
   folder layout (`players/<uuid>/` still names the player); docs recommend copy mode to leave

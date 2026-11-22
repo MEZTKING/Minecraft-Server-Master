@@ -1582,3 +1582,95 @@ class TestLibrary(unittest.TestCase):
             del root
             import gc
             gc.collect()
+
+
+class TestLibraryScan(unittest.TestCase):
+    """A messy backup folder like the owner's: archive + its unpacked copy, an identical archive
+    elsewhere, A.tar next to A.tgz, an Aternos-style world-only zip, a singleplayer save, videos,
+    a .7z and loose recordings."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tarfile
+        from fixtures import add_extra_replays
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-scan-")
+        src = os.path.join(cls.tmp, "build")
+        old = build_server(os.path.join(src, "old"))
+        new = os.path.join(src, "new", "home", "servers", "abc")
+        shutil.copytree(old, new)
+        add_extra_replays(new)
+        t_old, t_new = time.time() - 60 * 86400, time.time() - 86400
+        os.utime(os.path.join(old, "logs", "latest.log"), (t_old, t_old))
+        os.utime(os.path.join(new, "logs", "latest.log"), (t_new, t_new))
+        top = cls.top = os.path.join(cls.tmp, "Game Backup")
+        a = os.path.join(top, "Nov01")
+        os.makedirs(a)
+        with tarfile.open(os.path.join(a, "QUJD.tgz"), "w:gz") as tf:
+            tf.add(os.path.join(src, "new", "home"), arcname="home")
+        shutil.copytree(os.path.join(src, "new", "home"), os.path.join(a, "QUJD", "home"))   # unpacked copy
+        os.makedirs(os.path.join(top, "Nov01 again"))
+        shutil.copy2(os.path.join(a, "QUJD.tgz"), os.path.join(top, "Nov01 again", "QUJD.tgz"))  # identical
+        b = os.path.join(top, "Sep")
+        os.makedirs(b)
+        with tarfile.open(os.path.join(b, "OLD.tar"), "w") as tf:
+            tf.add(old, arcname="srv")
+        with tarfile.open(os.path.join(b, "OLD.tgz"), "w:gz") as tf:
+            tf.add(old, arcname="srv")
+        cls.world_zip = _zip_dir(os.path.join(old, "world"), os.path.join(top, "aternos-world.zip"), "world")
+        shutil.copytree(os.path.join(old, "world"), os.path.join(top, "saves", "My Survival"))
+        with open(os.path.join(top, "cinematic.mp4"), "wb") as fh:
+            fh.write(b"\0" * 1000)
+        with open(os.path.join(top, "old.7z"), "wb") as fh:
+            fh.write(b"7z")
+        shutil.copytree(os.path.join(new, "recordings"), os.path.join(top, "All recordings", "recordings"))
+        cls.lib = os.path.join(cls.tmp, "lib")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_scan_and_import_all(self):
+        from mcsm import library as lib
+        plan = lib.scan(self.top, self.lib)
+        rel = lambda p: os.path.relpath(p, self.top).replace(os.sep, "/")  # noqa: E731
+        picked = sorted(rel(c["path"]) for c in plan["backups"])
+        self.assertEqual(picked, ["Nov01/QUJD/home/servers/abc", "Sep/OLD.tar", "aternos-world.zip",
+                                  "saves/My Survival"])
+        same = {rel(c["path"]): c["why"] for c in plan["same"]}
+        self.assertEqual(same["Nov01/QUJD.tgz"], "unpacked copy next to it")
+        self.assertEqual(same["Nov01 again/QUJD.tgz"], "identical file")
+        self.assertIn("same backup as the .tar", same["Sep/OLD.tgz"])
+        self.assertEqual([rel(p) for p in plan["unsupported"]], ["old.7z"])
+        self.assertEqual(plan["ignored"].get(".mp4"), 1)
+        self.assertEqual([rel(r["group"]) for r in plan["recordings"]], ["All recordings"])
+        self.assertTrue(next(c for c in plan["backups"] if c["path"].endswith("My Survival"))["world_only"])
+        text = lib.describe_plan(plan)
+        self.assertIn("Copies of a backup above, skipped (3)", text)
+
+        r = lib.import_all(plan, self.lib, "copy")
+        self.assertEqual(r["failed"], [])
+        worlds = lib.list_worlds(self.lib)
+        self.assertEqual(len(worlds), 1)
+        bs = worlds[0]["backups"]
+        # the zip and the save hold the same world snapshot: imported once
+        self.assertEqual(len(r["imported"]), 3)
+        self.assertEqual(len(r["skipped"]), 1)
+        wo = next(b for b in bs if b.get("world_only"))
+        self.assertTrue(os.path.isfile(os.path.join(wo["path"], "server.properties")))
+        props = open(os.path.join(wo["path"], "server.properties")).read()
+        level = props.split("level-name=")[1].strip()
+        self.assertTrue(os.path.isfile(os.path.join(wo["path"], level, "level.dat")))
+        self.assertEqual(r["recordings"][0]["added"], 0)            # all already came with the backups
+        # the whole world loads, world-only backup included
+        from io import StringIO
+        from contextlib import redirect_stderr
+        with redirect_stderr(StringIO()):
+            d = cli._load(cli.parse_args(["summary", worlds[0]["path"]]))
+        self.assertEqual(len(d.backups), 3)
+        # originals untouched
+        self.assertTrue(os.path.isdir(os.path.join(self.top, "Nov01", "QUJD", "home", "servers", "abc", "recordings")))
+        out = StringIO()
+        from contextlib import redirect_stdout
+        with redirect_stdout(out), redirect_stderr(StringIO()):
+            self.assertEqual(cli.main(["library", "scan", self.top, "--library", self.lib]), 0)
+        self.assertIn("Nothing was changed", out.getvalue())

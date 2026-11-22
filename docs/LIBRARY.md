@@ -35,8 +35,11 @@ Open the **Library** tab.
      stored: a file identical to one already in the library (another backup, or the same
      recording) is stored once. Use this to keep your original backups exactly as they are.
    - **Move**: the files are moved into the library (instant on the same drive).
-3. **Import backup folder…** for an unpacked backup; **Import backup file (.zip / .tgz)…** for a
-   download. Archives are unpacked straight into the library once, so you never unpack them
+3. **Import a whole folder of backups…**: point it at the folder where you keep all your
+   downloads, however messy (see [below](#importing-a-whole-folder)). It shows what it found
+   and asks before importing anything. This always copies, so your originals are only read.
+   **Import backup folder…** is for one unpacked backup; **Import backup file (.zip / .tgz)…**
+   for one download. Archives are unpacked straight into the library once, so you never unpack them
    again.
 4. **Add recordings…** adds single recordings to the selected world. **Add my Flashback
    replays** adds everything in your Flashback replay folder (`%APPDATA%\.minecraft\flashback\replays`).
@@ -45,6 +48,8 @@ Open the **Library** tab.
 ## On the command line
 
 ```
+mcsm library scan "F:\Game Backup\Minecraft Divers"          (shows the plan, changes nothing)
+mcsm library import-all "F:\Game Backup\Minecraft Divers" --library "F:\Game Backup\mcsm-library"
 mcsm library import "May19_2026\home" backup-2026-11-20.tgz
 mcsm library add-recordings "%APPDATA%\.minecraft\flashback\replays" --world Main_world
 mcsm library list
@@ -60,6 +65,39 @@ A library world folder works as SERVER for **every** command (`summary`, `report
 | `--mode auto\|link\|copy\|move` | auto (default): hard links on the same drive, else copy |
 | `--world NAME` | put the backup into this world folder (default: matched by level name and seed) |
 | `--force` | import even if a backup from the same time is already there |
+
+## Importing a whole folder
+
+Point *Import a whole folder of backups…* (or `mcsm library scan` / `import-all`) at the folder
+with all your downloads. It looks at **what is inside** each file and folder, not at file names or
+which company made the backup, so it works with any host:
+
+| What you have | Examples | How it's recognised |
+|---|---|---|
+| A full server backup as an archive | PebbleHost `.tgz` (server inside `home/servers/<id>/`), Pterodactyl-panel hosts (BisectHosting, Apex, Shockbyte, …) `.tar.gz`, `.zip` downloads | `.zip`: its file list; `.tgz` / `.tar.gz` / `.tar`: checked when unpacked |
+| An unpacked server folder | anything you unpacked yourself | `server.properties` or `logs/` |
+| Only the world | Aternos and Realms world downloads, singleplayer saves (`.minecraft\saves\<world>`) | `level.dat` + region/player folders |
+| Recordings | ServerReplay `recordings/`, Flashback replays, ReplayMod `.mcpr` | their metadata files |
+
+Before importing it shows a plan:
+
+- **Backups to import**, oldest first.
+- **Copies of a backup, skipped:** an archive next to the folder you unpacked it into
+  (`A.tgz` + `A\…`), a `.tar` next to its `.tgz`, and byte-identical archives in different folders.
+  The fastest copy is used: an unpacked folder, then `.tar`, then `.zip` / `.tgz`. If it can't
+  tell that two copies are the same backup, it imports both, and the second is then skipped
+  because a backup from the same moment is already there. Nothing is lost either way; at most a
+  little time is spent unpacking.
+- **Recordings outside the backups** (e.g. a folder where you collected all recordings): added
+  to the world most backups went into; ones already in the library are skipped.
+- **Can't be read:** `.7z` and `.rar`. Unpack them (e.g. with 7-Zip) and scan again.
+- **Not backups, ignored:** videos, mods (`.jar`), pictures and everything else, with a total size.
+- Nothing inside a server's own folder is treated as a separate backup (for example a backup
+  mod's `backups\*.zip`).
+
+World-only backups get a `server.properties` with just `level-name` written into their library
+folder, so every tool (statistics, terrain, history) works on them. They have no logs, so they
+add world, stats and inventories, not events.
 
 ## What happens on import
 
@@ -98,4 +136,5 @@ the same history as loading both original folders.
   stored once. *Properties* of the whole library folder therefore overstates the space used.
 - Path and terrain caches stay in `%LOCALAPPDATA%\mcsm` and are reused: moving recordings
   into the library does not make them decode again.
-- Singleplayer worlds (`.minecraft\saves`) are not imported yet: they have no logs.
+- Singleplayer worlds (`.minecraft\saves\<world>`) can be imported like any backup (they
+  count as world-only: no logs, so no events).

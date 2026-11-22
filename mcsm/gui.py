@@ -177,6 +177,7 @@ class App(ttk.Frame):
             ttk.Radiobutton(modes, text=text, value=value, variable=self.lib_mode_var).pack(side="left", padx=(6, 0))
         btns = ttk.Frame(f)
         btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 6))
+        ttk.Button(btns, text="Import a whole folder of backups…", command=self._lib_import_all).pack(side="left", padx=(0, 4))
         ttk.Button(btns, text="Import backup folder…", command=lambda: self._lib_import(folder=True)).pack(side="left")
         ttk.Button(btns, text="Import backup file (.zip / .tgz)…", command=lambda: self._lib_import(folder=False)).pack(side="left", padx=4)
         ttk.Button(btns, text="Add recordings…", command=self._lib_add_recordings).pack(side="left")
@@ -227,6 +228,43 @@ class App(ttk.Frame):
                                     b.get("source", "")))
         if not worlds:
             tree.insert("", "end", iid="__empty", text="(empty: import a backup)")
+
+    def _lib_import_all(self) -> None:
+        """Scan a folder full of backups, show the plan, and import it after a yes."""
+        from . import library as lib
+        top = filedialog.askdirectory(title="Choose the folder that holds your backups (any host)")
+        if not top:
+            return
+        library = self.lib_dir_var.get()
+        mode = self.lib_mode_var.get()
+        mode = "copy" if mode == "auto" else mode
+
+        def scan(_):
+            plan = lib.scan(top, library)
+            print(lib.describe_plan(plan))
+            return plan
+
+        def confirm(plan):
+            if not plan["backups"] and not plan["recordings"]:
+                messagebox.showinfo(APP_NAME, "No backups or recordings found in that folder.")
+                return
+            words = {"copy": "copied (the originals are only read)", "move": "MOVED out of their folders",
+                     "link": "hard-linked (no extra space)"}[mode]
+            if not messagebox.askyesno(APP_NAME, f"Import {len(plan['backups'])} backups and "
+                                                 f"{sum(r['count'] for r in plan['recordings'])} loose recordings "
+                                                 f"into {library}?\n\n{len(plan['same'])} duplicate copies are skipped. "
+                                                 f"Files are {words}. The full plan is in the log below. "
+                                                 "Big backups can take a long time."):
+                return
+
+            def work(_):
+                r = lib.import_all(plan, library, mode, None, print)
+                print(f"Done: {len(r['imported'])} imported, {len(r['skipped'])} already there, "
+                      f"{len(r['failed'])} failed")
+
+            self._run("Importing the folder", work, lambda _r: self._lib_refresh())
+
+        self._run("Scanning for backups", scan, confirm)
 
     def _lib_import(self, folder: bool) -> None:
         from . import library as lib
