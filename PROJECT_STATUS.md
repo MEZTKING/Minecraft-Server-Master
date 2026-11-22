@@ -686,6 +686,33 @@ event (0r), mark highlights while watching.
 - **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
   automatically?
 
+### 0t. Quiet but busy: building, map art, searching (raised 2026-11-22)
+
+**The ask:** "sometimes players can spend long hours looking like their doing nothing but they have lots
+going on. like making a massive map on the ground or looking for something" (the moments finder only sees
+log events).
+
+**Design (Fable, 2026-11-22):** a new kind of moment, `work`, found from data the app already has:
+1. **Movement from the recordings** (cheap, minute-precise; build first): per player, 1-minute cells of
+   the decoded paths (own recording preferred). *Building/working* = 45 min or more (gaps under 10 min merged)
+   within ~48 blocks, with real motion inside (path length well above net displacement); near-zero motion or a
+   perfectly regular loop = AFK/farm, dropped. *Exploring/searching* = 30 min or more visiting many new
+   64-block cells (zig-zag = searching, straight = journey). *Map art/terraform hint* = a large flat area
+   (100+ blocks, height constant, rows back and forth). Only players seen in some recording are found.
+2. **Stats between backups** (cheap, coarse): blocks placed/mined, walked/flown per player per backup
+   interval (`player_history`), to title and boost the stretches ("placed 41k blocks, mostly concrete" = map
+   art; "elytra 300 km" = exploring), or as a moment without a recording.
+3. **Surface change between backups** (moderate, cached; confirmation): for the areas of long stays only,
+   compare the surface tiles before/after (heights, colours): proof that something big appeared and its
+   area. Colour change on flat ground = map art; height change = build/terraform.
+- **Score** grows slowly with time (`w * log2(1 + hours)`, x stats/diff boost, x players, x points of view),
+  so a 3-hour confirmed build ranks like a PvP fight; no 10-minute cap for this kind; its own filter.
+- **Keep** offers a **timelapse** of the area and span (the existing timelapse planner, one per covering
+  recording; default for building/map art) or the **best 2-5 minutes** (densest stretch or the final reveal;
+  default for exploring).
+- Build order: `mcsm/activity.py` with tests (incl. AFK) → into the moments list and the map (area drawn) →
+  stats titles → Keep → timelapse → surface diff.
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -911,6 +938,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Backlog 0t: quiet but busy stretches (building, map art, searching), designed by Fable.
 
 - **2026-11-22:** Story mode after Fable's review: a running viewer for another world is replaced; ▶ Play on one
   moment/highlight plays just that with Story on; single-backup worlds aren't reloaded; no lost clicks while busy;
