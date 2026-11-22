@@ -1115,7 +1115,8 @@ class App(ttk.Frame):
                 if not show_empty.get() and not e["keyframes"] and e["length"] is None:
                     continue
                 length = f"{int(e['length'] // 60)}:{e['length'] % 60:04.1f}" if e["length"] is not None else "no export range"
-                name = e["scene_name"] + (" (open in Flashback)" if e["current"] else "") + (" · copy" if e["copy"] else "")
+                several = sum(1 for o in edits if o["state"] == e["state"]) > 1
+                name = e["scene_name"] + (" (current scene)" if e["current"] and several else "") + (" · copy" if e["copy"] else "")
                 iid = tree.insert("", "end", values=(name, e["recording_name"], length, e["keyframes"], e["saved_text"],
                                                      e["instance"]))
                 rows[iid] = e
