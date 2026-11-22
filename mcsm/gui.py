@@ -182,6 +182,7 @@ class App(ttk.Frame):
         ttk.Button(btns, text="Import backup file (.zip / .tgz)…", command=lambda: self._lib_import(folder=False)).pack(side="left", padx=4)
         ttk.Button(btns, text="Add recordings…", command=self._lib_add_recordings).pack(side="left")
         ttk.Button(btns, text="Add my Flashback replays", command=lambda: self._lib_add_recordings(flashback=True)).pack(side="left", padx=4)
+        ttk.Button(btns, text="Add video projects…", command=self._lib_add_projects).pack(side="left")
         cols = ("version", "files", "size", "source")
         tree = ttk.Treeview(f, columns=cols, height=8)
         tree.heading("#0", text="World / backup")
@@ -366,6 +367,24 @@ class App(ttk.Frame):
             print(f"{r['added']} recordings added, {r['known']} already in the library")
 
         self._run("Adding recordings", work, lambda _r: self._lib_refresh())
+
+    def _lib_add_projects(self) -> None:
+        """A folder whose subfolders are video projects: their recordings + a copy of the Flashback edits."""
+        from . import library as lib
+        w = self._lib_selected_world()
+        if not w:
+            messagebox.showinfo(APP_NAME, "Select the world the projects belong to (import a backup first).")
+            return
+        folder = filedialog.askdirectory(title="Choose the folder whose subfolders are your video projects")
+        if not folder:
+            return
+
+        def work(_):
+            r = lib.add_projects(folder, w, print)
+            print(f"{len(r['projects'])} projects, {r['editor_states']} Flashback edits copied (your launcher "
+                  f"files are not changed), {r['recordings_added']} recordings new to the library")
+
+        self._run("Adding video projects", work, lambda _r: self._lib_refresh())
 
     def _lib_load(self) -> None:
         w = self._lib_selected_world()

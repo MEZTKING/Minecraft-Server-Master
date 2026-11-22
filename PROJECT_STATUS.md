@@ -68,6 +68,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Import a whole folder of backups from any host: scan + plan (one copy per backup, recordings, ignored/unsupported files), world-only backups (Aternos/Realms/singleplayer) | ✅ Done, scan checked on the owner's 600 GB backup folder | `mcsm/library.py` (`scan`, `import_all`), `mcsm library scan/import-all`, app *Import a whole folder…* | `docs/LIBRARY.md` |
 | Minecraft versions, mods, plugins and datapacks over time: what changed between backups (`mcsm changes`, report Backups tab, app button, history viewer "Server at this moment"); each recording's Minecraft version | ✅ Done, checked on the owner's May + November backups | `mcsm/archive.py` (`changes`), `cli.py`, `report.py`, `history.html` | `docs/BACKUPS.md`, `docs/HISTORY.md` |
 | Optional tidy of the original backup folder: duplicates moved aside (never deleted), optional dated names, undo | ✅ Done (tested on fixtures; not run on the owner's folder) | `mcsm/library.py` (`tidy_*`), `mcsm library tidy`, app *Tidy the original folder…* | `docs/LIBRARY.md` |
+| Flashback in launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge) with version matching; video projects in the library (recordings + a copy of the Flashback edits) | ✅ Done, detection checked on the owner's PC | `mcsm/flashback.py`, `mcsm/library.py` (`add_projects`), `mcsm library add-projects/projects`, app *Add video projects…* | `docs/LIBRARY.md`, `docs/FLASHBACK.md`, `docs/HISTORY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -338,6 +339,72 @@ to touch original files".
 ✅ **Done 2026-11-22** as designed (tested: tidy + undo restores the folder exactly). Not run on the
 owner's folder: their originals stay untouched unless they choose to.
 
+### 0h. Video projects and Flashback in launcher instances (requested 2026-11-22)
+
+**The ask:** "edits are made on them so its nearly a finished project to upload, im trying to make
+a system where i can easily make those, while having the history of the entire server all at one
+place" and "the Edited Files used for videos was just an easy way to find where the original
+recordings were taken from, since i used flashback editor and its per person recording".
+
+**Found on the owner's PC:** Flashback runs in PrismLauncher instances (`Flashback 26.1.2`,
+`Main Minecraft Multiplayer`), not in `%APPDATA%\.minecraft`; edits are Flashback editor states
+(`flashback/editor_states/<replay uuid>.json`), separate from the recordings. mcsm only looked in
+`.minecraft`, so highlight exports would have gone to the wrong place.
+
+**Design:**
+- Find Flashback in launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge, plus
+  `.minecraft`), with each instance's Minecraft version; when exporting a recording, use the
+  instance whose version matches the recording (Flashback only opens a recording in its version).
+- `mcsm library add-projects FOLDER`: each subfolder is a video project; its recordings are added
+  (de-duplicated), and each recording's editor state is copied (read-only snapshot) from whichever
+  Flashback folder has it into `<World>/projects/<project>/editor_states/`. `project.json` records
+  the project, its recordings, whose perspective (sub-folder name, e.g. `Daragh`, `Me`) and where
+  the edit came from. Launcher files are never changed.
+- Later: list projects in the history viewer (their spans on the timeline), "open in Flashback"
+  (copy recording + editor state into the right instance, never overwriting), notes/upload status.
+
+✅ **Done 2026-11-22** (first part): launcher instances are found with their Minecraft version and
+highlight exports / `--install` go to the matching instance; `mcsm library add-projects` /
+`projects` and the app's *Add video projects…*. Checked on the owner's PC: both PrismLauncher
+instances found (26.1.2 and 26.3), and all three recordings in `Edited Files used for videos` have
+their Flashback edits found in `Flashback 26.1.2`. The later part (projects on the timeline, open in
+Flashback, status) is still to do.
+
+### 0i. Discord chat on the timeline (raised 2026-11-22, for later)
+
+**The ask:** "later on we can add a discord integration so we can line up what happens just like
+using the chat system".
+
+**Proposed design:**
+- Read a Discord channel export (DiscordChatExporter JSON/CSV, no token needed) first; a bot that
+  reads chosen channels can come later (needs a bot token, kept out of files and exports).
+- Each message becomes an event (`discord`, with author, channel, time, text; attachments as links)
+  on the same timeline as in-game chat: report, history viewer pins/"Happening now", video
+  markers/subtitles. Discord names are mapped to Minecraft names (a small editable table; linked
+  accounts like DiscordSRV when present).
+- Privacy: only channels the owner picks; no user IDs or avatars stored; easy to exclude people.
+- **Open questions:** which channels; a bot or exports; is DiscordSRV (or similar) on the server.
+
+### 0j. Server management log and guide (requested 2026-11-22)
+
+**The ask:** "when managing servers there should be a history or guide so its easy to manage
+everyone, add/remove mods or datapacks and understand what to do or when".
+
+**Proposed design (in this app: it already has the whole history):**
+- **Server log:** the changes between backups (`mcsm changes`) as a log, with the owner's own notes
+  per change ("why Distant Horizons was removed"), stored in the library world (`server-log.json`),
+  shown in the report and the history viewer. Planned changes can be added before they happen.
+- **Checks on the newest backup:** mods built for a different Minecraft version than the server
+  (version strings such as `+26.1.2` on a 26.3 server), two versions of the same mod, enabled
+  datapacks whose file is missing, ServerReplay versions known to record no movement (3.4.0/3.4.1),
+  very large mod data folders (Distant Horizons), client-only mods on the server.
+- **Guides** with the server's own data filled in: updating Minecraft (back up, check each mod's
+  version, ServerReplay/Flashback versions, test), adding or removing a mod or datapack (what
+  happens to its blocks/items/data), and a "what changed since the last backup" summary to share
+  with the players.
+- **Open questions:** is a shared view for the other admins needed (a page in the library, or a
+  Discord post together with 0i)?
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -484,6 +551,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | "Import a whole folder" and added recordings always copy (Move only when chosen and confirmed for recordings) | The owner's originals must never change; Flashback's live replay folder shouldn't share data with the library |
 | 2026-11-22 | Tidy never deletes: duplicates are moved aside on the same drive with an undo log | The owner wants originals untouched by default; deleting stays a human decision |
 | 2026-11-22 | Mod changes are matched by mod id (else file name without version); dated "between backup A and B" | The files don't record the day a mod changed |
+| 2026-11-22 | The Flashback folder for a recording is the launcher instance with the recording's Minecraft version (else the most recently used) | Flashback opens a recording only in its own version; the owner keeps one instance per version |
+| 2026-11-22 | The library remembers each imported archive's path, size and date | Re-scanning a 600 GB folder must not unpack everything again to find the one new backup |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -527,6 +596,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Flashback in launcher instances; video projects; future backups.** Flashback
+  folders are found in PrismLauncher/MultiMC/Modrinth/CurseForge instances (before: only
+  `.minecraft`, so the owner's Prism setup was missed) and the instance matching a recording's
+  Minecraft version is used for highlight exports, `flashback --install` and timelapses.
+  `mcsm library add-projects` / `projects` and *Add video projects…* keep video projects (their
+  recordings + a copy of the Flashback edits). Re-scans list backups already imported and don't
+  unpack them again. Recordings in project folders are recognised by content.
 - **2026-11-22:** **Library fixes from an independent code review** (no path could change the
   originals; these were about the library's own correctness): the app's *Import a whole folder*
   always copies (it used the Move/Link choice); recordings added by hand copy by default;

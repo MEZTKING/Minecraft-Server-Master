@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import uuid as uuid_mod
@@ -77,11 +78,108 @@ def default_flashback_dirs() -> list[str]:
     return out
 
 
-def find_flashback_dir(explicit: str | None = None) -> str | None:
-    """The Flashback data folder (contains ``replays/``), or None if not found."""
-    for d in ([explicit] if explicit else default_flashback_dirs()):
-        if d and os.path.isdir(d):
-            return d
+_VERSION_IN_NAME = re.compile(r"(?<![\d.])(\d{1,2}\.\d{1,2}(?:\.\d{1,2})?)(?![\d.])")
+
+
+def _json(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            v = json.load(fh)
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _instance_version(inst: str, name: str) -> str | None:
+    """Minecraft version of a launcher instance, from its own files (else from its name)."""
+    pack = _json(os.path.join(inst, "mmc-pack.json"))                     # PrismLauncher / MultiMC
+    for c in pack.get("components") or []:
+        if isinstance(c, dict) and c.get("uid") == "net.minecraft" and c.get("version"):
+            return str(c["version"])
+    cf = _json(os.path.join(inst, "minecraftinstance.json"))              # CurseForge
+    if cf.get("gameVersion"):
+        return str(cf["gameVersion"])
+    prof = _json(os.path.join(inst, "profile.json"))                      # older Modrinth App
+    if isinstance(prof.get("metadata"), dict) and prof["metadata"].get("game_version"):
+        return str(prof["metadata"]["game_version"])
+    m = _VERSION_IN_NAME.search(name)
+    return m.group(1) if m else None
+
+
+def flashback_folders() -> list[dict]:
+    """Every Flashback data folder on this computer: the default ``.minecraft`` one and those in
+    launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge).
+    ``[{path, name, launcher, mc}]``; *mc* is the instance's Minecraft version when known."""
+    out, seen = [], set()
+
+    def add(path, name, launcher, mc):
+        key = os.path.normcase(os.path.abspath(path))
+        if os.path.isdir(path) and key not in seen:
+            seen.add(key)
+            out.append({"path": path, "name": name, "launcher": launcher, "mc": mc})
+
+    for d in default_flashback_dirs():
+        add(d, "default .minecraft", "minecraft", None)
+    home = os.path.expanduser("~")
+    appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+    roots = [(os.path.join(appdata, "PrismLauncher", "instances"), "PrismLauncher"),
+             (os.path.join(appdata, "MultiMC", "instances"), "MultiMC"),
+             (os.path.join(home, ".local", "share", "PrismLauncher", "instances"), "PrismLauncher"),
+             (os.path.join(home, "Library", "Application Support", "PrismLauncher", "instances"), "PrismLauncher"),
+             (os.path.join(appdata, "ModrinthApp", "profiles"), "Modrinth App"),
+             (os.path.join(appdata, "com.modrinth.theseus", "profiles"), "Modrinth App"),
+             (os.path.join(home, "curseforge", "minecraft", "Instances"), "CurseForge")]
+    for root, launcher in roots:
+        for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+            inst = os.path.join(root, name)
+            for game in (os.path.join(inst, "minecraft"), os.path.join(inst, ".minecraft"), inst):
+                if os.path.isdir(os.path.join(game, "flashback")):
+                    add(os.path.join(game, "flashback"), name, launcher, _instance_version(inst, name))
+                    break
+    return out
+
+
+def _activity(path: str) -> float:
+    """When this Flashback folder was last used (newest replay or editor state)."""
+    newest = 0.0
+    for sub in ("replays", "editor_states"):
+        d = os.path.join(path, sub)
+        for name in os.listdir(d) if os.path.isdir(d) else []:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(d, name)))
+            except OSError:
+                pass
+    return newest
+
+
+def find_flashback_dir(explicit: str | None = None, mc_version: str | None = None) -> str | None:
+    """The Flashback data folder (contains ``replays/``), or None if not found.
+
+    *explicit* wins. Otherwise, with *mc_version* (a recording's Minecraft version), an instance
+    of exactly that version is preferred, since Flashback only opens a recording in the version
+    it was made with; then the most recently used Flashback folder.
+    """
+    if explicit:
+        return explicit if os.path.isdir(explicit) else None
+    if os.environ.get("MCSM_FLASHBACK_DIR") and os.path.isdir(os.environ["MCSM_FLASHBACK_DIR"]):
+        return os.environ["MCSM_FLASHBACK_DIR"]
+    found = flashback_folders()
+    if not found:
+        return None
+    if mc_version:
+        same = [f for f in found if f["mc"] == mc_version]
+        if same:
+            same.sort(key=lambda f: ("flashback" not in f["name"].lower(), -_activity(f["path"])))
+            return same[0]["path"]
+    return max(found, key=lambda f: _activity(f["path"]))["path"]
+
+
+def find_editor_state(uuid: str) -> str | None:
+    """The editor state (Flashback timeline/edits) of the replay *uuid*, in any Flashback folder."""
+    for f in flashback_folders():
+        p = os.path.join(f["path"], "editor_states", f"{uuid}.json")
+        if os.path.isfile(p):
+            return p
     return None
 
 

@@ -131,6 +131,7 @@ class HistoryMap(TerrainServer):
                  cache_dir: str | None = None, track_files: list[str] | None = None, title: str = "",
                  spawn=None, decode_replays: bool = True, highlights_file: str | None = None,
                  flashback_dir: str | None = None, terrain_backups: list[dict] | None = None,
+                 flashback_pick: Callable | None = None,
                  terrain_label: str = "", terrain_time: int | None = None):
         from . import highlights as hl
         self.data, self.replay_file = data, replay_file
@@ -138,6 +139,7 @@ class HistoryMap(TerrainServer):
             highlights_file = os.path.join(data.library_world, "highlights.json")
         self.highlights = hl.Store(highlights_file or hl.default_file(data.world.get("level_name") or title))
         self.flashback_dir = flashback_dir
+        self.flashback_pick = flashback_pick      # per recording: the instance with its Minecraft version
         self._export_lock = threading.Lock()
         self.root, self.world, self.terrain_step = root, world, terrain_step
         self.cache_dir = cache_dir
@@ -278,7 +280,8 @@ class HistoryMap(TerrainServer):
             try:
                 out = os.path.dirname(os.path.abspath(self.highlights.path))
                 return hl.export(self.data, items, self.replay_file, out, self.flashback_dir,
-                                 self.data.world.get("level_name") or self._payload["title"])
+                                 self.data.world.get("level_name") or self._payload["title"],
+                                 pick_dir=self.flashback_pick)
             finally:
                 self._export_lock.release()
         return None

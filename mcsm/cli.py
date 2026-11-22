@@ -471,6 +471,7 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
                     args.cache, _track_files(args.tracks), cfg.get("title") or "", cfg.get("spawn"),
                     decode_replays=not args.no_replays, highlights_file=args.highlights,
                     flashback_dir=find_flashback_dir(args.flashback_dir), terrain_backups=older,
+                    flashback_pick=None if args.flashback_dir else (lambda r: find_flashback_dir(None, r.mc_version)),
                     terrain_label=(top or {}).get("label") or "", terrain_time=when(top) if top else None)
     return hm, hm.start(args.http_port)
 
@@ -540,7 +541,7 @@ def _safe_name(text: str) -> str:
 def _flashback_output(args, r: m.Replay, suffix: str) -> tuple[str, str | None]:
     """(output zip path, flashback dir or None)."""
     from . import flashback as fbm
-    fb_dir = fbm.find_flashback_dir(args.flashback_dir)
+    fb_dir = fbm.find_flashback_dir(args.flashback_dir, r.mc_version)
     if args.install and not fb_dir:
         raise SystemExit("Flashback folder not found. Pass --flashback-dir (e.g. "
                          "C:/Users/<you>/AppData/Roaming/.minecraft/flashback, or your launcher instance's .minecraft/flashback)")
@@ -776,6 +777,32 @@ def cmd_library(args) -> int:
         print(f"{r['moved']} moved. To put everything back: mcsm library tidy FOLDER --undo "
               f"(log: {r['undo_file']})")
         return 0
+    if args.action in ("add-projects", "projects"):
+        worlds = lib.list_worlds(library, count_recordings=False)
+        w = next((x for x in worlds if args.world and x["name"].lower() == args.world.lower()), None)
+        if w is None and len(worlds) == 1 and not args.world:
+            w = worlds[0]
+        if w is None:
+            print(f"choose the world with --world ({', '.join(x['name'] for x in worlds) or 'import a backup first'})",
+                  file=sys.stderr)
+            return 2
+        if args.action == "add-projects":
+            if len(args.paths) != 1:
+                print("give the folder whose subfolders are your video projects", file=sys.stderr)
+                return 2
+            r = lib.add_projects(args.paths[0], w["path"], say)
+            print(f"{len(r['projects'])} projects, {r['editor_states']} Flashback edits copied, "
+                  f"{r['recordings_added']} recordings new to the library")
+            for m_ in r["missing_edits"]:
+                print(f"  no Flashback edits found for {m_}")
+            return 0
+        for pr in lib.list_projects(w["path"]):
+            print(f"{pr['name']}  ({pr.get('status', '')}, {len(pr.get('recordings') or [])} recordings)")
+            for rec in pr.get("recordings") or []:
+                who = f"{rec['perspective']}: " if rec.get("perspective") not in (None, "", ".") else ""
+                print(f"  {who}{rec.get('file') or rec.get('original')}"
+                      + ("  + edits" if rec.get("editor_state") else ""))
+        return 0
     if args.action == "add-recordings":
         worlds = lib.list_worlds(library)
         w = next((x for x in worlds if args.world and x["name"].lower() == args.world.lower()), None)
@@ -969,7 +996,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("library", help="keep all backups and recordings in one library folder",
                        description="One folder per world; each backup in a dated folder; every recording stored "
                                    "once. Give a library world folder as SERVER to any command to load all of it.")
-    p.add_argument("action", choices=["list", "import", "scan", "import-all", "add-recordings", "tidy"])
+    p.add_argument("action", choices=["list", "import", "scan", "import-all", "add-recordings", "add-projects",
+                                      "projects", "tidy"])
     p.add_argument("paths", nargs="*", help="import: backup folders, .zip or .tgz files; scan / import-all: "
                                             "a folder full of backups (any host); add-recordings: recording "
                                             "files or folders")

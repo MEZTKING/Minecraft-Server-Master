@@ -1869,3 +1869,74 @@ class TestLibrarySafety(unittest.TestCase):
         after = sorted(os.path.relpath(os.path.join(c, f), top) for c, _d, fs in os.walk(top) for f in fs)
         self.assertEqual(after, before)                                          # exactly as it was
         self.assertFalse(os.path.exists(os.path.join(top, lib.DUPLICATES_DIR)))
+
+    def test_rescan_skips_imported_without_unpacking(self):
+        import tarfile
+        from mcsm import library as lib
+        top = os.path.join(self.tmp, "top")
+        os.makedirs(top)
+        s = self._server("srv", 3)
+        with tarfile.open(os.path.join(top, "A.tgz"), "w:gz") as tf:
+            tf.add(s, arcname="srv")
+        r = lib.import_all(lib.scan(top, self.lib), self.lib)
+        self.assertEqual(len(r["imported"]), 1)
+        plan = lib.scan(top, self.lib)
+        self.assertTrue(plan["backups"][0]["in_library"])
+        self.assertIn("0 new, 1 already in the library", lib.describe_plan(plan))
+        calls = []
+        real = lib.import_backup
+        lib.import_backup = lambda *a, **k: calls.append(a) or real(*a, **k)
+        try:
+            r2 = lib.import_all(plan, self.lib)
+        finally:
+            lib.import_backup = real
+        self.assertEqual(calls, [])                                   # nothing unpacked again
+        self.assertEqual(len(r2["skipped"]), 1)
+
+    def test_video_projects_copy_flashback_edits(self):
+        from mcsm import library as lib, flashback as fbm
+        s = self._server("srv", 2)
+        lib.import_backup(s, self.lib, mode="copy")
+        w = lib.list_worlds(self.lib)[0]["path"]
+        # a Flashback replay + its edits in a PrismLauncher-style instance
+        appdata = os.path.join(self.tmp, "appdata")
+        inst = os.path.join(appdata, "PrismLauncher", "instances", "Flashback 26.1.2")
+        states = os.path.join(inst, "minecraft", "flashback", "editor_states")
+        os.makedirs(states)
+        os.makedirs(os.path.join(inst, "minecraft", "flashback", "replays"))
+        with open(os.path.join(inst, "mmc-pack.json"), "w") as fh:
+            json.dump({"components": [{"uid": "net.minecraft", "version": "26.1.2"}]}, fh)
+        uid = "882f9442-d18e-4763-ae18-d8f9672346c5"
+        with open(os.path.join(states, f"{uid}.json"), "w") as fh:
+            json.dump({"scenes": [{"name": "Fishing"}]}, fh)
+        proj = os.path.join(self.tmp, "Edited", "EXP2 - Fishing", "Daragh")
+        os.makedirs(proj)
+        with zipfile.ZipFile(os.path.join(proj, "2026-05-24--18-57-25.zip"), "w") as zf:
+            zf.writestr("metadata.json", json.dumps({"uuid": uid, "version_string": "26.1.2", "total_ticks": 10,
+                                                     "chunks": {}}))
+            zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00")
+        old_env = os.environ.get("APPDATA")
+        os.environ["APPDATA"] = appdata
+        try:
+            found = fbm.flashback_folders()
+            self.assertIn(("Flashback 26.1.2", "26.1.2"), {(f["name"], f["mc"]) for f in found})
+            self.assertTrue(fbm.find_flashback_dir(None, "26.1.2").startswith(inst))
+            before = sorted(os.listdir(states))
+            r = lib.add_projects(os.path.join(self.tmp, "Edited"), w)
+            self.assertEqual(sorted(os.listdir(states)), before)       # launcher files untouched
+        finally:
+            if old_env is None:
+                os.environ.pop("APPDATA", None)
+            else:
+                os.environ["APPDATA"] = old_env
+        self.assertEqual(r["editor_states"], 1)
+        pr = lib.list_projects(w)
+        self.assertEqual([p["name"] for p in pr], ["EXP2 - Fishing"])
+        rec = pr[0]["recordings"][0]
+        self.assertEqual(rec["perspective"], "Daragh")
+        self.assertEqual(rec["uuid"], uid)
+        self.assertTrue(os.path.isfile(os.path.join(w, rec["file"])))
+        self.assertTrue(os.path.isfile(os.path.join(w, rec["editor_state"])))
+        # adding it again stores nothing new
+        r2 = lib.add_projects(os.path.join(self.tmp, "Edited"), w)
+        self.assertEqual(r2["recordings_added"], 0)

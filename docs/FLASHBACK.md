@@ -33,9 +33,11 @@ mcsm flashback my-server.zip --replay 2 --install
   `<.minecraft>/flashback/replays/` yourself.
 - `--flashback-dir`: where Flashback keeps its data. The default is `<.minecraft>/flashback`:
   `%APPDATA%\.minecraft\flashback` on Windows, `~/Library/Application Support/minecraft/flashback`
-  on macOS, `~/.minecraft/flashback` on Linux. **Launchers** (Prism, Modrinth, CurseForge,
-  ATLauncher) keep a separate `.minecraft` per instance, so point this at the instance's
-  `flashback` folder. You can also set the `MCSM_FLASHBACK_DIR` environment variable.
+  on macOS, `~/.minecraft/flashback` on Linux. **Launcher instances** (PrismLauncher, MultiMC,
+  Modrinth App, CurseForge) are found too, with their Minecraft version; the copy goes to the
+  instance with the **recording's** Minecraft version (Flashback only opens a recording in that
+  version), else the most recently used Flashback folder. Give this option (or set
+  `MCSM_FLASHBACK_DIR`) to choose one yourself, e.g. for ATLauncher.
 - `--types`, `--players`: same as `mcsm sync`.
 
 Marker colours: death red, chat blue, join green, leave grey, advancement yellow, command

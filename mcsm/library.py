@@ -547,7 +547,8 @@ def _import_root(root: str, library: str, mode: str, world_name: str | None, sou
             with open(os.path.join(partial, "server.properties"), "w", encoding="utf-8") as fh:
                 fh.write("# written by mcsm: this backup contained only the world folder\n"
                          f"level-name={prefix.rstrip('/')}\n")
-        meta = {"world_only": world_only, "source": os.path.abspath(source),
+        meta = {"world_only": world_only, "source": os.path.abspath(source), **_source_sig(source),
+                "source_root": os.path.abspath(root) if os.path.isdir(source) else None,
                 "imported": datetime.now(timezone.utc).isoformat(), "mode": mode, "snapshot_ms": when,
                 "level_name": info["level_name"], "seed": info["seed"], "version": info["version"], **stats}
         if supersedes:
@@ -562,6 +563,44 @@ def _import_root(root: str, library: str, mode: str, world_name: str | None, sou
     finally:
         if partial:
             shutil.rmtree(_lp(partial), ignore_errors=True)
+
+
+def _source_sig(source: str) -> dict:
+    """Size and time of an imported archive, so a later scan knows it without unpacking it."""
+    try:
+        if os.path.isfile(source):
+            return {"source_size": os.path.getsize(source), "source_mtime": int(os.path.getmtime(source))}
+    except OSError:
+        pass
+    return {}
+
+
+def imported_sources(library: str) -> list[dict]:
+    """Every backup in the library with where it was imported from."""
+    out = []
+    for w in list_worlds(library, count_recordings=False) if os.path.isdir(library) else []:
+        for b in w["backups"]:
+            if b.get("source"):
+                out.append(b)
+    return out
+
+
+def _already_imported(c: dict, imported: list[dict]) -> str | None:
+    """The library backup a scanned backup was imported as (same file, unchanged), if any."""
+    norm = lambda p: os.path.normcase(os.path.abspath(p)) if p else ""  # noqa: E731
+    path = norm(c["path"])
+    for b in imported:
+        src = norm(b.get("source"))
+        if c["kind"] == "folder":
+            roots = {norm(b.get("source_root")), src}
+            if path in roots or (src and path.startswith(src.rstrip(os.sep) + os.sep)):
+                return b["path"]
+        elif path == src:
+            same_size = b.get("source_size") in (None, c.get("size"))
+            same_time = b.get("source_mtime") is None or abs(b["source_mtime"] - os.path.getmtime(c["path"])) <= 2
+            if same_size and same_time:
+                return b["path"]
+    return None
 
 
 def _is_tar(path: str) -> bool:
@@ -1044,11 +1083,13 @@ def scan(folder: str, library: str | None = None) -> dict:
         elif not a.get("same_as"):
             a["same_as"], a["why"] = ref.get("same_as") or ref["path"], "identical file"
     backups, same = [], []
+    imported = imported_sources(library) if library else []
     for c in cands:
         if c.get("same_as"):
             same.append({"path": c["path"], "kind": c["kind"], "same_as": c["same_as"], "why": c["why"]})
         else:
             c["when"] = _when(c["path"], c["kind"])
+            c["in_library"] = _already_imported(c, imported)
             backups.append(c)
     backups.sort(key=lambda c: c["when"])
     recordings = [{"group": g, "paths": ps, "count": len(ps)} for g, ps in sorted(recs.items())]
@@ -1060,11 +1101,13 @@ def describe_plan(plan: dict) -> str:
     """The plan as text for the terminal / the app's log."""
     top = plan["folder"]
     rel = lambda p: os.path.relpath(p, top) if p != top else "."  # noqa: E731
-    out = [f"Found in {top}:", "", f"Backups to import ({len(plan['backups'])}, oldest first):"]
+    new = sum(1 for c in plan["backups"] if not c.get("in_library"))
+    out = [f"Found in {top}:", "", f"Backups ({len(plan['backups'])}, oldest first; {new} new, "
+                                   f"{len(plan['backups']) - new} already in the library):"]
     for c in plan["backups"]:
         when = datetime.fromtimestamp(c["when"]).strftime("%Y-%m-%d")
         size = human_bytes(c["size"]) if c.get("size") else "folder"
-        extra = "  (world only)" if c.get("world_only") else ""
+        extra = ("  (world only)" if c.get("world_only") else "") + ("  [already in the library]" if c.get("in_library") else "")
         out.append(f"  {when}  {size:>9}  {rel(c['path'])}{extra}")
     if plan["same"]:
         out += ["", f"Copies of a backup above, skipped ({len(plan['same'])}):"]
@@ -1090,6 +1133,12 @@ def import_all(plan: dict, library: str | None = None, mode: str = "copy", world
     done, failed, worlds = [], [], []
     for i, c in enumerate(plan["backups"], 1):
         say(f"[{i}/{len(plan['backups'])}] {c['path']}")
+        if c.get("in_library"):
+            say(f"  already in the library: {c['in_library']}")
+            done.append({"skipped": True, "backup": c["in_library"],
+                         "world": os.path.dirname(os.path.dirname(c["in_library"]))})
+            worlds.append(done[-1]["world"])
+            continue
         try:
             r = import_backup(c["path"], library, mode, world, say)
         except Exception as exc:  # noqa: BLE001 -- report it and go on with the next backup
@@ -1227,6 +1276,119 @@ def describe_tidy(plan: dict, moves: list[dict]) -> str:
     for mv in moves:
         out.append(f"  {os.path.relpath(mv['from'], top)}\n     -> {os.path.relpath(mv['to'], top)}   ({mv['why']})")
     return "\n".join(out)
+
+
+# --- video projects --------------------------------------------------------------------
+
+PROJECT_MARKER = "project.json"
+
+
+def _replay_uuid(path: str) -> tuple[str | None, str]:
+    """``(uuid, minecraft version)`` from a Flashback replay's metadata."""
+    try:
+        if os.path.isdir(path):
+            with open(os.path.join(path, "metadata.json"), encoding="utf-8") as fh:
+                meta = json.load(fh)
+        else:
+            with zipfile.ZipFile(_lp(path)) as zf:
+                meta = json.loads(zf.read("metadata.json").decode("utf-8", "replace"))
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return None, ""
+    return (str(meta["uuid"]) if meta.get("uuid") else None), str(meta.get("version_string") or "")
+
+
+def _recordings_in(folder: str, recursive: bool = True) -> list[str]:
+    """Recordings in *folder*, recognised by their contents (whatever the folder is called)."""
+    from .replays import _zip_kind
+    out = []
+    for cur, dirs, files in os.walk(folder):
+        keep = []
+        for d in sorted(dirs):
+            full = os.path.join(cur, d)
+            if _is_flashback_dir(full) or _is_replaymod_dir(full):
+                out.append(full)
+            else:
+                keep.append(d)
+        dirs[:] = keep if recursive else []
+        for f in sorted(files):
+            full = os.path.join(cur, f)
+            if f.lower().endswith(".mcpr") or (f.lower().endswith(".zip") and _zip_kind(full)):
+                out.append(full)
+    return out
+
+
+def add_projects(folder: str, world_dir: str, progress: Callable[[str], None] | None = None) -> dict:
+    """Add video projects: each subfolder of *folder* is one project (``EXP2 - Fishing``); its
+    recordings, maybe in per-person subfolders (``Daragh``, ``Me``), are the footage it uses.
+
+    The recordings are added to the world (once; a copy already there is reused). Each
+    recording's Flashback editor state (the edits) is found in any Flashback folder (launcher
+    instances included) and **copied** into ``projects/<project>/editor_states/`` as a backup;
+    the launcher's files are never changed. ``projects/<project>/project.json`` lists it all.
+    """
+    from .flashback import find_editor_state
+    say = progress or (lambda msg: None)
+    if not is_world_dir(world_dir):
+        raise ValueError(f"{world_dir} is not a library world folder")
+    folder = os.path.abspath(folder)
+    subs = [os.path.join(folder, d) for d in sorted(os.listdir(folder))
+            if os.path.isdir(os.path.join(folder, d)) and not d.startswith(".")]
+    loose = [p for p in os.listdir(folder) if p.lower().endswith((".zip", ".mcpr"))]
+    projects = ([folder] if loose else []) + subs
+    rec_root = os.path.join(world_dir, "recordings")
+    out = {"projects": [], "recordings_added": 0, "editor_states": 0, "missing_edits": []}
+    for proj in projects:
+        found = _recordings_in(proj, recursive=proj != folder)
+        if not found:
+            continue
+        name = os.path.basename(proj)
+        pdir = os.path.join(world_dir, "projects", _safe(name))
+        os.makedirs(os.path.join(pdir, "editor_states"), exist_ok=True)
+        entries = []
+        for p in found:
+            index = _recording_index(rec_root)
+            lib_path = _find_twin(index, p, _size(p)) if os.path.isfile(p) else None
+            if lib_path is None:
+                st = add_recordings([p], world_dir, "copy", base=folder)
+                out["recordings_added"] += st["added"]
+                index = _recording_index(rec_root)
+                lib_path = _find_twin(index, p, _size(p)) if os.path.isfile(p) else None
+            uuid, mc = _replay_uuid(p)
+            entry = {"original": p, "file": os.path.relpath(lib_path, world_dir) if lib_path else None,
+                     "perspective": os.path.relpath(os.path.dirname(p), proj) if os.path.dirname(p) != proj else "",
+                     "uuid": uuid, "minecraft": mc, "editor_state": None, "editor_state_from": None}
+            state = find_editor_state(uuid) if uuid else None
+            if state:
+                for src in (state, state + ".old"):
+                    if os.path.isfile(src):
+                        dst = os.path.join(pdir, "editor_states", os.path.basename(src))
+                        if not (os.path.isfile(dst) and _identical(src, dst)):
+                            _new_file(dst, lambda part, src=src: shutil.copy2(src, part))
+                entry["editor_state"] = os.path.relpath(os.path.join(pdir, "editor_states", f"{uuid}.json"), world_dir)
+                entry["editor_state_from"] = state
+                out["editor_states"] += 1
+            else:
+                out["missing_edits"].append(p)
+            entries.append(entry)
+            who = f" ({entry['perspective']})" if entry["perspective"] and entry["perspective"] != "." else ""
+            say(f"  {name}{who}: {os.path.basename(p)}" + ("  + edits" if state else "  (no Flashback edits found)"))
+        meta = _read_json(os.path.join(pdir, PROJECT_MARKER))
+        _write_json(os.path.join(pdir, PROJECT_MARKER), {
+            "name": name, "source": proj, "added": meta.get("added") or datetime.now(timezone.utc).isoformat(),
+            "updated": datetime.now(timezone.utc).isoformat(), "recordings": entries,
+            "notes": meta.get("notes", ""), "status": meta.get("status", "editing")})
+        out["projects"].append({"name": name, "path": pdir, "recordings": len(entries)})
+    return out
+
+
+def list_projects(world_dir: str) -> list[dict]:
+    root = os.path.join(world_dir, "projects")
+    out = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        meta = _read_json(os.path.join(root, name, PROJECT_MARKER))
+        if meta:
+            out.append({**meta, "path": os.path.join(root, name)})
+    return out
 
 
 def human_bytes(n: int | float | None) -> str:

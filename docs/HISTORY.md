@@ -69,8 +69,10 @@ Flashback ready to export.
 Highlights are saved in `Documents\mcsm-highlights\<world>.json`, or in the world's folder
 (`highlights.json`) when you load a world from the [library](LIBRARY.md) (`--highlights FILE` to
 change), so they're kept between sessions and whichever backups you load. Flashback's folder
-is found automatically (`%APPDATA%\.minecraft\flashback`); give `--flashback-dir` for a
-launcher with its own folder. If it isn't found, the copies go into a `flashback` folder
+is found automatically, also inside launcher instances (PrismLauncher, MultiMC, Modrinth App,
+CurseForge). Each copy goes to the instance with **the recording's Minecraft version**, because
+Flashback only opens a recording in the version it was made with (e.g. May's 26.1.2 recordings
+into a 26.1.2 instance). `--flashback-dir` forces one folder. If it isn't found, the copies go into a `flashback` folder
 next to the highlights file: copy them into Flashback's `replays` folder, and the `.json`
 editor timelines into its `editor_states` folder.
 

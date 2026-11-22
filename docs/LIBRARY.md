@@ -129,6 +129,28 @@ On the owner's PC: the May (14.5 GB) and November (39.2 GB) backup folders were 
 and 2,847 of November's files are shared with May. Loading the library world gives exactly
 the same history as loading both original folders.
 
+## Adding new backups later
+
+Download the new backup into your backup folder and run **Import a whole folder of backups…**
+(or `mcsm library import-all FOLDER`) again, or import just the new file. The library remembers
+what it imported (file, size and date), so backups already in it are listed as *already in the
+library* and are not unpacked again; only new ones are imported, and only what isn't a duplicate
+is stored. The change list (Minecraft version, mods, datapacks) updates by itself.
+
+## Video projects
+
+If you keep the recordings you used for each video in folders (`EXP2 - Fishing\Daragh\…`,
+`EXP2 - Fishing\Me\…`), **Add video projects…** (`mcsm library add-projects FOLDER`) turns each
+folder into a project in `<World>\projects\<project>\`:
+
+- `project.json`: the project, the recordings it uses (stored once in the library) and whose
+  point of view each is (the sub-folder name);
+- `editor_states\`: a **copy** of your Flashback edits (keyframes, scenes) for those recordings,
+  found in whichever Flashback folder has them, including launcher instances (PrismLauncher,
+  MultiMC, Modrinth App, CurseForge). Your launcher's files are not changed.
+
+`mcsm library projects` lists them. Adding the same folder again only updates the copies.
+
 ## Tidying the original folder (optional)
 
 The library never needs your originals to change. If you *want* the original folder tidier,

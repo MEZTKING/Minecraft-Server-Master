@@ -159,8 +159,13 @@ def write_clip_list(path: str, data: m.ServerData, items: list[dict]) -> str:
 
 def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Replay], str],
            out_dir: str, flashback_dir: str | None, world_name: str = "world",
-           progress: Callable[[str], None] | None = None) -> dict:
-    """Write the Flashback copies and the clip list for *items*. Returns a summary."""
+           progress: Callable[[str], None] | None = None,
+           pick_dir: Callable[[m.Replay], str | None] | None = None) -> dict:
+    """Write the Flashback copies and the clip list for *items*. Returns a summary.
+
+    *pick_dir* chooses the Flashback folder per recording (the launcher instance with the
+    recording's Minecraft version); without it, everything goes to *flashback_dir*.
+    """
     say = progress or (lambda _msg: None)
     result: dict = {"clip_list": None, "replays": [], "skipped": [], "installed": bool(flashback_dir),
                     "folder": None}
@@ -172,9 +177,11 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             result["skipped"].append(h["title"])
         for r in reps:
             by_replay.setdefault(id(r), (r, []))[1].append(h)
-    target = os.path.join(flashback_dir, "replays") if flashback_dir else os.path.join(out_dir, "flashback")
-    result["folder"] = target
+    folders = set()
     for r, hs in by_replay.values():
+        fb = (pick_dir(r) if pick_dir else None) or flashback_dir
+        target = os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+        folders.add(target)
         r0 = _ms(r.start)
         total = int(r.raw_meta.get("total_ticks") or 0) or int(r.duration_ms / 50)
         clamp = lambda ms: max(0, min(total, round((ms - r0) / 50)))  # noqa: E731
@@ -199,12 +206,14 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             result["skipped"].append(f"{r.path}: {exc}")
             continue
         state = {"scenes": scenes, "sceneIndex": 0}
-        if flashback_dir:
-            state_file = fbm.install_editor_state(flashback_dir, meta["uuid"], state)
+        if fb:
+            state_file = fbm.install_editor_state(fb, meta["uuid"], state)
         else:
             state_file = os.path.join(os.path.dirname(dst), f"{meta['uuid']}.json")
             with open(state_file, "w", encoding="utf-8") as fh:
                 json.dump(state, fh, separators=(",", ":"))
         result["replays"].append({"file": dst, "editor_state": state_file, "recorded_by": r.recorded_player,
-                                  "highlights": [h["title"] for h in hs]})
+                                  "minecraft": r.mc_version, "highlights": [h["title"] for h in hs]})
+    result["folder"] = sorted(folders)[0] if len(folders) == 1 else (sorted(folders) or None)
+    result["installed"] = any(not f.startswith(os.path.join(out_dir, "flashback")) for f in folders)
     return result
