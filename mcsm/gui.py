@@ -38,6 +38,116 @@ from .timeutil import format_hms, parse_tz
 APP_NAME = "Minecraft Server Master"
 SEP = " | "  # separates several backups in the "Download" field
 
+# Short description of every button, shown when the mouse rests on it. Keyed by the button's
+# text ("…" and "..." are the same). A test checks that every button has one.
+BUTTON_TIPS = {
+    "Zip file…": "Choose a downloaded server backup (.zip). Select several to merge them into one history.",
+    "Folder…": "Choose an unpacked server folder (or a library world folder) and load it.",
+    "+ Add backup…": "Add more backups to the ones already chosen; they are merged into one history.",
+    "Load server": "Read the chosen server/backups: logs, players, stats and recordings. Needed by most tabs.",
+    "Browse…": "Pick a folder or file for this field.",
+    "Open": "Open this folder in Explorer.",
+    "Import a whole folder of backups…": "Scan a folder full of backups (any host), show what was found and "
+                                          "copy each backup into the library once. Your originals are only read.",
+    "Import backup folder…": "Put one unpacked backup folder into the library.",
+    "Import backup file (.zip / .tgz)…": "Put one downloaded backup (.zip, .tgz) into the library; it is unpacked once.",
+    "Add recordings…": "Add single recordings (.zip/.mcpr) to the selected world in the library (copied).",
+    "Add my Flashback replays": "Copy everything in your Flashback replay folder into the selected world.",
+    "Add video projects…": "Add a folder of video projects: the recordings each video uses, plus a copy of your "
+                           "Flashback edits for them.",
+    "Load this world (all its backups and recordings)": "Load the selected library world: every backup and recording "
+                                                        "in it, as one history.",
+    "Refresh": "Read the library folder again.",
+    "Tidy the original folder…": "Optional: move duplicate copies of backups aside (never deletes) and date folder "
+                                 "names. Shows the plan and asks first; can be undone.",
+    "Undo tidy…": "Put back everything the last tidy moved.",
+    "Create report and open it…": "Make the statistics web page (play time, deaths, chat, advancements...) and open it.",
+    "Show summary": "Print a quick overview of the loaded server in the log below.",
+    "Show changes": "List what changed between backups: Minecraft version, mods, plugins and datapacks.",
+    "Other replay…": "Choose a recording that isn't in the loaded backups.",
+    "Detect BPM only": "Find the tempo (beats per minute) and first beat of the chosen song.",
+    "Create markers": "Write markers/subtitles for the chosen recording (and music beats) for your video editor.",
+    "SQLite database…": "Save all data as one SQLite database file.",
+    "JSON file…": "Save all data as one JSON file.",
+    "CSV files (folder)…": "Save all data as spreadsheet-friendly CSV files in a folder.",
+    "Copy replay with markers": "Make a copy of the Flashback replay with the server's events as markers on its "
+                                "timeline (the original isn't changed).",
+    "Preview plan": "Show what the timelapse would contain, without writing anything.",
+    "Create timelapse": "Make a Flashback copy set up as a timelapse of the area, playing only while someone is there.",
+    "Start live map": "Connect to the server (RCON) and show where everyone is on a 3D map in your browser.",
+    "Try demo": "Show the live map with made-up players, no server needed.",
+    "Open map": "Open the running map's page in your browser again.",
+    "Stop": "Stop the running map / viewer.",
+    "Open history viewer": "Open the 3D time machine: a time slider over the whole history, player paths, events "
+                           "and highlights for videos.",
+    "Open page": "Open the running viewer's page in your browser again.",
+    "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
+    "Put it in the world (Flashback)": "Put the text into the Minecraft world itself: makes a copy of the recording "
+                                       "with your edit; open it in Flashback and press Export.",
+    "Put it on the video (new file)": "Make a new copy of the video with the text drawn on (the original isn't changed).",
+    "Preview": "Show one frame of the video with the text on it.",
+    "Chat & events as subtitles": "Write subtitle files with the chat, joins, deaths and advancements at the right "
+                                  "moments of the video.",
+}
+
+
+class _Tip:
+    """A small yellow box under a widget while the mouse rests on it."""
+
+    def __init__(self, widget, text: str):
+        self.widget, self.text, self.win, self.job = widget, text, None, None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _e=None):
+        self._cancel()
+        self.job = self.widget.after(450, self._show)
+
+    def _cancel(self):
+        if self.job:
+            self.widget.after_cancel(self.job)
+            self.job = None
+
+    def _show(self):
+        if self.win or not self.widget.winfo_exists():
+            return
+        x = self.widget.winfo_rootx() + 8
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.win = tk.Toplevel(self.widget)
+        self.win.wm_overrideredirect(True)
+        self.win.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.win, text=self.text, justify="left", wraplength=360, background="#ffffe0", foreground="#222",
+                 relief="solid", borderwidth=1, padx=6, pady=4).pack()
+
+    def _hide(self, _e=None):
+        self._cancel()
+        if self.win:
+            self.win.destroy()
+            self.win = None
+
+
+def _tip_key(text: str) -> str:
+    return text.replace("...", "…").strip()
+
+
+def add_button_tips(root) -> list[str]:
+    """Attach :data:`BUTTON_TIPS` to every button under *root*; returns texts that have none."""
+    missing = []
+
+    def walk(w):
+        for c in w.winfo_children():
+            if isinstance(c, ttk.Button):
+                tip = BUTTON_TIPS.get(_tip_key(c.cget("text")))
+                if tip:
+                    _Tip(c, tip)
+                elif c.cget("text") not in missing:
+                    missing.append(c.cget("text"))
+            walk(c)
+    walk(root)
+    return missing
+
+
 EVENT_CHOICES = [  # (type, label) in display order
     (m.EV_CHAT, "Chat"), (m.EV_DEATH, "Deaths"), (m.EV_ADVANCEMENT, "Advancements"),
     (m.EV_JOIN, "Joins"), (m.EV_LEAVE, "Leaves"), (m.EV_SERVER_CHAT, "Server messages"),
@@ -101,6 +211,7 @@ class App(ttk.Frame):
         self._build_source()
         self._build_tabs()
         self._build_log()
+        self.missing_tips = add_button_tips(self)          # hover a button to see what it does
         self.after(100, self._poll)
         self.log(f"{APP_NAME} {version_string()}\n"
                  "1. Choose your downloaded server (.zip or folder) and press Load.\n"

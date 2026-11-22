@@ -2196,3 +2196,26 @@ class TestVersioning(unittest.TestCase):
         self.assertEqual(re.search(r'#define MyAppVersion "([^"]+)"', iss).group(1), mcsm.__version__)
         self.assertRegex(mcsm.__version__, r"^\d+\.\d+\.\d+$")
         self.assertTrue(mcsm.version_string().startswith(mcsm.__version__))
+
+
+class TestButtonTips(unittest.TestCase):
+    def test_every_button_explains_itself(self):
+        if not _have_display():
+            self.skipTest("no display")
+        from tkinter import ttk
+        from mcsm import gui
+        root = _new_tk()
+        try:
+            app = gui.App(root)
+            self.assertEqual(app.missing_tips, [], "buttons without a description in gui.BUTTON_TIPS")
+            btn = next(c for c in app.winfo_children()[0].winfo_children() if isinstance(c, ttk.Button))
+            tip = gui._Tip(btn, "hello")
+            tip._show()
+            self.assertIsNotNone(tip.win)
+            tip._hide()
+            self.assertIsNone(tip.win)
+        finally:
+            root.destroy()
+            del root
+            import gc
+            gc.collect()

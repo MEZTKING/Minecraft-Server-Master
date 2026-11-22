@@ -37,6 +37,8 @@ newer test builds.
 
 ## Using the app
 
+**Not sure what a button does?** Rest the mouse on it: a short description appears.
+
 1. **Server** – click **Zip file…** (or **Folder…**) and pick your PebbleHost download. Select
    **several zips** (or use **+ Add backup…**) to merge backups into one history
    ([BACKUPS.md](BACKUPS.md)). It

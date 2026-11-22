@@ -668,6 +668,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Every button in the app shows a short description when the mouse rests on it
+  (`gui.BUTTON_TIPS`; a test fails if a new button has none). Owner's request.
 - **2026-11-22: version 0.2.0** (first version bump; everything since 0.1.0 in the entries below:
   multi-backup history viewer, library, highlights, video text, in-world text, ...). Builds now carry
   a build stamp shown in the app title and `mcsm --version`.
