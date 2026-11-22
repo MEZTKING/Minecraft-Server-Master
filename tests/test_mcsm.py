@@ -2510,3 +2510,80 @@ class TestVideoEditor(unittest.TestCase):
                 ed.stop()
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestUpdater(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.old = os.environ.get("APPDATA")
+        os.environ["APPDATA"] = self.tmp
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("APPDATA", None)
+        else:
+            os.environ["APPDATA"] = self.old
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_versions_and_settings(self):
+        from mcsm import updater
+        cur = {"version": "0.2.0", "number": 37}
+        self.assertTrue(updater.is_newer({"version": "0.2.0", "number": 38}, cur))
+        self.assertFalse(updater.is_newer({"version": "0.2.0", "number": 37}, cur))
+        self.assertTrue(updater.is_newer({"version": "0.3.0", "number": 0}, cur))
+        self.assertFalse(updater.is_newer({"version": "0.1.9", "number": 99}, cur))
+        self.assertTrue(updater.check_due({}))
+        self.assertFalse(updater.check_due({"update_channel": "off"}))
+        self.assertFalse(updater.check_due({"last_check": time.time()}))
+        updater.save_settings({"update_channel": "stable"})
+        self.assertEqual(updater.channel(), "stable")
+
+    def test_check_both_channels(self):
+        from mcsm import updater
+        real = updater._get
+        try:
+            updater._get = lambda url, timeout=15: json.dumps({
+                "version": "0.2.0", "number": 40, "commit": "abc", "sha256": "AB" * 32, "size": 5,
+                "file": "MinecraftServerMaster-Setup-latest.exe", "notes": "- New things"}).encode()
+            t = updater.check("test")
+            self.assertEqual((t["version"], t["number"], t["sha256"]), ("0.2.0", 40, "ab" * 32))
+            self.assertTrue(t["url"].endswith("/releases/download/latest-build/MinecraftServerMaster-Setup-latest.exe"))
+            updater._get = lambda url, timeout=15: json.dumps({"tag_name": "v0.3.0", "body": "Notes", "assets": [
+                {"name": "MinecraftServerMaster-Setup-0.3.0.exe", "browser_download_url": "https://x/y.exe",
+                 "size": 9, "digest": "sha256:" + "cd" * 32}]}).encode()
+            st = updater.check("stable")
+            self.assertEqual((st["version"], st["sha256"], st["size"]), ("0.3.0", "cd" * 32, 9))
+            self.assertIsNone(updater.check("off"))
+        finally:
+            updater._get = real
+
+    def test_download_is_verified(self):
+        import hashlib
+        import http.server
+        import threading
+        from mcsm import updater
+        body = b"installer-bytes" * 100
+        good = hashlib.sha256(body).hexdigest()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_address[1]}/setup.exe"
+            p = updater.download({"url": url, "sha256": good, "size": len(body), "file": "setup.exe"}, dest_dir=self.tmp)
+            self.assertEqual(open(p, "rb").read(), body)
+            with self.assertRaises(ValueError):                         # wrong fingerprint: not installed
+                updater.download({"url": url, "sha256": "00" * 32, "size": len(body), "file": "bad.exe"}, dest_dir=self.tmp)
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "bad.exe")))
+            with self.assertRaises(ValueError):                         # no fingerprint published: not installed
+                updater.download({"url": url, "sha256": "", "size": len(body), "file": "none.exe"}, dest_dir=self.tmp)
+        finally:
+            srv.shutdown()

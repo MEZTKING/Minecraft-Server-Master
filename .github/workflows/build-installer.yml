@@ -88,6 +88,46 @@ jobs:
           path: dist/installer/*.exe
           if-no-files-found: error
 
+  # Every successful build of the working branch also goes to the public pre-release "latest-build",
+  # so the app's updater (mcsm/updater.py, "test builds") can download it without signing in.
+  latest-build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/claude/exciting-cannon-d0r8dm'
+    needs: [test, windows-installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+      - uses: actions/download-artifact@v4
+        with:
+          name: MinecraftServerMaster-Setup
+          path: dist
+      - name: Publish to the latest-build pre-release
+        run: |
+          set -e
+          VERSION=$(grep -m1 '^__version__' mcsm/__init__.py | cut -d'"' -f2)
+          EXE=$(ls dist/*.exe | head -n1)
+          cp "$EXE" dist/MinecraftServerMaster-Setup-latest.exe
+          SHA=$(sha256sum dist/MinecraftServerMaster-Setup-latest.exe | cut -d' ' -f1)
+          SIZE=$(stat -c %s dist/MinecraftServerMaster-Setup-latest.exe)
+          NOTES=$(git log -8 --format='- %s')
+          python3 - "$VERSION" "${{ github.run_number }}" "${GITHUB_SHA:0:7}" "$SHA" "$SIZE" "$NOTES" > dist/build.json <<'PY'
+          import json, sys, datetime
+          v, n, c, sha, size, notes = sys.argv[1:7]
+          print(json.dumps({"version": v, "number": int(n), "commit": c, "sha256": sha, "size": int(size),
+                            "file": "MinecraftServerMaster-Setup-latest.exe", "notes": notes,
+                            "date": datetime.datetime.utcnow().strftime("%Y-%m-%d")}))
+          PY
+          if ! gh release view latest-build >/dev/null 2>&1; then
+            gh release create latest-build --prerelease --target "$GITHUB_SHA" --title "Latest test build"               --notes "Newest test build of the app (updated on every successful build). Stable versions are the other releases."
+          fi
+          gh release upload latest-build dist/MinecraftServerMaster-Setup-latest.exe dist/build.json --clobber
+          gh release edit latest-build --title "Latest test build: $VERSION (build ${{ github.run_number }})" --prerelease
+
   release:
     if: github.event_name == 'release'
     needs: [test, windows-installer]

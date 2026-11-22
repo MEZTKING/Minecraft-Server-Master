@@ -30,6 +30,15 @@ Reports and markers you saved elsewhere are left alone.
 **Upgrade:** run a newer installer; it replaces the old version in place. Your library, highlights,
 caches and settings live outside the program folder and are kept.
 
+**Updates inside the app:** the *Server* box has an **Updates** line. Choose **every new test build**
+(every change that passed its checks) or **stable releases only** (or **off**). The app asks GitHub at
+startup, at most once a day (nothing personal is sent), or when you press **Check now**. When there's
+a newer version: **What's new** shows the changes, **Update** downloads it, checks it's genuine (its
+SHA-256 must match the published one, otherwise nothing is installed), then closes the app, installs
+over it and opens it again; **Later** hides that version's notice. It won't update while an import,
+export, the history viewer or the live map is running. Test builds come from the public pre-release
+*Latest test build* (updated by GitHub Actions after every successful build), so no sign-in is needed.
+
 **Which version do I have?** The window title (and `mcsm --version`) shows it, e.g.
 `0.2.0 (build 57, 3913aae, 2026-11-22)`: the version, the build number of the GitHub Actions run that
 made the installer, its commit and date. Builds from the same version but a higher build number are

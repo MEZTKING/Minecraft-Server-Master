@@ -75,6 +75,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | App Videos tab: pick a finished video -> edit (also when changed after export) + recording + still ending found; big/small title in the world (Flashback copy + edit with the video's export range) or burned onto a copy (Minecraft Ten font, black border or 3D; hardware encoder when it really works); preview | ✅ Done; checked on the owner's welcome clip (edit found 0.2 s, camera still from 57.65 s) | `mcsm/videotext.py` (`analyse_video`, `make_in_world`, `make_on_screen`), `worldtext.py` (border), `library.recording_uuids`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
+| In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -475,6 +476,13 @@ GitHub Release (tag `vX.Y.Z`) to ship one.
 - **Open questions:** also offer the latest *test* build (from GitHub Actions, needs sign-in), or only
   releases?
 
+✅ **Done 2026-11-22** (owner asked for it now): `mcsm/updater.py` + *Updates* line in the app (channel
+test/stable/off, Check now, What's new / Update / Later). Test builds: the workflow's new `latest-build`
+job uploads `MinecraftServerMaster-Setup-latest.exe` + `build.json` (version, build number, commit,
+SHA-256, size, last 8 commit messages) to the public pre-release `latest-build`, so no sign-in is needed.
+The installer reopens the app after a silent update (`/relaunch=1`). Not yet tried end to end on the
+owner's PC (needs two published builds).
+
 ### 0m. Animated text (requested 2026-11-22)
 
 **The ask:** "add an option to animate the text and also make the words appear one by one fading /
@@ -663,6 +671,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | In-world text = Minecraft text display entities written into the snapshot of every chunk file of a replay copy; ids/layouts taken from the version's own server jar (data reports + the game's packet codecs) | Real 3D text with lighting and occlusion; byte-exact with the game, no guessing per version |
 | 2026-11-22 | A video's edit may have changed after exporting: edits saved after the video whose export start fits are offered as "probable", with the range that gives the video's length | The owner lengthened the welcome clip's edit after exporting it |
 | 2026-11-22 | Text borders in the world are black text displays just behind the text | Text displays have only a drop shadow; the owner wanted white blocky text with black borders |
+| 2026-11-22 | Test builds for the updater go to a public pre-release `latest-build` (fixed file name + build.json with SHA-256) | Actions artifacts need a GitHub sign-in to download; the app must update without one |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -706,6 +715,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **In-app updater**: Updates line in the app (test builds / stable releases / off),
+  startup check once a day, What's new / Update / Later; SHA-256-verified download; the installer
+  reopens the app after a silent update. CI publishes every successful build of the working branch to
+  the public pre-release `latest-build`.
 - **2026-11-22:** **Live text editor** (owner's request): `mcsm video-editor` / Videos tab *Open live
   editor*: the video plays in the browser with the text drawn live (in the world: projected with the
   edit's camera path; on the video: the title layout) while text, timing, animation, look and place

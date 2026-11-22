@@ -83,6 +83,10 @@ BUTTON_TIPS = {
     "Open page": "Open the running viewer's page in your browser again.",
     "Open live editor": "Open a page in your browser where the video plays with the text on it, and changes "
                         "(position, size, colour, animation, timing) show instantly. Make it from there too.",
+    "Check now": "Ask GitHub whether a newer version of this app exists (nothing personal is sent).",
+    "What's new": "Show the changes in the new version.",
+    "Update": "Download the new version, check it's genuine (SHA-256), then close, update and reopen the app.",
+    "Later": "Hide this version's notice (you'll be told about the next one).",
     "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
     "Put it in the world (Flashback)": "Put the text into the Minecraft world itself: makes a copy of the recording "
                                        "with your edit; open it in Flashback and press Export.",
@@ -247,6 +251,127 @@ class App(ttk.Frame):
         self.load_btn.pack(side="right")
         self.status_var = tk.StringVar(value="No server loaded")
         ttk.Label(box, textvariable=self.status_var, foreground="gray", wraplength=820).grid(row=2, column=0, columnspan=5, sticky="w", pady=(6, 0))
+        self._build_updates(box)
+
+    # ------------------------------------------------------------------ updates
+    UPDATE_CHANNELS = [("test", "every new test build"), ("stable", "stable releases only"), ("off", "off")]
+
+    def _build_updates(self, box) -> None:
+        """'Updates: <channel> [Check now]' and, when there is one, the new version with its buttons."""
+        from . import updater
+        row = ttk.Frame(box)
+        row.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(6, 0))
+        ttk.Label(row, text="Updates:").pack(side="left")
+        settings = updater.load_settings()
+        self.upd_channel_var = tk.StringVar(value=dict(self.UPDATE_CHANNELS)[updater.channel(settings)])
+        combo = ttk.Combobox(row, textvariable=self.upd_channel_var, width=20, state="readonly",
+                             values=[label for _k, label in self.UPDATE_CHANNELS])
+        combo.pack(side="left", padx=4)
+        combo.bind("<<ComboboxSelected>>", lambda _e: self._upd_set_channel())
+        ttk.Button(row, text="Check now", command=lambda: self._upd_check(manual=True)).pack(side="left")
+        self.upd_msg_var = tk.StringVar(value="")
+        ttk.Label(row, textvariable=self.upd_msg_var, foreground="gray").pack(side="left", padx=8)
+        self.upd_buttons = ttk.Frame(row)
+        ttk.Button(self.upd_buttons, text="What's new", command=self._upd_notes).pack(side="left")
+        ttk.Button(self.upd_buttons, text="Update", command=self._upd_install).pack(side="left", padx=4)
+        ttk.Button(self.upd_buttons, text="Later", command=self._upd_later).pack(side="left")
+        self.upd_available = None
+        if updater.current()["installed"] and updater.check_due(settings):
+            self.after(3000, lambda: self._upd_check(manual=False))
+
+    def _upd_set_channel(self) -> None:
+        from . import updater
+        key = next(k for k, label in self.UPDATE_CHANNELS if label == self.upd_channel_var.get())
+        s = updater.load_settings()
+        s["update_channel"] = key
+        updater.save_settings(s)
+        if key != "off":
+            self._upd_check(manual=True)
+        else:
+            self._upd_later()
+
+    def _upd_check(self, manual: bool) -> None:
+        """Ask GitHub in the background (no personal data); show the result in the Updates line."""
+        import threading
+        from . import updater
+        cur = updater.current()
+        if not cur["installed"]:
+            if manual:
+                self.upd_msg_var.set("Running from source: update with git instead.")
+            return
+        self.upd_msg_var.set("Checking…")
+
+        def work():
+            try:
+                found = updater.check()
+                err = None
+            except Exception as exc:  # noqa: BLE001 -- offline etc.: just say so
+                found, err = None, exc
+            self.q.put(("done", lambda: self._upd_result(found, err, manual)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _upd_result(self, found, err, manual: bool) -> None:
+        import time as _time
+        from . import updater
+        s = updater.load_settings()
+        s["last_check"] = _time.time()
+        updater.save_settings(s)
+        if err is not None:
+            self.upd_msg_var.set("Couldn't check for updates (offline?)" if manual else "")
+            return
+        if found and updater.is_newer(found) and str(found.get("number")) != str(s.get("skipped", "")):
+            self.upd_available = found
+            label = f"{found['version']}" + (f" (build {found['number']})" if found.get("number") else "")
+            self.upd_msg_var.set(f"New version available: {label}")
+            self.upd_buttons.pack(side="left")
+        else:
+            self.upd_available = None
+            self.upd_buttons.pack_forget()
+            self.upd_msg_var.set("You have the newest version." if manual else "")
+
+    def _upd_notes(self) -> None:
+        f = self.upd_available or {}
+        messagebox.showinfo(APP_NAME, f"What's new in {f.get('version', '')}"
+                            + (f" (build {f['number']})" if f.get("number") else "") + ":\n\n"
+                            + (f.get("notes") or "No notes.")[:3000])
+
+    def _upd_later(self) -> None:
+        from . import updater
+        if self.upd_available:
+            s = updater.load_settings()
+            s["skipped"] = str(self.upd_available.get("number") or self.upd_available.get("version"))
+            updater.save_settings(s)
+        self.upd_available = None
+        self.upd_buttons.pack_forget()
+        self.upd_msg_var.set("")
+
+    def _upd_install(self) -> None:
+        """Download, verify, then close the app and let the installer update and reopen it."""
+        from . import updater
+        f = self.upd_available
+        if not f:
+            return
+        if self.busy or getattr(self, "history", None) or getattr(self, "live", None):
+            messagebox.showinfo(APP_NAME, "Finish or stop what's running first (imports, exports, the history "
+                                          "viewer or live map); then press Update again.")
+            return
+        if not messagebox.askyesno(APP_NAME, f"Download and install {f['version']}"
+                                   + (f" (build {f['number']})" if f.get("number") else "")
+                                   + "?\n\nThe app closes, updates and opens again. Your library, highlights "
+                                     "and settings are kept."):
+            return
+
+        def work(_):
+            print("Downloading the update…")
+            path = updater.download(f, progress=lambda pct: print(f"  {pct}%"))
+            print("Downloaded and checked (SHA-256 matches). Installing…")
+            return path
+
+        def after(path):
+            updater.run_installer(path)
+            self.root.after(500, self.root.event_generate, "<<mcsm-quit>>")
+
+        self._run("Updating", work, after)
 
     def _build_tabs(self) -> None:
         nb = ttk.Notebook(self)
@@ -1655,6 +1780,7 @@ def main() -> int:
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+    root.bind("<<mcsm-quit>>", lambda _e: on_close())         # the updater closes the app to install
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):  # "Open with…" / drag onto the icon
         app.server_var.set(sys.argv[1])
         app.after(200, app._load)
