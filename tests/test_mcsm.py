@@ -3034,3 +3034,84 @@ class TestEditorFromEdit(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestCameraKeyframes(unittest.TestCase):
+    """Camera keyframes: Flashback's interpolation, and changing them in the editor (edit mode)."""
+
+    @staticmethod
+    def _scene(kind_a="SMOOTH", kind_b="SMOOTH", mid=True):
+        def key(x, yaw, kind):
+            return {"position": [x, 64.0, 0.0], "yaw": yaw, "pitch": 0.0, "roll": 0.0, "type": "camera",
+                    "interpolation_type": kind}
+        keys = {"0": key(0.0, 170.0, kind_a), "100": key(10.0, -170.0, kind_b)}
+        if mid:
+            keys["200"] = key(30.0, -150.0, "SMOOTH")
+        return {"keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": keys}]}
+
+    def test_interpolation(self):
+        from mcsm import worldtext as wt
+        # LINEAR: halfway in position; yaw takes the short way across 180 (170 -> -170 = +20)
+        pos, yaw, _ = wt.camera_at(self._scene("LINEAR", "LINEAR", mid=False), 50)
+        self.assertAlmostEqual(pos[0], 5.0)
+        self.assertAlmostEqual(wt._wrap(yaw), 180.0 if wt._wrap(yaw) > 0 else -180.0, places=4)
+        # HOLD: stays at the first keyframe until the next one
+        pos, yaw, _ = wt.camera_at(self._scene("HOLD", "SMOOTH"), 99)
+        self.assertEqual(pos[0], 0.0)
+        # EASE_IN on the first, EASE_OUT on the second keyframe's left side = ease both ways
+        pos, _, _ = wt.camera_at(self._scene("EASE_IN_OUT", "EASE_IN_OUT", mid=False), 25)
+        self.assertAlmostEqual(pos[0], 10 * 4 * 0.25 ** 3)
+        # SMOOTH: passes through the keyframes and bends towards the next one (spline, not straight)
+        sc = self._scene()
+        self.assertAlmostEqual(wt.camera_at(sc, 100)[0][0], 10.0)
+        smooth = wt.camera_at(sc, 50)[0][0]
+        self.assertNotAlmostEqual(smooth, 5.0, places=2)
+        self.assertTrue(0.0 < smooth < 10.0)
+        prev = None                                   # no jumps along a smooth path
+        for t in range(0, 201):
+            p = wt.camera_at(sc, t)[0][0]
+            if prev is not None:
+                self.assertLess(abs(p - prev), 1.0)
+            prev = p
+
+    def test_editing_the_camera_goes_into_the_copy_only(self):
+        from mcsm import videotext as vt, videoeditor as ve, worldtext as wt
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            fb, match = TestVideoMusic()._setup(tmp)
+            with open(match["state"], encoding="utf-8") as fh:
+                original = fh.read()
+            info = vt.analyse_edit(match["state"])
+            info["matches"][0]["recording"] = match["recording"]
+            ed = ve.VideoEditor(None, info=info)
+            self.assertEqual(len(ed.page_info()["keyframes"]), 2)
+            self.assertEqual(ed.page_info()["clock"]["start"], 100)
+            keys = ed.keyframes(0) + [{"tick": 200, "position": [5, 70, 5], "yaw": 90, "pitch": 10,
+                                       "interpolation_type": "LINEAR"}, {"tick": "bad"}]
+            r = ed.api_post("/api/camera", {"match": 0, "keyframes": keys})
+            self.assertEqual([k["tick"] for k in r["keyframes"]], [100, 200, 300])   # cleaned, sorted
+            self.assertEqual(wt.camera_at(vt.scene_for_match(ed.vinfo["matches"][0]), 200)[0], [5.0, 70.0, 5.0])
+            ed.save_project({"items": [], "match": 0, "camera": r["keyframes"]})
+            # a new editor on the same edit picks the changed camera up again
+            info2 = vt.analyse_edit(match["state"])
+            info2["matches"][0]["recording"] = match["recording"]
+            self.assertEqual(len(ve.VideoEditor(None, info=info2).keyframes(0)), 3)
+            out = ed._make({"target": "world", "items": [{"kind": "world", "lines": [["Hi", 2]], "start": 1.0}],
+                            "match": 0, "camera": r["keyframes"]}, lambda _m: None)
+            copy_edit = os.path.join(fb, "editor_states", vt._replay_meta(out["replay"])["uuid"] + ".json")
+            with open(copy_edit, encoding="utf-8") as fh:
+                cam = [t for t in json.load(fh)["scenes"][0]["keyframeTracks"] if t["keyframeType"] == "CAMERA"][0]
+            self.assertEqual(sorted(cam["keyframesByTick"]), ["100", "200", "300"])
+            self.assertEqual(cam["keyframesByTick"]["200"]["type"], "camera")
+            with open(match["state"], encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), original)                 # your own edit is never changed
+            ed.api_post("/api/camera", {"match": 0, "keyframes": None})
+            self.assertEqual(len(ed.keyframes(0)), 2)                 # back to the edit's camera
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old
+            shutil.rmtree(tmp, ignore_errors=True)

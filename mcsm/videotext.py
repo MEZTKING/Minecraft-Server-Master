@@ -170,6 +170,9 @@ def scene_for_match(match: dict) -> dict:
     """The scene of a :func:`find_scenes_for_video` result, with the export range that made the video."""
     sc = dict(load_scenes(match["state"])[match["scene"]])
     sc["exportStartTicks"], sc["exportEndTicks"] = match["start"], match["end"]
+    if match.get("camera_override") is not None:      # camera keyframes changed in the editor
+        from .worldtext import apply_camera
+        sc = apply_camera(json.loads(json.dumps(sc)), match["camera_override"])
     return sc
 
 
@@ -973,6 +976,8 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
         edit = wt.copy_edit(match["state"], edit_path, match["uuid"], (match["start"], match["end"]))
     from . import videomusic as vm
     vm.set_audio_track(edit, song[0] if song else None, song[1] if song else 0)   # only the app's song track
+    if match.get("camera_override") is not None:      # the camera as changed in the editor
+        wt.set_camera_track(edit, match["camera_override"])
     return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb,
             "replaced": bool(earlier)}
 

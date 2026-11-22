@@ -68,6 +68,33 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
   <div class="hint" id="what">Loading…</div>
   <label style="margin-top:8px"><span>Made from</span><select id="match"></select></label>
 
+  <div id="camPanel" hidden>
+    <h2>Camera (your Flashback edit)</h2>
+    <div class="row">
+      <button type="button" id="fly" title="Fly the camera yourself: drag on the picture to look around, W A S D to move, E / Q up and down, hold Shift to go faster, Esc to stop">Fly</button>
+      <button type="button" id="keyAdd" title="A camera keyframe at the playhead, from what you see now (K)">+ Keyframe here</button>
+      <button type="button" id="keyDel" title="Delete the selected keyframe">Delete keyframe</button>
+      <button type="button" class="small" id="keyPrev" title="Previous keyframe ([)">◀</button><button type="button" class="small" id="keyNext" title="Next keyframe (])">▶</button>
+    </div>
+    <div class="row">
+      <label style="margin:0" title="Dragged keyframes land on the song's beats"><input id="snapBeats" type="checkbox"> snap to beats</label>
+      <button type="button" class="small" id="keySnapAll" title="Move every keyframe to the nearest beat of the song">Snap all to beats</button>
+      <button type="button" class="small" id="camReset" title="Forget the camera changes made here: back to the camera of your Flashback edit">Back to the edit's camera</button>
+    </div>
+    <div id="keyEd" hidden>
+      <label><span>At (s)</span><input id="kT" type="number" step="0.05"><span class="hint" id="kTick"></span></label>
+      <label><span>Position</span><input id="kX" type="number" step="0.1"><input id="kY" type="number" step="0.1"><input id="kZ" type="number" step="0.1"></label>
+      <label><span>Yaw / pitch</span><input id="kYaw" type="number" step="0.5"><input id="kPitch" type="number" step="0.5" min="-90" max="90"></label>
+      <label><span>Roll</span><input id="kRoll" type="number" step="0.5"></label>
+      <label><span>Movement</span><select id="kInterp" title="How the camera moves from this keyframe to the next (Flashback's interpolation)">
+        <option value="SMOOTH">smooth</option><option value="LINEAR">straight</option><option value="EASE_IN">ease in</option>
+        <option value="EASE_OUT">ease out</option><option value="EASE_IN_OUT">ease in and out</option><option value="HOLD">hold, then cut</option></select></label>
+      <button type="button" class="small" id="keyHere" title="Move this keyframe to what you see now (fly there first)">Set to current view</button>
+    </div>
+    <div class="hint" id="camHint">Diamonds on the timeline's top row are camera keyframes: drag to move them in time. Your Flashback
+      edit's own file isn't changed: the camera goes into the app's copy when you press "Put … in Flashback".</div>
+  </div>
+
   <h2>Texts</h2>
   <ul id="items"></ul>
   <div class="row">
@@ -206,6 +233,26 @@ class Clock extends EventTarget {
   pause() { if (!this.paused) { this.paused = true; this.dispatchEvent(new Event("pause")); } }
 }
 let NOVIDEO = false, VIEW = "camera", ALLTRACKS = {};
+// camera keyframes of an edit opened without a video (ticks of the replay), the clock between ticks and
+// seconds, the selected keyframe (its tick), the free-flying camera, and whether the camera was changed
+let KEYS = [], KSEL = null, CLOCK = null, FLY = null, CAMCHANGED = false;
+const PRESSED = new Set();
+function replayTick(v) {
+  for (const [a, b, rate, t0] of CLOCK.pieces) if (v <= t0 + (b - a) / rate) return a + Math.max(0, v - t0) * rate;
+  return CLOCK.end;
+}
+function videoTime(tick) {
+  if (!CLOCK || tick < CLOCK.start || tick > CLOCK.end) return null;
+  for (const [a, b, rate, t0] of CLOCK.pieces) if (a <= tick && tick <= b) return t0 + (tick - a) / rate;
+  return null;
+}
+function beatTimes() {
+  if (!MUSIC || !(MUSIC.bpm > 0)) return [];
+  const per = 60 / MUSIC.bpm, m0 = +MUSIC.start || 0, base = m0 - (+MUSIC.offset || 0) + (+MUSIC.first_beat || 0), out = [];
+  for (let k = Math.ceil((m0 - base) / per - 1e-6); ; k++) { const v = base + k * per; if (v > INFO.duration) break; out.push(v); }
+  return out;
+}
+const nearestBeat = t => beatTimes().reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a, t);
 const PCOL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6", "#e34948", "#008300"];
 let INFO = null, CAM = { samples: [], step: 0.1 }, ITEMS = [], SEL = null, MATCH = 0;
 const UNDO = [], REDO = [];
@@ -350,11 +397,17 @@ function draw() {
   if (!INFO) return;
   const W = over.width, H = over.height, t = vid.currentTime;
   ctx.clearRect(0, 0, W, H); HITS.length = 0;
-  const cam = camAt(t);
+  if (FLY) flyStep();
+  const cam = FLY || camAt(t);
   if (NOVIDEO) {
     const players = Object.keys(ALLTRACKS).map((name, i) => ({ name, pos: trackAt(name, t), colour: PCOL[i % PCOL.length] }))
       .filter(p => p.pos);
-    if (window.MAP3D && cam) MAP3D.render(cam, CAM.samples, players, VIEW);
+    if (window.MAP3D && cam) MAP3D.render(cam, CAM.samples, players, VIEW, KEYS, KSEL);
+    if (FLY && VIEW === "camera") {
+      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(8, 8, 430 * devicePixelRatio, 24 * devicePixelRatio);
+      ctx.fillStyle = "#ffd23f"; ctx.font = `${12 * devicePixelRatio}px system-ui`;
+      ctx.fillText("Flying: drag to look · W A S D move · E/Q up/down · Shift faster · K keyframe · Esc stop", 16, 8 + 16 * devicePixelRatio);
+    }
     if (VIEW === "map") {                                  // texts are placed through the camera: shown in Camera view
       ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(8, H - 34 * devicePixelRatio, 360 * devicePixelRatio, 26 * devicePixelRatio);
       ctx.fillStyle = "#fff"; ctx.font = `${12 * devicePixelRatio}px system-ui`;
@@ -491,6 +544,19 @@ function drawTimeline() {
   const step = INFO.duration > 600 ? 60 : INFO.duration > 120 ? 10 : 5;
   for (let s = 0; s <= INFO.duration; s += step) { const x = tlX(s); tctx.fillRect(x, 0, dpr, 6 * dpr); tctx.fillText(fmt(s).replace(".0", ""), x + 3 * dpr, 12 * dpr); }
   const st = stillFrom(); if (st != null) { tctx.fillStyle = "rgba(95,184,95,0.25)"; tctx.fillRect(tlX(st), TL.top * dpr, tlX(INFO.duration) - tlX(st), H); }
+  if (NOVIDEO && CLOCK) {                         // camera keyframes: the row under the ruler
+    const y0 = 22 * dpr, y1 = 44 * dpr, ym = (y0 + y1) / 2;
+    tctx.fillStyle = "rgba(255,255,255,0.04)"; tctx.fillRect(0, y0, W, y1 - y0);
+    tctx.fillStyle = "#9aa0a6"; tctx.fillText("camera", 3 * dpr, ym + 4 * dpr);
+    const COL = { SMOOTH: "#ffd23f", LINEAR: "#e8eaed", HOLD: "#e34948", EASE_IN: "#55c8ff", EASE_OUT: "#55c8ff", EASE_IN_OUT: "#55c8ff" };
+    for (const k of KEYS) {
+      const v = videoTime(k.tick); if (v == null) continue;
+      const x = tlX(v), r = (k.tick === KSEL ? 7 : 5) * dpr;
+      tctx.fillStyle = COL[k.interpolation_type] || "#ffd23f";
+      tctx.beginPath(); tctx.moveTo(x, ym - r); tctx.lineTo(x + r, ym); tctx.lineTo(x, ym + r); tctx.lineTo(x - r, ym); tctx.closePath(); tctx.fill();
+      if (k.tick === KSEL) { tctx.strokeStyle = "#fff"; tctx.lineWidth = dpr; tctx.stroke(); }
+    }
+  }
   if (MUSIC) {                                   // the song: a band, bars (orange) and beats (blue)
     const m0 = +MUSIC.start || 0, songEnd = MUSIC.duration ? m0 + MUSIC.duration - (+MUSIC.offset || 0) : INFO.duration;
     tctx.fillStyle = "rgba(240,170,0,0.16)"; tctx.fillRect(tlX(m0), H - 10 * dpr, tlX(Math.min(INFO.duration, songEnd)) - tlX(m0), 10 * dpr);
@@ -518,6 +584,15 @@ function drawTimeline() {
 let tlDrag = null;
 tl.addEventListener("pointerdown", e => {
   const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) / 1;
+  if (NOVIDEO && CLOCK && y >= 22 && y < 44) {                   // the camera row
+    const hit = KEYS.find(k => { const v = videoTime(k.tick); return v != null && Math.abs(tlX(v) - x) <= 7 * dpr; });
+    if (hit) {
+      snapshot(); KSEL = hit.tick; fillKey();
+      tlDrag = { key: hit, mode: "key", t0: tlT(x), v0: videoTime(hit.tick) };
+      tl.setPointerCapture(e.pointerId); return;
+    }
+    KSEL = null; fillKey(); vid.currentTime = tlT(x); return;
+  }
   const row = Math.floor((y - TL.top) / TL.rowH), it = ITEMS[row];
   if (it && y >= TL.top) {
     const x0 = tlX(startOf(it)), x1 = tlX(endOf(it));
@@ -533,18 +608,31 @@ tl.addEventListener("pointerdown", e => {
 tl.addEventListener("pointermove", e => {
   if (!tlDrag) return;
   const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), t = tlT((e.clientX - r.left) * dpr), d = t - tlDrag.t0, it = tlDrag.it;
+  if (tlDrag.mode === "key") {
+    let v = Math.max(0, Math.min(INFO.duration, tlDrag.v0 + d));
+    if ($("#snapBeats").checked) v = nearestBeat(v);
+    const tick = Math.round(replayTick(v));
+    if (!KEYS.some(k => k !== tlDrag.key && k.tick === tick)) { tlDrag.key.tick = tick; KSEL = tick; fillKey(); }
+    return;
+  }
   if (tlDrag.mode === "end") { if (it.length != null) it.length = Math.max(0.2, Math.round((t - startOf(it)) * 10) / 10);
                               else it.until = Math.max(startOf(it) + 0.2, Math.round(t * 10) / 10); }
   else if (tlDrag.g != null) it.after.gap = Math.round((tlDrag.g + d) * 10) / 10;          // a follow-up: its gap
   else { it.start = Math.max(0, Math.round((tlDrag.s + d) * 10) / 10); if (tlDrag.u != null) it.until = Math.round((tlDrag.u + d) * 10) / 10; }
   fillEditor(); changed(false);
 });
-tl.addEventListener("pointerup", () => { if (tlDrag) { tlDrag = null; changed(true); } });
+tl.addEventListener("pointerup", () => {
+  if (!tlDrag) return;
+  const key = tlDrag.mode === "key"; tlDrag = null;
+  if (key) { KEYS.sort((a, b) => a.tick - b.tick); camChanged(); } else changed(true);
+});
 
 // --- dragging texts on the video ----------------------------------------------------------------
 let vDrag = null, picking = false;
+let flyDrag = null;
 over.addEventListener("pointerdown", async e => {
   const r = over.getBoundingClientRect(), dpr = over.width / r.width, x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+  if (FLY) { flyDrag = { x: e.clientX, y: e.clientY, yaw: FLY.yaw, pitch: FLY.pitch }; over.setPointerCapture(e.pointerId); return; }
   if (picking && SEL) {
     picking = false; over.style.cursor = "default"; vid.pause();
     $("#spotInfo").textContent = "Finding that spot in the world… (the first time reads the area's terrain)";
@@ -565,6 +653,10 @@ over.addEventListener("pointerdown", async e => {
   over.setPointerCapture(e.pointerId); over.style.cursor = "grabbing";
 });
 over.addEventListener("pointermove", e => {
+  if (flyDrag && FLY) {                                     // look around: right = turn right, down = look down
+    FLY.yaw = flyDrag.yaw + (e.clientX - flyDrag.x) * 0.25;
+    FLY.pitch = Math.max(-90, Math.min(90, flyDrag.pitch + (e.clientY - flyDrag.y) * 0.25)); return;
+  }
   const r = over.getBoundingClientRect(), dpr = over.width / r.width, x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
   if (!vDrag) { over.style.cursor = HITS.some(h => x >= h[1] && x <= h[3] && y >= h[2] && y <= h[4]) ? "grab" : "default"; return; }
   const it = vDrag.it, dx = x - vDrag.x, dy = y - vDrag.y;
@@ -572,7 +664,7 @@ over.addEventListener("pointermove", e => {
   else { it.x = Math.min(1, Math.max(0, vDrag.sx + dx / over.width)); it.y = Math.min(1, Math.max(0, vDrag.sy + dy / over.height)); }
   fillEditor(); changed(false);
 });
-over.addEventListener("pointerup", () => { if (vDrag) { vDrag = null; over.style.cursor = "grab"; changed(true); } });
+over.addEventListener("pointerup", () => { flyDrag = null; if (vDrag) { vDrag = null; over.style.cursor = "grab"; changed(true); } });
 
 // --- items, editor panel ---------------------------------------------------------------------
 const label = it => it.name || (it.lines.map(l => l[0]).filter(Boolean).join(" / ") || "(empty)");
@@ -749,16 +841,24 @@ $("#del").onclick = () => { if (!SEL) return; snapshot();
 
 // --- undo / save -----------------------------------------------------------------------------
 let lastSnap = "";
-function snapshot() { const s = JSON.stringify(ITEMS); if (s !== lastSnap) { UNDO.push(s); if (UNDO.length > 100) UNDO.shift(); REDO.length = 0; lastSnap = s; } }
-function restore(s) { const id = SEL && SEL.id; ITEMS = JSON.parse(s); SEL = ITEMS.find(i => i.id === id) || ITEMS[0] || null;
-  $("#lines").dataset.for = ""; renderList(); fillEditor(); changed(true, true); }
-$("#undo").onclick = () => { if (!UNDO.length) return; REDO.push(JSON.stringify(ITEMS)); restore(UNDO.pop()); lastSnap = ""; };
-$("#redo").onclick = () => { if (!REDO.length) return; UNDO.push(JSON.stringify(ITEMS)); restore(REDO.pop()); lastSnap = ""; };
+const stateStr = () => JSON.stringify({ items: ITEMS, keys: CAMCHANGED ? KEYS : null });
+function snapshot() { const s = stateStr(); if (s !== lastSnap) { UNDO.push(s); if (UNDO.length > 100) UNDO.shift(); REDO.length = 0; lastSnap = s; } }
+function restore(s) {
+  const id = SEL && SEL.id, st = JSON.parse(s), items = Array.isArray(st) ? st : st.items;
+  ITEMS = items; SEL = ITEMS.find(i => i.id === id) || ITEMS[0] || null;
+  $("#lines").dataset.for = ""; renderList(); fillEditor();
+  if (!Array.isArray(st) && NOVIDEO && JSON.stringify(st.keys) !== JSON.stringify(CAMCHANGED ? KEYS : null)) {
+    if (st.keys) { KEYS = st.keys; camChanged(); } else resetCamera();
+  } else changed(true, true);
+}
+$("#undo").onclick = () => { if (!UNDO.length) return; REDO.push(stateStr()); restore(UNDO.pop()); lastSnap = ""; };
+$("#redo").onclick = () => { if (!REDO.length) return; UNDO.push(stateStr()); restore(REDO.pop()); lastSnap = ""; };
 let saveTimer = null;
 function changed(commit) {
   renderList();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => post("/api/project", { items: ITEMS, match: MATCH, music: MUSIC }), commit ? 300 : 1200);
+  saveTimer = setTimeout(() => post("/api/project", { items: ITEMS, match: MATCH, music: MUSIC, camera: CAMCHANGED ? KEYS : null }),
+                         commit ? 300 : 1200);
 }
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" }, body: JSON.stringify(body) });
 
@@ -772,9 +872,17 @@ function hookVideo() {
   vid.addEventListener("pause", () => { $("#play").textContent = "Play"; song.pause(); });
   vid.addEventListener("timeupdate", () => { if (INFO) $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`; });
 }
+const FLYKEYS = ["w", "a", "s", "d", "q", "e", "shift"];
+document.addEventListener("keyup", e => PRESSED.delete(e.key.toLowerCase()));
+window.addEventListener("blur", () => PRESSED.clear());
 document.addEventListener("keydown", e => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && document.activeElement.type !== "range") return;
   const k = e.key.toLowerCase();
+  if (FLY && FLYKEYS.includes(k)) { PRESSED.add(k); e.preventDefault(); return; }
+  if (FLY && k === "escape") { toggleFly(); return; }
+  if (NOVIDEO && k === "k") { addKey(); return; }
+  if (NOVIDEO && k === "[") { $("#keyPrev").click(); return; }
+  if (NOVIDEO && k === "]") { $("#keyNext").click(); return; }
   if (e.ctrlKey && k === "z") { e.preventDefault(); $("#undo").click(); }
   else if (e.ctrlKey && (k === "y" || (e.shiftKey && k === "z"))) { e.preventDefault(); $("#redo").click(); }
   else if (e.ctrlKey && k === "d") { e.preventDefault(); $("#dup").click(); }
@@ -786,11 +894,95 @@ document.addEventListener("keydown", e => {
   else if (k === "delete") $("#del").click();
 });
 
+// --- camera keyframes (edit without a video) --------------------------------------------------
+let lastFly = 0;
+function flyStep() {
+  const now = performance.now(), dt = Math.min(0.1, (now - (lastFly || now)) / 1000); lastFly = now;
+  if (!PRESSED.size) return;
+  const sp = (PRESSED.has("shift") ? 30 : 7) * dt, ry = rad(FLY.yaw), rp = rad(FLY.pitch);
+  const f = [-Math.sin(ry) * Math.cos(rp), -Math.sin(rp), Math.cos(ry) * Math.cos(rp)], r = [-Math.cos(ry), 0, -Math.sin(ry)];
+  const m = (PRESSED.has("w") ? 1 : 0) - (PRESSED.has("s") ? 1 : 0), side = (PRESSED.has("d") ? 1 : 0) - (PRESSED.has("a") ? 1 : 0);
+  const upd = (PRESSED.has("e") ? 1 : 0) - (PRESSED.has("q") ? 1 : 0);
+  for (let i = 0; i < 3; i++) FLY.pos[i] += (f[i] * m + r[i] * side) * sp;
+  FLY.pos[1] += upd * sp;
+}
+function toggleFly() {
+  if (FLY) { FLY = null; $("#fly").classList.remove("on"); $("#fly").textContent = "Fly"; return; }
+  const c = camAt(vid.currentTime); if (!c) return;
+  vid.pause(); FLY = { pos: [...c.pos], yaw: c.yaw, pitch: c.pitch, fov: c.fov, speed: 1 }; lastFly = 0;
+  $("#vCam").click(); $("#fly").classList.add("on"); $("#fly").textContent = "Stop flying";
+}
+async function camChanged() {
+  CAMCHANGED = true;
+  const r = await post("/api/camera", { match: MATCH, keyframes: KEYS }), j = await r.json();
+  if (!r.ok) { $("#log").textContent = j.error || "Couldn't change the camera"; return; }
+  CAM = { samples: j.samples, step: j.step }; KEYS = j.keyframes;
+  if (INFO.matches[MATCH]) INFO.matches[MATCH].still_from = j.still_from;
+  fillKey(); changed(true);
+}
+async function resetCamera() {
+  const r = await post("/api/camera", { match: MATCH, keyframes: null }), j = await r.json();
+  CAMCHANGED = false; CAM = { samples: j.samples, step: j.step }; KEYS = j.keyframes; KSEL = null;
+  if (INFO.matches[MATCH]) INFO.matches[MATCH].still_from = j.still_from;
+  fillKey(); changed(true);
+}
+function fillKey() {
+  const k = KEYS.find(k => k.tick === KSEL);
+  $("#keyEd").hidden = !k; $("#keyDel").disabled = !k;
+  if (!k) return;
+  const v = videoTime(k.tick);
+  $("#kT").value = v == null ? "" : v.toFixed(2); $("#kTick").textContent = `tick ${k.tick}` + (v == null ? " (outside the export)" : "");
+  $("#kX").value = k.position[0].toFixed(2); $("#kY").value = k.position[1].toFixed(2); $("#kZ").value = k.position[2].toFixed(2);
+  $("#kYaw").value = (+k.yaw).toFixed(1); $("#kPitch").value = (+k.pitch).toFixed(1); $("#kRoll").value = (+k.roll || 0).toFixed(1);
+  $("#kInterp").value = k.interpolation_type || "SMOOTH";
+}
+function addKey() {
+  const t = vid.currentTime, c = FLY || camAt(t); if (!c || !CLOCK) return;
+  snapshot();
+  const tick = Math.round(replayTick(t)), prev = [...KEYS].reverse().find(k => k.tick <= tick);
+  KEYS = KEYS.filter(k => k.tick !== tick);
+  KEYS.push({ tick, position: [...c.pos], yaw: c.yaw, pitch: c.pitch, roll: prev ? prev.roll : 0,
+              interpolation_type: prev ? prev.interpolation_type : "SMOOTH" });
+  KEYS.sort((a, b) => a.tick - b.tick); KSEL = tick; camChanged();
+}
+$("#fly").onclick = toggleFly;
+$("#keyAdd").onclick = addKey;
+$("#keyDel").onclick = () => { if (KSEL == null) return; snapshot(); KEYS = KEYS.filter(k => k.tick !== KSEL); KSEL = null; camChanged(); };
+function stepKey(dir) {
+  const now = Math.round(replayTick(vid.currentTime)), inRange = KEYS.filter(k => videoTime(k.tick) != null);
+  const k = dir < 0 ? [...inRange].reverse().find(k => k.tick < now - 1) : inRange.find(k => k.tick > now + 1);
+  if (k) { KSEL = k.tick; vid.currentTime = videoTime(k.tick); fillKey(); }
+}
+$("#keyPrev").onclick = () => stepKey(-1); $("#keyNext").onclick = () => stepKey(1);
+$("#keySnapAll").onclick = () => {
+  if (!beatTimes().length) { $("#log").textContent = "Choose a song (with its tempo) first: keyframes snap to its beats."; return; }
+  snapshot();
+  const used = new Set();
+  for (const k of KEYS) { const v = videoTime(k.tick); if (v == null) continue;
+    const tick = Math.round(replayTick(nearestBeat(v))); if (!used.has(tick)) { k.tick = tick; used.add(tick); } }
+  KEYS.sort((a, b) => a.tick - b.tick); camChanged();
+};
+$("#camReset").onclick = () => { snapshot(); resetCamera(); };
+$("#keyHere").onclick = () => {
+  const k = KEYS.find(k => k.tick === KSEL), c = FLY || camAt(vid.currentTime); if (!k || !c) return;
+  snapshot(); k.position = [...c.pos]; k.yaw = c.yaw; k.pitch = c.pitch; camChanged();
+};
+for (const id of ["#kT", "#kX", "#kY", "#kZ", "#kYaw", "#kPitch", "#kRoll", "#kInterp"]) $(id).onchange = () => {
+  const k = KEYS.find(k => k.tick === KSEL); if (!k) return;
+  snapshot();
+  if (id === "#kT") { const tick = Math.round(replayTick(Math.max(0, +$("#kT").value || 0)));
+    if (!KEYS.some(o => o !== k && o.tick === tick)) { k.tick = tick; KSEL = tick; } KEYS.sort((a, b) => a.tick - b.tick); }
+  else if (id === "#kInterp") k.interpolation_type = $("#kInterp").value;
+  else if (["#kX", "#kY", "#kZ"].includes(id)) k.position[["#kX", "#kY", "#kZ"].indexOf(id)] = +$(id).value || 0;
+  else k[{ "#kYaw": "yaw", "#kPitch": "pitch", "#kRoll": "roll" }[id]] = +$(id).value || 0;
+  camChanged();
+};
+
 // --- making ----------------------------------------------------------------------------------
 async function make(target) {
   const btns = [$("#makeWorld"), $("#makeScreen")]; btns.forEach(b => b.disabled = true);
   $("#log").textContent = "Starting…";
-  const r = await post("/api/make", { target, items: ITEMS, match: MATCH, music: MUSIC });
+  const r = await post("/api/make", { target, items: ITEMS, match: MATCH, music: MUSIC, ...(NOVIDEO ? { camera: CAMCHANGED ? KEYS : null } : {}) });
   if (!r.ok) { $("#log").textContent = (await r.json()).error || "Failed"; btns.forEach(b => b.disabled = false); return; }
   const poll = async () => {
     const j = await (await fetch("/api/job")).json();
@@ -837,7 +1029,8 @@ window.addEventListener("resize", fit);
   NOVIDEO = !INFO.video;
   if (NOVIDEO) {                                           // a Flashback edit that hasn't been exported
     $("#vid").remove(); vid = new Clock(INFO.duration);
-    $("#map3d").hidden = false; $("#viewSeg").hidden = false;
+    $("#map3d").hidden = false; $("#viewSeg").hidden = false; $("#camPanel").hidden = false;
+    CLOCK = INFO.clock; KEYS = INFO.keyframes || []; CAMCHANGED = !!INFO.camera_changed; TL.top = 44; fillKey();
     $("#makeScreen").hidden = true; $("#mOnVideo").closest("label").hidden = true;
     $("#addScreen").title += " (shown on the map preview; drawn on the video after you export from Flashback)";
     const startMap = () => { MAP3D.init($("#map3d")); fit(); MAP3D.loadTerrain(msg => { $("#what").textContent = whatLine() + (msg ? " · " + msg : ""); }); };
@@ -870,6 +1063,7 @@ import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 const rad = d => d * Math.PI / 180;
 let renderer, scene, camView, camMap, controls, pathLine, camMarker, boxes = {}, mapPlaced = false, lastPath = null;
+let keyGroup = null, lastKeys = "";
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 function init(canvas) {
   if (renderer) return;
@@ -926,7 +1120,7 @@ function resize(w, h) {
   renderer.setSize(w, h, false);
   camView.aspect = camMap.aspect = w / h; camView.updateProjectionMatrix(); camMap.updateProjectionMatrix();
 }
-function render(cam, samples, players, view) {
+function render(cam, samples, players, view, keys = [], ksel = null) {
   if (!renderer) return;
   const f = [-Math.sin(rad(cam.yaw)) * Math.cos(rad(cam.pitch)), -Math.sin(rad(cam.pitch)), Math.cos(rad(cam.yaw)) * Math.cos(rad(cam.pitch))];
   camView.position.set(...cam.pos); camView.fov = cam.fov; camView.updateProjectionMatrix();
@@ -940,7 +1134,7 @@ function render(cam, samples, players, view) {
   }
   for (const [n, b] of Object.entries(boxes)) if (!seen.has(n)) b.visible = false;
   const map = view === "map";
-  controls.enabled = map; pathLine.visible = map; camMarker.visible = map;
+  controls.enabled = map; pathLine.visible = map; camMarker.visible = map; if (keyGroup) keyGroup.visible = map;
   if (map) {
     if (samples !== lastPath) {
       lastPath = samples;
@@ -950,6 +1144,18 @@ function render(cam, samples, players, view) {
     if (!mapPlaced) {                                    // first look: above and behind the camera
       mapPlaced = true; controls.target.set(...cam.pos);
       camMap.position.set(cam.pos[0] - f[0] * 60, cam.pos[1] + 70, cam.pos[2] - f[2] * 60);
+    }
+    const sig = JSON.stringify(keys.map(k => [k.tick, k.position])) + ksel;
+    if (sig !== lastKeys) {                              // camera keyframes as dots (selected: white, bigger)
+      lastKeys = sig;
+      if (keyGroup) { scene.remove(keyGroup); keyGroup.traverse(o => o.geometry && o.geometry.dispose()); }
+      keyGroup = new THREE.Group();
+      for (const k of keys) {
+        const sel = k.tick === ksel;
+        const m = new THREE.Mesh(new THREE.SphereGeometry(sel ? 1.1 : 0.7, 12, 8), new THREE.MeshBasicMaterial({ color: sel ? 0xffffff : 0xffd23f }));
+        m.position.set(...k.position); keyGroup.add(m);
+      }
+      scene.add(keyGroup);
     }
     camMarker.position.set(...cam.pos);
     camMarker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...f));

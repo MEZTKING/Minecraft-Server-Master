@@ -638,28 +638,131 @@ def copy_edit(state_file: str, target: str, original_uuid: str, export: tuple[in
     return target
 
 
-def camera_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
-    """Camera ``(position, yaw, pitch)`` at replay *tick* from the scene's CAMERA keyframes
-    (linear between keyframes; orbit/entity-tracking cameras are not followed)."""
+# Interpolation types of Flashback keyframes: (left side, right side), from its InterpolationType.
+SIDES = {"SMOOTH": ("SMOOTH", "SMOOTH"), "LINEAR": ("LINEAR", "LINEAR"), "HOLD": ("HOLD", "HOLD"),
+         "EASE_IN": ("EASE", "LINEAR"), "EASE_OUT": ("LINEAR", "EASE"), "EASE_IN_OUT": ("EASE", "EASE"),
+         "HERMITE": ("SMOOTH", "SMOOTH")}
+
+
+def _wrap(d: float) -> float:
+    return (d + 180.0) % 360.0 - 180.0
+
+
+def _ease(left: str, right: str, a: float) -> float:
+    """Flashback's SidedInterpolationType.interpolate for the non-spline cases."""
+    if left == "EASE" and right == "EASE":
+        return 4 * a ** 3 if a < 0.5 else 1 - (-2 * a + 2) ** 3 / 2
+    if left == "EASE":
+        return a ** 3
+    if right == "EASE":
+        return 1 - (1 - a) ** 3
+    return a
+
+
+def _catmull(p0, p1, p2, p3, a: float, alpha: float = 0.5):
+    """Centripetal Catmull-Rom between p1 and p2 (Barry-Goldman pyramid), *a* in 0..1."""
+    def knot(t, pa, pb):
+        d = sum((x - y) ** 2 for x, y in zip(pa, pb)) ** 0.5
+        return t + max(d ** alpha, 1e-4)
+    t0 = 0.0
+    t1 = knot(t0, p0, p1)
+    t2 = knot(t1, p1, p2)
+    t3 = knot(t2, p2, p3)
+    t = t1 + (t2 - t1) * a
+
+    def lerp(pa, pb, ta, tb):
+        w = (t - ta) / (tb - ta)
+        return [x + (y - x) * w for x, y in zip(pa, pb)]
+    a1, a2, a3 = lerp(p0, p1, t0, t1), lerp(p1, p2, t1, t2), lerp(p2, p3, t2, t3)
+    b1, b2 = lerp(a1, a2, t0, t2), lerp(a2, a3, t1, t3)
+    return lerp(b1, b2, t1, t2)
+
+
+def _cr_uniform(p0: float, p1: float, p2: float, p3: float, a: float) -> float:
+    return 0.5 * ((2 * p1) + (-p0 + p2) * a + (2 * p0 - 5 * p1 + 4 * p2 - p3) * a * a
+                  + (-p0 + 3 * p1 - 3 * p2 + p3) * a ** 3)
+
+
+def camera_keys(scene: dict) -> list[tuple[int, dict]]:
+    """The scene's CAMERA keyframes ``[(tick, keyframe)]`` in order (first enabled CAMERA track)."""
     for t in scene.get("keyframeTracks") or []:
         if t.get("keyframeType") == "CAMERA" and t.get("enabled", True):
-            keys = sorted((int(k), v) for k, v in (t.get("keyframesByTick") or {}).items()
+            return sorted((int(k), v) for k, v in (t.get("keyframesByTick") or {}).items()
                           if isinstance(v, dict) and v.get("position"))
-            if not keys:
-                return None
-            if tick <= keys[0][0]:
-                k = keys[0][1]
-                return list(k["position"]), float(k.get("yaw", 0)), float(k.get("pitch", 0))
-            for (t1, a), (t2, b) in zip(keys, keys[1:]):
-                if t1 <= tick <= t2:
-                    f = (tick - t1) / max(1, t2 - t1)
-                    pos = [pa + (pb - pa) * f for pa, pb in zip(a["position"], b["position"])]
-                    dyaw = ((float(b.get("yaw", 0)) - float(a.get("yaw", 0)) + 180) % 360) - 180
-                    return (pos, float(a.get("yaw", 0)) + dyaw * f,
-                            float(a.get("pitch", 0)) + (float(b.get("pitch", 0)) - float(a.get("pitch", 0))) * f)
-            k = keys[-1][1]
-            return list(k["position"]), float(k.get("yaw", 0)), float(k.get("pitch", 0))
-    return None
+    return []
+
+
+def camera_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
+    """Camera ``(position, yaw, pitch)`` at replay *tick* from the scene's CAMERA keyframes, the way
+    Flashback moves it: SMOOTH = centripetal Catmull-Rom through the neighbouring keyframes, HOLD,
+    LINEAR and the eases (a segment uses its first keyframe's right side and its second keyframe's
+    left side). Orbit/entity-tracking cameras are not followed."""
+    keys = camera_keys(scene)
+    if not keys:
+        return None
+
+    def out(k):
+        return list(k["position"]), float(k.get("yaw", 0)), float(k.get("pitch", 0))
+    if tick <= keys[0][0]:
+        return out(keys[0][1])
+    if tick >= keys[-1][0]:
+        return out(keys[-1][1])
+    i = max(j for j, (t_, _k) in enumerate(keys) if t_ <= tick)
+    (t1, a), (t2, b) = keys[i], keys[i + 1]
+    amount = (tick - t1) / max(1e-9, t2 - t1)
+    left = SIDES.get(a.get("interpolation_type") or "SMOOTH", SIDES["SMOOTH"])[1]
+    right = SIDES.get(b.get("interpolation_type") or "SMOOTH", SIDES["SMOOTH"])[0]
+    if left == "HOLD":
+        return out(a)
+    ya, yb = float(a.get("yaw", 0)), float(b.get("yaw", 0))
+    pa_, pb_ = float(a.get("pitch", 0)), float(b.get("pitch", 0))
+    if left == "SMOOTH" or right == "SMOOTH":
+        before = keys[i - 1][1] if i > 0 and keys[i - 1][1].get("interpolation_type") != "HOLD" else a
+        after = keys[i + 2][1] if i + 2 < len(keys) and b.get("interpolation_type") != "HOLD" else b
+        pos = _catmull(before["position"], a["position"], b["position"], after["position"], amount)
+
+        def ang(key):
+            v0, v1, v2, v3 = (float(k.get(key, 0)) for k in (before, a, b, after))
+            u1 = v0 + _wrap(v1 - v0)
+            u2 = u1 + _wrap(v2 - v1)
+            u3 = u2 + _wrap(v3 - v2)
+            return _cr_uniform(v0, u1, u2, u3, amount)
+        return pos, ang("yaw"), ang("pitch")
+    f = _ease(left, right, amount)
+    pos = [x + (y - x) * f for x, y in zip(a["position"], b["position"])]
+    return pos, ya + max(-180.0, min(180.0, _wrap(yb - ya) * f)), pa_ + (pb_ - pa_) * f
+
+
+def set_camera_track(edit_path: str, keyframes: list[dict]) -> None:
+    """Replace the CAMERA keyframes of the edit's open scene with *keyframes* (``{tick, position,
+    yaw, pitch, roll, interpolation_type}``), keeping the track itself and everything else."""
+    with open(edit_path, encoding="utf-8") as fh:
+        state = json.load(fh)
+    scenes = state.get("scenes") or []
+    idx = int(state.get("sceneIndex") or 0)
+    sc = scenes[idx if 0 <= idx < len(scenes) else 0]
+    apply_camera(sc, keyframes)
+    tmp = edit_path + ".mcsm-part"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(state, fh)
+    os.replace(tmp, edit_path)
+
+
+def apply_camera(scene: dict, keyframes: list[dict]) -> dict:
+    """*scene* with its (first enabled) CAMERA track's keyframes replaced by *keyframes*."""
+    by_tick = {}
+    for k in keyframes:
+        by_tick[str(int(k["tick"]))] = {"position": [float(v) for v in k["position"]],
+                                        "yaw": float(k.get("yaw", 0)), "pitch": float(k.get("pitch", 0)),
+                                        "roll": float(k.get("roll", 0)), "type": "camera",
+                                        "interpolation_type": k.get("interpolation_type") or "SMOOTH"}
+    tracks = scene.setdefault("keyframeTracks", [])
+    for t in tracks:
+        if t.get("keyframeType") == "CAMERA" and t.get("enabled", True):
+            t["keyframesByTick"] = by_tick
+            return scene
+    tracks.insert(0, {"keyframeType": "CAMERA", "keyframesByTick": by_tick, "enabled": True, "customColour": 0})
+    return scene
 
 
 def in_front(position: list[float], yaw: float, pitch: float, distance: float) -> tuple[float, float, float]:

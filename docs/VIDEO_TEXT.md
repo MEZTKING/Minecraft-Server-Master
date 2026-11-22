@@ -21,6 +21,20 @@ is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library w
 - **Camera view / Map view** (next to the time): *Map view* looks at the map from above, with your
   camera's path as a yellow line and the camera as a red marker (drag to turn, scroll to zoom). Texts are
   shown in *Camera view*.
+- **Camera keyframes** (the *Camera* panel): the timeline's top row shows your edit's camera keyframes as
+  diamonds (yellow = smooth, white = straight, blue = eased, red = hold then cut). The preview moves the
+  camera the way Flashback does (its smooth spline, eases and holds, read from Flashback's source).
+  - **Fly**: drag on the picture to look around, <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to move,
+    <kbd>E</kbd>/<kbd>Q</kbd> up/down, <kbd>Shift</kbd> faster, <kbd>Esc</kbd> to stop.
+  - **+ Keyframe here** (<kbd>K</kbd>): a keyframe at the playhead from what you see (while flying: where you
+    flew to). **Delete keyframe**, <kbd>[</kbd>/<kbd>]</kbd> previous/next keyframe.
+  - Drag a diamond to move it in time; with **snap to beats** it lands on the song's beats, and **Snap all
+    to beats** moves every keyframe to its nearest beat.
+  - The selected keyframe's time, position, yaw/pitch, roll and **Movement** (smooth, straight, ease in/out,
+    hold then cut) can be typed; **Set to current view** moves it to where you flew.
+  - Undo/redo include camera changes; **Back to the edit's camera** forgets them. Your edit's own file is
+    never changed: the changed camera goes into the app's copy (replacing that copy's camera) when you
+    press *Put … in Flashback*.
 - Everything else works as with a video: texts in the world, follow a player, chains, the song and
   beats. **Put world texts & song in Flashback** makes the copy in the same Flashback folder as the
   edit (one copy per edit and scene; making it again replaces it). Open it in Flashback, check, and

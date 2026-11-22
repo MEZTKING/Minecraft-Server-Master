@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (editor opens a Flashback edit before exporting: 3D map through the edit's camera, phase 1 of backlog 0p).
+`CLAUDE.md`). Last updated: 2026-11-22 (editor: camera keyframes of a Flashback edit, fly camera, snap to beats; 0p phase 2).
 
 ## What this project is
 
@@ -76,6 +76,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Editor on a Flashback edit before exporting (0p phase 1): the app's 3D map through the edit's camera (terrain from the backup after the recording, players as boxes), Camera/Map view, texts/song/beats, copy into the edit's Flashback folder | ✅ Done; tried on the owner's welcome-clip edit (composition matches the real export at 30 s) | `videotext.analyse_edit`, `videoeditor.py` (`tiles`, `tile_file`, `tracks_all`, `copy_key`), `videotext.html` (Clock, MAP3D), `mcsm video-editor --edit`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Camera keyframes in the editor (0p phase 2): Flashback's interpolation (centripetal Catmull-Rom SMOOTH, eases, HOLD), keyframe row on the timeline, fly camera, add/move/delete/type keyframes, snap to beats, undo; written into the copy's edit only | ✅ Done; tried on the owner's edit (13 keyframes, added one by flying, undo/reset, original file untouched) | `worldtext.camera_at`/`apply_camera`/`set_camera_track`, `videotext.scene_for_match` (`camera_override`), `videoeditor.py` (`/api/camera` with keyframes), `videotext.html` | `docs/VIDEO_TEXT.md` |
 | Music in the editor: song plays along, tempo detected, beats on the timeline; song on Flashback's AUDIO track of the copy's edit + a marker per beat/bar; mixed into the made video | ✅ Done; checked in the page on the owner's clip (song in sync) and in tests; not yet opened in Flashback | `mcsm/videomusic.py`, `videotext.py` (`make_items_in_world`, `burn_in`), `videoeditor.py` (`/api/music`, `/api/beats`), `videotext.html` | `docs/VIDEO_TEXT.md` |
 | Editor extras: opacity, rotate, facing (camera / upright / fixed like a sign, turn, tilt), 3D depth, italic, underline, rise and slam animations, chained follow-ups with any gap, "lasts" seconds, pictures on the video (opacity, rotate, fade/rise); app Videos tab now only picks the video | ✅ Done; on-screen results checked frame by frame with ffmpeg; in-world rotation/facing/3D/rise not yet seen in Flashback | `worldtext.py` (`translation_of`, `quaternion_of`, `with_depth`, `transform_packet`), `videotext.py` (`resolve_times`, `image_filters`), `videoeditor.py` (`/api/image`), `videotext.html`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
@@ -583,7 +584,17 @@ and writes.
   Flashback. **Phase 2:** camera keyframe editing and snapping to beats.
 ✅ **Phase 1 done 2026-11-22** (owner: "Yes, start phase 1"): `--edit` / *Open a Flashback edit…*,
 Camera view and Map view (camera path, camera marker, players), texts/song/beats on the edit's timeline,
-the copy goes into the edit's own Flashback folder. Next: phase 2 (camera keyframes in the map).
+the copy goes into the edit's own Flashback folder.
+✅ **Phase 2 done 2026-11-22** (owner: "Yes, phase 2"): camera keyframes on the timeline, fly camera,
+add/move/delete/type, snap to beats, Flashback's own interpolation for the preview and for text
+placement; the camera goes into the app's copy of the edit only.
+**Owner's question (2026-11-22):** "why are we not getting the true minecraft view but instead a map
+view". Only Minecraft can draw the real picture (textures, lighting, shaders, entities). Options: (a) a
+truer picture in the page: every block near the camera as a cube with Minecraft's own textures from the
+installed game (no shaders or animated entities); (b) the real view from Flashback itself through a
+companion mod that lets the editor drive a running Flashback (camera and time) — the true picture, but
+Java mod work and patching Flashback internals; (c) export a quick low-quality preview in Flashback and
+open it in the editor (works today).
 - **Open questions for the owner:** is the map preview (blocky terrain, no textures) enough to judge
   camera moves, or is the goal only to avoid the round trip for texts and music? Which Flashback
   features matter most to have in the editor (camera keyframes, timelapse, orbit/follow cameras)?
@@ -775,6 +786,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   future Minecraft version, the add/remove packet ids in `paths.ADD_ENTITY` /
   `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
+- **Camera interpolation:** SMOOTH follows Flashback's centripetal Catmull-Rom; its extra rescaling of
+  tangents by the time gaps (factors clamped 0.4-2.5) isn't copied, so a smooth curve between unevenly
+  spaced keyframes can differ slightly from Flashback's. Angles use a uniform spline on unwrapped degrees.
 - **Map preview of an edit is approximate:** terrain is the surface every 2 blocks (4 further away) from
   the backup saved after the recording (builds made later show, blocks broken during the recording
   don't), and players' positions come about once a second. Only CAMERA keyframes are followed (orbit and
@@ -798,6 +812,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** **Camera keyframes in the editor** (0p phase 2): `worldtext.camera_at` now moves the
+  camera like Flashback (SMOOTH spline through the neighbouring keyframes, HOLD, LINEAR, eases; a segment
+  uses its first keyframe's right side and the next one's left side), which also makes text placement
+  follow curved camera moves. In an edit opened without a video: keyframe row on the timeline (drag,
+  snap to beats), fly camera (drag to look, WASD/E/Q), add/delete/type keyframes, undo/redo, back to the
+  edit's camera. Changes live in the project (`camera`) and as `camera_override` on the match
+  (`scene_for_match` applies it), and are written only into the app's copy of the edit.
 
 - **2026-11-22:** **Editor on a Flashback edit before exporting** (backlog 0p phase 1): `analyse_edit`
   uses the scene's export range as the timeline; the page plays a clock instead of a video and shows the

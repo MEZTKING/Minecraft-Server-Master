@@ -22,6 +22,8 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/tiles           (edit without a video) the terrain regions around the camera path
   GET  /tile/<rx>/<rz>/<step>  one region's surface: int16 heights + RGB (as the history viewer)
   POST /api/tracks          {"match": i}  every player's path through the video
+  POST /api/camera          {"match": i, "keyframes": [...]}  (edit mode) the camera as changed in the
+                            page: its path is worked out the way Flashback moves it
 
 Projects are kept in ``%LOCALAPPDATA%/mcsm/video-text/`` (one file per video), never next to the video.
 """
@@ -52,6 +54,10 @@ class VideoEditor:
                 raise ValueError("give a video or a Flashback edit")
             self.vinfo = info or vt.analyse_edit(edit, scene, world_dir)
         self.edit = self.vinfo.get("edit")
+        if self.edit:                                  # camera keyframes changed earlier in the page
+            cam = self.load_project().get("camera")
+            if isinstance(cam, list) and self.vinfo["matches"]:
+                self.vinfo["matches"][0]["camera_override"] = self._clean_keys(cam)
         self.job: dict = {"running": False, "log": [], "result": None, "error": None}
         self.world_dir = world_dir
         self._ground: dict = {}                 # (root) -> GroundProbe
@@ -87,7 +93,11 @@ class VideoEditor:
 
     def page_info(self) -> dict:
         i = self.vinfo
-        return {"video": i["video"], "edit": i.get("edit"), "duration": i["duration"], "width": i["width"],
+        extra = {}
+        if i.get("edit") and i["matches"]:
+            extra = {"clock": self.clock_info(0), "keyframes": self.keyframes(0),
+                     "camera_changed": i["matches"][0].get("camera_override") is not None}
+        return {**extra, "video": i["video"], "edit": i.get("edit"), "duration": i["duration"], "width": i["width"],
                 "height": i["height"],
                 "font": vt.minecraft_font(),
                 "matches": [{"name": m["name"], "match": m["match"], "still_from": m.get("still_from"),
@@ -143,6 +153,47 @@ class VideoEditor:
         if not music or not music.get("file"):
             return None
         return {**music, "file": self.song_path(music["file"])}
+
+    # --- camera keyframes (an edit opened without a video) ---------------------------------------
+    @staticmethod
+    def _clean_keys(keys: list) -> list[dict]:
+        out = {}
+        for k in keys:
+            try:
+                pos = [float(v) for v in k["position"]][:3]
+                if len(pos) != 3:
+                    continue
+                out[int(k["tick"])] = {"tick": int(k["tick"]), "position": pos, "yaw": float(k.get("yaw", 0)),
+                                       "pitch": max(-90.0, min(90.0, float(k.get("pitch", 0)))),
+                                       "roll": float(k.get("roll", 0)),
+                                       "interpolation_type": str(k.get("interpolation_type") or "SMOOTH")}
+            except (KeyError, TypeError, ValueError):
+                continue
+        return [out[t] for t in sorted(out)]
+
+    def clock_info(self, index: int) -> dict:
+        """Replay ticks <-> seconds of the scene, for the page (pieces: from, to, ticks/s, second)."""
+        clock = vt.scene_clock(vt.scene_for_match(self.vinfo["matches"][index]))
+        return {"start": clock.start, "end": clock.end, "pieces": [list(p) for p in clock.pieces]} if clock else {}
+
+    def keyframes(self, index: int) -> list[dict]:
+        from . import worldtext as wt
+        sc = vt.scene_for_match(self.vinfo["matches"][index])
+        return [{"tick": t, "position": list(k["position"]), "yaw": float(k.get("yaw", 0)),
+                 "pitch": float(k.get("pitch", 0)), "roll": float(k.get("roll", 0)),
+                 "interpolation_type": k.get("interpolation_type") or "SMOOTH"} for t, k in wt.camera_keys(sc)]
+
+    def set_keyframes(self, index: int, keys) -> None:
+        """Use these camera keyframes instead of the edit's (None: back to the edit's own)."""
+        if not self.edit:
+            raise ValueError("the camera can only be changed for an edit that hasn't been exported")
+        m = self.vinfo["matches"][index]
+        m["camera_override"] = None if keys is None else self._clean_keys(keys)
+        m.pop("still_from", None)
+        sc = vt.scene_for_match(m)
+        still = vt.still_camera_at_end(sc)
+        clock = vt.scene_clock(sc)
+        m["still_from"] = clock.video_time(still[0]) if (still and clock) else None
 
     def copy_key(self) -> str:
         """What the app's Flashback copy is remembered by: the video, or the edit and scene."""
@@ -409,7 +460,8 @@ class VideoEditor:
 
     def save_project(self, body: dict) -> dict:
         data = {"video": self.copy_key(), "match": int(body.get("match", 0)), "items": list(body.get("items") or []),
-                "music": body.get("music") if isinstance(body.get("music"), dict) else None}
+                "music": body.get("music") if isinstance(body.get("music"), dict) else None,
+                "camera": self._clean_keys(body["camera"]) if isinstance(body.get("camera"), list) else None}
         p = self.project_file()
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p + ".tmp", "w", encoding="utf-8") as fh:
@@ -419,7 +471,14 @@ class VideoEditor:
 
     def api_post(self, path: str, body: dict):
         if path == "/api/camera":
-            return self.camera_path(int(body.get("match", 0)))
+            index = int(body.get("match", 0))
+            if "keyframes" in body:
+                self.set_keyframes(index, body["keyframes"])
+            out = self.camera_path(index)
+            if self.edit:
+                out["keyframes"] = self.keyframes(index)
+                out["still_from"] = self.vinfo["matches"][index].get("still_from")
+            return out
         if path == "/api/project":
             return self.save_project(body)
         if path == "/api/players":
@@ -468,6 +527,8 @@ class VideoEditor:
     def _make(self, b: dict, say) -> dict:
         items = list(b.get("items") or [])
         self.save_project(b)
+        if self.edit and "camera" in b:                # the camera as it is in the page right now
+            self.set_keyframes(int(b.get("match", 0)), b["camera"])
         if b.get("target") == "world":
             match = self.vinfo["matches"][int(b.get("match", 0))]
             music = self.music_for(b.get("music"))
