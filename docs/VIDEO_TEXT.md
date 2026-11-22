@@ -3,17 +3,33 @@
 ## The easiest way: the live editor
 
 In the **Videos** tab choose your video, then press **Open live editor** (or
-`mcsm video-editor --video FILE --world <library world>`). A page opens in your browser:
+`mcsm video-editor --video FILE --world <library world>`). A page opens in your browser where the video
+plays with **all your texts drawn on it while you change them**.
 
-- your video plays with the text drawn on it **while you change it**: text, when it appears, animation
-  and speed, colour, border, shadow, box, and for text in the world its place (right, up, distance,
-  size). Drag the sliders and watch it move;
-- **In the world** shows the text where it will really be in the scene, worked out from your edit's
-  camera, so it moves correctly as the camera moves (exact where the camera stands still; close while it
-  moves, because Flashback smooths camera paths). **On the video** shows the drawn-on title instead;
-- **Go to the text** jumps to 3 seconds before it appears and plays;
-- **Put it in the world (Flashback)** / **Put it on the video** make the real thing from the page.
-  Making it again for the same video replaces the earlier Flashback copy.
+- **Any number of texts**, each **in the world** (real Minecraft text in the scene, projected with your
+  edit's camera, so it moves correctly as the camera moves) or **on the video** (drawn on top).
+  Buttons: **+ Title in the world**, **+ Title on the video**, **+ Subtitle** (bottom, dark box, 4 s),
+  **+ Corner label** (a place or name, lower left), **Duplicate**, **Delete**.
+- **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green = where
+  the camera stands still). Drag a bar to move it in time, drag its right edge to change how long it
+  stays, click elsewhere to move the playhead.
+- **Drag a text on the video** to move it: on-screen texts move freely; texts in the world move left,
+  right, up and down in the world (in blocks, as seen from the camera).
+- **Each text:** a name, one or more lines (each with its own letter size), when it appears (a second,
+  *now*, or *when the camera stops*) and until when, animation (appears / fades / pops / words one by one,
+  speed, gap between words, fade out), colour, border and its colour, shadow, dark box, always bright (in
+  the world) or 3D letters and a font (on the video), and its place and size.
+- **Keys:** <kbd>Space</kbd> play/pause, <kbd>←</kbd>/<kbd>→</kbd> one frame (with Shift: one second),
+  <kbd>I</kbd>/<kbd>O</kbd> start/end of the selected text at the playhead, <kbd>Ctrl+Z</kbd> /
+  <kbd>Ctrl+Y</kbd> undo/redo, <kbd>Ctrl+D</kbd> duplicate, <kbd>Delete</kbd>.
+- **Saved automatically** for each video (in `%LOCALAPPDATA%\mcsmideo-text`, never next to your
+  video), so you can close the page and continue later.
+- **Make it:** **Put world texts in Flashback** makes one Flashback copy with all in-world texts (making
+  it again replaces it); **Make the video with on-screen texts** makes one new video with all on-screen
+  texts drawn on.
+
+The drawing in the page uses the fonts your browser has; the finished video uses Minecraft's own font in
+the world and your chosen font on the video.
 
 ## The app's Videos tab
 

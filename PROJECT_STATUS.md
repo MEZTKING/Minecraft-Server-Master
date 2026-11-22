@@ -715,6 +715,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Full text editor** (owner: "more texts at different times or throughout the video",
+  "any other feature to make it a full usable editor"): any number of texts per video, each in the world
+  or on the video with its own lines, timing, animation, look and place; timeline with draggable bars;
+  drag texts on the video to move them (world texts in blocks); presets (title, subtitle, corner label);
+  duplicate/delete, undo/redo, keyboard shortcuts; fonts for on-screen text; projects saved per video
+  (`%LOCALAPPDATA%\mcsmideo-text`); one Flashback copy / one video for all texts.
 - **2026-11-22:** **In-app updater**: Updates line in the app (test builds / stable releases / off),
   startup check once a day, What's new / Update / Later; SHA-256-verified download; the installer
   reopens the app after a silent update. CI publishes every successful build of the working branch to

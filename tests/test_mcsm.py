@@ -2481,6 +2481,9 @@ class TestVideoEditor(unittest.TestCase):
             info = {"video": video, "duration": 2.0, "width": 1920, "height": 1080,
                     "matches": [{"name": "S", "match": "exact", "state": state, "scene": 0, "uuid": "u", "start": 0,
                                  "end": 40, "recording": None, "still_from": 0.5}]}
+            os.environ["LOCALAPPDATA_BACKUP"] = os.environ.get("LOCALAPPDATA", "")
+            os.environ["LOCALAPPDATA"] = tmp                                  # projects go to a temp folder
+            self.addCleanup(lambda: os.environ.__setitem__("LOCALAPPDATA", os.environ.pop("LOCALAPPDATA_BACKUP")))
             ed = VideoEditor(video, info=info)
             url = ed.start(18790)
             try:
@@ -2494,7 +2497,7 @@ class TestVideoEditor(unittest.TestCase):
                 self.assertEqual(r.status, 206)
                 self.assertEqual(r.headers["Content-Range"], "bytes 100-199/10240")
                 self.assertEqual(r.read(), (bytes(range(256)) * 40)[100:200])
-                post = urllib.request.Request(url + "api/make", data=json.dumps({"target": "world", "lines": [["Hi", 3]]}).encode(),
+                post = urllib.request.Request(url + "api/make", data=json.dumps({"target": "world", "items": [{"kind": "world", "lines": [["Hi", 3]]}]}).encode(),
                                               headers={"Content-Type": "application/json"}, method="POST")
                 with self.assertRaises(urllib.error.HTTPError):               # no X-MCSM header: refused
                     urllib.request.urlopen(post)
@@ -2506,6 +2509,8 @@ class TestVideoEditor(unittest.TestCase):
                         break
                     time.sleep(0.1)
                 self.assertIn("recording", job["error"])                     # no recording in this test: told why
+                saved = json.loads(urllib.request.urlopen(url + "api/project").read())
+                self.assertEqual(saved["items"][0]["lines"], [["Hi", 3]])      # the texts were saved
             finally:
                 ed.stop()
         finally:
@@ -2587,3 +2592,55 @@ class TestUpdater(unittest.TestCase):
                 updater.download({"url": url, "sha256": "", "size": len(body), "file": "none.exe"}, dest_dir=self.tmp)
         finally:
             srv.shutdown()
+
+
+class TestManyTexts(unittest.TestCase):
+    """An editor project with several texts at different times: all world texts in one Flashback copy,
+    all on-screen texts in one video."""
+
+    def test_items(self):
+        from mcsm import videotext as vt
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "fb")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            os.makedirs(os.path.join(fb, "replays"))
+            state = os.path.join(fb, "editor_states", "orig.json")
+            cam = {"position": [0, 64, 0], "yaw": 0, "pitch": 0}
+            with open(state, "w") as fh:
+                json.dump({"scenes": [{"name": "S", "exportStartTicks": 0, "exportEndTicks": 200, "keyframeTracks": [
+                    {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "200": cam}}]}]}, fh)
+            rec = os.path.join(tmp, "orig.zip")
+            with zipfile.ZipFile(rec, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "orig", "protocol_version": 775, "total_ticks": 200,
+                                                         "version_string": "26.1.2",
+                                                         "chunks": {"c0.flashback": {"duration": 200}}}))
+                zf.writestr("c0.flashback", TestWorldTextTiming._chunk(200))
+            match = {"recording": rec, "state": state, "scene": 0, "uuid": "orig", "start": 0, "end": 200,
+                     "still_from": 1.0}
+            items = [{"kind": "world", "lines": [["Early", 3]], "start": 2.0, "until": 4.0, "animation": "pop"},
+                     {"kind": "world", "lines": [["Late", 3]], "start": 7.0, "right": 10},
+                     {"kind": "screen", "lines": [["On screen", 3]], "start": 1.0, "until": 2.0}]
+            r = vt.make_items_in_world(match, items, os.path.join(tmp, "clip.mp4"), fb)
+            with zipfile.ZipFile(r["replay"]) as zf:
+                data = zf.read("c0.flashback")
+            self.assertIn(b"Early", data)
+            self.assertIn(b"Late", data)
+            self.assertNotIn(b"On screen", data)                     # on-screen texts don't go into the world
+            events = TestWorldTextTiming._events(data)
+            adds = [t for t, pid in events if pid == 1]
+            self.assertIn(40, adds)                                    # "Early" at 2 s = tick 40
+            self.assertIn(140, adds)                                   # "Late" at 7 s = tick 140
+            self.assertIn((80, 77), events)                            # "Early" removed at 4 s
+            with self.assertRaises(ValueError):
+                vt.make_items_in_world(match, [items[2]], None, fb)    # no world texts: told so
+            ff = vt.find_tool("ffmpeg")
+            if ff:
+                src = os.path.join(tmp, "clip.mp4")
+                subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=3:r=10",
+                                "-pix_fmt", "yuv420p", src], check=True)
+                out = vt.make_items_on_screen(src, items + [{"kind": "screen", "lines": [["Second", 3]], "start": 2.0,
+                                                             "x": 0.2, "y": 0.8, "font": "Arial Black"}], 3.0)
+                self.assertTrue(os.path.getsize(out) > 0)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

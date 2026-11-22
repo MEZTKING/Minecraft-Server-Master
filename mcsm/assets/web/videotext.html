@@ -5,325 +5,442 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Video Text Editor</title>
 <!--
-  Live editor for text on a finished Flashback video (mcsm.videoeditor).
-  Data: /api/info (video, edits, camera path), /video (the video), POST /api/camera, /api/make, GET /api/job.
-  The placement maths mirror mcsm/videotext.world_layout, worldtext.split_words and videotext.project.
+  Live editor for text on a finished Flashback video (mcsm.videoeditor): any number of texts, each with
+  its own time, place, animation and look, in the world (projected with the edit's camera path) or on the video.
+  Data: /api/info, /video, /api/project (GET/POST), POST /api/camera, /api/make, GET /api/job.
+  Placement maths mirror mcsm/videotext.world_layout, worldtext.split_words and videotext.project.
 -->
 <style>
-:root { --bg:#14161a; --panel:#1d2026; --line:#2c313a; --text:#e8eaed; --muted:#9aa0a6; --accent:#5fb85f; --warn:#e0a040; }
+:root { --bg:#14161a; --panel:#1d2026; --line:#2c313a; --text:#e8eaed; --muted:#9aa0a6; --accent:#5fb85f; --sel:#f0c040; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin:0; background:var(--bg); color:var(--text); font:13px system-ui, sans-serif; height:100vh; display:flex; }
+body { margin:0; background:var(--bg); color:var(--text); font:13px system-ui, sans-serif; height:100vh; display:flex; overflow:hidden; }
 #stage { flex:1; display:flex; flex-direction:column; min-width:0; }
 #viewWrap { flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
 #box { position:relative; }
 video, canvas#over { position:absolute; inset:0; width:100%; height:100%; }
-canvas#over { pointer-events:none; }
-#bar { padding:8px 10px; display:flex; gap:8px; align-items:center; border-top:1px solid var(--line); flex-wrap:wrap; }
-#bar input[type=range] { flex:1; min-width:200px; }
-#time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:110px; }
-#panel { width:360px; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 40px; }
-h1 { font-size:15px; margin:4px 0 8px; } h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 0 6px; }
+canvas#over { cursor:default; }
+#bar { padding:6px 10px; display:flex; gap:6px; align-items:center; border-top:1px solid var(--line); flex-wrap:wrap; }
+#time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:120px; }
+#tl { width:100%; height:110px; display:block; background:#101215; border-top:1px solid var(--line); cursor:pointer; }
+#panel { width:380px; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 40px; }
+h1 { font-size:15px; margin:4px 0 6px; } h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:14px 0 6px; }
 label { display:flex; align-items:center; gap:6px; margin:5px 0; }
-label > span:first-child { width:96px; color:var(--muted); flex:none; }
-input[type=text], input[type=number], select { background:#0f1114; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; min-width:0; flex:1; }
-input[type=number] { width:70px; flex:none; }
-input[type=range] { flex:1; }
-.val { width:44px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
-button { background:#2a2f37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
-button:hover { border-color:#4a5260; } button.go { background:#2f5f2f; border-color:#3f7f3f; } button.go:disabled { opacity:.5; cursor:default; }
-.seg { display:flex; gap:0; } .seg button { border-radius:0; flex:1; } .seg button:first-child { border-radius:6px 0 0 6px; } .seg button:last-child { border-radius:0 6px 6px 0; }
+label > span:first-child { width:92px; color:var(--muted); flex:none; }
+input[type=text], input[type=number], select { background:#0f1114; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; min-width:0; flex:1; font:inherit; }
+input[type=number] { width:74px; flex:none; }
+input[type=range] { flex:1; min-width:60px; }
+.val { width:42px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+button { background:#2a2f37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 9px; cursor:pointer; font:inherit; }
+button:hover { border-color:#4a5260; } button.go { background:#2f5f2f; border-color:#3f7f3f; } button:disabled { opacity:.45; cursor:default; }
+button.small { padding:2px 7px; font-size:12px; }
+.seg { display:flex; } .seg button { border-radius:0; flex:1; } .seg button:first-child { border-radius:6px 0 0 6px; } .seg button:last-child { border-radius:0 6px 6px 0; }
 .seg button.on { background:#3a4a3a; border-color:#5a7a5a; }
 .hint { color:var(--muted); font-size:12px; line-height:1.4; }
-#log { white-space:pre-wrap; font:12px ui-monospace, monospace; color:var(--muted); background:#0f1114; border:1px solid var(--line); border-radius:6px; padding:6px; min-height:40px; max-height:160px; overflow:auto; }
+#items { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:6px; max-height:170px; overflow:auto; }
+#items li { padding:5px 8px; border-bottom:1px solid var(--line); cursor:pointer; display:flex; gap:6px; align-items:center; }
+#items li:last-child { border-bottom:0; } #items li.on { background:#2d3440; }
+#items .k { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+#items .t { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } #items .w { color:var(--muted); font-variant-numeric:tabular-nums; font-size:12px; }
 .row { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.lineRow { display:flex; gap:4px; margin:4px 0; } .lineRow input[type=text] { flex:1; } .lineRow input[type=number] { width:58px; }
+#log { white-space:pre-wrap; font:12px ui-monospace, monospace; color:var(--muted); background:#0f1114; border:1px solid var(--line); border-radius:6px; padding:6px; min-height:36px; max-height:150px; overflow:auto; }
+kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; padding:0 4px; font-size:11px; }
 </style>
 </head>
 <body>
 <div id="stage">
   <div id="viewWrap"><div id="box"><video id="vid" src="/video" preload="auto" playsinline></video><canvas id="over"></canvas></div></div>
   <div id="bar">
-    <button id="play" type="button">Play</button>
-    <button id="toAppear" type="button" title="Jump to 3 seconds before the text appears">Go to the text</button>
-    <input id="scrub" type="range" min="0" max="1000" value="0" step="1">
+    <button id="play" type="button" title="Play / pause (Space)">Play</button>
+    <button id="back" type="button" class="small" title="Back 1 s (Shift+←)">−1 s</button>
+    <button id="fwd" type="button" class="small" title="Forward 1 s (Shift+→)">+1 s</button>
+    <button id="toSel" type="button" title="Play from 2 s before the selected text appears">Play selected</button>
     <span id="time">0:00.0</span>
+    <span class="hint" style="margin-left:auto">Drag a text on the video to move it · drag bars below to change when · <kbd>I</kbd>/<kbd>O</kbd> start/end at the playhead · <kbd>Ctrl+Z</kbd> undo</span>
   </div>
+  <canvas id="tl"></canvas>
 </div>
 <div id="panel">
   <h1>Text on your video</h1>
   <div class="hint" id="what">Loading…</div>
+  <label style="margin-top:8px"><span>Made from</span><select id="match"></select></label>
 
-  <h2>Where</h2>
-  <div class="seg"><button id="modeWorld" class="on" type="button">In the world</button><button id="modeScreen" type="button">On the video</button></div>
-  <label><span>Made from</span><select id="match"></select></label>
+  <h2>Texts</h2>
+  <ul id="items"></ul>
+  <div class="row">
+    <button type="button" id="addTitle" title="A big title in the world, where the playhead is">+ Title in the world</button>
+    <button type="button" id="addScreen" title="A title drawn on the video, where the playhead is">+ Title on the video</button>
+    <button type="button" id="addSub" title="A subtitle at the bottom of the video for 4 seconds">+ Subtitle</button>
+    <button type="button" id="addCorner" title="A small label in the lower-left corner (a place or a name)">+ Corner label</button>
+  </div>
+  <div class="row">
+    <button type="button" id="dup" title="Duplicate the selected text (Ctrl+D)">Duplicate</button>
+    <button type="button" id="del" title="Delete the selected text (Delete)">Delete</button>
+    <button type="button" id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button type="button" id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  </div>
 
-  <h2>Text</h2>
-  <label><span>Small line</span><input id="small" type="text" value="Welcome to"></label>
-  <label><span>Big line</span><input id="big" type="text" value="Our First Expedition"></label>
+  <div id="ed" hidden>
+    <h2>Selected text</h2>
+    <label><span>Name</span><input id="name" type="text"></label>
+    <div class="seg"><button id="kWorld" type="button">In the world</button><button id="kScreen" type="button">On the video</button></div>
+    <div id="lines"></div>
+    <button type="button" class="small" id="addLine">+ line</button>
 
-  <h2>When</h2>
-  <label><span>Appears</span><select id="when"><option value="still">when the camera stops</option><option value="at">at second…</option></select><input id="at" type="number" step="0.1" value="0"></label>
-  <label><span>Until second</span><input id="until" type="number" step="0.1" placeholder="end"></label>
+    <h2>When</h2>
+    <label><span>Appears at</span><input id="start" type="number" step="0.1" placeholder="camera stops"><button type="button" class="small" id="startNow" title="The playhead (I)">now</button><button type="button" class="small" id="startStill" title="When the camera stops at the end">camera stops</button></label>
+    <label><span>Until</span><input id="until" type="number" step="0.1" placeholder="end"><button type="button" class="small" id="untilNow" title="The playhead (O)">now</button><button type="button" class="small" id="untilEnd">end</button></label>
 
-  <h2>Animation</h2>
-  <label><span>Style</span><select id="anim">
-    <option value="none">Appears at once</option><option value="fade">Fades in</option>
-    <option value="pop" selected>Pops in</option><option value="words">Words one by one, instantly</option>
-    <option value="words-fade">Words one by one, fading</option><option value="words-pop">Words one by one, popping</option>
-  </select></label>
-  <label><span>Speed (s)</span><input id="speed" type="range" min="0.1" max="2" step="0.05" value="0.4"><span class="val" id="speedV"></span></label>
-  <label><span>Between words</span><input id="gap" type="range" min="0.05" max="1.5" step="0.05" value="0.3"><span class="val" id="gapV"></span></label>
-  <label><span>Fade out (s)</span><input id="fadeOut" type="range" min="0" max="3" step="0.1" value="0"><span class="val" id="fadeOutV"></span></label>
+    <h2>Animation</h2>
+    <label><span>Style</span><select id="animation">
+      <option value="none">Appears at once</option><option value="fade">Fades in</option><option value="pop">Pops in</option>
+      <option value="words">Words one by one, instantly</option><option value="words-fade">Words one by one, fading</option>
+      <option value="words-pop">Words one by one, popping</option></select></label>
+    <label><span>Speed (s)</span><input id="anim" type="range" min="0.1" max="2" step="0.05"><span class="val" id="animV"></span></label>
+    <label><span>Between words</span><input id="word_gap" type="range" min="0.05" max="1.5" step="0.05"><span class="val" id="word_gapV"></span></label>
+    <label><span>Fade out (s)</span><input id="fade_out" type="range" min="0" max="3" step="0.1"><span class="val" id="fade_outV"></span></label>
 
-  <h2>Look</h2>
-  <label><span>Colour</span><select id="colour"><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option><option>red</option><option>gray</option></select></label>
-  <label><span>Border</span><input id="border" type="checkbox" checked><select id="borderColour"><option>black</option><option>dark_gray</option><option>gold</option><option>dark_blue</option><option>dark_red</option><option>white</option></select></label>
-  <label><span>Shadow</span><input id="shadow" type="checkbox"></label>
-  <label><span>Always bright</span><input id="glow" type="checkbox" checked><span class="hint">(in the world; off = lit by the world)</span></label>
-  <label><span>Dark box</span><input id="box" type="checkbox"></label>
-  <label id="styleRow" hidden><span>On the video</span><select id="style"><option value="outline">border</option><option value="3d">3D letters</option><option value="plain">plain</option></select></label>
+    <h2>Look</h2>
+    <label><span>Colour</span><select id="colour"><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option><option>red</option><option>gray</option></select></label>
+    <label><span>Border</span><input id="border" type="checkbox"><select id="border_colour"><option>black</option><option>dark_gray</option><option>gold</option><option>dark_blue</option><option>dark_red</option><option>white</option></select></label>
+    <label><span>Shadow</span><input id="shadow" type="checkbox"></label>
+    <label><span>Dark box</span><input id="box" type="checkbox"></label>
+    <label class="worldOnly"><span>Always bright</span><input id="glow" type="checkbox"><span class="hint">off = lit by the world</span></label>
+    <label class="screenOnly"><span>Letters</span><select id="style"><option value="outline">flat</option><option value="3d">3D</option><option value="plain">plain</option></select></label>
+    <label class="screenOnly"><span>Font</span><select id="font"><option value="">Minecraft (if installed)</option><option>Arial Black</option><option>Impact</option><option>Segoe UI Black</option><option>Verdana</option><option>Georgia</option></select></label>
 
-  <h2 id="placeHead">Place in the world</h2>
-  <div id="placeRows">
-    <label><span>Right</span><input id="right" type="range" min="-80" max="80" step="0.5" value="0"><span class="val" id="rightV"></span></label>
-    <label><span>Up</span><input id="up" type="range" min="-60" max="60" step="0.5" value="0"><span class="val" id="upV"></span></label>
-    <label><span>Distance</span><input id="distance" type="range" min="5" max="200" step="1" value="55"><span class="val" id="distanceV"></span></label>
-    <label><span>Size ×</span><input id="size" type="range" min="0.2" max="4" step="0.05" value="1"><span class="val" id="sizeV"></span></label>
-    <div class="hint">Blocks, as seen from the camera when the text appears. While the camera moves, the drawing is close but not exact (Flashback smooths camera paths); where it stands still it matches.</div>
+    <h2>Place</h2>
+    <div class="worldOnly">
+      <label><span>Right</span><input id="right" type="range" min="-80" max="80" step="0.5"><span class="val" id="rightV"></span></label>
+      <label><span>Up</span><input id="up" type="range" min="-60" max="60" step="0.5"><span class="val" id="upV"></span></label>
+      <label><span>Distance</span><input id="distance" type="range" min="5" max="200" step="1"><span class="val" id="distanceV"></span></label>
+      <div class="hint">Blocks, as seen from the camera when the text appears. Exact where the camera stands still; close while it moves.</div>
+    </div>
+    <div class="screenOnly">
+      <label><span>Across</span><input id="x" type="range" min="0" max="1" step="0.005"><span class="val" id="xV"></span></label>
+      <label><span>Down</span><input id="y" type="range" min="0" max="1" step="0.005"><span class="val" id="yV"></span></label>
+    </div>
+    <label><span>Size ×</span><input id="size" type="range" min="0.2" max="4" step="0.05"><span class="val" id="sizeV"></span></label>
   </div>
 
   <h2>Make it</h2>
   <div class="row">
-    <button class="go" id="makeWorld" type="button" title="A copy of the recording with this text in its world, plus your edit; open it in Flashback and Export">Put it in the world (Flashback)</button>
-    <button class="go" id="makeScreen" type="button" title="A new copy of this video with the text drawn on">Put it on the video</button>
+    <button class="go" id="makeWorld" type="button" title="One Flashback copy with all 'in the world' texts (and your edit); open it in Flashback and Export">Put world texts in Flashback</button>
+    <button class="go" id="makeScreen" type="button" title="One new copy of the video with all 'on the video' texts drawn on">Make the video with on-screen texts</button>
   </div>
-  <div class="hint" style="margin-top:6px">Making it again for this video replaces the earlier Flashback copy (close it in Flashback first).</div>
+  <div class="hint" style="margin-top:6px">Your texts are saved automatically. Making it again for this video replaces the earlier Flashback copy (close it in Flashback first).</div>
   <div id="log"></div>
 </div>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const vid = $("#vid"), over = $("#over"), ctx = over.getContext("2d");
-let INFO = null, CAM = { samples: [], step: 0.1 }, mode = "world";
-
-// Minecraft default font advance widths (font pixels); others are 6. Same table as mcsm/worldtext.py.
+const vid = $("#vid"), over = $("#over"), ctx = over.getContext("2d"), tl = $("#tl"), tctx = tl.getContext("2d");
+let INFO = null, CAM = { samples: [], step: 0.1 }, ITEMS = [], SEL = null, MATCH = 0;
+const UNDO = [], REDO = [];
 const GLYPH = { " ": 4, "!": 2, '"': 4, "'": 2, "(": 4, ")": 4, "*": 4, ",": 2, ".": 2, ":": 2, ";": 2, "<": 5, ">": 5,
   "@": 7, "I": 4, "[": 4, "]": 4, "`": 3, "f": 5, "i": 2, "k": 5, "l": 3, "t": 4, "{": 4, "|": 2, "}": 4, "~": 7 };
 const widthPx = (t, bold) => [...t].reduce((a, ch) => a + (GLYPH[ch] ?? 6) + (bold && ch !== " " ? 1 : 0), 0);
 const COLOURS = { white: "#ffffff", gold: "#ffaa00", yellow: "#ffff55", aqua: "#55ffff", green: "#55ff55", red: "#ff5555",
   gray: "#aaaaaa", black: "#000000", dark_gray: "#555555", dark_blue: "#0000aa", dark_red: "#aa0000" };
-const num = id => parseFloat($(id).value) || 0;
+const DEFAULTS = { kind: "world", lines: [["Title", 5.5]], start: null, until: null, animation: "pop", anim: 0.4, word_gap: 0.3,
+  fade_out: 0, colour: "white", border: true, border_colour: "black", shadow: false, glow: true, box: false, style: "outline",
+  font: "", right: 0, up: 0, distance: 55, size: 1, x: 0.5, y: 0.16 };
 const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
-
-function settings() {
-  return {
-    lines: [[$("#small").value, 3.0], [$("#big").value, 5.5]].filter(l => l[0].trim()),
-    at: $("#when").value === "at" ? num("#at") : null,
-    until: $("#until").value === "" ? null : num("#until"),
-    animation: $("#anim").value, anim: num("#speed"), word_gap: num("#gap"), fade_out: num("#fadeOut"),
-    colour: $("#colour").value, border: $("#border").checked, border_colour: $("#borderColour").value,
-    shadow: $("#shadow").checked, glow: $("#glow").checked, box: $("#box").checked, style: $("#style").value,
-    right: num("#right"), up: num("#up"), distance: num("#distance"), size: num("#size"), match: +$("#match").value || 0,
-  };
-}
-
-// --- camera ---------------------------------------------------------------------------------
-function camAt(t) {
-  const s = CAM.samples;
-  if (!s.length) return null;
-  const f = Math.max(0, Math.min(s.length - 1, t / CAM.step));
-  const i = Math.floor(f), j = Math.min(s.length - 1, i + 1), k = f - i;
-  const a = s[i], b = s[j];
-  let dyaw = ((b[3] - a[3] + 540) % 360) - 180;
-  return { pos: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k],
-           yaw: a[3] + dyaw * k, pitch: a[4] + (b[4] - a[4]) * k, fov: a[5] + (b[5] - a[5]) * k, speed: a[6] };
-}
 const rad = d => d * Math.PI / 180;
-function inFront(pos, yaw, pitch, d) {
-  const ry = rad(yaw), rp = rad(pitch);
-  return [pos[0] - Math.sin(ry) * Math.cos(rp) * d, pos[1] - Math.sin(rp) * d, pos[2] + Math.cos(ry) * Math.cos(rp) * d];
+const stillFrom = () => { const m = INFO && INFO.matches[MATCH]; return m && m.still_from != null ? m.still_from : null; };
+const startOf = it => it.start != null ? it.start : (stillFrom() != null ? stillFrom() + (it.kind === "world" ? 0.1 : 0.2) : Math.max(0, INFO.duration - 4));
+const endOf = it => it.until != null ? it.until : INFO.duration;
+
+// --- camera + projection (mirror videotext.py) ----------------------------------------------
+function camAt(t) {
+  const s = CAM.samples; if (!s.length) return null;
+  const f = Math.max(0, Math.min(s.length - 1, t / CAM.step)), i = Math.floor(f), j = Math.min(s.length - 1, i + 1), k = f - i;
+  const a = s[i], b = s[j], dyaw = ((b[3] - a[3] + 540) % 360) - 180;
+  return { pos: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k], yaw: a[3] + dyaw * k,
+           pitch: a[4] + (b[4] - a[4]) * k, fov: a[5] + (b[5] - a[5]) * k, speed: a[6] };
 }
+function inFront(p, yaw, pitch, d) { const ry = rad(yaw), rp = rad(pitch);
+  return [p[0] - Math.sin(ry) * Math.cos(rp) * d, p[1] - Math.sin(rp) * d, p[2] + Math.cos(ry) * Math.cos(rp) * d]; }
 function project(cam, p, W, H) {
   const ry = rad(cam.yaw), rp = rad(cam.pitch);
-  const f = [-Math.sin(ry) * Math.cos(rp), -Math.sin(rp), Math.cos(ry) * Math.cos(rp)];
-  const r = [-Math.cos(ry), 0, -Math.sin(ry)];
+  const f = [-Math.sin(ry) * Math.cos(rp), -Math.sin(rp), Math.cos(ry) * Math.cos(rp)], r = [-Math.cos(ry), 0, -Math.sin(ry)];
   const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
-  const d = [p[0] - cam.pos[0], p[1] - cam.pos[1], p[2] - cam.pos[2]];
-  const z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+  const d = [p[0] - cam.pos[0], p[1] - cam.pos[1], p[2] - cam.pos[2]], z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
   if (z <= 0.1) return null;
-  const x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2], y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
-  const focal = (H / 2) / Math.tan(rad(cam.fov) / 2);
+  const x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2], y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2], focal = (H / 2) / Math.tan(rad(cam.fov) / 2);
   return [W / 2 + x / z * focal, H / 2 - y / z * focal, focal / z];
 }
-function appearTime(S) {
-  const m = INFO.matches[S.match];
-  if (S.at != null) return S.at;
-  return (m && m.still_from != null ? m.still_from : INFO.duration) + 0.1;
-}
-
-// --- layout (mirrors videotext.world_layout + worldtext.split_words) ---------------------------
-function worldPieces(S) {
-  const t0 = appearTime(S), cam = camAt(Math.min(t0, INFO.duration));
-  if (!cam) return [];
-  const ry = rad(cam.yaw);
-  let [cx, cy, cz] = inFront(cam.pos, cam.yaw, cam.pitch, S.distance);
-  cx -= Math.cos(ry) * S.right; cz -= Math.sin(ry) * S.right;
-  let top = cy + S.distance * 0.32 + S.up;         // lines stand on their position: see videotext.world_layout
-  const out = [], perTick = 1 / 20 / Math.max(0.05, cam.speed || 1);
-  const animT = Math.max(1, Math.round(S.anim * 20)) * perTick, gapT = Math.max(1, Math.round(S.word_gap * 20)) * perTick;
+const singleOf = a => ({ "words": "none", "words-fade": "fade", "words-pop": "pop" }[a] || a);
+function worldPieces(it) {
+  const t0 = startOf(it), cam = camAt(Math.min(t0, INFO.duration)); if (!cam) return [];
+  const ry = rad(cam.yaw); let [cx, cy, cz] = inFront(cam.pos, cam.yaw, cam.pitch, it.distance);
+  cx -= Math.cos(ry) * it.right; cz -= Math.sin(ry) * it.right;
+  let top = cy + it.distance * 0.32 + it.up; const out = [], perTick = 1 / 20 / Math.max(0.05, cam.speed || 1);
+  const animT = Math.max(1, Math.round(it.anim * 20)) * perTick, gapT = Math.max(1, Math.round(it.word_gap * 20)) * perTick;
   let start = t0;
-  for (const [text, size0] of S.lines) {
-    const size = size0 * S.size;
-    const ty = top - size;
-    top = ty - size * 0.25;
-    const words = text.split(/\s+/).filter(Boolean);
-    const byWord = S.animation.startsWith("words") && words.length > 1;
-    const single = byWord ? { "words": "none", "words-fade": "fade", "words-pop": "pop" }[S.animation] :
-      (S.animation.startsWith("words") ? { "words": "none", "words-fade": "fade", "words-pop": "pop" }[S.animation] : S.animation);
-    const px = 0.1 * size;                                       // blocks per font pixel (0.025 * size / 0.25)
+  for (const [text, s0] of it.lines) {
+    if (!String(text).trim()) continue;
+    const size = s0 * it.size, ty = top - size; top = ty - size * 0.25;
+    const words = String(text).split(/\s+/).filter(Boolean), byWord = it.animation.startsWith("words") && words.length > 1, px = 0.1 * size;
     if (byWord) {
-      const total = widthPx(text, true), rx = -Math.cos(ry), rz = -Math.sin(ry);
-      let left = 0;
-      words.forEach((w, i) => {
-        const wpx = widthPx(w, true), centre = (left + wpx / 2 - total / 2) * px;
-        out.push({ text: w, x: cx + rx * centre, y: ty, z: cz + rz * centre, size, wpx, appear: start + i * gapT, anim: single, animT });
-        left += wpx + widthPx(" ", true);
-      });
-    } else {
-      out.push({ text, x: cx, y: ty, z: cz, size, wpx: widthPx(text, true), appear: start, anim: single, animT });
-    }
-    if (S.animation !== "none") start += (byWord ? (words.length - 1) * gapT : 0) + animT;
+      const total = widthPx(text, true), rx = -Math.cos(ry), rz = -Math.sin(ry); let left = 0;
+      words.forEach((w, i) => { const wpx = widthPx(w, true), c = (left + wpx / 2 - total / 2) * px;
+        out.push({ text: w, x: cx + rx * c, y: ty, z: cz + rz * c, size, wpx, appear: start + i * gapT, anim: singleOf(it.animation), animT });
+        left += wpx + widthPx(" ", true); });
+    } else out.push({ text, x: cx, y: ty, z: cz, size, wpx: widthPx(text, true), appear: start, anim: singleOf(it.animation), animT });
+    if (it.animation !== "none") start += (byWord ? (words.length - 1) * gapT : 0) + animT;
   }
   return out;
 }
-function screenPieces(S) {
-  const t0 = S.at != null ? S.at : appearTime(S) + 0.1;
-  const out = []; let y = 0.16, start = t0;
-  for (const [text, size0] of S.lines) {
-    const h = size0 * S.size / 40;
-    const words = text.split(/\s+/).filter(Boolean), byWord = S.animation.startsWith("words") && words.length > 1;
-    out.push({ text, words, byWord, y: y + h / 2, h, appear: start });
-    y += h * 1.25;
-    if (S.animation !== "none") start += (byWord ? (words.length - 1) * S.word_gap : 0) + S.anim;
-  }
-  return out;
-}
-
-// --- drawing ---------------------------------------------------------------------------------
-function animState(kind, t, start, dur) {          // -> {alpha, scale, scaleY}
+function animState(kind, t, start, dur) {
   if (t < start) return null;
   const k = Math.min(1, (t - start) / Math.max(0.001, dur));
-  if (kind === "fade") return { alpha: 0.1 + 0.9 * k, scale: 1, scaleY: 1 };
-  if (kind === "pop") {
-    const s = k < 0.6 ? (k / 0.6) * 1.18 : 1.18 - 0.18 * ((k - 0.6) / 0.4);
-    return { alpha: 1, scale: Math.max(0.02, s), scaleY: 1 };
-  }
-  return { alpha: 1, scale: 1, scaleY: 1 };
+  if (kind === "fade") return { alpha: 0.1 + 0.9 * k, scale: 1 };
+  if (kind === "pop") return { alpha: 1, scale: Math.max(0.02, k < 0.6 ? (k / 0.6) * 1.18 : 1.18 - 0.18 * ((k - 0.6) / 0.4)) };
+  return { alpha: 1, scale: 1 };
 }
-function fadeOutAlpha(S, t) {
-  if (S.until == null || !S.fade_out) return 1;
-  return Math.max(0, Math.min(1, (S.until - t) / S.fade_out));
+const fadeOut = (it, t) => (it.until == null || !it.fade_out) ? 1 : Math.max(0, Math.min(1, (it.until - t) / it.fade_out));
+
+// --- drawing ---------------------------------------------------------------------------------
+const HITS = [];      // [item, x0, y0, x1, y1, pixels-per-block] from the last frame, for clicking/dragging
+function drawText(it, text, x, y, hPx, wPx, a, fontName) {
+  if (!a || hPx < 1) return null;
+  ctx.save(); ctx.globalAlpha = a.alpha; ctx.translate(x, y); ctx.scale(a.scale, a.scale);
+  ctx.font = `bold ${hPx}px ${fontName}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const natural = ctx.measureText(text).width || 1, sx = wPx ? wPx / natural : 1;
+  ctx.scale(sx, 1);
+  if (it.box) { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(-natural / 2 - hPx * 0.2, -hPx * 0.65, natural + hPx * 0.4, hPx * 1.3); }
+  if (it.shadow) { ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(text, hPx * 0.08, hPx * 0.08); }
+  if (it.border) { ctx.lineJoin = "round"; ctx.lineWidth = Math.max(2, hPx / 7); ctx.strokeStyle = COLOURS[it.border_colour] || "#000"; ctx.strokeText(text, 0, 0); }
+  ctx.fillStyle = COLOURS[it.colour] || "#fff"; ctx.fillText(text, 0, 0); ctx.restore();
+  const w = natural * sx * a.scale, h = hPx * a.scale;
+  return [x - w / 2, y - h / 2, x + w / 2, y + h / 2];
 }
-function drawText(text, x, y, hPx, wPx, a, S, fontName) {
-  if (!a || hPx < 1) return;
-  ctx.save();
-  ctx.globalAlpha = a.alpha;
-  ctx.translate(x, y);
-  ctx.scale(a.scale, a.scale * a.scaleY);
-  ctx.font = `bold ${hPx}px "${fontName}", "Minecraft", monospace`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const natural = ctx.measureText(text).width || 1;
-  if (wPx) ctx.scale(wPx / natural, 1);                        // match Minecraft's letter widths
-  if (S.box) { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(-natural / 2 - hPx * 0.2, -hPx * 0.65, natural + hPx * 0.4, hPx * 1.3); }
-  if (S.shadow) { ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(text, hPx * 0.08, hPx * 0.08); }
-  if (S.border) { ctx.lineJoin = "round"; ctx.lineWidth = Math.max(2, hPx / 7); ctx.strokeStyle = COLOURS[S.border_colour] || "#000"; ctx.strokeText(text, 0, 0); }
-  ctx.fillStyle = COLOURS[S.colour] || "#fff";
-  ctx.fillText(text, 0, 0);
-  ctx.restore();
-}
+function screenFont(it) { return it.font ? `"${it.font}", sans-serif` : `"${INFO.font}", "Arial Black", sans-serif`; }
 function draw() {
   requestAnimationFrame(draw);
   if (!INFO) return;
-  const W = over.width, H = over.height;
-  ctx.clearRect(0, 0, W, H);
-  const t = vid.currentTime, S = settings();
-  if (S.until != null && t > S.until) return;
-  const fo = fadeOutAlpha(S, t);
-  if (mode === "world") {
-    const cam = camAt(t);
-    if (!cam) return;
-    for (const p of worldPieces(S)) {
-      const a = animState(p.anim, t, p.appear, p.animT);
-      if (!a) continue;
-      a.alpha *= fo;
-      const pr = project(cam, [p.x, p.y + p.size * 0.5, p.z], W, H);
-      if (!pr) continue;
-      drawText(p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, S, "Minecraft");
-    }
-  } else {
-    for (const p of screenPieces(S)) {
-      const hPx = p.h * H;
-      if (!p.byWord) {
-        const a = animState(S.animation === "pop" ? "pop" : (S.animation === "fade" ? "fade" : "none"), t, p.appear, S.anim);
-        if (a) { a.alpha *= fo; drawText(p.text, W / 2, p.y * H, hPx, 0, a, S, INFO.font); }
-        continue;
+  const W = over.width, H = over.height, t = vid.currentTime;
+  ctx.clearRect(0, 0, W, H); HITS.length = 0;
+  const cam = camAt(t);
+  for (const it of ITEMS) {
+    if (t > endOf(it)) continue;
+    const fo = fadeOut(it, t);
+    if (it.kind === "world") {
+      if (!cam) continue;
+      for (const p of worldPieces(it)) {
+        const a = animState(p.anim, t, p.appear, p.animT); if (!a) continue; a.alpha *= fo;
+        const pr = project(cam, [p.x, p.y + p.size * 0.5, p.z], W, H); if (!pr) continue;
+        const r = drawText(it, p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, `"Minecraft", monospace`);
+        if (r) HITS.push([it, ...r, pr[2]]);
       }
-      ctx.save(); ctx.font = `bold ${hPx}px "${INFO.font}", sans-serif`;
-      const full = ctx.measureText(p.text).width, space = ctx.measureText(" ").width; ctx.restore();
-      let x = W / 2 - full / 2;
-      p.words.forEach((w, i) => {
-        ctx.save(); ctx.font = `bold ${hPx}px "${INFO.font}", sans-serif`; const ww = ctx.measureText(w).width; ctx.restore();
-        const kind = { "words": "none", "words-fade": "fade", "words-pop": "pop" }[S.animation];
-        const a = animState(kind, t, p.appear + i * S.word_gap, S.anim);
-        if (a) { a.alpha *= fo; drawText(w, x + ww / 2, p.y * H, hPx, 0, a, S, INFO.font); }
-        x += ww + space;
-      });
+    } else {
+      let y = it.y, start = startOf(it);
+      for (const [text, s0] of it.lines) {
+        if (!String(text).trim()) continue;
+        const h = s0 * it.size / 40, hPx = h * H, words = String(text).split(/\s+/).filter(Boolean);
+        const byWord = it.animation.startsWith("words") && words.length > 1, font = screenFont(it);
+        if (!byWord) {
+          const a = animState(singleOf(it.animation), t, start, it.anim);
+          if (a) { a.alpha *= fo; const r = drawText(it, text, it.x * W, (y + h / 2) * H, hPx, 0, a, font); if (r) HITS.push([it, ...r, 0]); }
+        } else {
+          ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const full = ctx.measureText(text).width, sp = ctx.measureText(" ").width; ctx.restore();
+          let x = it.x * W - full / 2;
+          words.forEach((w, i) => { ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const ww = ctx.measureText(w).width; ctx.restore();
+            const a = animState(singleOf(it.animation), t, start + i * it.word_gap, it.anim);
+            if (a) { a.alpha *= fo; const r = drawText(it, w, x + ww / 2, (y + h / 2) * H, hPx, 0, a, font); if (r) HITS.push([it, ...r, 0]); }
+            x += ww + sp; });
+        }
+        y += h * 1.25;
+        if (it.animation !== "none") start += (byWord ? (words.length - 1) * it.word_gap : 0) + it.anim;
+      }
     }
   }
+  // outline of the selected text
+  if (SEL) { ctx.save(); ctx.strokeStyle = "rgba(240,192,64,0.9)"; ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5 * devicePixelRatio;
+    for (const h of HITS) if (h[0] === SEL) ctx.strokeRect(h[1] - 4, h[2] - 4, h[3] - h[1] + 8, h[4] - h[2] + 8); ctx.restore(); }
+  drawTimeline();
 }
 
-// --- page wiring -----------------------------------------------------------------------------
-function fit() {
-  if (!INFO) return;
-  const wrap = $("#viewWrap"), ar = INFO.width / INFO.height;
-  let w = wrap.clientWidth, h = w / ar;
-  if (h > wrap.clientHeight) { h = wrap.clientHeight; w = h * ar; }
-  $("#box").style.width = w + "px"; $("#box").style.height = h + "px";
-  over.width = Math.round(w * devicePixelRatio); over.height = Math.round(h * devicePixelRatio);
+// --- timeline --------------------------------------------------------------------------------
+const TL = { pad: 10, rowH: 22, top: 22 };
+function tlX(t) { return TL.pad + (t / INFO.duration) * (tl.width - 2 * TL.pad); }
+function tlT(x) { return Math.max(0, Math.min(INFO.duration, (x - TL.pad) / (tl.width - 2 * TL.pad) * INFO.duration)); }
+function drawTimeline() {
+  const W = tl.width, H = tl.height, dpr = devicePixelRatio; tctx.clearRect(0, 0, W, H);
+  tctx.fillStyle = "#9aa0a6"; tctx.font = `${11 * dpr}px system-ui`;
+  const step = INFO.duration > 600 ? 60 : INFO.duration > 120 ? 10 : 5;
+  for (let s = 0; s <= INFO.duration; s += step) { const x = tlX(s); tctx.fillRect(x, 0, dpr, 6 * dpr); tctx.fillText(fmt(s).replace(".0", ""), x + 3 * dpr, 12 * dpr); }
+  const st = stillFrom(); if (st != null) { tctx.fillStyle = "rgba(95,184,95,0.25)"; tctx.fillRect(tlX(st), TL.top * dpr, tlX(INFO.duration) - tlX(st), H); }
+  ITEMS.forEach((it, i) => {
+    const y = (TL.top + i * TL.rowH) * dpr, x0 = tlX(startOf(it)), x1 = Math.max(x0 + 4 * dpr, tlX(endOf(it)));
+    tctx.fillStyle = it === SEL ? "#c9a032" : (it.kind === "world" ? "#3f6f9f" : "#7f5f9f");
+    tctx.fillRect(x0, y + 2 * dpr, x1 - x0, (TL.rowH - 5) * dpr);
+    tctx.fillStyle = "#fff"; tctx.save(); tctx.beginPath(); tctx.rect(x0, y, x1 - x0, TL.rowH * dpr); tctx.clip();
+    tctx.fillText(label(it), x0 + 4 * dpr, y + 15 * dpr); tctx.restore();
+    tctx.fillStyle = "rgba(255,255,255,0.6)"; tctx.fillRect(x1 - 3 * dpr, y + 2 * dpr, 3 * dpr, (TL.rowH - 5) * dpr);   // end handle
+  });
+  const px = tlX(vid.currentTime); tctx.fillStyle = "#f04040"; tctx.fillRect(px - dpr, 0, 2 * dpr, H);
 }
-for (const id of ["speed", "gap", "fadeOut", "right", "up", "distance", "size"]) {
-  const show = () => { $("#" + id + "V").textContent = $("#" + id).value; };
-  $("#" + id).addEventListener("input", show); show();
+let tlDrag = null;
+tl.addEventListener("pointerdown", e => {
+  const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) / 1;
+  const row = Math.floor((y - TL.top) / TL.rowH), it = ITEMS[row];
+  if (it && y >= TL.top) {
+    const x0 = tlX(startOf(it)), x1 = tlX(endOf(it));
+    if (x >= x0 - 4 * dpr && x <= x1 + 6 * dpr) {
+      select(it); snapshot();
+      tlDrag = { it, mode: Math.abs(x - x1) < 8 * dpr ? "end" : "move", t0: tlT(x), s: startOf(it), u: it.until };
+      tl.setPointerCapture(e.pointerId); return;
+    }
+  }
+  vid.currentTime = tlT(x);
+});
+tl.addEventListener("pointermove", e => {
+  if (!tlDrag) return;
+  const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), t = tlT((e.clientX - r.left) * dpr), d = t - tlDrag.t0, it = tlDrag.it;
+  if (tlDrag.mode === "end") it.until = Math.max(startOf(it) + 0.2, Math.round(t * 10) / 10);
+  else { it.start = Math.max(0, Math.round((tlDrag.s + d) * 10) / 10); if (tlDrag.u != null) it.until = Math.round((tlDrag.u + d) * 10) / 10; }
+  fillEditor(); changed(false);
+});
+tl.addEventListener("pointerup", () => { if (tlDrag) { tlDrag = null; changed(true); } });
+
+// --- dragging texts on the video ----------------------------------------------------------------
+let vDrag = null;
+over.addEventListener("pointerdown", e => {
+  const r = over.getBoundingClientRect(), dpr = over.width / r.width, x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+  const hit = [...HITS].reverse().find(h => x >= h[1] && x <= h[3] && y >= h[2] && y <= h[4]);
+  if (!hit) { if (!vid.paused) vid.pause(); else vid.play(); return; }
+  select(hit[0]); snapshot();
+  vDrag = { it: hit[0], x, y, ppb: hit[5], right: hit[0].right, up: hit[0].up, sx: hit[0].x, sy: hit[0].y };
+  over.setPointerCapture(e.pointerId); over.style.cursor = "grabbing";
+});
+over.addEventListener("pointermove", e => {
+  const r = over.getBoundingClientRect(), dpr = over.width / r.width, x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+  if (!vDrag) { over.style.cursor = HITS.some(h => x >= h[1] && x <= h[3] && y >= h[2] && y <= h[4]) ? "grab" : "default"; return; }
+  const it = vDrag.it, dx = x - vDrag.x, dy = y - vDrag.y;
+  if (it.kind === "world" && vDrag.ppb > 0) { it.right = Math.round((vDrag.right + dx / vDrag.ppb) * 2) / 2; it.up = Math.round((vDrag.up - dy / vDrag.ppb) * 2) / 2; }
+  else { it.x = Math.min(1, Math.max(0, vDrag.sx + dx / over.width)); it.y = Math.min(1, Math.max(0, vDrag.sy + dy / over.height)); }
+  fillEditor(); changed(false);
+});
+over.addEventListener("pointerup", () => { if (vDrag) { vDrag = null; over.style.cursor = "grab"; changed(true); } });
+
+// --- items, editor panel ---------------------------------------------------------------------
+const label = it => it.name || (it.lines.map(l => l[0]).filter(Boolean).join(" / ") || "(empty)");
+function select(it) { SEL = it; renderList(); fillEditor(); }
+function renderList() {
+  const ul = $("#items"); ul.replaceChildren();
+  ITEMS.forEach(it => { const li = document.createElement("li"); li.className = it === SEL ? "on" : "";
+    li.innerHTML = `<span class="k">${it.kind === "world" ? "world" : "video"}</span><span class="t"></span><span class="w"></span>`;
+    li.querySelector(".t").textContent = label(it); li.querySelector(".w").textContent = `${fmt(startOf(it))}–${it.until == null ? "end" : fmt(it.until)}`;
+    li.onclick = () => select(it); ul.appendChild(li); });
+  $("#ed").hidden = !SEL;
+  const need = Math.max(110, TL.top + ITEMS.length * TL.rowH + 8);    // one row per text
+  if (Math.abs(tl.clientHeight - need) > 1) { tl.style.height = need + "px"; fit(); }
 }
-$("#modeWorld").onclick = () => setMode("world");
-$("#modeScreen").onclick = () => setMode("screen");
-function setMode(m) {
-  mode = m;
-  $("#modeWorld").classList.toggle("on", m === "world"); $("#modeScreen").classList.toggle("on", m === "screen");
-  $("#placeHead").hidden = $("#placeRows").hidden = m !== "world";
-  $("#styleRow").hidden = m !== "screen";
+const FIELDS = ["animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "box", "glow", "style", "font",
+  "right", "up", "distance", "x", "y", "size"];
+function fillEditor() {
+  if (!SEL) return;
+  $("#name").value = SEL.name || "";
+  $("#kWorld").classList.toggle("on", SEL.kind === "world"); $("#kScreen").classList.toggle("on", SEL.kind === "screen");
+  document.querySelectorAll(".worldOnly").forEach(e => e.hidden = SEL.kind !== "world");
+  document.querySelectorAll(".screenOnly").forEach(e => e.hidden = SEL.kind !== "screen");
+  $("#start").value = SEL.start ?? ""; $("#until").value = SEL.until ?? "";
+  for (const f of FIELDS) { const el = $("#" + f); if (el.type === "checkbox") el.checked = !!SEL[f]; else el.value = SEL[f];
+    const v = $("#" + f + "V"); if (v) v.textContent = (+SEL[f]).toFixed(f === "x" || f === "y" ? 2 : 1); }
+  const box = $("#lines");
+  if (box.dataset.for !== String(SEL.id) || box.children.length !== SEL.lines.length) {
+    box.dataset.for = SEL.id; box.replaceChildren();
+    SEL.lines.forEach((ln, i) => {
+      const row = document.createElement("div"); row.className = "lineRow";
+      row.innerHTML = `<input type="text"><input type="number" step="0.5" min="0.5" title="Letter size"><button type="button" class="small" title="Remove this line">×</button>`;
+      const [tx, sz, rm] = row.children; tx.value = ln[0]; sz.value = ln[1];
+      tx.oninput = () => { SEL.lines[i][0] = tx.value; changed(false); renderList(); };
+      tx.onchange = () => changed(true);
+      sz.onchange = () => { SEL.lines[i][1] = Math.max(0.5, +sz.value || 1); changed(true); };
+      rm.onclick = () => { snapshot(); SEL.lines.splice(i, 1); box.dataset.for = ""; fillEditor(); changed(true); };
+      box.appendChild(row);
+    });
+  }
 }
+for (const f of FIELDS) {
+  const el = $("#" + f);
+  el.addEventListener("pointerdown", snapshot); el.addEventListener("focus", snapshot);
+  el.addEventListener(el.type === "range" ? "input" : "change", () => {
+    if (!SEL) return; SEL[f] = el.type === "checkbox" ? el.checked : (el.type === "range" ? +el.value : el.value);
+    const v = $("#" + f + "V"); if (v) v.textContent = (+el.value).toFixed(f === "x" || f === "y" ? 2 : 1);
+    changed(el.type !== "range");
+  });
+  if (el.type === "range") el.addEventListener("change", () => changed(true));
+}
+$("#name").onchange = () => { snapshot(); SEL.name = $("#name").value; renderList(); changed(true); };
+$("#start").onchange = () => { snapshot(); SEL.start = $("#start").value === "" ? null : +$("#start").value; changed(true); };
+$("#until").onchange = () => { snapshot(); SEL.until = $("#until").value === "" ? null : +$("#until").value; changed(true); };
+$("#startNow").onclick = () => setTime("start", vid.currentTime); $("#untilNow").onclick = () => setTime("until", vid.currentTime);
+$("#startStill").onclick = () => setTime("start", null); $("#untilEnd").onclick = () => setTime("until", null);
+function setTime(key, v) { if (!SEL) return; snapshot(); SEL[key] = v == null ? null : Math.round(v * 10) / 10; fillEditor(); changed(true); }
+$("#kWorld").onclick = () => { if (SEL && INFO.matches.length) { snapshot(); SEL.kind = "world"; fillEditor(); changed(true); } };
+$("#kScreen").onclick = () => { if (SEL) { snapshot(); SEL.kind = "screen"; fillEditor(); changed(true); } };
+$("#addLine").onclick = () => { if (!SEL) return; snapshot(); SEL.lines.push(["New line", 3]); fillEditor(); changed(true); };
+let nextId = 1;
+function add(props) {
+  snapshot();
+  const it = { ...structuredClone(DEFAULTS), id: nextId++, ...props };
+  if (it.kind === "world" && !INFO.matches.length) it.kind = "screen";
+  ITEMS.push(it); select(it); changed(true);
+}
+const now = () => Math.round(vid.currentTime * 10) / 10;
+$("#addTitle").onclick = () => add({ kind: "world", lines: [["New title", 5.5]], start: now(), until: null });
+$("#addScreen").onclick = () => add({ kind: "screen", lines: [["New title", 5.5]], start: now(), until: Math.min(INFO.duration, now() + 4), animation: "fade" });
+$("#addSub").onclick = () => add({ kind: "screen", lines: [["Subtitle", 2.2]], start: now(), until: Math.min(INFO.duration, now() + 4), y: 0.86, animation: "fade", anim: 0.25, fade_out: 0.3, box: true, border: false, font: "Segoe UI Black" });
+$("#addCorner").onclick = () => add({ kind: "screen", lines: [["Place name", 2.6]], start: now(), until: Math.min(INFO.duration, now() + 5), x: 0.18, y: 0.82, animation: "words-fade", anim: 0.3, word_gap: 0.15, fade_out: 0.5 });
+$("#dup").onclick = () => { if (SEL) add({ ...structuredClone(SEL), id: undefined, name: (SEL.name || label(SEL)) + " (copy)" }); };
+$("#del").onclick = () => { if (!SEL) return; snapshot(); ITEMS = ITEMS.filter(i => i !== SEL); SEL = ITEMS[0] || null; renderList(); fillEditor(); changed(true); };
+
+// --- undo / save -----------------------------------------------------------------------------
+let lastSnap = "";
+function snapshot() { const s = JSON.stringify(ITEMS); if (s !== lastSnap) { UNDO.push(s); if (UNDO.length > 100) UNDO.shift(); REDO.length = 0; lastSnap = s; } }
+function restore(s) { const id = SEL && SEL.id; ITEMS = JSON.parse(s); SEL = ITEMS.find(i => i.id === id) || ITEMS[0] || null;
+  $("#lines").dataset.for = ""; renderList(); fillEditor(); changed(true, true); }
+$("#undo").onclick = () => { if (!UNDO.length) return; REDO.push(JSON.stringify(ITEMS)); restore(UNDO.pop()); lastSnap = ""; };
+$("#redo").onclick = () => { if (!REDO.length) return; UNDO.push(JSON.stringify(ITEMS)); restore(REDO.pop()); lastSnap = ""; };
+let saveTimer = null;
+function changed(commit) {
+  renderList();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => post("/api/project", { items: ITEMS, match: MATCH }), commit ? 300 : 1200);
+}
+const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" }, body: JSON.stringify(body) });
+
+// --- transport, keys -------------------------------------------------------------------------
 $("#play").onclick = () => vid.paused ? vid.play() : vid.pause();
+$("#back").onclick = () => vid.currentTime = Math.max(0, vid.currentTime - 1);
+$("#fwd").onclick = () => vid.currentTime = Math.min(INFO.duration, vid.currentTime + 1);
+$("#toSel").onclick = () => { if (SEL) { vid.currentTime = Math.max(0, startOf(SEL) - 2); vid.play(); } };
 vid.addEventListener("play", () => $("#play").textContent = "Pause");
 vid.addEventListener("pause", () => $("#play").textContent = "Play");
-vid.addEventListener("timeupdate", () => {
-  if (!INFO) return;
-  $("#scrub").value = Math.round(vid.currentTime / INFO.duration * 1000);
-  $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`;
+vid.addEventListener("timeupdate", () => { if (INFO) $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`; });
+document.addEventListener("keydown", e => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && document.activeElement.type !== "range") return;
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && k === "z") { e.preventDefault(); $("#undo").click(); }
+  else if (e.ctrlKey && (k === "y" || (e.shiftKey && k === "z"))) { e.preventDefault(); $("#redo").click(); }
+  else if (e.ctrlKey && k === "d") { e.preventDefault(); $("#dup").click(); }
+  else if (k === " ") { e.preventDefault(); $("#play").click(); }
+  else if (k === "arrowleft") vid.currentTime = Math.max(0, vid.currentTime - (e.shiftKey ? 1 : 1 / 30));
+  else if (k === "arrowright") vid.currentTime = Math.min(INFO.duration, vid.currentTime + (e.shiftKey ? 1 : 1 / 30));
+  else if (k === "i") setTime("start", vid.currentTime);
+  else if (k === "o") setTime("until", vid.currentTime);
+  else if (k === "delete") $("#del").click();
 });
-$("#scrub").addEventListener("input", () => { vid.currentTime = $("#scrub").value / 1000 * INFO.duration; });
-$("#toAppear").onclick = () => { vid.currentTime = Math.max(0, appearTime(settings()) - 3); vid.play(); };
-$("#match").onchange = async () => {
-  const r = await fetch("/api/camera", { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" },
-                                       body: JSON.stringify({ match: +$("#match").value }) });
-  CAM = await r.json();
-};
+
+// --- making ----------------------------------------------------------------------------------
 async function make(target) {
-  const btns = [$("#makeWorld"), $("#makeScreen")];
-  btns.forEach(b => b.disabled = true);
+  const btns = [$("#makeWorld"), $("#makeScreen")]; btns.forEach(b => b.disabled = true);
   $("#log").textContent = "Starting…";
-  const r = await fetch("/api/make", { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" },
-                                     body: JSON.stringify({ ...settings(), target }) });
+  const r = await post("/api/make", { target, items: ITEMS, match: MATCH });
   if (!r.ok) { $("#log").textContent = (await r.json()).error || "Failed"; btns.forEach(b => b.disabled = false); return; }
   const poll = async () => {
     const j = await (await fetch("/api/job")).json();
@@ -337,23 +454,34 @@ async function make(target) {
 }
 $("#makeWorld").onclick = () => make("world");
 $("#makeScreen").onclick = () => make("video");
+$("#match").onchange = async () => { MATCH = +$("#match").value; CAM = await (await post("/api/camera", { match: MATCH })).json(); changed(true); };
+
+function fit() {
+  if (!INFO) return;
+  const wrap = $("#viewWrap"), ar = INFO.width / INFO.height;
+  let w = wrap.clientWidth, h = w / ar; if (h > wrap.clientHeight) { h = wrap.clientHeight; w = h * ar; }
+  $("#box").style.width = w + "px"; $("#box").style.height = h + "px";
+  over.width = Math.round(w * devicePixelRatio); over.height = Math.round(h * devicePixelRatio);
+  tl.width = Math.round(tl.clientWidth * devicePixelRatio); tl.height = Math.round(tl.clientHeight * devicePixelRatio);
+}
 window.addEventListener("resize", fit);
 (async () => {
-  INFO = await (await fetch("/api/info")).json();
-  CAM = INFO.camera;
+  INFO = await (await fetch("/api/info")).json(); CAM = INFO.camera;
+  const proj = await (await fetch("/api/project")).json();
+  MATCH = Math.min(proj.match || 0, Math.max(0, INFO.matches.length - 1));
+  ITEMS = (proj.items || []).map(it => ({ ...structuredClone(DEFAULTS), ...it }));
+  ITEMS.forEach(it => { nextId = Math.max(nextId, (+it.id || 0) + 1); if (!it.id) it.id = nextId++; });
   const sel = $("#match");
-  INFO.matches.forEach((m, i) => {
-    const o = document.createElement("option");
-    o.value = i; o.textContent = `'${m.name}' of ${m.recording ? m.recording.split(/[\\/]/).pop() : "recording not found"}${m.match === "exact" ? "" : " (edit changed after export)"}`;
-    sel.appendChild(o);
-  });
-  const m = INFO.matches[0];
+  INFO.matches.forEach((m, i) => { const o = document.createElement("option"); o.value = i;
+    o.textContent = `'${m.name}' of ${m.recording ? m.recording.split(/[\\/]/).pop() : "recording not found"}${m.match === "exact" ? "" : " (edit changed after export)"}`;
+    sel.appendChild(o); });
+  sel.value = MATCH;
+  if (MATCH) CAM = await (await post("/api/camera", { match: MATCH })).json();
+  const st = stillFrom();
   $("#what").textContent = `${INFO.video.split(/[\\/]/).pop()} · ${INFO.duration.toFixed(1)} s · ` +
-    (m ? (m.still_from != null ? `the camera stops at ${m.still_from.toFixed(1)} s` : "no still ending: choose a second") : "no Flashback edit found: only 'On the video' works");
-  if (!m) setMode("screen");
-  if (m && m.still_from == null) $("#when").value = "at";
-  fit();
-  vid.addEventListener("loadedmetadata", () => { vid.currentTime = Math.max(0, appearTime(settings()) - 3); });
+    (INFO.matches.length ? (st != null ? `camera stops at ${st.toFixed(1)} s (green on the timeline)` : "no still ending") : "no Flashback edit found: only 'on the video' texts");
+  SEL = ITEMS[0] || null; renderList(); fillEditor(); fit();
+  vid.addEventListener("loadedmetadata", () => { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); });
   draw();
 })();
 </script>

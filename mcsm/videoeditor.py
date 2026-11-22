@@ -11,11 +11,18 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/info            video, edits found, camera path of the chosen edit, settings
   GET  /api/job             progress of the running job
   POST /api/camera          {"match": i}  camera path of another edit
-  POST /api/make            {"target": "world"|"video", ...settings}  start making it
+  GET  /api/project         the saved texts of this video (or a first title)
+  POST /api/project         {"items": [...], "match": i}  save them (done by the page as you edit)
+  POST /api/make            {"target": "world"|"video", "items": [...], "match": i}  make all of them
+
+Projects are kept in ``%LOCALAPPDATA%/mcsm/video-text/`` (one file per video), never next to the video.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import threading
 
 from . import videotext as vt
@@ -72,14 +79,45 @@ class VideoEditor:
         return self.video if path == "/video" else None
 
     def api_get(self, path: str):
+        if path == "/api/project":
+            return self.load_project()
         if path == "/api/job":
             with self._lock:
                 return dict(self.job, log=self.job["log"][-30:])
         return None
 
+    def project_file(self) -> str:
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+        key = hashlib.sha1(os.path.normcase(os.path.abspath(self.video)).encode()).hexdigest()[:16]
+        return os.path.join(base, "mcsm", "video-text", key + ".json")
+
+    def load_project(self) -> dict:
+        try:
+            with open(self.project_file(), encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict) and isinstance(data.get("items"), list):
+                return data
+        except (OSError, ValueError):
+            pass
+        return {"video": self.video, "match": 0, "items": [
+            {"id": 1, "name": "Title", "kind": "world" if self.vinfo["matches"] else "screen",
+             "lines": [["Welcome to", 3.0], ["Our First Expedition", 5.5]], "start": None, "until": None,
+             "animation": "pop"}]}
+
+    def save_project(self, body: dict) -> dict:
+        data = {"video": self.video, "match": int(body.get("match", 0)), "items": list(body.get("items") or [])}
+        p = self.project_file()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p + ".tmp", "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=1)
+        os.replace(p + ".tmp", p)
+        return {"saved": True}
+
     def api_post(self, path: str, body: dict):
         if path == "/api/camera":
             return self.camera_path(int(body.get("match", 0)))
+        if path == "/api/project":
+            return self.save_project(body)
         if path == "/api/make":
             return self._start(body)
         return None
@@ -110,31 +148,16 @@ class VideoEditor:
         return {"started": True}
 
     def _make(self, b: dict, say) -> dict:
-        lines = [(str(t), float(s)) for t, s in b.get("lines", []) if str(t).strip()]
-        if not lines:
-            raise ValueError("type some text first")
-        at = b.get("at")
-        at = None if at in (None, "") else float(at)
-        until = b.get("until")
-        until = None if until in (None, "") else float(until)
-        look = {"animation": b.get("animation", "none"), "anim": float(b.get("anim", 0.4)),
-                "word_gap": float(b.get("word_gap", 0.3)), "fade_out": float(b.get("fade_out", 0)),
-                "border_colour": b.get("border_colour", "black"), "shadow": bool(b.get("shadow", False)),
-                "box": "black" if b.get("box") else ""}
-        colour, border = b.get("colour", "white"), bool(b.get("border", True))
+        items = list(b.get("items") or [])
+        self.save_project(b)
         if b.get("target") == "world":
             match = self.vinfo["matches"][int(b.get("match", 0))]
-            r = vt.make_in_world(match, lines, at, colour, border, progress=say, until_seconds=until,
-                                 glow=bool(b.get("glow", True)), right=float(b.get("right", 0)),
-                                 up=float(b.get("up", 0)), distance=float(b.get("distance", 55)),
-                                 size_scale=float(b.get("size", 1)), video=self.video, **look)
+            r = vt.make_items_in_world(match, items, self.video, progress=say)
             say(("Replaced" if r.get("replaced") else "Made") + f" '{r['name']}' in {r['flashback']}")
             return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False)}
-        screen_lines = [(t, s / 40.0) for t, s in lines]          # blocks -> share of the picture height
-        start = at if at is not None else ((self.vinfo["matches"][0].get("still_from") or 0) + 0.2
-                                           if self.vinfo["matches"] else 0.0)
-        out = vt.make_on_screen(self.video, screen_lines, start, until if until is not None else self.vinfo["duration"] + 1,
-                                b.get("style", "outline"), colour, progress=say, **look)
+        m = self.vinfo["matches"][int(b.get("match", 0))] if self.vinfo["matches"] else {}
+        default_start = (m.get("still_from") or 0.0) + 0.2
+        out = vt.make_items_on_screen(self.video, items, self.vinfo["duration"], default_start, progress=say)
         say(f"Made {out}")
         return {"video": out}
 

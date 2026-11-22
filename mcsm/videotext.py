@@ -427,6 +427,7 @@ class Title:
     anim: float = 0.4               # how long one pop/word fade takes (seconds)
     word_gap: float = 0.3           # words one by one: seconds between words
     border_colour: str = "black"
+    font: str = ""                  # "" = the default (Minecraft Ten if installed)
     border: float = 1.0             # border thickness (1 = normal)
     shadow: bool = True
     box: str = ""                   # background box colour ("" = none)
@@ -481,6 +482,8 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
             d = max(2, int(t.anim * 1000))
             pop = f"{bs}fscx0{bs}fscy0{bs}t(0,{d * 6 // 10},{bs}fscx118{bs}fscy118){bs}t({d * 6 // 10},{d},{bs}fscx100{bs}fscy100)"
         body = _word_tags(t, words) if by_word else _ass_escape(t.text)
+        if t.font:
+            fad = f"{bs}fn{t.font}" + fad
         if t.box:
             pad = max(4, px // 6)
             lines.append(f"Dialogue: {layer},{span},box,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c&HFFFFFF&"
@@ -711,11 +714,19 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     the end); with *always* it is there for the whole recording. The copy and a copy of the edit
     (with the export range of this video) go into the Flashback folder for the recording's
     Minecraft version."""
-    from . import flashback as fbm, worldtext as wt
-    say = progress or (lambda msg: None)
-    src = match.get("recording")
-    if not src:
-        raise ValueError("the recording of this edit wasn't found (import it into the library first)")
+    texts, secs = world_texts(match, lines, at_seconds, colour, outline, distance, until_seconds, always, animation,
+                              anim, word_gap, fade_out, border_colour, glow, shadow, box, right, up, size_scale)
+    r = write_world_copy(match, texts, video, flashback_dir, progress)
+    return {**r, "appears_at": None if always else secs, "until": until_seconds}
+
+
+def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, colour: str = "white",
+                outline: bool = True, distance: float = 55.0, until_seconds: float | None = None,
+                always: bool = False, animation: str = "none", anim: float = 0.4, word_gap: float = 0.3,
+                fade_out: float = 0.0, border_colour: str = "black", glow: bool = True, shadow: bool = False,
+                box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0):
+    """The text displays for one text (one or more lines) and the video second it appears at."""
+    from . import worldtext as wt
     lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale)
     clock, secs, yaw = lay["clock"], lay["seconds"], lay["yaw"]
     appear = None if always else int(lay["tick"])
@@ -736,6 +747,18 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
         if start is not None and animation != "none":   # the next line starts when this one has appeared
             n = len(text.split()) if animation.startswith("words") else 1
             start += (n - 1) * max(1, int(word_gap * 20)) + max(1, int(anim * 20))
+    return texts, secs
+
+
+def write_world_copy(match: dict, texts: list, video: str | None = None, flashback_dir: str | None = None,
+                     progress=None) -> dict:
+    """Write the Flashback copy of the matched recording with all *texts* in its world (one copy per
+    video: an earlier copy for *video* is replaced, its edit kept)."""
+    from . import flashback as fbm, worldtext as wt
+    say = progress or (lambda msg: None)
+    src = match.get("recording")
+    if not src:
+        raise ValueError("the recording of this edit wasn't found (import it into the library first)")
     with zipfile.ZipFile(src) as zf:
         mc = json.loads(zf.read("metadata.json").decode("utf-8")).get("version_string")
     fb = flashback_dir or fbm.find_flashback_dir(None, mc)
@@ -763,7 +786,67 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     else:
         edit = wt.copy_edit(match["state"], edit_path, match["uuid"], (match["start"], match["end"]))
     return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb,
-            "appears_at": None if always else secs, "until": until_seconds, "replaced": bool(earlier)}
+            "replaced": bool(earlier)}
+
+
+ITEM_DEFAULTS = {"kind": "world", "lines": [], "start": None, "until": None, "animation": "pop", "anim": 0.4,
+                 "word_gap": 0.3, "fade_out": 0.0, "colour": "white", "border": True, "border_colour": "black",
+                 "shadow": False, "glow": True, "box": False, "style": "outline", "font": "",
+                 "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16}
+
+
+def _item(raw: dict) -> dict:
+    it = {**ITEM_DEFAULTS, **{k: v for k, v in raw.items() if k in ITEM_DEFAULTS}}
+    it["lines"] = [(str(t), float(sz)) for t, sz in it["lines"] if str(t).strip()]
+    for key in ("start", "until"):
+        it[key] = None if it[key] in (None, "") else float(it[key])
+    return it
+
+
+def make_items_in_world(match: dict, items: list[dict], video: str | None = None, flashback_dir: str | None = None,
+                        progress=None) -> dict:
+    """All 'in the world' texts of an editor project in one Flashback copy (each with its own time,
+    place, animation and look)."""
+    texts = []
+    for raw in items:
+        it = _item(raw)
+        if it["kind"] != "world" or not it["lines"]:
+            continue
+        t, _secs = world_texts(match, it["lines"], it["start"], it["colour"], it["border"], it["distance"],
+                               it["until"], False, it["animation"], it["anim"], it["word_gap"], it["fade_out"],
+                               it["border_colour"], it["glow"], it["shadow"], "black" if it["box"] else "",
+                               it["right"], it["up"], it["size"])
+        texts += t
+    if not texts:
+        raise ValueError("there are no 'in the world' texts")
+    return write_world_copy(match, texts, video, flashback_dir, progress)
+
+
+def make_items_on_screen(video: str, items: list[dict], duration: float, default_start: float = 0.0,
+                         out: str | None = None, progress=None) -> str:
+    """All 'on the video' texts of an editor project drawn into one new copy of *video*."""
+    size = video_size(video) or (1920, 1080)
+    titles = []
+    for raw in items:
+        it = _item(raw)
+        if it["kind"] != "screen" or not it["lines"]:
+            continue
+        lines = [(t, sz * it["size"] / 40.0) for t, sz in it["lines"]]   # blocks -> share of the height
+        start = it["start"] if it["start"] is not None else default_start
+        end = it["until"] if it["until"] is not None else duration + 1
+        for ti in screen_titles(lines, start, end, it["style"], it["colour"], it["animation"], it["anim"],
+                                it["word_gap"], it["fade_out"], it["border_colour"], it["shadow"],
+                                "black" if it["box"] else "", it["x"], it["y"]):
+            ti.font = it["font"]
+            titles.append(ti)
+    if not titles:
+        raise ValueError("there are no 'on the video' texts")
+    if out is None:
+        stem, ext = os.path.splitext(video)
+        out, n = f"{stem} (with text){ext}", 2
+        while os.path.exists(out):
+            out, n = f"{stem} (with text {n}){ext}", n + 1
+    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress)
 
 
 def find_text_copy(flashback_dir: str, video: str) -> dict | None:
@@ -782,14 +865,14 @@ def find_text_copy(flashback_dir: str, video: str) -> dict | None:
 def screen_titles(lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
                   colour: str = "white", animation: str = "fade", anim: float = 0.4, word_gap: float = 0.3,
                   fade_out: float = 0.0, border_colour: str = "black", shadow: bool = True,
-                  box: str = "") -> list[Title]:
-    """Titles for *lines* (text, share of the picture height), top to bottom; with an animation the
-    next line starts once the previous one has appeared."""
-    titles, y, t0 = [], 0.16, start
+                  box: str = "", x: float = 0.5, top: float = 0.16) -> list[Title]:
+    """Titles for *lines* (text, share of the picture height), top to bottom from *top* (share of the
+    height), centred on *x*; with an animation the next line starts once the previous one appeared."""
+    titles, y, t0 = [], top, start
     for text, h in lines:
         titles.append(Title(text, t0, end, size=h, y=y + h / 2, colour=colour, style=style, fade_in=anim,
                             fade_out=fade_out, animation=animation, anim=anim, word_gap=word_gap,
-                            border_colour=border_colour, shadow=shadow, box=box))
+                            border_colour=border_colour, shadow=shadow, box=box, x=x))
         y += h * 1.25
         if animation != "none":
             n = len(text.split()) if animation.startswith("words") else 1
