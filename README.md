@@ -146,6 +146,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm changes SERVER MORE...` | Minecraft version, mods, plugins and datapacks changed between backups ([guide](docs/BACKUPS.md#versions-mods-and-datapacks-over-time)). |
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
+| `mcsm flashback-link status` / `install --instance NAME` | The Flashback companion mod: the editor's real Minecraft picture ([guide](docs/VIDEO_TEXT.md), [mod](companion/README.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |
 | `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
 | `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |

@@ -19,6 +19,10 @@ body { margin:0; background:var(--bg); color:var(--text); font:13px system-ui, s
 #viewWrap { flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
 #box { position:relative; }
 video, canvas#over, canvas#map3d { position:absolute; inset:0; width:100%; height:100%; }
+/* Flashback's picture has its own size (its game viewport): fitted by height, so the vertical field of
+   view matches the camera the texts are drawn with; the sides are cut or left black */
+#box { overflow:hidden; }
+img#realImg { position:absolute; top:0; height:100%; width:auto; max-width:none; left:50%; transform:translateX(-50%); }
 #viewSeg { display:inline-flex; } #viewSeg button { padding:4px 9px; }
 canvas#over { cursor:default; }
 #bar { padding:6px 10px; display:flex; gap:6px; align-items:center; border-top:1px solid var(--line); flex-wrap:wrap; }
@@ -51,14 +55,14 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 </head>
 <body>
 <div id="stage">
-  <div id="viewWrap"><div id="box"><video id="vid" src="/video" preload="auto" playsinline></video><canvas id="map3d" hidden></canvas><canvas id="over"></canvas></div></div>
+  <div id="viewWrap"><div id="box"><video id="vid" src="/video" preload="auto" playsinline></video><canvas id="map3d" hidden></canvas><img id="realImg" alt="" hidden><canvas id="over"></canvas></div></div>
   <div id="bar">
     <button id="play" type="button" title="Play / pause (Space)">Play</button>
     <button id="back" type="button" class="small" title="Back 1 s (Shift+←)">−1 s</button>
     <button id="fwd" type="button" class="small" title="Forward 1 s (Shift+→)">+1 s</button>
     <button id="toSel" type="button" title="Play from 2 s before the selected text appears">Play selected</button>
     <span id="time">0:00.0</span>
-    <span class="seg" id="viewSeg" hidden><button id="vCam" type="button" class="on" title="See the app's map through your edit's camera, with your texts">Camera view</button><button id="vMap" type="button" title="Look at the map from above: your camera's path, where it is now, and the players (drag to turn, scroll to zoom)">Map view</button></span>
+    <span class="seg" id="viewSeg" hidden><button id="vCam" type="button" class="on" title="See the app's map through your edit's camera, with your texts">Camera view</button><button id="vMap" type="button" title="Look at the map from above: your camera's path, where it is now, and the players (drag to turn, scroll to zoom)">Map view</button><button id="vReal" type="button" title="The real picture from Flashback: Minecraft with the companion mod must be running with this edit's replay open. The editor moves Flashback's camera and time and shows what the game draws">Flashback (real)</button></span>
     <span class="hint" style="margin-left:auto">Drag a text on the video to move it · drag bars below to change when · <kbd>I</kbd>/<kbd>O</kbd> start/end at the playhead · <kbd>Ctrl+Z</kbd> undo</span>
   </div>
   <canvas id="tl"></canvas>
@@ -402,7 +406,12 @@ function draw() {
   if (NOVIDEO) {
     const players = Object.keys(ALLTRACKS).map((name, i) => ({ name, pos: trackAt(name, t), colour: PCOL[i % PCOL.length] }))
       .filter(p => p.pos);
-    if (window.MAP3D && cam) MAP3D.render(cam, CAM.samples, players, VIEW, KEYS, KSEL);
+    if (window.MAP3D && cam && VIEW !== "real") MAP3D.render(cam, CAM.samples, players, VIEW, KEYS, KSEL);
+    if (VIEW === "real" && REAL.msg) {
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, H / 2 - 30 * devicePixelRatio, W, 60 * devicePixelRatio);
+      ctx.fillStyle = "#fff"; ctx.font = `${14 * devicePixelRatio}px system-ui`; ctx.textAlign = "center";
+      ctx.fillText(REAL.msg, W / 2, H / 2 + 5 * devicePixelRatio); ctx.textAlign = "start";
+    }
     if (FLY && VIEW === "camera") {
       ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(8, 8, 430 * devicePixelRatio, 24 * devicePixelRatio);
       ctx.fillStyle = "#ffd23f"; ctx.font = `${12 * devicePixelRatio}px system-ui`;
@@ -414,7 +423,7 @@ function draw() {
       ctx.fillText("Map view: the line is your camera's path. Texts show in Camera view.", 16, H - 17 * devicePixelRatio);
       drawTimeline(); syncSong(); return;
     }
-    if (cam) for (const p of players) {                    // names over the players' heads
+    if (cam && VIEW !== "real") for (const p of players) {  // names over the players' heads
       const pr = project(cam, [p.pos[0], p.pos[1] + 2.3, p.pos[2]], W, H); if (!pr || pr[2] < 0.5) continue;
       const fs = Math.max(10, Math.min(16, pr[2] * 0.5)) * devicePixelRatio;
       ctx.font = `bold ${fs}px system-ui`; ctx.textAlign = "center"; const w = ctx.measureText(p.name).width;
@@ -910,7 +919,7 @@ function toggleFly() {
   if (FLY) { FLY = null; $("#fly").classList.remove("on"); $("#fly").textContent = "Fly"; return; }
   const c = camAt(vid.currentTime); if (!c) return;
   vid.pause(); FLY = { pos: [...c.pos], yaw: c.yaw, pitch: c.pitch, fov: c.fov, speed: 1 }; lastFly = 0;
-  $("#vCam").click(); $("#fly").classList.add("on"); $("#fly").textContent = "Stop flying";
+  if (VIEW === "map") setView("camera"); $("#fly").classList.add("on"); $("#fly").textContent = "Stop flying";
 }
 async function camChanged() {
   CAMCHANGED = true;
@@ -1051,8 +1060,53 @@ window.addEventListener("resize", fit);
   else vid.addEventListener("loadedmetadata", () => { if (SEL) vid.currentTime = Math.max(0, startOf(SEL) - 2); });
   draw();
 })();
-$("#vCam").onclick = () => { VIEW = "camera"; $("#vCam").classList.add("on"); $("#vMap").classList.remove("on"); over.style.pointerEvents = ""; };
-$("#vMap").onclick = () => { VIEW = "map"; $("#vMap").classList.add("on"); $("#vCam").classList.remove("on"); over.style.pointerEvents = "none"; };
+// --- views: the app's map through the camera, the map from above, or the real picture from Flashback
+const REAL = { ok: false, busy: false, n: 0, last: "", msg: "" };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function setView(v) {
+  VIEW = v;
+  for (const [id, name] of [["#vCam", "camera"], ["#vMap", "map"], ["#vReal", "real"]]) $(id).classList.toggle("on", v === name);
+  over.style.pointerEvents = v === "map" ? "none" : "";
+  $("#map3d").hidden = v === "real"; $("#realImg").hidden = v !== "real";
+  if (v === "real") startReal();
+}
+$("#vCam").onclick = () => setView("camera");
+$("#vMap").onclick = () => setView("map");
+$("#vReal").onclick = () => setView("real");
+async function startReal() {
+  REAL.msg = "Connecting to Flashback…"; REAL.ok = false;
+  let st;
+  try { st = await (await fetch("/api/link")).json(); } catch (e) { st = { message: "The editor stopped answering" }; }
+  if (!st.connected || !st.matches) { REAL.msg = st.message || "Not connected to Flashback"; return; }
+  REAL.ok = true; REAL.msg = ""; REAL.last = ""; realLoop();
+}
+function loadImg(url) {
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+}
+// Each round: put Flashback where the editor's camera is (time and place), wait for the game to draw it,
+// show the picture. Texts are drawn over it by the page as usual.
+async function realLoop() {
+  if (REAL.busy) return;
+  REAL.busy = true;
+  try {
+    while (VIEW === "real" && REAL.ok) {
+      const t = vid.currentTime, c = FLY || camAt(t); if (!c) break;
+      const tick = Math.round(replayTick(t));
+      const key = JSON.stringify([tick, c.pos.map(v => v.toFixed(2)), c.yaw.toFixed(1), c.pitch.toFixed(1), (c.fov || 70).toFixed(1)]);
+      const moved = key !== REAL.last; REAL.last = key;
+      if (moved) {
+        const r = await post("/api/link/view", { tick, x: c.pos[0], y: c.pos[1], z: c.pos[2], yaw: c.yaw, pitch: c.pitch, fov: c.fov || 70 });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.error) { REAL.msg = j.error || "Flashback stopped answering"; REAL.ok = false; break; }
+        await sleep(vid.paused ? 120 : 30);                  // let the game draw the new moment
+      }
+      const im = await loadImg(`/link/frame/${Math.round(over.width)}/${REAL.n++}.png`);
+      if (!im) { REAL.msg = "No picture from Flashback (is the game minimised?)"; await sleep(1000); REAL.msg = ""; continue; }
+      $("#realImg").src = im.src;
+      if (!moved) await sleep(vid.paused ? 500 : 0);
+    }
+  } finally { REAL.busy = false; }
+}
 </script>
 
 <!-- The app's 3D map for an edit without a video: terrain from the library backup made after the

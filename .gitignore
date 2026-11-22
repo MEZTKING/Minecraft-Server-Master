@@ -14,3 +14,9 @@ server-report.html
 sync-output/
 servers/
 *.mcpr
+
+# Flashback companion mod: built by Gradle (in CI it is copied into mcsm/assets/mod for the installer)
+companion/.gradle/
+companion/build/
+companion/run/
+mcsm/assets/mod/

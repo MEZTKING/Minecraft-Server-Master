@@ -35,6 +35,22 @@ is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library w
   - Undo/redo include camera changes; **Back to the edit's camera** forgets them. Your edit's own file is
     never changed: the changed camera goes into the app's copy (replacing that copy's camera) when you
     press *Put … in Flashback*.
+- **Flashback (real)**, the third view: the **real Minecraft picture**, drawn by your running Flashback.
+  The editor moves Flashback's time and camera to where its own camera is (or where you fly) and shows
+  what the game draws, with your texts on top. It needs the small companion mod:
+  1. Videos tab → **Install the Flashback link…** → choose the Minecraft instance that has Flashback →
+     confirm (it copies one small file into that instance's `mods` folder; or `mcsm flashback-link install
+     --instance NAME`). It needs Minecraft 26.1 or newer with Fabric.
+  2. Start that Minecraft and open the replay of the edit in Flashback (the original, or the app's copy).
+  3. In the editor choose **Flashback (real)**. If something is missing the picture says what (not
+     running, other replay open). `mcsm flashback-link status` shows the connection too.
+
+  The mod only listens on this computer (127.0.0.1) and needs a secret token from your Minecraft
+  folder. The picture is fitted by height (the same vertical field of view as the camera the texts are
+  drawn with); Flashback's game area can be wider or narrower than your video. Jumping backwards in time
+  makes Flashback re-read the recording, so it can take a moment; playing updates as fast as the game
+  answers. Texts aren't in the replay until you press *Put … in Flashback*: until then the page draws them
+  over the picture.
 - Everything else works as with a video: texts in the world, follow a player, chains, the song and
   beats. **Put world texts & song in Flashback** makes the copy in the same Flashback folder as the
   edit (one copy per edit and scene; making it again replaces it). Open it in Flashback, check, and

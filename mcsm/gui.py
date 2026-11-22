@@ -92,6 +92,10 @@ BUTTON_TIPS = {
     "Open a Flashback edit…": "Open the live editor on a Flashback edit that you haven't exported yet: the picture "
                               "is the app's 3D map seen through your edit's camera, with the players, so you can "
                               "place texts and the song first, then put them in Flashback and export once.",
+    "Install the Flashback link…": "Copy the small companion mod into the Minecraft instance that has Flashback, so "
+                                   "the editor can show the real Minecraft picture (you choose the instance and "
+                                   "confirm first).",
+    "Install": "Copy the companion mod into the chosen instance's mods folder.",
     "Chat & events as subtitles": "Write subtitle files with the chat, joins, deaths and advancements at the right "
                                   "moments of the video.",
 }
@@ -1050,6 +1054,11 @@ class App(ttk.Frame):
                           "your edit's camera, so you can place texts and the song before exporting.",
                   wraplength=680, justify="left").grid(row=4, column=0, columnspan=3, sticky="w", pady=(14, 3))
         ttk.Button(f, text="Open a Flashback edit…", command=self._vid_edit).grid(row=5, column=0, sticky="w")
+        ttk.Label(f, text="Real Minecraft picture in the editor: install the small companion mod into your Flashback "
+                          "instance once, start Minecraft and open the replay; the editor's 'Flashback (real)' view "
+                          "then shows what the game draws.", wraplength=680, justify="left").grid(
+            row=6, column=0, columnspan=3, sticky="w", pady=(14, 3))
+        ttk.Button(f, text="Install the Flashback link…", command=self._vid_install_link).grid(row=7, column=0, sticky="w")
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
@@ -1096,6 +1105,48 @@ class App(ttk.Frame):
             webbrowser.open(url)
 
         self._run("Opening the Flashback edit", work, after)
+
+    def _vid_install_link(self) -> None:
+        """Copy the companion mod into the mods folder of a Minecraft instance that has Flashback."""
+        from . import flashlink
+        jar = flashlink.bundled_mod()
+        if not jar:
+            messagebox.showinfo(APP_NAME, "This copy of the app doesn't include the companion mod (it comes with the "
+                                          "installer from GitHub).")
+            return
+        insts = [i for i in flashlink.instances() if os.path.isdir(i["minecraft"])]
+        if not insts:
+            messagebox.showinfo(APP_NAME, "No Minecraft instance with Flashback was found.")
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Install the Flashback link")
+        win.transient(self.root)
+        ttk.Label(win, text="Which Minecraft has Flashback? The mod is copied into its mods folder (nothing else "
+                            "is changed). It needs Minecraft 26.1 or newer and Fabric.", wraplength=460,
+                  justify="left").pack(padx=12, pady=(12, 6), anchor="w")
+        choice = tk.StringVar(value=insts[0]["name"])
+        for i in insts:
+            ttk.Radiobutton(win, text=f"{i['name']} (Minecraft {i.get('mc') or '?'})", value=i["name"],
+                            variable=choice).pack(padx=18, anchor="w")
+
+        def go():
+            inst = next(i for i in insts if i["name"] == choice.get())
+            if not messagebox.askyesno(APP_NAME, f"Copy {os.path.basename(jar)} into\n{inst['mods']}?\n\n"
+                                                 "Restart Minecraft afterwards.", parent=win):
+                return
+            try:
+                dst = flashlink.install_mod(inst["mods"], jar)
+            except (OSError, ValueError) as exc:
+                messagebox.showerror(APP_NAME, str(exc), parent=win)
+                return
+            win.destroy()
+            self.vid_status_var.set(f"Installed {os.path.basename(dst)} in '{inst['name']}'. Start Minecraft, open the "
+                                    "replay in Flashback, then use 'Flashback (real)' in the editor.")
+
+        row = ttk.Frame(win)
+        row.pack(padx=12, pady=12, anchor="e")
+        ttk.Button(row, text="Install", command=go).pack(side="left", padx=4)
+        ttk.Button(row, text="Cancel", command=win.destroy).pack(side="left")
 
     def _vid_world_dir(self) -> str | None:
         from . import library as lib

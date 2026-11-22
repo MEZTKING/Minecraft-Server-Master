@@ -41,6 +41,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Set up Java 25 (Flashback companion mod)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.8.2"
+      - name: Build the Flashback companion mod (bundled with the app)
+        shell: pwsh
+        run: |
+          Push-Location companion
+          gradle build --no-daemon --console=plain
+          Pop-Location
+          New-Item -ItemType Directory -Force mcsm/assets/mod | Out-Null
+          Copy-Item companion/build/libs/mcsm-link-*.jar mcsm/assets/mod/
+          Get-ChildItem mcsm/assets/mod
       - name: Install Inno Setup if missing
         shell: pwsh
         run: |

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "mcsm_link",
+  "version": "${version}",
+  "name": "Minecraft Server Master link",
+  "description": "Lets the Minecraft Server Master video editor show the real Flashback picture: it moves the replay camera and time on request and sends back what the game draws. Only listens on this computer (127.0.0.1), with a secret token.",
+  "authors": ["Minecraft Server Master"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["mcsm.link.McsmLink"]
+  },
+  "depends": {
+    "fabricloader": ">=0.17.0",
+    "minecraft": ">=26.1",
+    "java": ">=25"
+  },
+  "recommends": {
+    "flashback": "*"
+  }
+}

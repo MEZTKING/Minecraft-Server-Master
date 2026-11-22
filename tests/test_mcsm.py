@@ -3115,3 +3115,94 @@ class TestCameraKeyframes(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestFlashbackLink(unittest.TestCase):
+    """The app's side of the companion mod, against a stand-in that speaks the mod's protocol."""
+
+    def test_link(self):
+        import http.server
+        import threading
+        from mcsm import flashlink, videotext as vt, videoeditor as ve
+        seen = []
+
+        class Fake(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _reply(self, code, body, ctype="application/json"):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.headers.get("X-MCSM-Token") != "secret":
+                    return self._reply(403, b"forbidden", "text/plain")
+                if self.path == "/status":
+                    return self._reply(200, json.dumps({"mod": "0.1.0", "minecraft": "26.1.2", "flashback": "0.40.0",
+                                                        "replay": {"uuid": "orig", "name": "Rec", "tick": 5,
+                                                                   "total": 300, "paused": True}}).encode())
+                if self.path.startswith("/frame"):
+                    return self._reply(200, b"\x89PNG fake " + self.path.encode(), "image/png")
+                self._reply(404, b"no")
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append(body)
+                self._reply(200, b'{"ok": true}')
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        tmp = tempfile.mkdtemp()
+        old_inst, old_local = flashlink.instances, os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            mc = os.path.join(tmp, "inst", "minecraft")
+            inst = {"name": "Test", "mc": "26.1.2", "minecraft": mc, "mods": os.path.join(mc, "mods"),
+                    "link_file": os.path.join(mc, "config", "mcsm-link.json")}
+            flashlink.instances = lambda: [inst]
+            link, why = flashlink.find_link()
+            self.assertIsNone(link)
+            self.assertIn("isn't installed", why)                       # no link file yet
+            os.makedirs(os.path.dirname(inst["link_file"]))
+            with open(inst["link_file"], "w") as fh:
+                json.dump({"port": srv.server_address[1], "token": "secret"}, fh)
+            link, why = flashlink.find_link()
+            self.assertEqual(link.status()["replay"]["uuid"], "orig")
+            self.assertEqual(link.view(120, [1, 2, 3], 90, 10, 70)["ok"], True)
+            self.assertEqual(seen[-1], {"tick": 120, "x": 1, "y": 2, "z": 3, "yaw": 90, "pitch": 10, "fov": 70})
+            self.assertIn(b"width=640", link.frame(640))
+            self.assertEqual(flashlink.Link(srv.server_address[1], "wrong").status().get("error"), "forbidden")
+            # the editor: is the right replay open, put Flashback there, the picture
+            fb, match = TestVideoMusic()._setup(tmp)
+            info = vt.analyse_edit(match["state"])
+            ed = ve.VideoEditor(None, info=info)
+            st = ed.api_get("/api/link")
+            self.assertTrue(st["connected"] and st["matches"])
+            self.assertEqual(ed.api_post("/api/link/view", {"tick": 150, "x": 0, "y": 64, "z": 0, "yaw": 0,
+                                                            "pitch": 0, "fov": 70})["ok"], True)
+            frame = ed.file_for("/link/frame/800/7.png")
+            with open(frame, "rb") as fh:
+                self.assertTrue(fh.read().startswith(b"\x89PNG"))
+            info["matches"][0]["uuid"] = "another"
+            self.assertFalse(ed.api_get("/api/link")["matches"])          # a different replay is open
+            # installing: only the mod's own older jars are replaced
+            jar = os.path.join(tmp, "mcsm-link-0.2.0.jar")
+            with open(jar, "wb") as fh:
+                fh.write(b"jar")
+            os.makedirs(inst["mods"])
+            for name in ("mcsm-link-0.1.0.jar", "flashback.jar"):
+                with open(os.path.join(inst["mods"], name), "wb") as fh:
+                    fh.write(b"x")
+            flashlink.install_mod(inst["mods"], jar)
+            self.assertEqual(sorted(os.listdir(inst["mods"])), ["flashback.jar", "mcsm-link-0.2.0.jar"])
+        finally:
+            flashlink.instances = old_inst
+            srv.shutdown()
+            if old_local is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old_local
+            shutil.rmtree(tmp, ignore_errors=True)

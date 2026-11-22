@@ -22,6 +22,9 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/tiles           (edit without a video) the terrain regions around the camera path
   GET  /tile/<rx>/<rz>/<step>  one region's surface: int16 heights + RGB (as the history viewer)
   POST /api/tracks          {"match": i}  every player's path through the video
+  GET  /api/link            is Minecraft with Flashback and the companion mod running, which replay is open
+  POST /api/link/view       {"tick", "x", "y", "z", "yaw", "pitch", "fov"}  put Flashback there (paused)
+  GET  /link/frame/<width>/<n>.png  the picture Flashback draws right now (the real view)
   POST /api/camera          {"match": i, "keyframes": [...]}  (edit mode) the camera as changed in the
                             page: its path is worked out the way Flashback moves it
 
@@ -195,6 +198,64 @@ class VideoEditor:
         clock = vt.scene_clock(sc)
         m["still_from"] = clock.video_time(still[0]) if (still and clock) else None
 
+    # --- the real picture, from Flashback (companion mod mcsm-link) ----------------------------------
+    def _the_link(self):
+        from . import flashlink
+        link = getattr(self, "_link", None)
+        if link is None:
+            link, _why = flashlink.find_link()
+            self._link = link
+        return link
+
+    def link_status(self) -> dict:
+        from . import flashlink
+        link, why = flashlink.find_link()
+        self._link = link
+        if not link:
+            return {"connected": False, "message": why}
+        st = link.status()
+        if st.get("error") and not st.get("replay"):
+            return {"connected": True, "replay": None, "message": st["error"]}
+        rep = st.get("replay")
+        m = self.vinfo["matches"][0] if self.vinfo["matches"] else {}
+        wanted = {m.get("uuid")}
+        if m.get("state"):
+            copy = vt.find_text_copy(os.path.dirname(os.path.dirname(os.path.abspath(m["state"]))), self.copy_key())
+            if copy:
+                wanted.add(copy["uuid"])
+        ok = bool(rep and rep.get("uuid") in wanted)
+        msg = "" if ok else (f"Open the replay of this edit in Flashback (the one '{m.get('name', '')}' belongs to)"
+                             if not rep else f"Flashback has another replay open ('{rep.get('name')}'): open this edit's")
+        return {"connected": True, "instance": link.instance.get("name"), "replay": rep, "matches": ok,
+                "message": msg, "mod": st.get("mod"), "flashback": st.get("flashback")}
+
+    def link_view(self, body: dict) -> dict:
+        link = self._the_link()
+        if link is None:
+            raise ValueError("Minecraft with Flashback and the companion mod isn't running")
+        try:
+            return link.view(body.get("tick"), [body["x"], body["y"], body["z"]] if "x" in body else None,
+                             body.get("yaw"), body.get("pitch"), body.get("fov"), body.get("roll"))
+        except OSError:
+            self._link = None
+            raise ValueError("lost the connection to Minecraft")
+
+    def link_frame(self, width: int, n: int) -> str | None:
+        link = self._the_link()
+        if link is None:
+            return None
+        try:
+            data = link.frame(max(160, min(3840, width)))
+        except (OSError, RuntimeError):
+            self._link = None
+            return None
+        d = os.path.join(os.path.dirname(self.project_file()), "frames")
+        os.makedirs(d, exist_ok=True)
+        out = os.path.join(d, f"frame{n % 4}.png")             # a few names in turn: one may still be sent
+        with open(out, "wb") as fh:
+            fh.write(data)
+        return out
+
     def copy_key(self) -> str:
         """What the app's Flashback copy is remembered by: the video, or the edit and scene."""
         if self.video:
@@ -297,6 +358,12 @@ class VideoEditor:
     def file_for(self, path: str) -> str | None:
         if path == "/video":
             return self.video
+        if path.startswith("/link/frame/"):
+            try:
+                w, n = path[len("/link/frame/"):].removesuffix(".png").split("/")
+                return self.link_frame(int(w), int(n))
+            except ValueError:
+                return None
         if path.startswith("/tile/"):
             try:
                 rx, rz, step = (int(v) for v in path[len("/tile/"):].split("/"))
@@ -346,6 +413,8 @@ class VideoEditor:
             return self.load_project()
         if path == "/api/tiles":
             return self.tiles()
+        if path == "/api/link":
+            return self.link_status()
         if path == "/api/job":
             with self._lock:
                 return dict(self.job, log=self.job["log"][-30:])
@@ -495,6 +564,8 @@ class VideoEditor:
             return self.add_music(body)
         if path == "/api/beats":
             return self.beats(body)
+        if path == "/api/link/view":
+            return self.link_view(body)
         if path == "/api/tracks":
             return self.tracks_all(int(body.get("match", 0)))
         return None

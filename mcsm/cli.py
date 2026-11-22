@@ -995,6 +995,32 @@ def cmd_video_editor(args) -> int:
     return 0
 
 
+def cmd_flashback_link(args) -> int:
+    """The Flashback companion mod: is it running, which replay is open; or install it."""
+    from . import flashlink
+    if args.action == "install":
+        insts = [i for i in flashlink.instances() if os.path.isdir(i["minecraft"])]
+        if args.instance:
+            insts = [i for i in insts if i["name"] == args.instance]
+        if len(insts) != 1:
+            names = ", ".join(i["name"] for i in flashlink.instances()) or "none found"
+            print(f"Choose the instance with --instance NAME (instances with Flashback: {names})", file=sys.stderr)
+            return 2
+        print("Installed", flashlink.install_mod(insts[0]["mods"]))
+        return 0
+    link, why = flashlink.find_link()
+    if not link:
+        print("Not connected:", why)
+        return 1
+    st = link.status()
+    rep = st.get("replay")
+    print(f"Connected to '{link.instance.get('name')}' (Minecraft {st.get('minecraft')}, Flashback "
+          f"{st.get('flashback')}, link {st.get('mod')})")
+    print(f"Open replay: {rep['name']} ({rep['uuid']}), tick {rep['tick']} of {rep['total']}" if rep else
+          "No replay open" + (f" ({st['error']})" if st.get("error") else ""))
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -1234,6 +1260,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--http-port", type=int, default=8790)
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(func=cmd_video_editor)
+
+    p = sub.add_parser("flashback-link", help="the Flashback companion mod: status, or install it into an instance")
+    p.add_argument("action", choices=["status", "install"])
+    p.add_argument("--instance", help="install: the Minecraft instance (as listed by status/the app)")
+    p.set_defaults(func=cmd_flashback_link)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")
