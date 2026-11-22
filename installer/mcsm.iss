@@ -3,7 +3,7 @@
 ; Input : dist\MinecraftServerMaster\  (made by PyInstaller from installer\mcsm.spec)
 ; Output: dist\installer\MinecraftServerMaster-Setup-<version>.exe
 ;
-; Build:  iscc /DMyAppVersion=0.1.0 installer\mcsm.iss
+; Build:  iscc /DMyAppVersion=0.2.0 installer\mcsm.iss
 ; (installer\build_windows.ps1 does everything, including this step.)
 ;
 ; The installer:
@@ -13,7 +13,7 @@
 ;   * registers an uninstaller in Settings > Apps
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.2.0"
 #endif
 #define MyAppName "Minecraft Server Master"
 #define MyAppExe "Minecraft Server Master.exe"

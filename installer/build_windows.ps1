@@ -24,6 +24,15 @@ Set-Location $Root
 $Version = (Select-String -Path "mcsm\__init__.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
 Write-Host "Building Minecraft Server Master $Version" -ForegroundColor Cyan
 
+# Build stamp (shown as "0.2.0 (build N, commit, date)"): from GitHub Actions, else from git.
+$Commit = if ($env:GITHUB_SHA) { $env:GITHUB_SHA.Substring(0, 7) } else { (git rev-parse --short HEAD 2>$null) }
+$Number = if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } else { "" }
+$Date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+@"
+# Written by installer/build_windows.ps1 -- not in git.
+BUILD = {"number": "$Number", "commit": "$Commit", "date": "$Date"}
+"@ | Set-Content mcsm\_build.py -Encoding UTF8
+
 # 1. Isolated build environment
 $Venv = Join-Path $Root "build\venv"
 if (-not (Test-Path $Venv)) { & $Python -m venv $Venv }

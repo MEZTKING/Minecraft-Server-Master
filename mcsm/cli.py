@@ -34,7 +34,7 @@ import shutil
 import zipfile
 from datetime import date, datetime, timedelta  # noqa: F401
 
-from . import __version__, models as m
+from . import __version__, models as m, version_string
 from .analyzer import analyze
 from .players import play_time_ticks
 from .source import open_server
@@ -975,7 +975,7 @@ def cmd_music(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="mcsm", description="Parse a downloaded Minecraft server: statistics, "
                                  "event timeline, and video/replay/music sync.")
-    ap.add_argument("--version", action="version", version=f"mcsm {__version__}")
+    ap.add_argument("--version", action="version", version=f"mcsm {version_string()}")
     sub = ap.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("summary", help="quick overview in the terminal"); _add_common(p)

@@ -1,4 +1,5 @@
 __pycache__/
+mcsm/_build.py
 *.py[cod]
 *.egg-info/
 build/

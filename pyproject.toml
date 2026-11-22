@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcsm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Parse a downloaded Minecraft server: statistics dashboard, event timeline, and replay/video/music sync."
 readme = "README.md"
 requires-python = ">=3.10"

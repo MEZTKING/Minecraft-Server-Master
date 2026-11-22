@@ -27,7 +27,13 @@ Nothing else is needed: Python is bundled inside the app.
 *Uninstall* shortcut in the Start menu). This also removes the PATH entry if you added it.
 Reports and markers you saved elsewhere are left alone.
 
-**Upgrade:** run a newer installer; it replaces the old version in place.
+**Upgrade:** run a newer installer; it replaces the old version in place. Your library, highlights,
+caches and settings live outside the program folder and are kept.
+
+**Which version do I have?** The window title (and `mcsm --version`) shows it, e.g.
+`0.2.0 (build 57, 3913aae, 2026-11-22)`: the version, the build number of the GitHub Actions run that
+made the installer, its commit and date. Builds from the same version but a higher build number are
+newer test builds.
 
 ## Using the app
 
@@ -109,8 +115,9 @@ The installer appears in `dist\installer\`.
 
 ### Releasing a version
 
-1. Bump `__version__` in `mcsm/__init__.py` and `version` in `pyproject.toml`; note it in
-   `PROJECT_STATUS.md`; push.
+1. Bump `__version__` in `mcsm/__init__.py`, `version` in `pyproject.toml` and the default
+   `MyAppVersion` in `installer/mcsm.iss` (a test checks they agree); note it in `PROJECT_STATUS.md`;
+   push. Versions are `MAJOR.MINOR.PATCH`: MINOR for new features, PATCH for fixes.
 2. On GitHub: **Releases → Draft a new release** → *Choose a tag*: type `v0.2.0` and pick
    *Create new tag on publish* → *Target*: the branch with the code → **Publish release**.
 3. The *Build installer* workflow runs for the release and attaches

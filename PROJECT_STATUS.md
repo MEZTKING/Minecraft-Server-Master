@@ -36,7 +36,8 @@ More features "like these" are planned, listed under **Backlog** below.
   `mcsm/assets/web/vendor/`.
 - Releases: bump `__version__` (`mcsm/__init__.py`) and `version` (`pyproject.toml`), update the
   changelog here, push; then the owner publishes a GitHub Release (see Downloads) and the
-  workflow attaches the installer. Released so far: none.
+  workflow attaches the installer. Released so far: none. Current version: **0.2.0** (2026-11-22);
+  builds are stamped `0.2.0 (build N, commit, date)` (see backlog #0l).
 - Windows installer: built by GitHub Actions on every push (`.github/workflows/build-installer.yml`,
   see `docs/INSTALLER.md`). Check the run after pushing.
 - Docs live in `README.md` and `docs/`. Code layout: `docs/ARCHITECTURE.md`.
@@ -447,6 +448,31 @@ one-button burn-in.
   texts matter most (chat, titles, names, dates)? A Minecraft-style font (a free one such as
   Monocraft would be bundled) or a normal font?
 
+### 0l. In-app updater (requested 2026-11-22, for later)
+
+**The ask:** "make an in app updater later on which checks at startup and also add versioning".
+
+**Versioning (done 2026-11-22):** `MAJOR.MINOR.PATCH` in `mcsm/__init__.py` (single source: the
+installer, `pyproject.toml` and the .exe version resource follow it; a test keeps them equal).
+Every installer build is stamped with its build number, commit and date (`mcsm/_build.py`, written
+by `installer/build_windows.ps1`); the app title and `mcsm --version` show e.g.
+`0.2.0 (build 57, 3913aae, 2026-11-22)`. Raise MINOR for new features, PATCH for fixes; publish a
+GitHub Release (tag `vX.Y.Z`) to ship one.
+
+**Updater design:**
+- At startup, in the background, the app asks GitHub for the latest release of this (public)
+  repository (`api.github.com/repos/MEZTKING/Minecraft-Server-Master/releases/latest`; no personal
+  data, a plain `mcsm/<version>` user agent; at most once a day; off with a setting).
+- If it is newer than the running version: a small bar "Version X.Y.Z is available — What's new /
+  Update / Later". *What's new* shows the release notes.
+- *Update* downloads the release's `MinecraftServerMaster-Setup-X.Y.Z.exe` into a temporary folder,
+  checks its size and SHA-256 against the release's published digest, then (after the user confirms)
+  closes the app and runs the installer, which reopens the app. Nothing is installed without a click.
+- Never interrupts running work: the update waits until no import/export is running.
+- Needs published releases: until the first one (v0.2.0) exists, there is nothing to update to.
+- **Open questions:** also offer the latest *test* build (from GitHub Actions, needs sign-in), or only
+  releases?
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -642,6 +668,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22: version 0.2.0** (first version bump; everything since 0.1.0 in the entries below:
+  multi-backup history viewer, library, highlights, video text, in-world text, ...). Builds now carry
+  a build stamp shown in the app title and `mcsm --version`.
 - **2026-11-22:** **Videos tab (text on finished videos for everyone):** pick a video; the app finds
   its Flashback edit (also when changed after exporting), the recording (by its id, indexed once
   in the library) and the still ending; puts a big + small title in the world (Flashback copy with

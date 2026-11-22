@@ -29,7 +29,7 @@ from datetime import date
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, cli, models as m
+from . import __version__, cli, models as m, version_string
 from .analyzer import analyze
 from .source import open_server
 from .sync import DEFAULT_SYNC_TYPES
@@ -90,7 +90,7 @@ class App(ttk.Frame):
         self.history = None                   # running HistoryMap, if any
         self.history_stack = contextlib.ExitStack()
         self.history_url: str | None = None
-        root.title(f"{APP_NAME} {__version__}")
+        root.title(f"{APP_NAME} {version_string()}")
         root.minsize(760, 560)
         root.geometry("900x760")
         self.grid(sticky="nsew")
@@ -102,7 +102,7 @@ class App(ttk.Frame):
         self._build_tabs()
         self._build_log()
         self.after(100, self._poll)
-        self.log(f"{APP_NAME} {__version__}\n"
+        self.log(f"{APP_NAME} {version_string()}\n"
                  "1. Choose your downloaded server (.zip or folder) and press Load.\n"
                  "2. Use the tabs to make a statistics report, video markers, or exports.\n\n")
 

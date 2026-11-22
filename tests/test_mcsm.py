@@ -2183,3 +2183,16 @@ class TestVideoMaking(unittest.TestCase):
             del root
             import gc
             gc.collect()
+
+
+class TestVersioning(unittest.TestCase):
+    def test_one_version_everywhere(self):
+        import re
+        import mcsm
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        py = open(os.path.join(root, "pyproject.toml"), encoding="utf-8").read()
+        iss = open(os.path.join(root, "installer", "mcsm.iss"), encoding="utf-8").read()
+        self.assertEqual(re.search(r'^version = "([^"]+)"', py, re.M).group(1), mcsm.__version__)
+        self.assertEqual(re.search(r'#define MyAppVersion "([^"]+)"', iss).group(1), mcsm.__version__)
+        self.assertRegex(mcsm.__version__, r"^\d+\.\d+\.\d+$")
+        self.assertTrue(mcsm.version_string().startswith(mcsm.__version__))
