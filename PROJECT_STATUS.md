@@ -829,6 +829,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Edit picker: the scene selected inside an edit is marked "(current scene)" only when the
+  edit has several scenes ("open in Flashback" was read as the replay open right now).
+
 - **2026-11-22:** **Flashback link 0.2** (owner: real view "runs extremely slow frames"; advice from Fable): the
   mod streams the game picture as MJPEG (captured every 1/fps s on the game side, JPEG via LWJGL stb on a
   worker thread, newest frame only, one-time tickets), Flashback plays the replay itself while the mod
