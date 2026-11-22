@@ -326,7 +326,7 @@ def change_moments(pairs: list[dict], tracks: dict[str, list[list]], work: list[
                                  f"at {cx}, {cz} (between the backups of {_fmt_day(p['from'])} and {_fmt_day(p['to'])})",
                         "kinds": {"change": 1}, "players": names, "events": [], "online": [], "recordings": [], "mc": None,
                         "why": [f"{what}: about {ar['blocks2']:,} blocks² of ground changed between two backups",
-                                (f"seen there: {', '.join(f'{n} ({round(who['seconds'][n] / 60)} min)' for n in names)}"
+                                ("seen there: " + ", ".join(f"{n} ({round(who['seconds'][n] / 60)} min)" for n in names)
                                  if names else "nobody was recorded there: the backups alone can't say who")],
                         "mode": "changed", "change": ar["kind"], "area": ar["area"], "dim": ar["dim"], "y": ar["y"]})
             made += 1
