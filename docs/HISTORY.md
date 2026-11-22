@@ -72,7 +72,22 @@ minutes apart form one moment, at most 10 minutes long; each moment starts 30 s 
 and ends 15 s after its last. Its score grows with the number of other players online and with the
 number of players whose recordings show it (points of view). Hover a moment to see why it scored and its events.
 
-- Filters: kind of event, a player, **with a recording** (moments no recording shows can't become a
+**Quiet but busy.** Hours of building, flattening ground for map art or searching for something show
+nothing in the logs. Once the players' positions have been read from the recordings (the status line
+shows the progress; the list updates by itself), such stretches are moments too:
+
+- **building**: 45 minutes or more in one area (within about 64 blocks), really moving around in it;
+  standing still (AFK) is ignored. A large flat area worked back and forth is **map art / flattening**.
+- **exploring / searching / a journey**: 30 minutes or more travelling into new ground; zig-zagging over an
+  area is searching, going far in one direction a journey.
+- Players working in the same area at the same time are one moment. The score grows slowly with the time
+  spent (3 hours ranks about like a PvP fight). Where the backups allow, the players' statistics between
+  the backups before and after are shown ("used/placed 40k, mostly white concrete", "flew 300 km").
+- Hovering or playing one outlines its area on the map; in the story it plays through in about 30 s.
+  **Keep** keeps its best 3 minutes: the end of a build (the finished work), the stretch of an exploration
+  that found the most new ground. Only players seen in some recording can be found.
+
+- Filters: kind of event (also *building & map art* and *exploring & searching*), a player, **with a recording** (moments no recording shows can't become a
   video), order **best first** or **by date** (grouped by day).
 - **▶ Play** watches it on the map. **Keep** makes it a highlight (below); then **Export to Flashback**
   makes the replay copies with markers and one ready scene per highlight, as for highlights you mark

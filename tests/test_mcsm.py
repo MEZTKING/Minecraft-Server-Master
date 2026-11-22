@@ -3482,3 +3482,82 @@ class TestStoryCommand(unittest.TestCase):
         finally:
             lib.list_worlds, cli.cmd_history = old_list, old_hist
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestQuietButBusy(unittest.TestCase):
+    """Building, map art and exploring found from movement (and AFK ignored)."""
+
+    @staticmethod
+    def _path(t0, minutes, fn, step_s=2):
+        out = []
+        for k in range(int(minutes * 60 / step_s)):
+            s = k * step_s
+            x, y, z = fn(s)
+            out.append([t0 + s * 1000, x, y, z, "minecraft:overworld"])
+        return out
+
+    def test_stretches(self):
+        import math
+        from mcsm import activity
+        t0 = 1_700_000_000_000
+        build = self._path(t0, 90, lambda s: (100 + 20 * math.sin(s / 7), 70 + (s % 40) / 10, 200 + 20 * math.cos(s / 11)))
+        afk = self._path(t0, 120, lambda s: (500.0, 64.0, 500.0))
+        mapart = self._path(t0, 60, lambda s: (1000 + (s * 3) % 100, 63.0, 1000 + (s // 34) * 2 % 100))
+        search = self._path(t0, 50, lambda s: (2000 + 600 * math.sin(s / 90), 70, 2000 + s * 1.5 * (1 if (s // 300) % 2 else -1)))
+        st = activity.find_stretches({"Builder": build, "Afk": afk, "Artist": mapart, "Seeker": search})
+        kinds = {(s["player"], s["kind"]) for s in st}
+        self.assertIn(("Builder", "building"), kinds)
+        self.assertIn(("Artist", "map_art"), kinds)
+        self.assertFalse([s for s in st if s["player"] == "Afk"])          # standing still isn't building
+        seeker = [s for s in st if s["player"] == "Seeker"]
+        self.assertTrue(seeker and seeker[0]["kind"] in ("searching", "exploring"))
+        b = next(s for s in st if s["player"] == "Builder")
+        self.assertGreaterEqual(b["minutes"], 85)
+        self.assertEqual(b["clip"][1], b["end"])                           # film the finished work
+        self.assertTrue(b["area"][0] < 100 < b["area"][2])
+
+    def test_big_map_art_and_a_trip_away(self):
+        import math
+        from mcsm import activity
+        t0 = 1_700_000_000_000
+
+        def rows(s):                                   # 128 x 128, row by row, 2 blocks a second
+            row, along = divmod(s * 2, 128)
+            x = along if row % 2 == 0 else 128 - along
+            return 3000 + x, 63.0, 3000 + (row * 2) % 128
+        art = activity.find_stretches({"Artist": self._path(t0, 70, rows)})
+        self.assertEqual([s["kind"] for s in art], ["map_art"])          # one stretch, not cut into pieces
+        self.assertGreaterEqual(art[0]["area"][2] - art[0]["area"][0], 120)
+
+        def with_trip(s):                              # building, 5 minutes away at minute 30, back again
+            if 30 * 60 <= s < 35 * 60:
+                return 900.0, 70.0, 900.0
+            return 100 + 20 * math.sin(s / 7), 70, 200 + 20 * math.cos(s / 11)
+        b = activity.find_stretches({"Builder": self._path(t0, 70, with_trip)})
+        builds = [s for s in b if s["kind"] == "building"]
+        self.assertEqual(len(builds), 1)
+        self.assertGreaterEqual(builds[0]["end"] - builds[0]["start"], 69 * 60_000)
+
+    def test_work_moments(self):
+        import math
+        from datetime import datetime, timezone
+        from mcsm import models as m, moments as mo
+        t0 = 1_700_000_000_000
+        tracks = {"Builder": self._path(t0, 180, lambda s: (100 + 20 * math.sin(s / 7), 70, 200 + 20 * math.cos(s / 11))),
+                  "Helper": self._path(t0, 120, lambda s: (110 + 15 * math.sin(s / 5), 70, 190 + 15 * math.cos(s / 9)))}
+        d = m.ServerData(root="x")
+        for n in ("Builder", "Helper"):
+            d.players[n.lower()] = m.PlayerProfile(uuid=None, name=n, names_seen=[n], session_count=1, session_seconds=9000)
+        before, after = datetime.fromtimestamp(t0 / 1000 - 86400, timezone.utc), datetime.fromtimestamp(t0 / 1000 + 86400 * 5, timezone.utc)
+        d.player_history["Builder"] = [{"time": before, "used": 1000, "blocks_mined": 0, "fly_cm": 0, "used_by_item": {"minecraft:white_concrete": 10}},
+                                       {"time": after, "used": 41000, "blocks_mined": 0, "fly_cm": 0, "used_by_item": {"minecraft:white_concrete": 30000}}]
+        ms = mo.find_moments(d, tracks=tracks)
+        work = [x for x in ms if x.get("mode")]
+        self.assertEqual(len(work), 1)                                      # two players, one area: one moment
+        w = work[0]
+        self.assertEqual(w["players"], ["Builder", "Helper"])
+        self.assertIn("3 h", w["title"])
+        self.assertIn("items used 40k, mostly white concrete", " ".join(w["why"]))
+        hours = (w["end"] - w["start"]) / 3_600_000
+        self.assertAlmostEqual(w["score"], round(mo.WEIGHTS["work"] * math.log2(1 + hours) * (1 + 0.5), 1), places=1)
+        self.assertEqual(mo.find_moments(d), [])                            # no positions: nothing to find

@@ -236,7 +236,9 @@ class HistoryMap(TerrainServer):
         for f in files:
             for name, pts in self._loaded[f].items():
                 merged.setdefault(aliases.get(name, name), []).extend(pts)
-        out = {"players": {n: thin(prefer_own(sorted(p, key=lambda q: q[0]))) for n, p in merged.items()}}
+        own = {n: prefer_own(sorted(p, key=lambda q: q[0])) for n, p in merged.items()}
+        self._tracks = (len(files), own)                  # full detail, for finding building/exploring
+        out = {"players": {n: thin(p) for n, p in own.items()}}
         out["points"] = sum(len(p) for p in out["players"].values())
         self._paths_cache = (len(files), out)
         return out
@@ -253,11 +255,34 @@ class HistoryMap(TerrainServer):
         return None
 
     def moments(self) -> dict:
-        """The important moments of the whole history, best first (worked out once)."""
+        """The important moments of the whole history, best first. The log events' moments come at once;
+        building/exploring stretches are worked out once, in the background, when every recording's
+        positions have been read (then the page asks again)."""
         from . import moments as mo
-        if getattr(self, "_moments", None) is None:
-            self._moments = mo.find_moments(self.data)
-        return {"moments": self._moments, "weights": mo.WEIGHTS}
+        import threading
+        with self._lock:
+            if getattr(self, "_moments", None) is None:
+                self._moments = mo.find_moments(self.data)
+                self._work_state = "waiting"
+        done, total = self.decode_progress
+        final = not self.decode_replays or bool(total and done >= total)
+        if final and self._work_state == "waiting":
+            self._work_state = "working"
+
+            def work():
+                try:
+                    self.paths()                          # brings self._tracks up to date
+                    _n, tracks = getattr(self, "_tracks", (0, {}))
+                    found = mo.find_moments(self.data, tracks=tracks or None) if tracks else None
+                    with self._lock:
+                        if found is not None:
+                            self._moments = found
+                        self._work_state = "done"
+                except Exception:                         # noqa: BLE001 -- keep the event moments
+                    self._work_state = "done"
+            threading.Thread(target=work, daemon=True).start()
+        return {"moments": self._moments, "weights": mo.WEIGHTS,
+                "positions_final": final and self._work_state == "done"}
 
     # -- highlights ----------------------------------------------------------
     def highlights_info(self) -> dict:

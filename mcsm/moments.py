@@ -34,7 +34,11 @@ WEIGHTS = {
     "per_view": 0.25,            # x (1 + this per extra player whose recording shows it), ...
     "views_max": 4,              # ... counting at most this many extra points of view
     "repeat": 0.5,               # the same player's same kind again in one moment counts this much less each time
+    "work": 4.0,                 # building/exploring stretches: this x log2(1 + hours), so 3 hours ~ 8
 }
+WORK_KINDS = ("building", "map_art", "exploring", "searching", "journey")
+WORK_LABEL = {"building": "building", "map_art": "map art / flattening", "exploring": "exploring",
+              "searching": "searching", "journey": "a journey"}
 GAP_MS = 3 * 60 * 1000           # events closer than this belong to one moment ...
 MAX_MS = 10 * 60 * 1000          # ... as long as the moment stays this short
 PAD_BEFORE_MS = 30 * 1000
@@ -70,9 +74,11 @@ class _Spans:
         return [x[2] for x in self.items[lo:hi] if x[1] >= start]
 
 
-def find_moments(data: m.ServerData, weights: dict | None = None) -> list[dict]:
+def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict | None = None) -> list[dict]:
     """The moments of *data*, best first: ``{id, start, end (ms, padded), score, title, kinds {kind: n},
-    players, events [{t, kind, player, text, points}], online, recordings [{path, player}], why [text]}``."""
+    players, events [{t, kind, player, text, points}], online, recordings [{path, player}], why [text]}``.
+    With *tracks* (players' positions from the recordings, see :mod:`mcsm.activity`) long stretches of
+    building, map art and exploring are moments too (``mode``, ``area``, ``clip``: the best 3 minutes)."""
     w = {**WEIGHTS, **(weights or {})}
     names = {n.lower(): p.name for p in data.players.values() for n in p.names_seen + [p.name]}
     canon = lambda n: names.get((n or "").lower(), n)           # noqa: E731
@@ -170,8 +176,108 @@ def find_moments(data: m.ServerData, weights: dict | None = None) -> list[dict]:
                     "players": players, "events": [{k: v for k, v in e.items() if k != "killer"} for e in g],
                     "online": online, "recordings": [{"path": r.path, "player": r.recorded_player} for r in recs],
                     "why": why})
+    if tracks:
+        out += _work_moments(data, tracks, w, sessions, replays, canon)
     out.sort(key=lambda x: -x["score"])
     return out
+
+
+def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans", replays: "_Spans", canon) -> list[dict]:
+    """Building / map art / exploring stretches as moments; players working together in one area (or
+    travelling at the same time) are one moment."""
+    import math
+    from . import activity
+    stretches = activity.find_stretches({canon(n): p for n, p in tracks.items()})
+    groups: list[list[dict]] = []
+    for s in stretches:                                   # sorted by start
+        family = "build" if s["kind"] in ("building", "map_art") else "travel"
+        for g in groups:
+            h = g[0]
+            hf = "build" if h["kind"] in ("building", "map_art") else "travel"
+            near = math.hypot(h["centre"][0] - s["centre"][0], h["centre"][2] - s["centre"][2]) < (96 if family == "build" else 512)
+            if hf == family and h["dim"] == s["dim"] and s["start"] <= max(x["end"] for x in g) and near:
+                g.append(s)
+                break
+        else:
+            groups.append([s])
+    out = []
+    for g in groups:
+        start, end = min(s["start"] for s in g), max(s["end"] for s in g)
+        players = sorted({s["player"] for s in g})
+        lead = max(g, key=lambda s: s["minutes"])
+        kind = "map_art" if any(s["kind"] == "map_art" for s in g) else lead["kind"]
+        hours = (end - start) / 3_600_000
+        online = sorted(set(sessions.overlapping(start, end)))
+        extra = 0                                         # over hours everyone is online at some point: count the workers
+        together = 1 + w["together"] * min(w["together_max"], len(players) - 1)
+        recs = replays.overlapping(start, end)
+        views = {r.recorded_player or r.path for r in replays.overlapping(*lead["clip"])}   # who films the best part
+        cover = 1 + w["per_view"] * min(w["views_max"], max(0, len(views) - 1))
+        score = w["work"] * math.log2(1 + hours) * together * cover
+        area = [min(s["area"][0] for s in g), min(s["area"][1] for s in g), max(s["area"][2] for s in g),
+                max(s["area"][3] for s in g)]
+        length = f"{int(hours)} h {round((hours % 1) * 60)} min" if hours >= 1 else f"{round(hours * 60)} min"
+        where = f"at {round(lead['centre'][0])}, {round(lead['centre'][2])}" if kind in ("building", "map_art") \
+            else f"{sum(s['km'] for s in g):.1f} km"
+        stats = _stats_note(data, players, start)
+        why = [f"{WORK_LABEL[kind]} for {length}", f"{len(players)} player{'s' if len(players) > 1 else ''}"]
+        if stats:
+            why.append(stats)
+        if extra:
+            why.append(f"{extra} more online")
+        why.append(f"{len(recs)} recording{'s' if len(recs) != 1 else ''}"
+                   + (f" from {len(views)} points of view (x{cover:g})" if cover > 1 else ""))
+        out.append({"id": hashlib.sha1(f"work|{lead['kind']}|{lead['player']}|{lead['start'] // 600_000}".encode()).hexdigest()[:12],
+                    "start": start, "end": end, "score": round(score, 1),
+                    "title": f"{', '.join(players[:3])}{' and others' if len(players) > 3 else ''}: "
+                             f"{WORK_LABEL[kind]} {where} ({length})",
+                    "kinds": {kind: len(g)}, "players": players, "events": [], "online": online,
+                    "recordings": [{"path": r.path, "player": r.recorded_player} for r in recs], "why": why,
+                    "mode": kind, "area": area, "dim": lead["dim"], "y": lead["centre"][1], "clip": lead["clip"]})
+    return out
+
+
+def _stats_note(data: m.ServerData, players: list[str], t_ms: int) -> str:
+    """What the players' statistics say about the backup interval around *t_ms* (blocks placed, mined, flown)."""
+    bits = []
+    for name in players:
+        hist = sorted((h for h in data.player_history.get(name, []) if hasattr(h.get("time"), "timestamp")),
+                      key=lambda h: h["time"])
+        after = next((i for i, h in enumerate(hist) if _ms(h["time"]) >= t_ms), None)
+        if not after:                                    # no backup before and after it
+            continue
+        a, b = hist[after - 1], hist[after]
+        used = (b.get("used") or 0) - (a.get("used") or 0)
+        mined = (b.get("blocks_mined") or 0) - (a.get("blocks_mined") or 0)
+        fly = ((b.get("fly_cm") or 0) - (a.get("fly_cm") or 0)) / 100_000
+        top = ""
+        before = a.get("used_by_item") or {}
+        if b.get("used_by_item") and before:
+            # only items listed in both backups (the lists keep each player's 12 most used)
+            diff = {k: v - before[k] for k, v in b["used_by_item"].items() if k in before and not _tool(k)}
+            if diff:
+                k = max(diff, key=diff.get)
+                if diff[k] > 0.3 * max(1, used):
+                    top = f", mostly {k.split(':')[-1].replace('_', ' ')}"
+        parts = []
+        if used > 1000:
+            parts.append(f"items used {used / 1000:.0f}k{top}")
+        if mined > 1000:
+            parts.append(f"mined {mined / 1000:.0f}k")
+        if fly > 5:
+            parts.append(f"flew {fly:.0f} km")
+        if parts:
+            bits.append(f"{name} between backups: " + ", ".join(parts))
+    return "; ".join(bits)
+
+
+_TOOLS = ("pickaxe", "_axe", "shovel", "_hoe", "sword", "bow", "trident", "shears", "flint_and_steel",
+          "fishing_rod", "firework_rocket", "elytra", "spyglass", "brush", "mace", "ender_pearl")
+
+
+def _tool(item: str) -> bool:
+    """Tools and weapons also count as "used": they don't say what was built."""
+    return any(t in item for t in _TOOLS)
 
 
 def _title(g: list[dict]) -> str:

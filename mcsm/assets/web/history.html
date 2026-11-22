@@ -149,6 +149,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     <select id="mKind" title="Only moments with this kind of event">
       <option value="">all kinds</option><option value="death">deaths</option><option value="advancement">advancements</option>
       <option value="first_join">first joins</option><option value="chat">conversations</option><option value="marker">markers</option>
+      <option value="work">building &amp; map art</option><option value="travel">exploring &amp; searching</option>
     </select>
     <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
   </div>
@@ -867,16 +868,21 @@ $("#hlExport").onclick = async () => {
 };
 
 // ---------- important moments (mcsm/moments.py) ----------
-let MOM = [], momShown = 20;
+let MOM = [], momShown = 20, momFinal = false;
 async function loadMoments() {
-  try { MOM = (await (await fetch("api/moments")).json()).moments || []; } catch (e) { return; }
+  let res;
+  try { res = await (await fetch("api/moments")).json(); } catch (e) { return; }
+  MOM = res.moments || []; momFinal = !!res.positions_final;
+  $("#mPlayer").replaceChildren(new Option("everyone", ""));
   const sel = $("#mPlayer"), names = [...new Set(MOM.flatMap(m => m.players))].sort((a, b) => a.localeCompare(b));
   for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
   renderMoments();
 }
 function renderMoments() {
   const kind = $("#mKind").value, who = $("#mPlayer").value, rec = $("#mRec").checked, byTime = $("#mOrder").value === "time";
-  let list = MOM.filter(m => (!kind || m.kinds[kind]) && (!who || m.players.includes(who) || m.online.includes(who))
+  const kindOk = m => !kind || m.kinds[kind] || (kind === "work" && ["building", "map_art"].includes(m.mode))
+    || (kind === "travel" && ["exploring", "searching", "journey"].includes(m.mode));
+  let list = MOM.filter(m => kindOk(m) && (!who || m.players.includes(who) || m.online.includes(who))
                              && (!rec || m.recordings.length));
   if (byTime) list = [...list].sort((a, b) => a.start - b.start);
   const ul = $("#moments"); ul.replaceChildren();
@@ -896,11 +902,15 @@ function renderMoments() {
       + (m.recordings.length ? `${m.recordings.length} recording${m.recordings.length > 1 ? "s" : ""} (${pov.join(", ")})` : "no recording");
     const acts = document.createElement("div"); acts.className = "acts";
     const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
-    btn("▶ Play", "Watch this moment on the map", () => { seek(m.start); playUntil = m.end; setPlaying(true); });
-    const kept = (HL.highlights || []).some(h => h.moment === m.id || (h.start === m.start && h.end === m.end));
+    btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined)" : "Watch this moment on the map",
+        () => { showArea(m); seek(m.start); playUntil = m.end; setPlaying(true); });
+    const span0 = m.clip || [m.start, m.end];
+    const kept = (HL.highlights || []).some(h => h.moment === m.id || (h.start === span0[0] && h.end === span0[1]));
+    if (m.mode) li.onmouseenter = () => showArea(m, false);     // outline only; the camera stays
     const keep = btn(kept ? "Kept ✓" : "Keep", kept ? "Already a highlight" : "Make this a highlight for a video (Export to Flashback below)", async () => {
       keep.disabled = true;                              // one click = one highlight
-      try { await post("api/highlights", { title: m.title, start: m.start, end: m.end, moment: m.id }); await loadHighlights(); renderMoments(); }
+      const span = m.clip || [m.start, m.end];         // a long stretch: its best 3 minutes
+      try { await post("api/highlights", { title: m.clip ? `${m.title} (best 3 min)` : m.title, start: span[0], end: span[1], moment: m.id }); await loadHighlights(); renderMoments(); }
       catch (e) { keep.disabled = false; $("#hlStatus").textContent = `Couldn't keep it: ${e.message}`; }
     }, kept || !m.recordings.length);
     li.append(t, meta, acts); ul.appendChild(li);
@@ -911,6 +921,19 @@ function renderMoments() {
 }
 for (const id of ["#mKind", "#mPlayer", "#mRec", "#mOrder"]) $(id).onchange = () => { momShown = 20; renderMoments(); };
 $("#mMore").onclick = () => { momShown += 20; renderMoments(); };
+
+// ---------- the area of a building/exploring stretch, outlined on the map ----------
+let areaLine = null;
+function showArea(m, move = true) {
+  if (areaLine) { scene.remove(areaLine); areaLine.geometry.dispose(); areaLine = null; }
+  if (!m || !m.area) return;
+  if (m.dim && m.dim !== $("#dim").value) { if (!move) return; setDim(m.dim); }
+  const [x0, z0, x1, z1] = m.area, y = (m.y ?? 64) + 1;
+  const g = new THREE.BufferGeometry().setFromPoints([[x0, z0], [x1, z0], [x1, z1], [x0, z1], [x0, z0]].map(([x, z]) => new THREE.Vector3(x, y, z)));
+  areaLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffd23f }));
+  scene.add(areaLine);
+  if (move) focusOn(new THREE.Vector3((x0 + x1) / 2, y, (z0 + z1) / 2), Math.max(80, Math.max(x1 - x0, z1 - z0) * 1.4));
+}
 
 // ---------- story: the important moments in order, start to finish ----------
 // Each moment of the chosen level plays at 10x real time; between moments a title card shows for 2 s and
@@ -937,7 +960,7 @@ function showCard(m) {
 function storyStep(now, dt) {
   if (now < storyHold) return;                      // the title card is showing
   const i = storyIndexAt(T), m = i >= 0 ? STORY[i] : null;
-  if (m && T <= m.end) { T += dt * STORY_SPEED; return; }
+  if (m && T <= m.end) { T += dt * (m.mode ? Math.max(STORY_SPEED, (m.end - m.start) / 30000) : STORY_SPEED); return; }
   const nx = STORY[i + 1];
   if (!nx) {
     setPlaying(false);
@@ -945,7 +968,7 @@ function storyStep(now, dt) {
       : STORY.length ? "The end of the story." : "No moments at this level: choose 'every moment'.");
     return;
   }
-  T = nx.start; storyHold = now + 2000; showCard(nx);
+  T = nx.start; storyHold = now + 2000; showCard(nx); showArea(nx);
   update(now, true); fitAll();
 }
 function renderStory() {
@@ -1071,7 +1094,12 @@ async function loadPaths() {
     const res = await (await fetch("api/paths")).json();
     P = res.players || {};
     for (const n of Object.keys(P)) if (!H.players.includes(n)) H.players.push(n);
+    const wasFinal = pathsFinal;
     pathsFinal = !pr.enabled || pr.done >= pr.total;
+    if (pathsFinal && !momFinal) {                   // building/exploring are worked out now: ask until they're in
+      const again = () => loadMoments().then(() => { if (storyOn) buildStory(); if (!momFinal) setTimeout(again, 4000); });
+      if (!wasFinal) again();
+    }
     layers = info.terrain_layers || [];
     fillTerrainMenu();
     lastInfo = { info, points: res.points, players: Object.keys(P).length };

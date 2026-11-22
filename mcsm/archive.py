@@ -251,6 +251,9 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
                     "blocks_mined": sum(prof.stats.get("mined", {}).values()),
                     "items_crafted": sum(prof.stats.get("crafted", {}).values()),
                     "walk_cm": c.get("walk_one_cm", 0) + c.get("sprint_one_cm", 0),
+                    "fly_cm": c.get("aviate_one_cm", 0),
+                    "used": sum(prof.stats.get("used", {}).values()),
+                    "used_by_item": dict(sorted(prof.stats.get("used", {}).items(), key=lambda kv: -kv[1])[:12]),
                     "advancements": sum(1 for a in prof.advancements.values() if a.get("done")),
                 })
     for prof in out.players.values():

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (the server story, start to finish: 0s).
+`CLAUDE.md`). Last updated: 2026-11-22 (quiet but busy: building, map art, exploring as moments, 0t).
 
 ## What this project is
 
@@ -688,6 +688,10 @@ event (0r), mark highlights while watching.
 
 ### 0t. Quiet but busy: building, map art, searching (raised 2026-11-22)
 
+✅ **Steps 1-3 done 2026-11-22** (owner: "Yes, build it"): movement stretches (`mcsm/activity.py`) as moments in
+the list, the story and on the map (area outlined), stats between backups in their description, Keep = best
+3 minutes. Still to do: Keep → timelapse of the area, and the surface comparison between backups.
+
 **The ask:** "sometimes players can spend long hours looking like their doing nothing but they have lots
 going on. like making a massive map on the ground or looking for something" (the moments finder only sees
 log events).
@@ -938,6 +942,20 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Quiet but busy, tuned on the owner's library (1.5 M positions from 8 players, read once in ~20 min,
+  then cached): "exploring" now needs ground the player had never been to (running around the base all evening
+  was 239 false "searching" stretches); after Fable's review: trips away of up to 10 min don't end a build, the
+  area grows with the work (whole map arts), map art judged on the usual ground level, work found once in the
+  background after all positions are read, travel grouped only when near, tools left out of "mostly", stable ids.
+  Result: 109 builds, 14 map arts, 50 explorations/journeys; e.g. D_HumanCrafter building 4 h 11 min (35k items).
+
+- **2026-11-22:** **Quiet but busy** (0t, Fable's design): `activity.find_stretches` finds building, map art
+  and exploring/searching/journeys from the players' paths (1-minute cells; AFK ignored); `find_moments`
+  turns them into moments (players in the same area together; score 4 x log2(1 + hours) x players x points
+  of view; statistics between backups: items used/placed with the main one, mined, flown). The history
+  viewer recomputes the moments once the positions are read, outlines the area, plays a stretch in ~30 s in
+  the story, and Keep takes the best 3 minutes. Backups now also keep items used and elytra distance.
 
 - **2026-11-22:** Backlog 0t: quiet but busy stretches (building, map art, searching), designed by Fable.
 
