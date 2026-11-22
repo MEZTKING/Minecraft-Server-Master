@@ -45,7 +45,9 @@ is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library w
   1. Videos tab → **Install the Flashback link…** → choose the Minecraft instance that has Flashback →
      confirm (it copies one small file into that instance's `mods` folder; or `mcsm flashback-link install
      --instance NAME`). It needs Minecraft 26.1 or newer with Fabric.
-  2. Start that Minecraft and open the replay of the edit in Flashback (the original, or the app's copy).
+  2. Start that Minecraft and open the replay of the edit in Flashback: the original recording, or one of
+     the app's copies of it (with text), which is recognised by its content even if it was copied from an
+     older copy. In a copy, texts already put in the world show in the picture as well as the page's own.
   3. In the editor choose **Flashback (real)**. If something is missing the picture says what (not
      running, other replay open). `mcsm flashback-link status` shows the connection too.
 

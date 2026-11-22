@@ -227,10 +227,49 @@ class VideoEditor:
             if copy:
                 wanted.add(copy["uuid"])
         ok = bool(rep and rep.get("uuid") in wanted)
-        msg = "" if ok else (f"Open the replay of this edit in Flashback (the one '{m.get('name', '')}' belongs to)"
-                             if not rep else f"Flashback has another replay open ('{rep.get('name')}'): open this edit's")
+        copy_of_it = False
+        if rep and not ok:                         # one of the app's copies (with text) of the same recording
+            copy_of_it = self._copy_of(rep.get("uuid"), m.get("uuid"), link, m.get("recording"))
+            ok = copy_of_it
+        rec = os.path.splitext(os.path.basename(m.get("recording") or ""))[0]
+        want = f"the replay {rec}" if rec else "this edit's replay"
+        msg = "" if ok else (f"Open {want} in Flashback" if not rep else
+                             f"Flashback has another replay open ('{rep.get('name')}'): open {want}")
         return {"connected": True, "instance": link.instance.get("name"), "replay": rep, "matches": ok,
-                "message": msg, "mod": st.get("mod"), "flashback": st.get("flashback")}
+                "copy": copy_of_it, "message": msg, "mod": st.get("mod"), "flashback": st.get("flashback")}
+
+    @staticmethod
+    def _copy_of(replay_uuid: str | None, original: str | None, link, recording: str | None = None) -> bool:
+        """Whether the replay *replay_uuid* (open in Flashback) is a copy the app made of *original*:
+        ``original_uuid_mcsm`` followed through copies of copies, or the same recording by content (the
+        same length and chunk files as *recording*; a copy's chain can lead to a copy that's gone)."""
+        if not replay_uuid or not original:
+            return False
+
+        def sig(meta):
+            chunks = meta.get("chunks") or {}
+            return (meta.get("total_ticks"), sorted((k, (v or {}).get("duration")) for k, v in chunks.items()))
+        folders = [os.path.join(link.instance.get("minecraft", ""), "flashback", "replays")]
+        metas = {}
+        for d in folders:
+            for name in os.listdir(d) if os.path.isdir(d) else []:
+                if name.lower().endswith(".zip"):
+                    meta = vt._replay_meta(os.path.join(d, name))
+                    if meta.get("uuid"):
+                        metas[meta["uuid"]] = meta
+        mine = metas.get(replay_uuid)
+        if mine and recording and mine.get("chunks"):
+            if sig(mine) == sig(vt._replay_meta(recording)):
+                return True
+        u = replay_uuid
+        for _ in range(8):
+            meta = metas.get(u)
+            if not meta or not meta.get("original_uuid_mcsm"):
+                return False
+            u = meta["original_uuid_mcsm"]
+            if u == original:
+                return True
+        return False
 
     def link_view(self, body: dict) -> dict:
         link = self._the_link()

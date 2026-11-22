@@ -828,6 +828,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Flashback link, first owner test: connected, but the owner's Flashback had only the app's
+  text copy of the welcome recording (its `original_uuid_mcsm` led to an older copy that's gone). The
+  editor now also accepts a copy of the same recording by content (same length and chunk files).
+
 - **2026-11-22:** Editor map: **real blocks with Minecraft's textures** near the camera path
   (`blockmesh.build`: reads the chunks, keeps visible faces, block looks from the client jar's
   blockstates/models with parents, `{"sprite": ...}` texture refs of 26.x, flat-plane models as plants;

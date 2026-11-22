@@ -3272,3 +3272,32 @@ class TestRealBlocks(unittest.TestCase):
             "0": {"position": [1.0, 64.0, 2.0], "yaw": 10, "pitch": 5, "type": "camera"}}}]}
         self.assertEqual(wt.camera_at(sc, 0)[0], [1.0, 64.0, 2.0])     # the keyframe as Flashback stores it
         self.assertEqual(wt.eye_at(sc, 0), ([1.0, 64.0 + wt.EYE_HEIGHT, 2.0], 10.0, 5.0))   # what you see from
+
+
+class TestLinkKnowsCopies(unittest.TestCase):
+    """Flashback may have the app's copy (with text) open instead of the original recording."""
+
+    def test_copy_by_content(self):
+        from mcsm.videoeditor import VideoEditor
+        tmp = tempfile.mkdtemp()
+        try:
+            reps = os.path.join(tmp, "minecraft", "flashback", "replays")
+            os.makedirs(reps)
+            chunks = {"c0.flashback": {"duration": 6000}, "c1.flashback": {"duration": 120}}
+
+            def rec(path, **meta):
+                with zipfile.ZipFile(path, "w") as zf:
+                    zf.writestr("metadata.json", json.dumps({"total_ticks": 6120, "chunks": chunks, **meta}))
+            original = os.path.join(tmp, "orig.zip")
+            rec(original, uuid="orig")
+            # a copy of a copy whose middle link is gone: still the same recording by content
+            rec(os.path.join(reps, "a (text).zip"), uuid="copy2", original_uuid_mcsm="copy1-gone")
+            rec(os.path.join(reps, "b (text).zip"), uuid="other", original_uuid_mcsm="x", total_ticks=99)
+
+            class Link:
+                instance = {"minecraft": os.path.join(tmp, "minecraft")}
+            self.assertTrue(VideoEditor._copy_of("copy2", "orig", Link, original))
+            self.assertFalse(VideoEditor._copy_of("other", "orig", Link, original))
+            self.assertFalse(VideoEditor._copy_of("copy2", "orig", Link, None))   # no recording to compare
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
