@@ -5,7 +5,7 @@ Served on ``http://127.0.0.1:<port>`` (this computer only):
 
     /                      the viewer (mcsm/assets/web/history.html)
     /api/info              title, spawn, terrain progress, path-decoding progress
-    /api/terrain/...       terrain tiles (same as the live map)
+    /api/terrain/...       terrain tiles (same as the live map); ``?layer=N`` for an older backup
     /api/history           time range, players, events, sessions, replays, backups
     /api/paths             player paths decoded so far (grows while recordings are read)
 
@@ -124,7 +124,8 @@ class HistoryMap(TerrainServer):
                  root: str | None = None, world: str | None = None, terrain_step: int | None = None,
                  cache_dir: str | None = None, track_files: list[str] | None = None, title: str = "",
                  spawn=None, decode_replays: bool = True, highlights_file: str | None = None,
-                 flashback_dir: str | None = None):
+                 flashback_dir: str | None = None, terrain_backups: list[dict] | None = None,
+                 terrain_label: str = "", terrain_time: int | None = None):
         from . import highlights as hl
         self.data, self.replay_file = data, replay_file
         self.highlights = hl.Store(highlights_file or hl.default_file(data.world.get("level_name") or title))
@@ -134,6 +135,8 @@ class HistoryMap(TerrainServer):
         self.cache_dir = cache_dir
         self.title, self.spawn = title, spawn
         self.decode_replays = decode_replays and replay_file is not None
+        self._terrain_backups = list(terrain_backups or [])
+        self.terrain_label, self.terrain_time = terrain_label, terrain_time
         self._init_terrain()
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -197,10 +200,14 @@ class HistoryMap(TerrainServer):
         out = [(sp[0], sp[2])] if sp else []
         return out + [p for p, _n in pts.most_common(20)]
 
+    def terrain_backups(self) -> list[dict]:
+        return self._terrain_backups
+
     # -- data for the browser -------------------------------------------------
     def info(self) -> dict:
         return {"title": self._payload["title"], "spawn": self.spawn or self._payload.get("spawn"),
-                "terrain": self.terrain_info(),
+                "terrain": self.terrain_info(), "terrain_layers": self.terrain_layers_info(),
+                "terrain_pending": len(self._terrain_backups) + 1 - len(self.terrain_layers),
                 "paths": {"done": self.decode_progress[0], "total": self.decode_progress[1],
                           "enabled": self.decode_replays},
                 "warnings": self.warnings[-20:]}

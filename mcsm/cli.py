@@ -401,7 +401,9 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
 
     Terrain comes from the newest backup (*terrain_source*, else the newest one loaded); a zip
     that was read selectively has no region files, so it is opened again with them (kept open
-    on *stack*, default: until the command ends).
+    on *stack*, default: until the command ends). With ``--terrain all`` (default) every older
+    backup becomes a terrain layer too, built afterwards, so the page can show the world as it
+    was at the time on the slider.
     """
     from .history import HistoryMap
     newest = terrain_source or (data.backups[-1]["path"] if data.backups else
@@ -412,10 +414,23 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
     cfg = live_settings(root)
     step = None if args.terrain_detail == "auto" else int(args.terrain_detail)
     from .flashback import find_flashback_dir
+    from .paths import epoch_ms
+
+    def when(b):
+        t = b.get("time")
+        return epoch_ms(t) if hasattr(t, "timestamp") else None
+    norm = lambda p: os.path.normcase(os.path.abspath(p)) if p else p  # noqa: E731
+    top = next((b for b in data.backups if norm(b.get("path")) == norm(newest)), None)
+    older = []
+    if getattr(args, "terrain", "all") == "all" and len(data.backups) > 1:
+        older = [{"label": b.get("label") or os.path.basename(b["path"]), "t": when(b), "path": b["path"]}
+                 for b in data.backups if b is not top and b.get("path") and os.path.exists(b["path"])]
+        older.sort(key=lambda b: b["t"] or 0, reverse=True)
     hm = HistoryMap(data, lambda r: _replay_file(data, r), root, cfg.get("world"), step,
                     args.cache, _track_files(args.tracks), cfg.get("title") or "", cfg.get("spawn"),
                     decode_replays=not args.no_replays, highlights_file=args.highlights,
-                    flashback_dir=find_flashback_dir(args.flashback_dir))
+                    flashback_dir=find_flashback_dir(args.flashback_dir), terrain_backups=older,
+                    terrain_label=(top or {}).get("label") or "", terrain_time=when(top) if top else None)
     return hm, hm.start(args.http_port)
 
 
@@ -798,7 +813,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("history", help="3D time machine: all backups and recordings as one timeline",
                        description="A 3D map with a time slider over the whole history: player paths decoded "
                                    "from Flashback recordings, joins, deaths and chat, sessions and replay "
-                                   "coverage. Terrain from the newest backup. See docs/HISTORY.md.")
+                                   "coverage. Terrain from each backup (the world as it was at that time). "
+                                   "See docs/HISTORY.md.")
     _add_common(p)
     p.add_argument("--tracks", action="append", metavar="DIR_OR_FILE",
                    help="also show live-map recordings (mcsm live --record DIR); repeatable")
@@ -811,6 +827,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--http-port", type=int, default=8766, help="local port for the page (default 8766)")
     p.add_argument("--terrain-detail", default="auto", choices=["auto", "1", "2", "4", "8", "16"],
                    help="sample every N blocks (1 = full detail; auto keeps big worlds fast)")
+    p.add_argument("--terrain", default="all", choices=["all", "newest"],
+                   help="all (default): terrain from every backup, so the map changes with the time "
+                        "slider; newest: only the newest backup's")
     p.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     p.set_defaults(func=cmd_history)
 

@@ -464,10 +464,16 @@ def default_cache_dir() -> str:
     return os.path.join(base, "mcsm", "terrain")
 
 
-def tile_cache_file(path: str, step: int, cache_dir: str) -> str:
+def tile_key(path: str, step: int) -> str:
+    """Identity of a region's tile: file name, size, modification time and step. The same
+    region in two backups (unchanged between them) has the same key, so it is read once."""
     st = os.stat(path)
     key = f"{_TILE_VERSION}|{os.path.basename(path)}|{st.st_size}|{st.st_mtime_ns}|{step}"
-    return os.path.join(cache_dir, f"{zlib.crc32(key.encode()):08x}-{os.path.basename(path)}-{step}.tile")
+    return f"{zlib.crc32(key.encode()):08x}-{os.path.basename(path)}-{step}"
+
+
+def tile_cache_file(path: str, step: int, cache_dir: str) -> str:
+    return os.path.join(cache_dir, tile_key(path, step) + ".tile")
 
 
 def save_tile(file: str, tile: Tile | None) -> None:

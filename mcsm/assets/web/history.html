@@ -6,7 +6,7 @@
 <title>Server History</title>
 <!--
   History viewer ("everything as one recording"), served by mcsm/history.py on http://127.0.0.1:<port>/.
-  Data:  /api/info, /api/history, /api/paths, /api/terrain/<dim>[/<rx>/<rz>].
+  Data:  /api/info, /api/history, /api/paths, /api/terrain/<dim>[/<rx>/<rz>][?layer=N].
   Times are epoch milliseconds (UTC) and are shown in this computer's time zone.
   Coordinates map 1:1 from Minecraft (x east, y up, z south) to three.js.
   three.js r160 is vendored in ./vendor (MIT licence).
@@ -103,6 +103,11 @@ ul { list-style: none; margin: 0; padding: 0; }
     </select></label>
     <button id="fit" type="button">Show everyone</button>
     <button id="theme" type="button">Theme</button>
+  </div>
+  <div class="row" id="terrainRow" hidden>
+    <label title="Each backup's world: see builds appear as time moves">Terrain <select id="terrainSel">
+      <option value="follow">Follow the time slider</option>
+    </select></label>
   </div>
   <div class="row">
     <label>Trail <select id="trailLen">
@@ -229,35 +234,71 @@ applySky();
 function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeCanvas(); }
 addEventListener("resize", resize);
 
-// ---------- terrain (same tiles as the live map) ----------
-const terrainGroups = {}, loadedTiles = new Set();
-let terrainBounds = null;
+// ---------- terrain (same tiles as the live map; one layer per backup) ----------
+// Each backup is a terrain layer (0 = newest). "Follow the time slider" shows the first backup
+// saved at or after the current time (it has everything built until then; after the last
+// backup: the newest), so the world changes as time moves. Switching layers only downloads
+// the regions whose tile differs (k = tile key).
+const terrainGroups = {}, tileKeys = {}, tileMeshes = {}, seamMeshes = {}, tileData = {}, shownLayer = {}, terrainBusy = {};
+const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+let terrainBounds = null, layers = [], terrainMode = "follow";
+const mapOf = (o, dim) => o[dim] || (o[dim] = new Map());
+function wantedLayer() {
+  if (terrainMode !== "follow") return +terrainMode;
+  const timed = layers.filter(l => l.t != null).sort((a, b) => a.t - b.t);
+  if (timed.length < 2) return 0;
+  const next = timed.find(l => l.t >= T);          // the first backup saved at or after T
+  return (next || timed[timed.length - 1]).id;
+}
+const layerOf = id => layers.find(l => l.id === id);
+const layerName = l => (l.t != null ? new Date(l.t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) + (l.label ? ` · ${l.label}` : "") : (l.label || "backup"));
 async function loadTerrain(dim) {
-  let list;
-  try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}`)).json(); } catch (e) { return; }
-  if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
-  const todo = list.tiles.filter(t => !loadedTiles.has(`${dim}|${t.rx}|${t.rz}`));
-  todo.forEach(t => loadedTiles.add(`${dim}|${t.rx}|${t.rz}`));
-  // 8 downloads at a time (big worlds have over a thousand tiles); the server lists them
-  // nearest-first, so the land around the action appears first.
-  const worker = async () => {
-    for (let t; (t = todo.shift());) {
-      try {
-        const res = await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}`);
-        if (!res.ok) throw new Error(res.status);
-        const buf = await res.arrayBuffer();
-        terrainGroups[dim].add(tileMesh(t, buf));
-        const seams = addSeams(dim, t, buf);
-        if (seams) terrainGroups[dim].add(seams);
-      } catch (e) {                                   // retry a couple of times, then give up
-        t.tries = (t.tries || 0) + 1;
-        if (t.tries < 3) { await new Promise(r => setTimeout(r, 500 * t.tries)); todo.push(t); }
-        else loadedTiles.delete(`${dim}|${t.rx}|${t.rz}`);
+  if (terrainBusy[dim]) { terrainBusy[dim] = "again"; return; }
+  terrainBusy[dim] = true;
+  try {
+    const layer = wantedLayer();
+    let list;
+    try { list = await (await fetch(`api/terrain/${encodeURIComponent(dim)}?layer=${layer}`)).json(); } catch (e) { return; }
+    if (!terrainGroups[dim]) { terrainGroups[dim] = new THREE.Group(); scene.add(terrainGroups[dim]); }
+    const K = mapOf(tileKeys, dim), listed = new Set(list.tiles.map(t => `${t.rx},${t.rz}`));
+    // A layer still being built lists only part of its regions: keep the others until it's done.
+    if (list.done) for (const id of [...K.keys()]) if (!listed.has(id)) { const [rx, rz] = id.split(",").map(Number); setTile(dim, rx, rz, null); }
+    shownLayer[dim] = layer;
+    const todo = list.tiles.filter(t => K.get(`${t.rx},${t.rz}`) !== t.k);
+    // 8 downloads at a time (big worlds have over a thousand tiles); the server lists them
+    // nearest-first, so the land around the action appears first.
+    const worker = async () => {
+      for (let t; (t = todo.shift());) {
+        try {
+          const res = await fetch(`api/terrain/${encodeURIComponent(dim)}/${t.rx}/${t.rz}?layer=${layer}`);
+          if (!res.ok) throw new Error(res.status);
+          setTile(dim, t.rx, t.rz, t, await res.arrayBuffer());
+        } catch (e) {                                   // retry a couple of times, then give up
+          t.tries = (t.tries || 0) + 1;
+          if (t.tries < 3) { await new Promise(r => setTimeout(r, 500 * t.tries)); todo.push(t); }
+        }
       }
-    }
-  };
-  await Promise.all(Array.from({ length: 8 }, worker));
-  updateDimVisibility();
+    };
+    await Promise.all(Array.from({ length: 8 }, worker));
+    updateDimVisibility();
+    renderStatus();
+  } finally {
+    const again = terrainBusy[dim] === "again";
+    terrainBusy[dim] = false;
+    if (again) setTimeout(() => loadTerrain(dim), 0);
+  }
+}
+// Put one region's tile in place (t = null removes it), then rebuild the seams around it.
+function setTile(dim, rx, rz, t, buf) {
+  const id = `${rx},${rz}`, M = mapOf(tileMeshes, dim), D = mapOf(tileData, dim), K = mapOf(tileKeys, dim);
+  const old = M.get(id);
+  if (old) { terrainGroups[dim].remove(old); old.geometry.dispose(); M.delete(id); }
+  if (t) {
+    const n = t.size, mesh = tileMesh(t, buf);
+    terrainGroups[dim].add(mesh); M.set(id, mesh); K.set(id, t.k);
+    D.set(id, { t, heights: new Int16Array(buf, 0, n * n), rgb: new Uint8Array(buf, n * n * 2, n * n * 3) });
+  } else { K.delete(id); D.delete(id); }
+  for (const [ox, oz] of [[rx, rz], [rx - 1, rz], [rx, rz - 1], [rx - 1, rz - 1]]) ownerSeam(dim, ox, oz);
 }
 function tileMesh(t, buf) {
   const n = t.size, heights = new Int16Array(buf, 0, n * n), rgb = new Uint8Array(buf, n * n * 2, n * n * 3);
@@ -280,48 +321,53 @@ function tileMesh(t, buf) {
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
   if (minX < Infinity) terrainBounds = terrainBounds ? { minX: Math.min(terrainBounds.minX, minX), maxX: Math.max(terrainBounds.maxX, maxX), minZ: Math.min(terrainBounds.minZ, minZ), maxZ: Math.max(terrainBounds.maxZ, maxZ) } : { minX, maxX, minZ, maxZ };
-  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  return new THREE.Mesh(g, terrainMat);
 }
 // Each region is its own mesh whose samples sit step/2 inside its edges, which leaves a gap one
-// sample wide between neighbouring regions. When a region arrives, join it to the neighbours
-// already loaded (edges, and corners where four regions meet). Each seam is built once: when
-// the second of its regions arrives.
-const tileData = {};   // dim -> Map("rx,rz" -> {t, heights, rgb})
-function addSeams(dim, t, buf) {
-  const n = t.size, D = tileData[dim] || (tileData[dim] = new Map()), NO = -32768;
-  D.set(`${t.rx},${t.rz}`, { t, heights: new Int16Array(buf, 0, n * n), rgb: new Uint8Array(buf, n * n * 2, n * n * 3) });
-  const get = (rx, rz) => { const e = D.get(`${rx},${rz}`); return e && e.t.size === n && e.t.step === t.step ? e : null; };
+// sample wide between neighbouring regions. Region (rx, rz) "owns" the seams to its east and
+// south neighbours and the corner where it meets them; when a region arrives, changes or goes,
+// the four owners that touch it are rebuilt.
+function ownerSeam(dim, rx, rz) {
+  const S = mapOf(seamMeshes, dim), id = `${rx},${rz}`, old = S.get(id);
+  if (old) { terrainGroups[dim].remove(old); old.geometry.dispose(); S.delete(id); }
+  const D = mapOf(tileData, dim), me = D.get(id), NO = -32768;
+  if (!me) return;
+  const n = me.t.size, step = me.t.step;
+  const get = (x, z) => { const e = D.get(`${x},${z}`); return e && e.t.size === n && e.t.step === step ? e : null; };
   const V = (e, i, j) => {
-    if (!e) return null;
     const k = j * n + i, h = e.heights[k];
     if (h === NO) return null;
-    return [e.t.rx * 512 + i * t.step + t.step / 2, h + 1, e.t.rz * 512 + j * t.step + t.step / 2,
+    return [e.t.rx * 512 + i * step + step / 2, h + 1, e.t.rz * 512 + j * step + step / 2,
             e.rgb[k * 3] / 255, e.rgb[k * 3 + 1] / 255, e.rgb[k * 3 + 2] / 255];
   };
   const pos = [], col = [];
   const tri = (...vs) => vs.forEach(v => { pos.push(v[0], v[1], v[2]); col.push(v[3], v[4], v[5]); });
   // a = (x, z), b = (x+1, z), c = (x, z+1), d = (x+1, z+1); same winding as tileMesh
   const quad = (a, b, c, d) => { if (a && b && c && d) { tri(a, c, b); tri(b, c, d); } };
-  const me = get(t.rx, t.rz), W = get(t.rx - 1, t.rz), E = get(t.rx + 1, t.rz), N = get(t.rx, t.rz - 1), S = get(t.rx, t.rz + 1);
-  for (let j = 0; j < n - 1; j++) {
-    if (W) quad(V(W, n - 1, j), V(me, 0, j), V(W, n - 1, j + 1), V(me, 0, j + 1));
-    if (E) quad(V(me, n - 1, j), V(E, 0, j), V(me, n - 1, j + 1), V(E, 0, j + 1));
-  }
-  for (let i = 0; i < n - 1; i++) {
-    if (N) quad(V(N, i, n - 1), V(N, i + 1, n - 1), V(me, i, 0), V(me, i + 1, 0));
-    if (S) quad(V(me, i, n - 1), V(me, i + 1, n - 1), V(S, i, 0), V(S, i + 1, 0));
-  }
-  for (const [cx, cz] of [[t.rx - 1, t.rz - 1], [t.rx, t.rz - 1], [t.rx - 1, t.rz], [t.rx, t.rz]]) {   // corners
-    const tl = get(cx, cz), tr = get(cx + 1, cz), bl = get(cx, cz + 1), br = get(cx + 1, cz + 1);
-    if (tl && tr && bl && br) quad(V(tl, n - 1, n - 1), V(tr, 0, n - 1), V(bl, n - 1, 0), V(br, 0, 0));
-  }
-  if (!pos.length) return null;
+  const E = get(rx + 1, rz), So = get(rx, rz + 1), SE = get(rx + 1, rz + 1);
+  for (let j = 0; j < n - 1; j++) if (E) quad(V(me, n - 1, j), V(E, 0, j), V(me, n - 1, j + 1), V(E, 0, j + 1));
+  for (let i = 0; i < n - 1; i++) if (So) quad(V(me, i, n - 1), V(me, i + 1, n - 1), V(So, i, 0), V(So, i + 1, 0));
+  if (E && So && SE) quad(V(me, n - 1, n - 1), V(E, 0, n - 1), V(So, n - 1, 0), V(SE, 0, 0));
+  if (!pos.length) return;
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.computeVertexNormals();
-  return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const mesh = new THREE.Mesh(g, terrainMat);
+  terrainGroups[dim].add(mesh); S.set(id, mesh);
 }
+function fillTerrainMenu() {
+  const sel = $("#terrainSel"), timed = [...layers].sort((a, b) => (a.t ?? Infinity) - (b.t ?? Infinity));
+  const want = ["follow", ...timed.map(l => String(l.id))];
+  if ([...sel.options].map(o => o.value).join() !== want.join()) {
+    sel.innerHTML = "";
+    sel.add(new Option("Follow the time slider", "follow"));
+    for (const l of timed) sel.add(new Option(`${layerName(l)}${l.id === 0 ? " (newest)" : ""}`, String(l.id)));
+    sel.value = terrainMode;
+  }
+  $("#terrainRow").hidden = layers.length < 2;
+}
+$("#terrainSel").onchange = () => { terrainMode = $("#terrainSel").value; loadTerrain($("#dim").value); };
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -759,6 +805,7 @@ addEventListener("keydown", e => {
   if (e.code === "ArrowLeft") seek(T - 60000 * (e.shiftKey ? 60 : 1));
 });
 const tmp = new THREE.Vector3();
+let lastLayerCheck = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
@@ -771,6 +818,11 @@ function frame(now) {
       if (T > view[1] || T < view[0]) setView();
       update(now, false);
     } else if (following) update(now, false);
+    if (layers.length > 1 && now - lastLayerCheck > 400) {     // crossed into another backup's time?
+      lastLayerCheck = now;
+      const d = $("#dim").value;
+      if (!terrainBusy[d] && wantedLayer() !== shownLayer[d]) loadTerrain(d);
+    }
     for (const [name, m] of Object.entries(markers)) {
       if (!m.group.visible) { m.label.style.display = "none"; continue; }
       m.group.scale.setScalar(Math.max(1, camera.position.distanceTo(m.group.position) / 70));
@@ -788,6 +840,25 @@ function frame(now) {
 // ---------- loading ----------
 let pathsFinal = false;
 function toastStatus(text) { $("#status").textContent = text; }
+let lastInfo = null;
+function renderStatus() {      // after each info poll, and when the terrain switches backup
+  if (!lastInfo) return;
+  const { info, points, players } = lastInfo, pr = info.paths, t = info.terrain[$("#dim").value];
+  const unfinished = layers.filter(l => !l.done).length + (info.terrain_pending || 0);
+  const bits = [];
+  if (pr.enabled && !pathsFinal) bits.push(`Reading positions from recordings… ${pr.done}/${pr.total}`);
+  else bits.push(`${points.toLocaleString()} path points from ${players} player${players === 1 ? "" : "s"}.`);
+  if (t && t.done < t.total) bits.push(`Building terrain… ${t.done}/${t.total}`);
+  else if (t && layers.length < 2 && !unfinished) bits.push(`Terrain from the newest backup (${t.tiles} regions).`);
+  else if (t) {
+    const L = layerOf(shownLayer[$("#dim").value] ?? 0);
+    bits.push(`Terrain as of the backup of ${L ? layerName(L) : "the newest backup"}.`);
+    if (unfinished) bits.push(`Building older backups' terrain… ${layers.length - layers.filter(l => !l.done).length}/${layers.length + (info.terrain_pending || 0)}`);
+  }
+  else if (!Object.keys(info.terrain).length) bits.push("No terrain: the newest backup has no region files.");
+  if (info.warnings && info.warnings.length) bits.push(`${info.warnings.length} recording(s) could not be read.`);
+  toastStatus(bits.join(" "));
+}
 async function loadPaths() {
   try {
     const info = await (await fetch("api/info")).json();
@@ -796,19 +867,16 @@ async function loadPaths() {
     P = res.players || {};
     for (const n of Object.keys(P)) if (!H.players.includes(n)) H.players.push(n);
     pathsFinal = !pr.enabled || pr.done >= pr.total;
-    const t = info.terrain[$("#dim").value];
-    const bits = [];
-    if (pr.enabled && !pathsFinal) bits.push(`Reading positions from recordings… ${pr.done}/${pr.total}`);
-    else bits.push(`${res.points.toLocaleString()} path points from ${Object.keys(P).length} player${Object.keys(P).length === 1 ? "" : "s"}.`);
-    if (t && t.done < t.total) bits.push(`Building terrain… ${t.done}/${t.total}`);
-    else if (t) bits.push(`Terrain from the newest backup (${t.tiles} regions).`);
-    else if (!Object.keys(info.terrain).length) bits.push("No terrain: the newest backup has no region files.");
-    if (info.warnings && info.warnings.length) bits.push(`${info.warnings.length} recording(s) could not be read.`);
-    toastStatus(bits.join(" "));
+    layers = info.terrain_layers || [];
+    fillTerrainMenu();
+    lastInfo = { info, points: res.points, players: Object.keys(P).length };
+    renderStatus();
     await loadTerrain($("#dim").value);
     buildAllPaths();
     update(performance.now(), true);
-    if (!pathsFinal || (t && t.done < t.total)) setTimeout(loadPaths, 3000);
+    renderStatus();
+    const t = info.terrain[$("#dim").value], building = layers.some(l => !l.done) || info.terrain_pending > 0;
+    if (!pathsFinal || (t && t.done < t.total) || building) setTimeout(loadPaths, 3000);
   } catch (e) { setTimeout(loadPaths, 5000); }
 }
 async function init() {

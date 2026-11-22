@@ -1175,6 +1175,65 @@ class TestHistory(unittest.TestCase):
         finally:
             hm.stop()
 
+    def test_terrain_per_backup(self):
+        import shutil
+        import urllib.request
+        from mcsm import terrain
+        from mcsm.history import HistoryMap
+        grass = lambda x, y, z: "minecraft:grass_block"  # noqa: E731
+        base = os.path.join(self.tmp, "terrain-layers")
+
+        def server(name, regions):
+            root = os.path.join(base, name)
+            os.makedirs(os.path.join(root, "world", "region"))
+            with open(os.path.join(root, "server.properties"), "w") as fh:
+                fh.write("level-name=world\n")
+            for rx, h in regions.items():
+                terrain.write_region(os.path.join(root, "world", "region", f"r.{rx}.0.mca"),
+                                     {(0, 0): terrain.make_chunk(rx * 32, 0, lambda x, z, h=h: h, grass)})
+            return root
+        old = server("old", {0: 64, 1: 64})
+        new = server("new", {1: 80, 2: 70})
+        shutil.copy2(os.path.join(old, "world", "region", "r.0.0.mca"),       # unchanged region
+                     os.path.join(new, "world", "region", "r.0.0.mca"))
+        hm = HistoryMap(self.data, None, new, os.path.join(new, "world"), 4, cache_dir=self.cache,
+                        terrain_backups=[{"label": "May", "t": 1000, "path": old}],
+                        terrain_label="Nov", terrain_time=2000)
+        hm.terrain_cache, hm.terrain_workers = "", 1
+        hm._build_terrain()
+        ow = "minecraft:overworld"
+        newest, older = hm.layer_tiles(ow, 0), hm.layer_tiles(ow, 1)
+        self.assertEqual(sorted(newest), [(0, 0), (1, 0), (2, 0)])
+        self.assertEqual(sorted(older), [(0, 0), (1, 0)])
+        self.assertIs(newest[(0, 0)][1], older[(0, 0)][1])                     # read once, shared
+        self.assertNotEqual(newest[(1, 0)][0], older[(1, 0)][0])
+        h = lambda t: t.heights[0]  # noqa: E731
+        self.assertEqual((h(newest[(1, 0)][1]), h(older[(1, 0)][1])), (80, 64))
+        self.assertEqual(sorted(hm.terrain[ow]), [(0, 0), (1, 0), (2, 0)])      # live-map view = newest
+        info = hm.terrain_layers_info()
+        self.assertEqual([(L["label"], L["t"], L["done"]) for L in info], [("Nov", 2000, True), ("May", 1000, True)])
+        hm._httpd = None
+        from mcsm.live import serve
+        import threading
+        hm._httpd = serve(hm, 8793)
+        threading.Thread(target=hm._httpd.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{hm._httpd.server_address[1]}/"
+            get = lambda p: json.loads(urllib.request.urlopen(url + p, timeout=10).read())   # noqa: E731
+            lst = get("api/terrain/minecraft:overworld?layer=1")
+            self.assertTrue(lst["done"])
+            self.assertEqual(sorted((t["rx"], t["k"]) for t in lst["tiles"]),
+                             sorted((rc[0], k) for rc, (k, _t) in older.items()))
+            self.assertEqual(len(get("api/terrain/minecraft:overworld")["tiles"]), 3)
+            raw = urllib.request.urlopen(url + "api/terrain/minecraft:overworld/1/0?layer=1", timeout=10).read()
+            self.assertEqual(int.from_bytes(raw[:2], "little"), 64)                 # the old height
+            self.assertEqual(len(get("api/info")["terrain_layers"]), 2)
+        finally:
+            hm.stop()
+        from mcsm import cli
+        self.assertEqual(cli.parse_args(["history", "x", "--terrain", "newest"]).terrain, "newest")
+        self.assertEqual(cli.parse_args(["history", "x"]).terrain, "all")
+
     def test_highlights_store_and_export(self):
         import csv as _csv
         from mcsm import highlights as hl

@@ -94,13 +94,30 @@ keyframes) are allowed by Flashback's code, but nobody has opened one in-game ye
 The decoded paths use the same file format as live-map recordings, so they also work for
 timelapses: `mcsm timelapse … --tracks "%LOCALAPPDATA%\mcsm\paths"`.
 
-## Terrain
+## Terrain: the world as it was
 
-The landscape comes from the **newest** backup's world. Regions are read in parallel (one
-worker process per CPU core, up to 8), nearest to spawn and log-in spots first, and each
-finished region is cached in `%LOCALAPPDATA%\mcsm\terrain`. The owner's 1,569-region world takes
-about 30 seconds the first time and about 4 seconds after that. A region is read again only when
-its file changes, e.g. in a newer backup. The Nether surface is not drawn.
+When you load several backups, **each backup's world is a terrain layer**. With **Terrain:
+Follow the time slider** (the default) the map shows the newest backup taken at or before the
+time on the slider (before the first backup: the first one). Drag back to May and the land
+is as it was in May. Builds disappear and the explored area shrinks. Play forward and it
+switches over at each backup (the yellow lines on the timeline). The **Terrain** menu can
+also pin one backup, e.g. today's world under last spring's paths.
+
+- The newest backup is built first (it's also what you see while the rest load), then the
+  older ones, newest to oldest. The status line says how far it is.
+- Regions that didn't change between backups (same file, size and time) are read **once** and
+  shared, and switching backups only re-downloads the regions that differ. On the owner's
+  May and November backups, 595 of May's 1,158 regions were unchanged.
+- Regions are read in parallel (one worker process per CPU core, up to 8), nearest to spawn
+  and log-in spots first, and each finished region is cached in `%LOCALAPPDATA%\mcsm\terrain`.
+  The owner's 1,569-region world takes about 30 seconds the first time and about 4 seconds
+  after that.
+- Zip backups are unpacked (region files only) one at a time into a temporary folder that is
+  deleted once their terrain is built.
+- Each sample is one height and colour (`--terrain-detail`), so you see new buildings, cleared
+  land and new paths, not single blocks.
+- `--terrain newest` (or untick **Terrain from every backup** in the app) builds only the newest.
+- The Nether surface is not drawn.
 
 ## Options
 
@@ -113,6 +130,7 @@ its file changes, e.g. in a newer backup. The Nether surface is not drawn.
 | `--cache DIR` | where decoded paths are kept (default `%LOCALAPPDATA%\mcsm\paths`) |
 | `--http-port N` | local port (default 8766; the next free one is used if busy) |
 | `--terrain-detail auto\|1\|2\|4\|8\|16` | sample every N blocks |
+| `--terrain all\|newest` | terrain from every backup (default; changes with the time slider) or only the newest |
 | `--no-browser` | don't open the browser |
 | `--tz`, `--latest-log-date` | as for every command |
 

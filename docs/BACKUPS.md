@@ -43,7 +43,8 @@ the size) are never unpacked; world size and explored area are read from the zip
 list. A full replay is extracted only when it's actually needed (Flashback copies,
 timelapses). The temporary files are removed when the command ends or the app loads
 something else / closes. The live map extracts the newest backup's region files for its
-terrain.
+terrain. The history viewer extracts each backup's region files in turn (one backup at a
+time) to show the world as it was at each backup; see HISTORY.md.
 
 ## Backups tab (report)
 

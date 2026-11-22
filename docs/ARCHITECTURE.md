@@ -102,7 +102,8 @@ Flashback replays ──paths.decode_points (move_entities of the recorded playe
     <cache>/<hash>.jsonl  (live-map track format; reused on later runs)
 live-map recordings (--tracks) ─┐
                                 ├─ HistoryMap.paths (merged per current name, thinned) ──► /api/paths
-newest backup's regions ──TerrainServer (near spawn/log-ins first)──► /api/terrain/...
+each backup's regions ──TerrainServer layers (newest first; unchanged regions shared by tile key)──►
+    /api/terrain/<dim>?layer=N  (page swaps changed regions when the slider crosses a backup)
                                 ▼
                  history.html (three.js): time slider, markers at time T, trails, event pins,
                  timeline canvas (sessions, recordings, backups, events)

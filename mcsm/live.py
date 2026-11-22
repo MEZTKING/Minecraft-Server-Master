@@ -23,7 +23,7 @@ Pieces
 
       /                         the 3D viewer (mcsm/assets/web/live.html, three.js)
       /api/info                 server name, spawn, terrain build progress
-      /api/terrain/<dim>        tile list for a dimension
+      /api/terrain/<dim>        tile list for a dimension (``?layer=N``: an older backup's terrain)
       /api/terrain/<dim>/<rx>/<rz>   one tile: int16 heights + RGB bytes
       /api/state                latest snapshot
       /api/stream               Server-Sent Events, one message per poll
@@ -47,8 +47,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
-from urllib.parse import unquote, urlparse
+from typing import Any, Callable
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import terrain as terrain_mod
 from .rcon import RconClient, RconError
@@ -209,20 +209,35 @@ class _Track:
 
 class TerrainServer:
     """Terrain tiles from a downloaded world, built in the background (shared by the live map
-    and the history viewer). Needs ``root``, ``world``, ``terrain_step`` and ``_stop``."""
+    and the history viewer). Needs ``root``, ``world``, ``terrain_step`` and ``_stop``.
+
+    Tiles are kept in *layers*, one per backup: layer 0 is ``root`` (the newest), then one per
+    entry of :meth:`terrain_backups` (older backups, newest first). A region that is unchanged
+    between backups (same file name, size and time) is one shared tile, read once."""
 
     root: str | None
     world: str | None
     terrain_step: int | None
+    terrain_label: str = ""
+    terrain_time: int | None = None       # epoch ms of the newest layer (its backup's time)
+    terrain_cache: str | None = None      # None = terrain.default_cache_dir(); "" = no cache
+    terrain_workers: int | None = None    # None = automatic; 1 = no worker processes
 
     def _init_terrain(self) -> None:
-        self.terrain: dict[str, dict[tuple[int, int], terrain_mod.Tile]] = {}
+        self.terrain: dict[str, dict[tuple[int, int], terrain_mod.Tile]] = {}   # newest layer
         self.terrain_progress: dict[str, list[int]] = {}
+        self.tile_store: dict[str, terrain_mod.Tile | None] = {}               # key -> tile
+        self.terrain_layers: list[dict] = []
 
     def terrain_focus(self) -> list[tuple[float, float]]:
         """Block (x, z) points whose regions are built first (big worlds take a long time)."""
         sp = getattr(self, "spawn", None)
         return [(sp[0], sp[2])] if sp else []
+
+    def terrain_backups(self) -> list[dict]:
+        """Older backups to build terrain layers for: ``{"label", "t" (epoch ms), "path"}``,
+        newest first. None here; the history viewer adds them."""
+        return []
 
     def _ordered_regions(self, files: list[str]) -> list[str]:
         focus = self.terrain_focus()
@@ -237,50 +252,95 @@ class TerrainServer:
             return min(math.hypot(cx - x, cz - z) for x, z in focus)
         return sorted(files, key=dist)
 
-    terrain_cache: str | None = None      # None = terrain.default_cache_dir(); "" = no cache
-    terrain_workers: int | None = None    # None = automatic; 1 = no worker processes
+    def _new_layer(self, label: str, t: int | None) -> dict:
+        layer = {"id": len(self.terrain_layers), "label": label, "t": t, "tiles": {}, "progress": {},
+                 "done": False, "error": None}
+        self.terrain_layers.append(layer)
+        return layer
 
     def _build_terrain(self) -> None:
         if not (self.root and self.world):
             return
         cache = terrain_mod.default_cache_dir() if self.terrain_cache is None else (self.terrain_cache or None)
+        steps: dict[str, int] = {}
+        newest = self._new_layer(self.terrain_label, self.terrain_time)
+        if not self._build_layer(self.root, self.world, newest, cache, steps, main=True):
+            return
+        from . import source, world as world_mod
+        for b in self.terrain_backups():
+            if self._stop.is_set():
+                return
+            layer = self._new_layer(b.get("label") or "", b.get("t"))
+            try:
+                with source.open_server(b["path"], include_regions=True) as root:
+                    props = world_mod.read_properties(os.path.join(root, "server.properties"))
+                    if not self._build_layer(root, world_mod.world_dir(root, props), layer, cache, steps, main=False):
+                        return
+            except Exception as exc:  # noqa: BLE001 -- an unreadable old backup must not stop the viewer
+                layer["error"] = f"{type(exc).__name__}: {exc}"
+                layer["done"] = True
+
+    def _build_layer(self, root: str, world: str, layer: dict, cache: str | None,
+                     steps: dict[str, int], main: bool) -> bool:
+        """Fill one layer: tiles shared with layers built already, then cached tiles, then the
+        rest in worker processes. Returns False if stopped."""
         for dim in ("minecraft:overworld", "minecraft:the_end"):
-            files = self._ordered_regions(terrain_mod.region_files(self.root, self.world, dim))
+            files = self._ordered_regions(terrain_mod.region_files(root, world, dim))
             if not files:
                 continue
-            self.terrain_progress[dim] = [0, len(files)]
-            step = self.terrain_step or terrain_mod.auto_step(len(files))
+            prog = layer["progress"][dim] = [0, len(files)]
+            step = steps.setdefault(dim, self.terrain_step or terrain_mod.auto_step(len(files)))
+            keys: dict[tuple[int, int], str] = layer["tiles"].setdefault(dim, {})
             tiles: dict[tuple[int, int], terrain_mod.Tile] = {}
-            self.terrain[dim] = tiles
-            todo = []
-            for path in files:                 # cached tiles first: instant
+            if main:
+                self.terrain_progress[dim] = prog
+                self.terrain[dim] = tiles
+
+            def place(key: str, t, keys=keys, tiles=tiles, prog=prog) -> None:
+                self.tile_store[key] = t
+                if t:
+                    keys[(t.rx, t.rz)] = key
+                    if main:
+                        tiles[(t.rx, t.rz)] = t
+                prog[0] += 1
+
+            todo: dict[str, str] = {}            # path -> key
+            for path in files:
                 if self._stop.is_set():
-                    return
+                    return False
+                try:
+                    key = terrain_mod.tile_key(path, step)
+                except OSError:
+                    prog[0] += 1
+                    continue
+                if key in self.tile_store:
+                    place(key, self.tile_store[key])
+                    continue
                 found, t = (False, None)
                 if cache:
-                    try:
-                        found, t = terrain_mod.load_tile(terrain_mod.tile_cache_file(path, step, cache))
-                    except OSError:
-                        pass
+                    found, t = terrain_mod.load_tile(os.path.join(cache, key + ".tile"))
                 if found:
-                    if t:
-                        tiles[(t.rx, t.rz)] = t
-                    self.terrain_progress[dim][0] += 1
+                    place(key, t)
                 else:
-                    todo.append(path)
-            if todo and not self._read_parallel(todo, step, cache, tiles, dim):
-                return
+                    todo[path] = key
+            if todo and not self._read_parallel(todo, step, cache, place):
+                return False
+        layer["done"] = True
+        return True
 
-    def _read_parallel(self, files: list[str], step: int, cache: str | None, tiles: dict, dim: str) -> bool:
-        """Read regions in worker processes (pure-Python decoding is CPU-bound); falls back to
-        this thread if processes can't be started. Returns False if stopped."""
+    def _read_parallel(self, files: dict[str, str], step: int, cache: str | None,
+                       place: Callable[[str, Any], None]) -> bool:
+        """Read regions (*files*: path -> tile key) in worker processes (pure-Python decoding is
+        CPU-bound); falls back to this thread if processes can't be started. Returns False if
+        stopped."""
         workers = self.terrain_workers or max(1, min(8, (os.cpu_count() or 2) - 1))
-        if workers > 1 and len(files) > 2:
+        todo = list(files)
+        if workers > 1 and len(todo) > 2:
             from concurrent.futures import ProcessPoolExecutor, as_completed
             done: set[str] = set()
             try:
                 with ProcessPoolExecutor(max_workers=workers) as pool:
-                    futures = {pool.submit(terrain_mod.read_region_cached, p, step, cache): p for p in files}
+                    futures = {pool.submit(terrain_mod.read_region_cached, p, step, cache): p for p in todo}
                     for fut in as_completed(futures):
                         if self._stop.is_set():
                             pool.shutdown(wait=False, cancel_futures=True)
@@ -292,23 +352,32 @@ class TerrainServer:
                         except Exception:  # noqa: BLE001 -- one unreadable region must not stop the rest
                             t = None
                         done.add(futures[fut])
-                        if t:
-                            tiles[(t.rx, t.rz)] = t
-                        self.terrain_progress[dim][0] += 1
+                        place(files[futures[fut]], t)
                 return True
             except (OSError, RuntimeError, ImportError):
-                files = [p for p in files if p not in done]   # e.g. processes not allowed: finish here
-        for path in files:
+                todo = [p for p in todo if p not in done]   # e.g. processes not allowed: finish here
+        for path in todo:
             if self._stop.is_set():
                 return False
             try:
                 t = terrain_mod.read_region_cached(path, step, cache)
             except Exception:  # noqa: BLE001
                 t = None
-            if t:
-                tiles[(t.rx, t.rz)] = t
-            self.terrain_progress[dim][0] += 1
+            place(files[path], t)
         return True
+
+    def layer_tiles(self, dim: str, layer: int | None = None) -> dict:
+        """``(rx, rz) -> (key, tile)`` for one layer (default: the newest)."""
+        try:
+            L = self.terrain_layers[layer or 0]
+        except IndexError:
+            return {}
+        out = {}
+        for rc, k in list(L["tiles"].get(dim, {}).items()):
+            t = self.tile_store.get(k)
+            if t:
+                out[rc] = (k, t)
+        return out
 
     def height_at(self, x: float, z: float, dim: str = "minecraft:overworld") -> int | None:
         tiles = self.terrain.get(dim, {})
@@ -322,6 +391,11 @@ class TerrainServer:
     def terrain_info(self) -> dict:
         return {d: {"done": p[0], "total": p[1], "tiles": len(self.terrain.get(d, {}))}
                 for d, p in self.terrain_progress.items()}
+
+    def terrain_layers_info(self) -> list[dict]:
+        """Every layer with its progress per dimension (for the page's terrain menu)."""
+        return [{"id": L["id"], "label": L["label"], "t": L["t"], "done": L["done"], "error": L["error"],
+                 "progress": {d: list(p) for d, p in L["progress"].items()}} for L in self.terrain_layers]
 
 
 class _Server(ThreadingHTTPServer):
@@ -508,7 +582,9 @@ def _make_handler(live: LiveMap):
                 if path == "/api/info":
                     return self._json(live.info())
                 if path.startswith("/api/terrain/"):
-                    return self._terrain(path[len("/api/terrain/"):].split("/"))
+                    layer = parse_qs(urlparse(self.path).query).get("layer", [""])[0]
+                    return self._terrain(path[len("/api/terrain/"):].split("/"),
+                                         int(layer) if layer.isdigit() else None)
                 extra = getattr(live, "api_get", None)
                 if extra:                     # other apps (the history viewer) add their own routes
                     obj = extra(path)
@@ -558,14 +634,17 @@ def _make_handler(live: LiveMap):
             with open(full, "rb") as fh:
                 self._send(200, fh.read(), _STATIC_TYPES.get(os.path.splitext(full)[1], "application/octet-stream"))
 
-        def _terrain(self, parts: list[str]):
+        def _terrain(self, parts: list[str], layer: int | None = None):
             dim = parts[0]
-            tiles = live.terrain.get(dim, {})
+            tiles = live.layer_tiles(dim, layer)
             if len(parts) == 1:
-                return self._json({"dimension": dim, "tiles": [{"rx": t.rx, "rz": t.rz, "step": t.step, "size": t.size}
-                                                               for t in list(tiles.values())]})
+                layers = live.terrain_layers
+                L = layers[layer or 0] if (layer or 0) < len(layers) else None
+                return self._json({"dimension": dim, "layer": layer or 0, "done": bool(L and L["done"]),
+                                   "tiles": [{"rx": t.rx, "rz": t.rz, "step": t.step, "size": t.size, "k": k}
+                                             for k, t in tiles.values()]})
             try:
-                t = tiles[(int(parts[1]), int(parts[2]))]
+                _k, t = tiles[(int(parts[1]), int(parts[2]))]
             except (KeyError, ValueError, IndexError):
                 return self._send(404, b"no tile", "text/plain")
             import array

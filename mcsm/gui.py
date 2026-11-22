@@ -555,8 +555,11 @@ class App(ttk.Frame):
         ttk.Checkbutton(f, text="Also live-map positions from:", variable=self.hist_tracks_var).grid(row=2, column=0, sticky="w", pady=3)
         ttk.Entry(f, textvariable=self.hist_tracks_dir).grid(row=2, column=1, sticky="ew", padx=4)
         ttk.Button(f, text="Browse…", command=lambda: self._pick_dir(self.hist_tracks_dir)).grid(row=2, column=2, sticky="w")
+        self.hist_all_terrain_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f, text="Terrain from every backup (the map shows the world as it was at the time on the "
+                                "slider)", variable=self.hist_all_terrain_var).grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
         btns = ttk.Frame(f)
-        btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        btns.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.hist_start_btn = self._button(btns, "Open history viewer", self._history_start)
         self.hist_start_btn.pack(side="left")
         self.hist_open_btn = ttk.Button(btns, text="Open page", state="disabled",
@@ -566,7 +569,7 @@ class App(ttk.Frame):
         self.hist_stop_btn.pack(side="left")
         self.hist_status_var = tk.StringVar(value="Not running.")
         ttk.Label(f, textvariable=self.hist_status_var, foreground="gray", wraplength=660).grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         return f
 
     def _history_start(self) -> None:
@@ -577,6 +580,8 @@ class App(ttk.Frame):
             argv.append("--no-replays")
         if self.hist_tracks_var.get() and self.hist_tracks_dir.get().strip():
             argv += ["--tracks", self.hist_tracks_dir.get().strip()]
+        if not self.hist_all_terrain_var.get():
+            argv += ["--terrain", "newest"]
         args = cli.parse_args(argv)
         paths = [p.strip() for p in self.server_var.get().split(SEP.strip()) if p.strip()]
         newest = self.data.backups[-1]["path"] if self.data.backups else (paths[-1] if paths else None)

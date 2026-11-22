@@ -135,7 +135,8 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    recordings via `move_entities` (§8). Store them like live-map tracks (`.jsonl`). Build the
    3D time-machine viewer: time slider over all history, paths, events pinned in 3D, replay
    coverage, terrain from the nearest backup. Reuse `mcsm/live.py`'s web server and
-   `assets/web/live.html`.
+   `assets/web/live.html`. *(Phase 2b other players, highlights ("edit") and terrain per backup
+   are done too, 2026-11-21/22: the map shows each backup's world at its time.)*
 4. Ask the owner to test the **Flashback markers and timelapse** in real Flashback (never done:
    formats were verified from source only). Ask for their Flashback version.
 5. Ask what **"edit"** should mean in the unified view (notes? highlight marking for video?

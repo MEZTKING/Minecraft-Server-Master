@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-21 (first check against the owner's real backup; renamed players merged).
+`CLAUDE.md`). Last updated: 2026-11-22 (history viewer: terrain from every backup).
 
 ## What this project is
 
@@ -62,6 +62,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Merge many backups (any versions) into one history; Backups tab with progress over time; server-version timeline | ✅ Done, not yet tried on the owner's backups | `mcsm/archive.py`, all commands, app *+ Add backup* | `docs/BACKUPS.md` |
 | Selective zip reading (no region unpacking; replay stubs) | ✅ Done | `mcsm/source.py` | `docs/BACKUPS.md` |
 | "Everything as one recording" 3D time-machine map (Phase 2a): time slider, recorded player's path from Flashback recordings (cached), log-in positions, events pinned in 3D, sessions + replay coverage timeline, playback, app History tab | ✅ Done, checked on the owner's real backup (216 recordings) | `mcsm/paths.py`, `history.py`, `assets/web/history.html`, `mcsm history`, app History tab | `docs/HISTORY.md` |
+| History viewer terrain per backup: the map shows the world as it was at the time on the slider (next backup saved at or after it), or one pinned backup; unchanged regions shared | ✅ Done, checked on the owner's May + November backups | `mcsm/live.py` (`TerrainServer` layers), `history.py`, `assets/web/history.html`, `--terrain`, app checkbox | `docs/HISTORY.md` |
 | Highlights for videos: mark spans in the history viewer; export Flashback copies with start/end markers + one export-range scene per highlight, and a CSV clip list | ✅ Done, not yet tried in a real Flashback | `mcsm/highlights.py`, `history.py`, `assets/web/history.html` | `docs/HISTORY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
@@ -167,7 +168,8 @@ in my backup file as if its one recording"
   unknown versions: stop 1 min after the last move). On the real backup: ~50,000 extra points
   for 6 players across 216 recordings (3.5 min); vs. the same players' own recordings at
   47,626 moments the median gap is 1.2 blocks, 99.9% within 20 (rest = teleports).
-  **Still to do:** terrain per backup (see the world change); terrain speed
+  **Terrain per backup: done 2026-11-22** (one terrain layer per backup; see changelog).
+  **Still to do (older list):** terrain per backup (see the world change); terrain speed
   for big worlds (1,569 regions take well over an hour; cache tiles or a faster reader);
   "edit" (the owner's open question); open Flashback at the moment directly; Nether surface.
   (Terrain speed: done 2026-11-21, 1,569 regions in ~30 s, ~4 s cached.)
@@ -354,6 +356,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-21 | Region seams are stitched in the browser, not by resampling on the server | Tiles stay independent and cacheable per region; the page joins neighbours as they arrive |
 | 2026-11-21 | Web servers don't set SO_REUSEADDR on Windows | There it lets a second server silently take a busy port |
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
+| 2026-11-22 | Terrain per backup: "follow the time slider" shows the first backup saved **at or after** the slider time (after the last: the newest) | It contains everything built up to that moment; "the last backup before" showed the May world for almost all of May–November on the owner's server |
+| 2026-11-22 | Terrain layers share tiles by key (file name + size + mtime + step); older backups are built after the newest, one at a time | Unchanged regions are read once (595 of May's 1,158 on the real backups); zip backups are unpacked one at a time to limit disk use |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -361,6 +365,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - **Flashback files not yet opened in a real Flashback.** The marker and editor-state formats
   were verified by reading Flashback's source (master, Nov 2026), not by running it. If a
   timeline doesn't load, Flashback logs `Error loading editor state`.
+- Terrain per backup is coarse (one height/colour sample every 8–16 blocks on big worlds), so
+  single new blocks don't show; whole builds, cleared land and newly explored areas do. With
+  backups far apart, the world jumps at each backup rather than changing gradually.
 - Timelapse over many days fast-forwards idle time at very high tick rates; Flashback export of
   such spans may be slow (not measured).
 - Timelapse needs a Flashback replay; ReplayMod timelapses not supported yet.
@@ -384,6 +391,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** **History viewer: terrain from every backup.** Each loaded backup becomes a
+  terrain layer; the map follows the time slider (the first backup saved at or after that time)
+  or a backup chosen in the new **Terrain** menu. Regions unchanged between backups are read
+  once, and switching only re-downloads changed regions (seams rebuilt around them). New
+  `--terrain all|newest` option and app checkbox. Tested on the owner's May and November
+  backups: both layers built in 35 s from an empty cache. 454 of May's regions differ from
+  November; in May the far north-west is still unexplored. `/api/terrain/<dim>?layer=N`.
 
 - **2026-11-21:** **Highlights for videos** in the history viewer (Start/End with `I`/`O`, list,
   play, edit, delete; timeline bands) and **Export to Flashback** (replay copies with
