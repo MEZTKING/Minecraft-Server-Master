@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (Flashback link 0.2: live JPEG stream and playing in Flashback; edit picker).
+`CLAUDE.md`). Last updated: 2026-11-22 (owner's direction: native Flashback add-on, event finder, history start to finish; backlog 0q-0s).
 
 ## What this project is
 
@@ -603,6 +603,64 @@ open it in the editor (works today).
   camera moves, or is the goal only to avoid the round trip for texts and music? Which Flashback
   features matter most to have in the editor (camera keyframes, timelapse, orbit/follow cameras)?
 
+### 0q. A native Flashback add-on instead of the bridge (raised 2026-11-22)
+
+**The ask (after trying the real view):** "tried it its not great, lets just make a mod for flashback so"
+… "instead of using a bridge for flashback is it possible to make it all native or what do you think."
+
+**Why:** the browser editor + link mod streams pictures between two programs; the owner finds it
+clunky and it costs resources. Inside Flashback everything is already there: the real picture, real
+playback, its own camera tools and export.
+
+**Proposed design:** the companion mod grows into a **Flashback add-on**: an extra "Minecraft Server
+Master" window inside Flashback's own editor (Flashback draws its editor with ImGui; the add-on adds a
+window in the same frame through a small mixin, since Flashback has no plug-in API).
+- **Events**: the server's history for the open recording (chat, joins, deaths, advancements, the
+  "important events" of 0r) as a list and as marks on Flashback's timeline; click = jump there.
+- **Texts in the world, live**: add / move / edit the same texts as the app's editor (lines, size,
+  colour, border, animation, place, follow a player) and see them in the real picture immediately (the
+  mod spawns the text displays in the replay's world on the client); "Save" writes them into the
+  recording copy the same way the app does now, so exports include them.
+- **Music**: choose the song, see beats on Flashback's timeline (markers), snap camera keyframes to beats.
+- The app keeps the library, the history, the event finder and the project files; the add-on reads a
+  small per-recording file the app writes next to the replay (events, texts, song), so no live bridge.
+- **Risks:** Flashback internals change between versions (the add-on must be checked against each
+  Flashback update; it fails safe and only disables its window); ImGui-in-Flashback work is Java.
+- **Open questions:** which first inside Flashback: events, texts or music? Keep the browser editor for
+  on-screen texts/pictures on finished videos (it works without Minecraft)?
+
+### 0r. Find the important events in all recordings (raised 2026-11-22)
+
+**The ask:** "is there a way to use the recordings to make any use of it. i want to edit all important
+events, so organising that files so far were important."
+
+**Proposed design:** an **event finder** over the whole library (3,177 recordings, 15 backups, the logs):
+- Candidates, each with a time span and the players involved: deaths and what killed them, first joins
+  and new players, advancements (rare ones ranked higher), boss fights, many players together in one
+  place, long chat conversations, big builds appearing between two backups (block changes), first
+  visits to the Nether/End, sessions with the most activity.
+- Each event gets a score; the owner sees a ranked list with filters (player, kind, date) and ticks the
+  ones to keep: they become **highlights** (0c), so they get Flashback copies with markers and one ready
+  scene per event in every recording that covers it (each player's point of view).
+- Organised in the library: `Events/<date> <title>/` with the clip list and links to the recordings.
+- **Open questions:** which kinds matter most? How long before/after each event? One video per event or
+  a compilation per day/week?
+
+### 0s. The whole server history, start to finish (raised 2026-11-22)
+
+**The ask:** "as the live map stands i guess you can make that a seperate thing where you can see
+everything that happens sequentuilly form the beginning until the end".
+
+**What exists:** the history viewer (*Open history viewer*) already shows all loaded backups as one
+timeline with player paths, events and highlights, and each backup's world at its time.
+
+**Proposed design:** make it its own window/entry ("Server history"), separate from the live map, that
+loads the whole library by itself and can **play from the very beginning to the end**: speed control
+(1 minute per day, skip quiet hours), an event feed alongside, follow a player, jump to the next important
+event (0r), mark highlights while watching.
+- **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
+  automatically?
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -828,6 +886,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Owner tried the real view (link 0.2): "its not great". Logged their direction in the
+  backlog: a native Flashback add-on instead of the bridge (0q), an event finder over all recordings
+  (0r), the whole server history from start to finish as its own viewer (0s).
 
 - **2026-11-22:** Edit picker: the scene selected inside an edit is marked "(current scene)" only when the
   edit has several scenes ("open in Flashback" was read as the replay open right now).
