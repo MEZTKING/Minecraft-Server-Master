@@ -16,6 +16,9 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   POST /api/make            {"target": "world"|"video", "items": [...], "match": i}  make all of them
   POST /api/image           {"name": "logo.png", "data": base64}  keep a picture for the project
   GET  /image/<file>        a picture kept for the projects
+  POST /api/music           {"name": "song.mp3", "data": base64}  keep a song for the project
+  POST /api/beats           {"file": name}  detect its tempo and first beat
+  GET  /music/<file>        a song kept for the projects (played along in the page)
 
 Projects are kept in ``%LOCALAPPDATA%/mcsm/video-text/`` (one file per video), never next to the video.
 """
@@ -84,9 +87,60 @@ class VideoEditor:
     def image_dir(self) -> str:
         return os.path.join(os.path.dirname(self.project_file()), "images")
 
+    def music_dir(self) -> str:
+        return os.path.join(os.path.dirname(self.project_file()), "music")
+
+    def song_path(self, name: str) -> str:
+        name = os.path.basename(str(name or ""))
+        full = os.path.join(self.music_dir(), name)
+        if not name or not os.path.isfile(full):
+            raise ValueError("the song isn't there any more: choose it again")
+        return full
+
+    def add_music(self, body: dict) -> dict:
+        """Keep a song the page sent (a copy; your file isn't touched). Returns its name and length."""
+        import base64
+        from . import videomusic as vm
+        ext = os.path.splitext(str(body.get("name") or ""))[1].lower()
+        if ext not in vm.SONG_TYPES:
+            raise ValueError("songs can be MP3, OGG, WAV, FLAC, OPUS, M4A or AAC")
+        try:
+            data = base64.b64decode(str(body.get("data") or ""), validate=True)
+        except ValueError:
+            raise ValueError("the song didn't arrive in one piece")
+        if not data:
+            raise ValueError("empty song")
+        name = hashlib.sha1(data).hexdigest()[:16] + ext
+        d = self.music_dir()
+        os.makedirs(d, exist_ok=True)
+        full = os.path.join(d, name)
+        if not os.path.exists(full):
+            with open(full + ".part", "wb") as fh:
+                fh.write(data)
+            os.replace(full + ".part", full)
+        return {"file": name, "duration": vt.video_duration(full)}
+
+    def beats(self, body: dict) -> dict:
+        from . import music as mus
+        g = mus.detect_beats(self.song_path(body.get("file")))
+        return {"bpm": g.bpm, "first_beat": g.first_beat, "confidence": g.confidence, "length": g.song_length}
+
+    def music_for(self, music: dict | None) -> dict | None:
+        """The project's song settings with the song's real path (None: no song)."""
+        if not music or not music.get("file"):
+            return None
+        return {**music, "file": self.song_path(music["file"])}
+
     def file_for(self, path: str) -> str | None:
         if path == "/video":
             return self.video
+        if path.startswith("/music/"):
+            from . import videomusic as vm
+            name = path[len("/music/"):]
+            if name and name == os.path.basename(name) and os.path.splitext(name)[1].lower() in vm.SONG_TYPES:
+                full = os.path.join(self.music_dir(), name)
+                return full if os.path.isfile(full) else None
+            return None
         if path.startswith("/image/"):
             name = path[len("/image/"):]
             if name and name == os.path.basename(name) and os.path.splitext(name)[1].lower() in self.IMAGE_TYPES:
@@ -234,7 +288,8 @@ class VideoEditor:
              "animation": "pop"}]}
 
     def save_project(self, body: dict) -> dict:
-        data = {"video": self.video, "match": int(body.get("match", 0)), "items": list(body.get("items") or [])}
+        data = {"video": self.video, "match": int(body.get("match", 0)), "items": list(body.get("items") or []),
+                "music": body.get("music") if isinstance(body.get("music"), dict) else None}
         p = self.project_file()
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p + ".tmp", "w", encoding="utf-8") as fh:
@@ -257,6 +312,10 @@ class VideoEditor:
             return self._start(body)
         if path == "/api/image":
             return self.add_image(body)
+        if path == "/api/music":
+            return self.add_music(body)
+        if path == "/api/beats":
+            return self.beats(body)
         return None
 
     def _start(self, body: dict) -> dict:
@@ -289,14 +348,19 @@ class VideoEditor:
         self.save_project(b)
         if b.get("target") == "world":
             match = self.vinfo["matches"][int(b.get("match", 0))]
+            music = self.music_for(b.get("music"))
             r = vt.make_items_in_world(match, items, self.video, progress=say,
-                                       players=self.players_map(int(b.get("match", 0))))
+                                       players=self.players_map(int(b.get("match", 0))),
+                                       music=music, music_dir=self.music_dir())
             say(("Replaced" if r.get("replaced") else "Made") + f" '{r['name']}' in {r['flashback']}")
-            return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False)}
+            return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False),
+                    "beats": r.get("beats", 0), "music_warning": r.get("music_warning", "")}
         m = self.vinfo["matches"][int(b.get("match", 0))] if self.vinfo["matches"] else {}
         out = vt.make_items_on_screen(self.video, items, self.vinfo["duration"],
                                       max(0.0, self.vinfo["duration"] - 4), progress=say,
-                                      image_dir=self.image_dir(), still_from=m.get("still_from"))
+                                      image_dir=self.image_dir(), still_from=m.get("still_from"),
+                                      music=(lambda mu: mu if mu and mu.get("on_video") else None)(
+                                          self.music_for(b.get("music"))))
         say(f"Made {out}")
         return {"video": out}
 

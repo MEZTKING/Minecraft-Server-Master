@@ -495,13 +495,15 @@ def _plan_entity(eid: int, t: WorldText, add_id: int, data_id: int, type_id: int
 
 
 def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)",
-                          keep_uuid: str | None = None, video: str | None = None) -> dict:
+                          keep_uuid: str | None = None, video: str | None = None,
+                          markers: dict | None = None) -> dict:
     """Copy a Flashback recording with *texts* placed in its world. The original isn't changed.
     Returns the copy's metadata (new uuid; ``original_uuid_mcsm`` = the original's).
 
     *dst* may be an earlier copy that is being replaced: it is only swapped for the new file once
     that is complete. *keep_uuid* gives the copy that id (so Flashback keeps its edit for it);
-    *video* is remembered in the copy (``mcsm_video``) to find it again."""
+    *video* is remembered in the copy (``mcsm_video``) to find it again. *markers* ``{tick: {colour,
+    description}}`` are added to the copy's timeline markers (the recording's own ones are kept)."""
     if os.path.abspath(src) == os.path.abspath(dst):
         raise ValueError("refusing to overwrite the original recording")
     with zipfile.ZipFile(src) as zin:
@@ -578,6 +580,11 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
             meta["mcsm_video"] = os.path.normcase(os.path.abspath(video))
         meta["name"] = (meta.get("name") or "Replay") + name_suffix
         meta["mcsm_world_text"] = [t.__dict__ for t in texts_in]
+        if markers:
+            merged = dict(meta.get("markers") or {})
+            for k, v in markers.items():
+                merged.setdefault(str(k), v)           # never replace a marker of the recording itself
+            meta["markers"] = merged
         os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         tmp = dst + ".part"
         chunks = 0

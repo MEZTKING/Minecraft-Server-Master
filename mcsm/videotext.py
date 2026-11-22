@@ -598,9 +598,24 @@ def image_filters(images: list[dict], width: int, height: int, first_input: int 
     return chains, cur
 
 
-def burn_in(video: str, ass_text: str, out: str, progress=None, images: list[dict] | None = None) -> str:
-    """Make a copy of *video* with the texts (and *images*, see :func:`image_filters`) drawn in
-    (the original is never changed)."""
+def has_audio(video: str) -> bool:
+    """Whether *video* has a sound track (assumed yes without ffprobe)."""
+    probe = find_tool("ffprobe")
+    if not probe:
+        return True
+    try:
+        out = subprocess.run([probe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of",
+                              "csv=p=0", video], capture_output=True, text=True, timeout=60).stdout
+        return bool(out.strip())
+    except (OSError, subprocess.SubprocessError):
+        return True
+
+
+def burn_in(video: str, ass_text: str, out: str, progress=None, images: list[dict] | None = None,
+            music: dict | None = None) -> str:
+    """Make a copy of *video* with the texts (and *images*, see :func:`image_filters`) drawn in and
+    optionally a song mixed in (*music*, see :func:`videomusic.audio_args`). The original is never
+    changed."""
     import tempfile
     ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
@@ -617,21 +632,31 @@ def burn_in(video: str, ass_text: str, out: str, progress=None, images: list[dic
             fh.write(ass_text)
         part = out + ".part.mp4"
         has_text = "Dialogue:" in ass_text
+        inputs, chains, cur = [], [], "0:v"
         if images:
             size = video_size(video) or (1920, 1080)
-            inputs = []
             for im in images:
                 gif = os.path.splitext(im["file"])[1].lower() == ".gif"
                 inputs += (["-ignore_loop", "0"] if gif else ["-loop", "1"]) + ["-i", os.path.abspath(im["file"])]
             chains, cur = image_filters(images, size[0], size[1])
-            if has_text:
-                chains.append(f"[{cur}]ass=t.ass[out]")
-                cur = "out"
-            graph = ["-filter_complex", ";".join(chains), "-map", f"[{cur}]", "-map", "0:a?"]
+        audio_map, acodec, achains = ["-map", "0:a?"], ["-c:a", "copy"], []
+        if music:
+            from . import videomusic as vm
+            ins, achains, alabel = vm.audio_args(music, 1 + len(images or []), has_audio(video))
+            inputs += ins
+            audio_map, acodec = ["-map", f"[{alabel}]"], ["-c:a", "aac", "-b:a", "256k"]
+        if has_text and (images or music):
+            chains.append(f"[{cur}]ass=t.ass[out]")
+            cur = "out"
+        chains += achains
+        if chains:
+            graph = ["-filter_complex", ";".join(chains), "-map", "0:v" if cur == "0:v" else f"[{cur}]", *audio_map]
         else:
-            inputs, graph = [], ["-vf", "ass=t.ass"]
+            graph = ["-vf", "ass=t.ass"]
+        if music and total:
+            graph += ["-t", f"{total:.3f}"]          # the song alone mustn't make the video longer
         cmd = [ffmpeg, "-v", "error", "-y", "-i", os.path.abspath(video), *inputs, *graph,
-               *pick_encoder(ffmpeg), "-pix_fmt", "yuv420p", "-c:a", "copy", "-progress", "pipe:1", "-nostats",
+               *pick_encoder(ffmpeg), "-pix_fmt", "yuv420p", *acodec, "-progress", "pipe:1", "-nostats",
                os.path.abspath(part)]
         proc = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         last = -1
@@ -883,7 +908,7 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
 
 
 def write_world_copy(match: dict, texts: list, video: str | None = None, flashback_dir: str | None = None,
-                     progress=None) -> dict:
+                     progress=None, markers: dict | None = None, song: tuple[str, int] | None = None) -> dict:
     """Write the Flashback copy of the matched recording with all *texts* in its world (one copy per
     video: an earlier copy for *video* is replaced, its edit kept)."""
     from . import flashback as fbm, worldtext as wt
@@ -911,12 +936,14 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
             dst = os.path.join(fb, "replays", f"{base} {n}.zip")
             n += 1
         say(f"Writing a copy of {os.path.basename(src)} with the text in its world…")
-    meta = wt.write_world_text_copy(src, dst, texts, keep_uuid=keep, video=video)
+    meta = wt.write_world_text_copy(src, dst, texts, keep_uuid=keep, video=video, markers=markers)
     edit_path = os.path.join(fb, "editor_states", meta["uuid"] + ".json")
     if os.path.exists(edit_path):
         edit = edit_path                              # keep your edit of the earlier copy as it is
     else:
         edit = wt.copy_edit(match["state"], edit_path, match["uuid"], (match["start"], match["end"]))
+    from . import videomusic as vm
+    vm.set_audio_track(edit, song[0] if song else None, song[1] if song else 0)   # only the app's song track
     return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb,
             "replaced": bool(earlier)}
 
@@ -991,7 +1018,8 @@ def resolve_times(items: list[dict], duration: float, default_start) -> list[dic
 
 
 def make_items_in_world(match: dict, items: list[dict], video: str | None = None, flashback_dir: str | None = None,
-                        progress=None, players: dict | None = None) -> dict:
+                        progress=None, players: dict | None = None, music: dict | None = None,
+                        music_dir: str | None = None) -> dict:
     """All 'in the world' texts of an editor project in one Flashback copy (each with its own time,
     place, animation and look). *players* ``{16-byte uuid: name}`` is needed for texts that follow a
     player."""
@@ -1027,14 +1055,26 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
                                turn=float(it["turn"]), tilt=float(it["tilt"]), depth=float(it["depth"]),
                                italic=bool(it["italic"]), underline=bool(it["underline"]))
         texts += t
-    if not texts:
-        raise ValueError("there are no 'in the world' texts")
-    return write_world_copy(match, texts, video, flashback_dir, progress)
+    markers, song, warning = None, None, ""
+    if music and music.get("file"):
+        from . import videomusic as vm
+        say = progress or (lambda m: None)
+        say("Lining the song and its beats up with the edit...")
+        mp = vm.plan(match, music, music_dir or os.path.dirname(os.path.abspath(music["file"])))
+        markers, song, warning = mp["markers"], (mp["path"], mp["tick"]), mp["warning"]
+        say(f"Song at replay tick {mp['tick']}, {len(markers)} beat markers"
+            + (f" ({mp['bpm']:.1f} BPM)" if mp.get("bpm") else ""))
+        if warning:
+            say("Note: " + warning)
+    if not texts and not song:
+        raise ValueError("there are no 'in the world' texts and no song")
+    r = write_world_copy(match, texts, video, flashback_dir, progress, markers=markers, song=song)
+    return {**r, "music_warning": warning, "beats": len(markers or {})}
 
 
 def make_items_on_screen(video: str, items: list[dict], duration: float, default_start: float = 0.0,
                          out: str | None = None, progress=None, image_dir: str | None = None,
-                         still_from: float | None = None) -> str:
+                         still_from: float | None = None, music: dict | None = None) -> str:
     """All 'on the video' texts and images of an editor project drawn into one new copy of *video*.
     Image items name a file in *image_dir* (where the editor keeps the pictures you added)."""
     size = video_size(video) or (1920, 1080)
@@ -1066,14 +1106,14 @@ def make_items_on_screen(video: str, items: list[dict], duration: float, default
                                 underline=bool(it["underline"])):
             ti.font = it["font"]
             titles.append(ti)
-    if not titles and not images:
-        raise ValueError("there are no 'on the video' texts or pictures")
+    if not titles and not images and not music:
+        raise ValueError("there are no 'on the video' texts, pictures or song")
     if out is None:
         stem, ext = os.path.splitext(video)
         out, n = f"{stem} (with text){ext}", 2
         while os.path.exists(out):
             out, n = f"{stem} (with text {n}){ext}", n + 1
-    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress, images=images)
+    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress, images=images, music=music)
 
 
 def find_text_copy(flashback_dir: str, video: str) -> dict | None:

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (editor: opacity, rotation, facing, 3D letters, rise/slam, chained texts, pictures; Videos tab slimmed down to the live editor; Flashback audio/add-on research).
+`CLAUDE.md`). Last updated: 2026-11-22 (editor music: song on Flashback's audio track + beat markers + in the made video; owner's idea: Flashback editing inside the editor).
 
 ## What this project is
 
@@ -75,6 +75,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | App Videos tab: pick a finished video -> edit (also when changed after export) + recording + still ending found; big/small title in the world (Flashback copy + edit with the video's export range) or burned onto a copy (Minecraft Ten font, black border or 3D; hardware encoder when it really works); preview | ✅ Done; checked on the owner's welcome clip (edit found 0.2 s, camera still from 57.65 s) | `mcsm/videotext.py` (`analyse_video`, `make_in_world`, `make_on_screen`), `worldtext.py` (border), `library.recording_uuids`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Music in the editor: song plays along, tempo detected, beats on the timeline; song on Flashback's AUDIO track of the copy's edit + a marker per beat/bar; mixed into the made video | ✅ Done; checked in the page on the owner's clip (song in sync) and in tests; not yet opened in Flashback | `mcsm/videomusic.py`, `videotext.py` (`make_items_in_world`, `burn_in`), `videoeditor.py` (`/api/music`, `/api/beats`), `videotext.html` | `docs/VIDEO_TEXT.md` |
 | Editor extras: opacity, rotate, facing (camera / upright / fixed like a sign, turn, tilt), 3D depth, italic, underline, rise and slam animations, chained follow-ups with any gap, "lasts" seconds, pictures on the video (opacity, rotate, fade/rise); app Videos tab now only picks the video | ✅ Done; on-screen results checked frame by frame with ffmpeg; in-world rotation/facing/3D/rise not yet seen in Flashback | `worldtext.py` (`translation_of`, `quaternion_of`, `with_depth`, `transform_packet`), `videotext.py` (`resolve_times`, `image_filters`), `videoeditor.py` (`/api/image`), `videotext.html`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
@@ -554,6 +555,34 @@ chains of any length, moving the first moves the chain) and "lasts N seconds"; p
   the beat detection, so camera moves can be lined up with the beat in Flashback itself. Open questions:
   which song file and where it starts; markers on every beat or every bar; with timelapse parts the
   song's pitch changes in Flashback, so the beat-synced setup is meant for normal-speed edits.
+  ✅ **Done 2026-11-22** (owner: "Yes, build it"): song + start + "from song" + tempo (detected or typed)
+  + markers every beat / every bar / none; the page plays it along and shows beats on the timeline; also
+  mixable into the made video.
+
+### 0p. Flashback editing inside the editor (raised 2026-11-22)
+
+**The ask:** "or you can just make the flashback also part of the editor" (after the music question:
+do everything in one place instead of export → editor → Flashback → export).
+
+**What's possible:** the app can't draw Minecraft frames itself (only Minecraft/Flashback can), so the
+editor's picture of the scene comes from either an exported video or the app's own 3D map (terrain from
+the library backups, player paths from the recordings, as in the history viewer). The edit itself
+(camera keyframes, speed/timelapse, audio, markers, export range) is plain JSON the app already reads
+and writes.
+
+**Proposed design:**
+- **Open the editor on a Flashback edit, no export needed:** the page shows the 3D map with the camera
+  path of the edit (its keyframes as points along a line, the view cone at the playhead) and the
+  players' paths; texts, song and beats are placed on the same timeline in replay time. A low-quality
+  "map preview" plays the camera through the map so timing can be judged before any export.
+- **Edit the camera there:** add / move / delete camera keyframes on the map and the timeline, snap them
+  to beats, set speed-ups; write them into the app's copy of the edit. Flashback still renders: open
+  the copy, check, Export. After an export the editor switches to the real video picture again.
+- **Phase 1** (smaller): open from an edit, map + camera path + timeline, texts/song/beats, write to
+  Flashback. **Phase 2:** camera keyframe editing and snapping to beats.
+- **Open questions for the owner:** is the map preview (blocky terrain, no textures) enough to judge
+  camera moves, or is the goal only to avoid the round trip for texts and music? Which Flashback
+  features matter most to have in the editor (camera keyframes, timelapse, orbit/follow cameras)?
 
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
@@ -708,6 +737,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | A video's edit may have changed after exporting: edits saved after the video whose export start fits are offered as "probable", with the range that gives the video's length | The owner lengthened the welcome clip's edit after exporting it |
 | 2026-11-22 | Text borders in the world are black text displays just behind the text | Text displays have only a drop shadow; the owner wanted white blocky text with black borders |
 | 2026-11-22 | Test builds for the updater go to a public pre-release `latest-build` (fixed file name + build.json with SHA-256) | Actions artifacts need a GitHub sign-in to download; the app must update without one |
+| 2026-11-22 | The song goes on Flashback's AUDIO track as a copy kept in the app's folder (cut/converted to .ogg with ffmpeg when it should start part-way); beat markers are replay markers named "♪ …" | Flashback stores only a file path per audio keyframe; a copy keeps the edit working when the original song moves |
 | 2026-11-22 | All text controls live in the live editor; the app's Videos tab only picks the video | Owner: "remove the options for adding text through the app since now we have a live editor" |
 | 2026-11-22 | Turned texts in the world turn about the middle of the whole text: translation = P - R(P) + R(offset) | The display's own pivot is the text's foot; a multi-line title must turn as one |
 | 2026-11-22 | No companion mod inside Flashback for now; music via Flashback's own AUDIO track + beat markers proposed instead | Flashback has no add-on API and a hard-coded keyframe format (from its source) |
@@ -741,6 +771,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   future Minecraft version, the add/remove packet ids in `paths.ADD_ENTITY` /
   `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
+- **Song and beat markers not yet opened in Flashback.** The AUDIO keyframe and marker formats come from
+  Flashback's source (adapters quoted) and the owner's own edit files; detection on a click track gives
+  119.45 BPM for 120 (good enough to line up; type the BPM if it drifts over a long song).
 - **In-world rotation, "one way, like a sign", 3D depth, rise/slam not yet watched in Flashback.** Built
   from the game's data formats (indices and serializers from its jars) and the renderer's maths; the
   direction of Rotate and the side a fixed sign faces are the parts most likely to need a sign flip.
@@ -757,6 +790,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Editor **music**: choose a song (kept as a copy), it plays along in the page; tempo and
+  first beat detected (`music.detect_beats`) or typed; bars/beats drawn on the timeline. "Put world texts
+  & song in Flashback" puts the song on an AUDIO track named `mcsm music` in the copy's edit
+  (`videomusic.set_audio_track`, only the app's track is replaced) and replay markers on every beat or
+  bar, lined up through the edit's time mapping (`videomusic.plan`), with a warning for sped-up parts.
+  "Make the video" can mix the song in (`videomusic.audio_args`, `amix`, never longer than the video).
+  A copy can now be made with only a song (no texts). Owner's new idea logged as backlog 0p.
 
 - **2026-11-22:** Editor: **opacity, rotate, facing, 3D letters, italic/underline, rise and slam,
   chained follow-ups, "lasts", pictures**. World: display translation + left-rotation quaternion about

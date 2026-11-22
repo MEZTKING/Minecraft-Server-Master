@@ -2868,3 +2868,125 @@ class TestAdvancedText(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestVideoMusic(unittest.TestCase):
+    """The song on Flashback's AUDIO track of the copy's edit, beat markers, and the song in a made video."""
+
+    def _setup(self, tmp):
+        fb = os.path.join(tmp, "fb")
+        os.makedirs(os.path.join(fb, "editor_states"))
+        os.makedirs(os.path.join(fb, "replays"))
+        state = os.path.join(fb, "editor_states", "orig.json")
+        cam = {"position": [0, 64, 0], "yaw": 0, "pitch": 0, "type": "camera"}
+        with open(state, "w") as fh:
+            json.dump({"sceneIndex": 0, "scenes": [{"name": "S", "exportStartTicks": 100, "exportEndTicks": 300,
+                                                    "keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True,
+                                                                        "keyframesByTick": {"100": cam, "300": cam}}]}]}, fh)
+        rec = os.path.join(tmp, "orig.zip")
+        with zipfile.ZipFile(rec, "w") as zf:
+            zf.writestr("metadata.json", json.dumps({"uuid": "orig", "protocol_version": 775, "total_ticks": 300,
+                                                     "version_string": "26.1.2", "markers": {"150": {"colour": 1,
+                                                                                                     "description": "mine"}},
+                                                     "chunks": {"c0.flashback": {"duration": 300}}}))
+            zf.writestr("c0.flashback", TestWorldTextTiming._chunk(300))
+        match = {"recording": rec, "state": state, "scene": 0, "uuid": "orig", "start": 100, "end": 300,
+                 "still_from": None}
+        return fb, match
+
+    def test_song_and_beats_in_flashback(self):
+        from mcsm import videotext as vt, videomusic as vm
+        tmp = tempfile.mkdtemp()
+        try:
+            fb, match = self._setup(tmp)
+            songf = os.path.join(tmp, "song.ogg")
+            with open(songf, "wb") as fh:
+                fh.write(b"OggS fake")
+            music = {"file": songf, "start": 1.0, "offset": 0, "bpm": 120, "first_beat": 0.25, "markers": "beats"}
+            r = vt.make_items_in_world(match, [], os.path.join(tmp, "clip.mp4"), fb, music=music,
+                                       music_dir=os.path.join(tmp, "music"))
+            with zipfile.ZipFile(r["replay"]) as zf:
+                meta = json.loads(zf.read("metadata.json"))
+            marks = meta["markers"]
+            self.assertEqual(marks["150"]["description"], "mine")              # the recording's own marker kept
+            ours = {int(k): v for k, v in marks.items() if v["description"].startswith(vm.MARK)}
+            # video 1.25 s = tick 125, then every 0.5 s (10 ticks) until the end of the video (tick 300)
+            self.assertEqual(sorted(ours)[:3], [125, 135, 145])
+            self.assertEqual(ours[125]["colour"], vm.BAR_COLOUR)
+            self.assertEqual(ours[135]["colour"], vm.BEAT_COLOUR)
+            self.assertEqual(r["beats"], len(ours))
+            with open(r["edit"], encoding="utf-8") as fh:
+                edit = json.load(fh)
+            audio = [t for t in edit["scenes"][0]["keyframeTracks"] if t["keyframeType"] == "AUDIO"]
+            self.assertEqual(len(audio), 1)
+            (tick, kf), = audio[0]["keyframesByTick"].items()
+            self.assertEqual(tick, "120")                                       # video 1.0 s
+            self.assertEqual((kf["type"], kf["interpolation_type"]), ("audio", "LINEAR"))
+            self.assertTrue(os.path.isabs(kf["path"]) and os.path.isfile(kf["path"]))
+            self.assertNotEqual(os.path.abspath(kf["path"]), os.path.abspath(songf))   # a copy the app keeps
+            # making it again (another start) replaces the app's track, keeps the user's own tracks
+            edit["scenes"][0]["keyframeTracks"].append({"keyframeType": "AUDIO", "enabled": True,
+                                                        "keyframesByTick": {"200": {"path": "x.ogg", "type": "audio"}}})
+            with open(r["edit"], "w", encoding="utf-8") as fh:
+                json.dump(edit, fh)
+            vt.make_items_in_world(match, [], os.path.join(tmp, "clip.mp4"), fb, music={**music, "start": 2.0},
+                                   music_dir=os.path.join(tmp, "music"))
+            with open(r["edit"], encoding="utf-8") as fh:
+                tracks = json.load(fh)["scenes"][0]["keyframeTracks"]
+            audio = [t for t in tracks if t["keyframeType"] == "AUDIO"]
+            self.assertEqual(len(audio), 2)
+            self.assertIn("140", [k for t in audio for k in t["keyframesByTick"]])
+            with self.assertRaises(ValueError):                                 # nothing at all to make
+                vt.make_items_in_world(match, [], None, fb)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_song_in_made_video(self):
+        from mcsm import videotext as vt
+        ff = vt.find_tool("ffmpeg")
+        if not ff:
+            self.skipTest("ffmpeg not installed")
+        tmp = tempfile.mkdtemp()
+        try:
+            src, songf = os.path.join(tmp, "clip.mp4"), os.path.join(tmp, "song.wav")
+            subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=3:r=10", "-pix_fmt",
+                            "yuv420p", src], check=True)                       # no sound of its own
+            subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=10", songf], check=True)
+            out = vt.make_items_on_screen(src, [], 3.0, music={"file": songf, "start": 1.0, "offset": 2.0,
+                                                                "volume": 0.8})
+            probe = vt.find_tool("ffprobe")
+            info = subprocess.run([probe, "-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of",
+                                   "json", out], capture_output=True, text=True).stdout
+            data = json.loads(info)
+            self.assertIn("audio", [st["codec_type"] for st in data["streams"]])
+            self.assertLess(float(data["format"]["duration"]), 3.6)            # the song doesn't make it longer
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_editor_keeps_songs(self):
+        import base64
+        from mcsm import videoeditor as ve
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            ed = ve.VideoEditor(os.path.join(tmp, "v.mp4"), info={"video": os.path.join(tmp, "v.mp4"), "duration": 5,
+                                                                    "width": 320, "height": 180, "matches": []})
+            r = ed.add_music({"name": "Song.MP3", "data": base64.b64encode(b"ID3 fake").decode()})
+            self.assertTrue(r["file"].endswith(".mp3"))
+            self.assertEqual(ed.file_for("/music/" + r["file"]), os.path.join(ed.music_dir(), r["file"]))
+            self.assertIsNone(ed.file_for("/music/../x.mp3"))
+            self.assertEqual(ed.music_for({"file": r["file"]})["file"], os.path.join(ed.music_dir(), r["file"]))
+            self.assertIsNone(ed.music_for(None))
+            with self.assertRaises(ValueError):
+                ed.music_for({"file": "gone.mp3"})
+            with self.assertRaises(ValueError):
+                ed.add_music({"name": "x.exe", "data": "AAAA"})
+            ed.save_project({"items": [], "match": 0, "music": {"file": r["file"], "start": 2}})
+            self.assertEqual(ed.load_project()["music"]["start"], 2)
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old
+            shutil.rmtree(tmp, ignore_errors=True)

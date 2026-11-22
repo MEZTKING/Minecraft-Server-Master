@@ -150,9 +150,27 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
     <label class="imageOnly"><span>Height</span><input id="height" type="range" min="0.02" max="1" step="0.01" title="Share of the video height"><span class="val" id="heightV"></span></label>
   </div>
 
+  <h2>Music</h2>
+  <div class="row">
+    <button type="button" id="songPick" title="A song for this video: it plays along here, goes onto Flashback's audio track with a marker on every beat, and can be mixed into the made video">Choose a song…</button>
+    <button type="button" class="small" id="songRemove" title="No song for this video">Remove</button>
+    <input type="file" id="songFile" accept=".mp3,.ogg,.wav,.flac,.opus,.m4a,.aac" hidden>
+  </div>
+  <div id="songEd" hidden>
+    <div class="hint" id="songName" style="margin-top:4px"></div>
+    <label><span>Starts at (s)</span><input id="mStart" type="number" step="0.1" min="0" title="Second of the video where the song starts"><button type="button" class="small" id="mStartNow" title="The playhead">now</button></label>
+    <label><span>From song (s)</span><input id="mOffset" type="number" step="0.1" min="0" title="Seconds into the song to start from (e.g. skip its intro)"></label>
+    <label><span>Tempo (BPM)</span><input id="mBpm" type="number" step="0.01" min="30" max="300" title="Beats per minute"><button type="button" class="small" id="mDetect" title="Listen to the song and find its tempo and first beat">detect</button></label>
+    <label><span>First beat (s)</span><input id="mFirst" type="number" step="0.01" min="0" title="Seconds into the song of the first strong beat (bar start)"><span class="hint" id="mConf"></span></label>
+    <label><span>Beat markers</span><select id="mMarkers" title="Dots on Flashback's timeline to line camera moves up with the music"><option value="beats">every beat</option><option value="bars">every bar</option><option value="none">none</option></select></label>
+    <label><span>Play along</span><input id="mHear" type="checkbox" checked><span class="hint">hear it here while you edit</span></label>
+    <label><span>In made video</span><input id="mOnVideo" type="checkbox" title="Mix the song into 'Make the video'"><span style="color:var(--muted);margin-left:8px">volume</span><input id="mVolume" type="range" min="0" max="1.5" step="0.05"><span class="val" id="mVolumeV"></span></label>
+    <div class="hint">Orange ticks on the timeline are bars, blue ones beats. <b>Put … in Flashback</b> puts the song on Flashback's own audio track of the copy (it comes out in the export) and a marker on every beat, so you can put camera moves on the beat in Flashback.</div>
+  </div>
+
   <h2>Make it</h2>
   <div class="row">
-    <button class="go" id="makeWorld" type="button" title="One Flashback copy with all 'in the world' texts (and your edit); open it in Flashback and Export">Put world texts in Flashback</button>
+    <button class="go" id="makeWorld" type="button" title="One Flashback copy with all 'in the world' texts and the song with its beat markers (and your edit); open it in Flashback and Export">Put world texts &amp; song in Flashback</button>
     <button class="go" id="makeScreen" type="button" title="One new copy of the video with all 'on the video' texts and pictures drawn on">Make the video with on-screen texts &amp; pictures</button>
   </div>
   <div class="hint" style="margin-top:6px">Your texts are saved automatically. Making it again for this video replaces the earlier Flashback copy (close it in Flashback first).</div>
@@ -164,6 +182,8 @@ const $ = s => document.querySelector(s);
 const vid = $("#vid"), over = $("#over"), ctx = over.getContext("2d"), tl = $("#tl"), tctx = tl.getContext("2d");
 let INFO = null, CAM = { samples: [], step: 0.1 }, ITEMS = [], SEL = null, MATCH = 0;
 const UNDO = [], REDO = [];
+let MUSIC = null;                    // {file, name, duration, start, offset, bpm, first_beat, markers, on_video, volume}
+const song = new Audio(); song.preload = "auto";
 const GLYPH = { " ": 4, "!": 2, '"': 4, "'": 2, "(": 4, ")": 4, "*": 4, ",": 2, ".": 2, ":": 2, ";": 2, "<": 5, ">": 5,
   "@": 7, "I": 4, "[": 4, "]": 4, "`": 3, "f": 5, "i": 2, "k": 5, "l": 3, "t": 4, "{": 4, "|": 2, "}": 4, "~": 7 };
 const widthPx = (t, bold) => [...t].reduce((a, ch) => a + (GLYPH[ch] ?? 6) + (bold && ch !== " " ? 1 : 0), 0);
@@ -357,6 +377,63 @@ function draw() {
   if (SEL) { ctx.save(); ctx.strokeStyle = "rgba(240,192,64,0.9)"; ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5 * devicePixelRatio;
     for (const h of HITS) if (h[0] === SEL) ctx.strokeRect(h[1] - 4, h[2] - 4, h[3] - h[1] + 8, h[4] - h[2] + 8); ctx.restore(); }
   drawTimeline();
+  syncSong();
+}
+function syncSong() {                // the song plays along with the video, at the right place
+  if (!MUSIC || !$("#mHear").checked) { if (!song.paused) song.pause(); return; }
+  const at = vid.currentTime - (+MUSIC.start || 0) + (+MUSIC.offset || 0);
+  if (vid.paused || at < 0 || (MUSIC.duration && at > MUSIC.duration)) { if (!song.paused) song.pause(); return; }
+  if (Math.abs(song.currentTime - at) > 0.15) song.currentTime = at;
+  song.volume = Math.min(1, +MUSIC.volume || 1);
+  if (song.paused) song.play().catch(() => {});
+}
+function fillMusic() {
+  $("#songEd").hidden = !MUSIC; $("#songRemove").hidden = !MUSIC;
+  $("#songPick").textContent = MUSIC ? "Another song…" : "Choose a song…";
+  if (!MUSIC) return;
+  $("#songName").textContent = `${MUSIC.name || MUSIC.file}${MUSIC.duration ? " · " + fmt(MUSIC.duration) : ""}`;
+  $("#mStart").value = MUSIC.start ?? 0; $("#mOffset").value = MUSIC.offset ?? 0;
+  $("#mBpm").value = MUSIC.bpm ?? ""; $("#mFirst").value = MUSIC.first_beat ?? 0;
+  $("#mMarkers").value = MUSIC.markers || "beats"; $("#mOnVideo").checked = !!MUSIC.on_video;
+  $("#mVolume").value = MUSIC.volume ?? 0.8; $("#mVolumeV").textContent = (+(MUSIC.volume ?? 0.8)).toFixed(2);
+}
+async function detectBeats() {
+  if (!MUSIC) return;
+  $("#mConf").textContent = "listening…";
+  const r = await post("/api/beats", { file: MUSIC.file }), j = await r.json();
+  if (!r.ok) { $("#mConf").textContent = j.error || "couldn't find a beat"; return; }
+  MUSIC.bpm = j.bpm; MUSIC.first_beat = j.first_beat; if (j.length && !MUSIC.duration) MUSIC.duration = j.length;
+  fillMusic(); changed(true);
+  $("#mConf").textContent = j.confidence != null ? (j.confidence > 0.3 ? "steady beat found" : "unsure: check by ear, or type the BPM") : "";
+}
+$("#songPick").onclick = () => {
+  const f = $("#songFile"); f.value = "";
+  f.onchange = async () => {
+    const file = f.files[0]; if (!file) return;
+    $("#log").textContent = "Adding the song…";
+    const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.readAsDataURL(file); });
+    const r = await post("/api/music", { name: file.name, data }), j = await r.json();
+    if (!r.ok) { $("#log").textContent = j.error || "Couldn't add the song"; return; }
+    $("#log").textContent = "";
+    MUSIC = { file: j.file, name: file.name, duration: j.duration, start: MUSIC ? MUSIC.start : Math.round(vid.currentTime * 10) / 10,
+              offset: 0, bpm: null, first_beat: 0, markers: MUSIC ? MUSIC.markers : "beats", on_video: MUSIC ? MUSIC.on_video : false,
+              volume: MUSIC ? MUSIC.volume : 0.8 };
+    song.src = "/music/" + encodeURIComponent(j.file);
+    fillMusic(); changed(true); detectBeats();
+  };
+  f.click();
+};
+$("#songRemove").onclick = () => { MUSIC = null; song.pause(); song.removeAttribute("src"); fillMusic(); changed(true); };
+$("#mStartNow").onclick = () => { if (MUSIC) { MUSIC.start = Math.round(vid.currentTime * 10) / 10; fillMusic(); changed(true); } };
+$("#mDetect").onclick = detectBeats;
+for (const [id, key, num] of [["#mStart", "start", 1], ["#mOffset", "offset", 1], ["#mBpm", "bpm", 1], ["#mFirst", "first_beat", 1],
+                              ["#mMarkers", "markers", 0], ["#mOnVideo", "on_video", 0], ["#mVolume", "volume", 1]]) {
+  $(id).addEventListener($(id).type === "range" ? "input" : "change", () => {
+    if (!MUSIC) return; const el = $(id);
+    MUSIC[key] = el.type === "checkbox" ? el.checked : (num ? (el.value === "" ? null : Math.max(0, +el.value)) : el.value);
+    if (key === "bpm" && MUSIC.bpm != null && MUSIC.bpm < 30) MUSIC.bpm = null;
+    fillMusic(); changed(el.type !== "range");
+  });
 }
 
 // --- timeline --------------------------------------------------------------------------------
@@ -369,6 +446,20 @@ function drawTimeline() {
   const step = INFO.duration > 600 ? 60 : INFO.duration > 120 ? 10 : 5;
   for (let s = 0; s <= INFO.duration; s += step) { const x = tlX(s); tctx.fillRect(x, 0, dpr, 6 * dpr); tctx.fillText(fmt(s).replace(".0", ""), x + 3 * dpr, 12 * dpr); }
   const st = stillFrom(); if (st != null) { tctx.fillStyle = "rgba(95,184,95,0.25)"; tctx.fillRect(tlX(st), TL.top * dpr, tlX(INFO.duration) - tlX(st), H); }
+  if (MUSIC) {                                   // the song: a band, bars (orange) and beats (blue)
+    const m0 = +MUSIC.start || 0, songEnd = MUSIC.duration ? m0 + MUSIC.duration - (+MUSIC.offset || 0) : INFO.duration;
+    tctx.fillStyle = "rgba(240,170,0,0.16)"; tctx.fillRect(tlX(m0), H - 10 * dpr, tlX(Math.min(INFO.duration, songEnd)) - tlX(m0), 10 * dpr);
+    if (MUSIC.bpm > 0) {
+      const per = 60 / MUSIC.bpm, base = m0 - (+MUSIC.offset || 0) + (+MUSIC.first_beat || 0);
+      const every = (tlX(per) - tlX(0)) < 3 * dpr ? 4 : 1;          // crowded: bars only
+      for (let k = Math.ceil((m0 - base) / per - 1e-6); ; k++) {
+        const v = base + k * per; if (v > Math.min(INFO.duration, songEnd)) break;
+        const bar = ((k % 4) + 4) % 4 === 0; if (!bar && every > 1) continue;
+        tctx.fillStyle = bar ? "#ffaa00" : "rgba(85,170,255,0.85)";
+        tctx.fillRect(tlX(v), H - (bar ? 14 : 9) * dpr, Math.max(1, dpr), (bar ? 14 : 9) * dpr);
+      }
+    }
+  }
   ITEMS.forEach((it, i) => {
     const y = (TL.top + i * TL.rowH) * dpr, x0 = tlX(startOf(it)), x1 = Math.max(x0 + 4 * dpr, tlX(endOf(it)));
     tctx.fillStyle = it === SEL ? "#c9a032" : ({ world: "#3f6f9f", image: "#3f8f6f" }[it.kind] || "#7f5f9f");
@@ -622,7 +713,7 @@ let saveTimer = null;
 function changed(commit) {
   renderList();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => post("/api/project", { items: ITEMS, match: MATCH }), commit ? 300 : 1200);
+  saveTimer = setTimeout(() => post("/api/project", { items: ITEMS, match: MATCH, music: MUSIC }), commit ? 300 : 1200);
 }
 const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" }, body: JSON.stringify(body) });
 
@@ -632,7 +723,7 @@ $("#back").onclick = () => vid.currentTime = Math.max(0, vid.currentTime - 1);
 $("#fwd").onclick = () => vid.currentTime = Math.min(INFO.duration, vid.currentTime + 1);
 $("#toSel").onclick = () => { if (SEL) { vid.currentTime = Math.max(0, startOf(SEL) - 2); vid.play(); } };
 vid.addEventListener("play", () => $("#play").textContent = "Pause");
-vid.addEventListener("pause", () => $("#play").textContent = "Play");
+vid.addEventListener("pause", () => { $("#play").textContent = "Play"; song.pause(); });
 vid.addEventListener("timeupdate", () => { if (INFO) $("#time").textContent = `${fmt(vid.currentTime)} / ${fmt(INFO.duration)}`; });
 document.addEventListener("keydown", e => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) && document.activeElement.type !== "range") return;
@@ -652,14 +743,16 @@ document.addEventListener("keydown", e => {
 async function make(target) {
   const btns = [$("#makeWorld"), $("#makeScreen")]; btns.forEach(b => b.disabled = true);
   $("#log").textContent = "Starting…";
-  const r = await post("/api/make", { target, items: ITEMS, match: MATCH });
+  const r = await post("/api/make", { target, items: ITEMS, match: MATCH, music: MUSIC });
   if (!r.ok) { $("#log").textContent = (await r.json()).error || "Failed"; btns.forEach(b => b.disabled = false); return; }
   const poll = async () => {
     const j = await (await fetch("/api/job")).json();
     $("#log").textContent = j.log.join("\n") + (j.error ? "\nError: " + j.error : "");
     if (j.running) return setTimeout(poll, 1000);
     btns.forEach(b => b.disabled = false);
-    if (j.result && j.result.name) $("#log").textContent += `\n\nDone. In Flashback open "${j.result.name}" and press Export.`;
+    if (j.result && j.result.name) $("#log").textContent += `\n\nDone. In Flashback open "${j.result.name}" and press Export.` +
+      (j.result.beats ? ` The song is on its audio track, with ${j.result.beats} beat markers on the timeline.` : "") +
+      (j.result.music_warning ? `\n${j.result.music_warning}` : "");
     if (j.result && j.result.video) $("#log").textContent += `\n\nDone: ${j.result.video}`;
   };
   poll();
@@ -682,6 +775,9 @@ window.addEventListener("resize", fit);
   const proj = await (await fetch("/api/project")).json();
   MATCH = Math.min(proj.match || 0, Math.max(0, INFO.matches.length - 1));
   ITEMS = (proj.items || []).map(it => ({ ...structuredClone(DEFAULTS), ...it }));
+  MUSIC = proj.music && proj.music.file ? proj.music : null;
+  if (MUSIC) song.src = "/music/" + encodeURIComponent(MUSIC.file);
+  fillMusic();
   ITEMS.forEach(it => { if (it.style === "3d") { it.style = "outline"; if (!it.depth) it.depth = 0.14; } });   // older projects
   ITEMS.forEach(it => { nextId = Math.max(nextId, (+it.id || 0) + 1); if (!it.id) it.id = nextId++; });
   const sel = $("#match");

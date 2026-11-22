@@ -67,9 +67,31 @@ the chat and events as subtitles, see below).
 - **Saved automatically** for each video (in `%LOCALAPPDATA%\mcsm\video-text`, pictures in its
   `images` folder; never next to your video), so you can close the page and continue later.
 
+### Music
+
+**Choose a song…** (MP3, OGG, WAV, FLAC, OPUS, M4A, AAC; the app keeps a copy, your file isn't touched).
+The song **plays along** in the page while you edit (untick *Play along* to edit in silence).
+
+- **Starts at**: the second of the video where the song starts (*now* = the playhead). **From song**:
+  seconds into the song to start from, e.g. to skip its intro.
+- **Tempo**: detected when you choose the song (or press *detect*); type the BPM and the **first beat**
+  (seconds into the song of the first strong beat) yourself if the detection is off. The timeline shows
+  the song as an orange band with **orange ticks on every bar and blue ticks on every beat**, so you can
+  drag texts onto the beat.
+- **In Flashback**: *Put world texts & song in Flashback* puts the song on **Flashback's own audio track**
+  of the copy (a track named `mcsm music`; it starts at the right replay tick and comes out in Flashback's
+  export) and a **marker on every beat or bar** (*Beat markers*: every beat / every bar / none) on
+  Flashback's timeline: orange dots for bars, blue for beats, named like "♪ Bar 3". Click one in Flashback
+  to jump there and put camera moves on the beat. Making it again moves the song and markers; your own
+  tracks and the recording's own markers are kept. Flashback plays audio at the replay's speed, so in a
+  sped-up (timelapse) part the song plays fast: the app warns you, and for such videos use the song on
+  the made video instead.
+- **In made video**: tick it to mix the song into *Make the video…* (with the video's own sound, at the
+  **volume** you set; the video doesn't get longer).
+
 ### Making it
 
-- **Put world texts in Flashback** makes one copy of the recording with all in-world texts, plus a copy
+- **Put world texts & song in Flashback** makes one copy of the recording with all in-world texts, plus a copy
   of your edit with the same export range, in the Flashback folder for its Minecraft version. Open it in
   Flashback and press Export: the video comes out with the text in the world (lit by it, hidden behind
   blocks and players). You can keep editing the camera there with the texts visible. Making it again for
