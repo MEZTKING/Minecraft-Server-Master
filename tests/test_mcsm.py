@@ -1940,3 +1940,74 @@ class TestLibrarySafety(unittest.TestCase):
         # adding it again stores nothing new
         r2 = lib.add_projects(os.path.join(self.tmp, "Edited"), w)
         self.assertEqual(r2["recordings_added"], 0)
+
+
+class TestVideoText(unittest.TestCase):
+    """Lining a finished Flashback video up with the server history (mcsm.videotext)."""
+
+    SCENE = {"name": "Meeting Room", "exportStartTicks": 21105, "exportEndTicks": 40237,
+             "keyframeTracks": [{"keyframeType": "TIMELAPSE", "enabled": True, "keyframesByTick": {
+                 "22051": {"type": "timelapse", "ticks": 0}, "34309": {"type": "timelapse", "ticks": 600},
+                 "37395": {"type": "timelapse", "ticks": 0}, "38398": {"type": "timelapse", "ticks": 280}}}]}
+
+    def test_clock_matches_flashback(self):
+        from mcsm import videotext as vt
+        c = vt.scene_clock(self.SCENE)
+        # the owner's real export of this scene is 337.57 s long
+        self.assertAlmostEqual(c.duration, 337.6, delta=0.1)
+        self.assertAlmostEqual(c.video_time(22051), (22051 - 21105) / 20, places=6)      # normal speed first
+        self.assertAlmostEqual(c.video_time(34309) - c.video_time(22051), 30.0, places=6)  # 600 ticks = 30 s
+        self.assertAlmostEqual(c.speed_at(30000), 12258 / 600, places=6)
+        self.assertEqual(c.speed_at(35000), 1.0)                                         # backwards pair: normal
+        self.assertIsNone(c.video_time(100))
+        for t in (0, 12.5, 77, 200, 330):
+            self.assertAlmostEqual(c.video_time(c.replay_tick(t)), t, places=6)
+        self.assertIsNone(vt.scene_clock({"exportStartTicks": -1, "exportEndTicks": -1}))
+        self.assertAlmostEqual(vt.scene_clock({"exportStartTicks": -1, "exportEndTicks": -1}, 2000).duration, 100.0)
+
+    def test_texts_and_files(self):
+        from mcsm import videotext as vt
+        tmp = tempfile.mkdtemp()
+        try:
+            data = analyze(build_server(os.path.join(tmp, "srv")))
+            ev = next(e for e in data.events if e.type == "chat")
+            r = m.Replay(path="x.zip", format="flashback", duration_ms=200_000, start=ev.time - timedelta(seconds=60),
+                         raw_meta={"uuid": "u1", "total_ticks": 4000})
+            data.replays.append(r)
+            self.assertIs(vt._replay_for(data, "u1"), r)
+            clock = vt.scene_clock({"exportStartTicks": 400, "exportEndTicks": 4000, "keyframeTracks": []})
+            texts = vt.suggest_texts(data, r, clock)
+            chat = [t for t in texts if t.kind == "chat" and ev.text in t.text]
+            self.assertEqual(len(chat), 1)
+            self.assertAlmostEqual(chat[0].start, 40.0, places=1)     # 60 s into the recording, export from 20 s
+            self.assertEqual(texts[0].kind, "date")
+            ass = vt.write_ass(texts, os.path.join(tmp, "v.ass"), 3840, 2160)
+            body = open(ass, encoding="utf-8-sig").read()
+            self.assertIn("PlayResX: 3840", body)
+            self.assertIn(f"> {ev.text}", body)
+            srt = open(vt.write_srt(texts, os.path.join(tmp, "v.srt")), encoding="utf-8").read()
+            self.assertIn("00:00:40,000 -->", srt)
+            vt.save_texts(texts, os.path.join(tmp, "v.json"))
+            self.assertEqual(len(vt.load_texts(os.path.join(tmp, "v.json"))), len(texts))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_replay_on_other_drive_is_read(self):
+        from mcsm.replays import _read_any
+        import mcsm.replays as rp
+        real = os.path.relpath
+
+        def other_drive(path, start=None):
+            raise ValueError("path is on mount 'F:', start on mount 'D:'")
+        tmp = tempfile.mkdtemp()
+        try:
+            srv = build_server(os.path.join(tmp, "srv"))
+            mcpr = os.path.join(srv, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
+            rp.os.path.relpath = other_drive
+            try:
+                r = _read_any(mcpr, srv, {}, None, None)
+            finally:
+                rp.os.path.relpath = real
+            self.assertTrue(r.path.endswith("2024-05-03--18-00-00.mcpr"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

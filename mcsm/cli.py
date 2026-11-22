@@ -8,6 +8,7 @@ export    write JSON / SQLite / CSV files
 events    search events from the terminal
 replays   list replay recordings found on the server
 changes   Minecraft version, mods and datapacks changed between backups
+video-text timed in-game texts for a finished Flashback video
 sync      make video markers/subtitles for a replay (+ music beat sync)
 flashback copy a Flashback replay with server events as markers in its timeline
 timelapse activity-aware timelapse of an area, set up in Flashback
@@ -827,6 +828,68 @@ def cmd_library(args) -> int:
     return 0
 
 
+def cmd_video_text(args) -> int:
+    data = _load(args)
+    return run_video_text(data, args)
+
+
+def run_video_text(data: m.ServerData, args) -> int:
+    """Timed texts (chat, joins, deaths, advancements, date) for a finished Flashback video."""
+    from . import videotext as vt
+    video = args.video
+    if not os.path.isfile(video):
+        raise FileNotFoundError(video)
+    if args.state:
+        scenes = vt.load_scenes(args.state)
+        uuid = os.path.splitext(os.path.basename(args.state))[0]
+        idx = args.scene if args.scene is not None else 0
+        if not 0 <= idx < len(scenes):
+            raise ValueError(f"{args.state} has {len(scenes)} scenes; --scene counts from 0")
+        match = {"state": args.state, "uuid": uuid, "scene": idx, "name": scenes[idx].get("name") or ""}
+    else:
+        length = vt.video_duration(video)
+        if length is None:
+            raise SystemExit("Can't read the video's length (ffprobe not found). Give --state EDITOR_STATE.json "
+                             "(and --scene N) to say which Flashback scene the video was exported from.")
+        found = vt.find_scenes_for_video(length)
+        if not found:
+            raise SystemExit(f"No Flashback scene with a length of {length:.1f} s was found (the edits may have "
+                             "changed since the export). Give --state and --scene.")
+        match = found[0]
+        print(f"Video       : {os.path.basename(video)} ({length:.1f} s)")
+        print(f"From        : scene '{match['name']}' of {match['uuid']} ({match.get('instance', '')}, "
+              f"{match['length']:.1f} s)")
+        if len(found) > 1:
+            print(f"              ({len(found) - 1} other scene(s) have the same length; pick one with --state/--scene)")
+    replay = vt._replay_for(data, match["uuid"])
+    if replay is None:
+        raise SystemExit(f"The recording {match['uuid']} isn't among the loaded recordings. Load the backup or "
+                         "library world that has it (or add it with --replay FILE).")
+    scene = vt.load_scenes(match["state"])[match["scene"]]
+    clock = vt.scene_clock(scene, int(replay.raw_meta.get("total_ticks") or 0) or None)
+    if clock is None:
+        raise SystemExit("That scene has no export range.")
+    kinds = tuple(args.kind or ("chat", "join", "leave", "death", "advancement", "date"))
+    texts = vt.suggest_texts(data, replay, clock, kinds)
+    base = os.path.splitext(os.path.join(args.output_dir or os.path.dirname(os.path.abspath(video)),
+                                         os.path.basename(video)))[0]
+    os.makedirs(os.path.dirname(base), exist_ok=True)
+    vt.save_texts(texts, base + ".texts.json", {"video": os.path.abspath(video), "state": match["state"],
+                                                "scene": match["scene"], "recording": replay.path})
+    w, h = vt.video_size(video) or (1920, 1080)
+    vt.write_ass(texts, base + ".ass", w, h, font=args.font)
+    vt.write_srt(texts, base + ".srt")
+    by = {}
+    for t in texts:
+        by[t.kind] = by.get(t.kind, 0) + 1
+    print(f"Recording   : {replay.path} ({replay.recorded_player or '?'}, starts {_local(replay.start)})")
+    print(f"Texts       : {len(texts)} (" + ", ".join(f"{k} {v}" for k, v in sorted(by.items())) + ")")
+    print(f"Wrote       : {base}.ass  (styled; VLC/mpv play it next to the video)")
+    print(f"              {base}.srt  (plain captions, e.g. YouTube)")
+    print(f"              {base}.texts.json  (the list, to edit)")
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -1012,6 +1075,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rename", action="store_true", help="tidy: also put the date in front of backup folder names")
     p.add_argument("--undo", action="store_true", help="tidy: put back everything the last tidy moved")
     p.set_defaults(func=cmd_library)
+
+    p = sub.add_parser("video-text", help="timed in-game texts (chat, deaths, titles...) for a finished Flashback video",
+                       description="Lines a video exported from Flashback up with the server's history (the Flashback "
+                                   "scene is found from the video's length) and writes styled subtitles.")
+    _add_common(p)
+    p.add_argument("--video", required=True, help="the finished video (.mp4) exported from Flashback")
+    p.add_argument("--state", metavar="FILE", help="the Flashback editor state it was exported from (default: found)")
+    p.add_argument("--scene", type=int, help="scene number in that editor state, from 0")
+    p.add_argument("--replay", metavar="FILE", help="the recording, if it isn't in the loaded backups")
+    p.add_argument("--kind", action="append", choices=["chat", "join", "leave", "death", "advancement", "date"],
+                   help="only these texts (repeatable; default all)")
+    p.add_argument("--font", default="Arial", help="font for the styled subtitles (default Arial)")
+    p.add_argument("--output-dir", "-o", metavar="DIR", help="where to write (default: next to the video)")
+    p.set_defaults(func=cmd_video_text)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")

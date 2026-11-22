@@ -42,6 +42,7 @@ mcsm/
   terrain.py         region files -> surface height/colour tiles for the 3D map: partial NBT scanner
                      (heightmap + lazily decoded section palettes only), tile cache; read in a
                      process pool by live.TerrainServer
+  videotext.py       finished Flashback video <-> server time (export range + timelapse), timed texts, .ass/.srt
   flashback.py       write Flashback replay copies (markers, new uuid) and editor states (camera/timelapse)
   timelapse.py       areas, activity windows (tracks/sessions), target-length plan, timelapse keyframes
   sync.py            VideoTimeline and event -> Marker conversion

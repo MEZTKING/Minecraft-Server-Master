@@ -69,6 +69,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Minecraft versions, mods, plugins and datapacks over time: what changed between backups (`mcsm changes`, report Backups tab, app button, history viewer "Server at this moment"); each recording's Minecraft version | ✅ Done, checked on the owner's May + November backups | `mcsm/archive.py` (`changes`), `cli.py`, `report.py`, `history.html` | `docs/BACKUPS.md`, `docs/HISTORY.md` |
 | Optional tidy of the original backup folder: duplicates moved aside (never deleted), optional dated names, undo | ✅ Done (tested on fixtures; not run on the owner's folder) | `mcsm/library.py` (`tidy_*`), `mcsm library tidy`, app *Tidy the original folder…* | `docs/LIBRARY.md` |
 | Flashback in launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge) with version matching; video projects in the library (recordings + a copy of the Flashback edits) | ✅ Done, detection checked on the owner's PC | `mcsm/flashback.py`, `mcsm/library.py` (`add_projects`), `mcsm library add-projects/projects`, app *Add video projects…* | `docs/LIBRARY.md`, `docs/FLASHBACK.md`, `docs/HISTORY.md` |
+| Text on finished videos (Phase 1): Flashback scene found from the video length, video time -> server time (timelapse included), suggested texts, styled .ass + .srt | ✅ Done, checked on the owner's "Thanks for playing" intro (length match 0.03 s; advancement timing confirmed on screen) | `mcsm/videotext.py`, `mcsm video-text` | `docs/VIDEO_TEXT.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -405,6 +406,43 @@ everyone, add/remove mods or datapacks and understand what to do or when".
 - **Open questions:** is a shared view for the other admins needed (a page in the library, or a
   Discord post together with 0i)?
 
+### 0k. Text on finished videos without editing skills (requested 2026-11-22)
+
+**The ask:** "what about the cinematics which are the finished raw version, the only thing to add
+to that is some ingame texts which needed powerfull editing skills through something like
+davinci, which i dont know how to do, can we make a system for that if possible".
+
+**What we know:** the owner's cinematics are Flashback exports (`F:\...\Cinematics\*.mp4`, up to
+30 GB). Each comes from a scene in a Flashback editor state, which stores the export range
+(replay ticks) and TIMELAPSE keyframes (speed-ups). With the recording's start time, every second
+of the video can be mapped to a real moment on the server, so the server's history can supply the
+text. ffmpeg is already installed on the owner's PC (`C:\Users\Rakib\ffmpeg`).
+
+**Design:**
+- **Match the video:** pick a video and its project scene (suggested from the video length and
+  the project's export ranges, or chosen by hand). Map video time -> replay tick -> real time,
+  including timelapse sections (exact Flashback rule being researched from its source).
+- **Suggested texts** from the history in that span: chat messages (Minecraft chat look,
+  bottom-left, fading like the real chat), joins/leaves, deaths, advancements ("X has made the
+  advancement …"), date and time stamps, player name cards when someone first appears, area names,
+  plus the owner's own titles and subtitles.
+- **A simple editor page** (like the history viewer): the video plays with the texts drawn over it
+  live; a timeline shows each text as a block; tick on/off, edit the words, drag to move or
+  stretch, pick a style (chat, title, subtitle, name card, date). Nothing to learn beyond that.
+- **Outputs:** (1) a finished MP4 with the text burned in, made with ffmpeg (found on the PC, never
+  bundled without asking), keeping the original untouched; (2) an `.ass` subtitle file with the
+  same styles (VLC, mpv, ffmpeg); (3) `.srt` for YouTube captions; (4) a DaVinci Resolve-ready file
+  (subtitle track + markers) for anyone who does want to edit further.
+✅ **Phase 1 done 2026-11-22:** `mcsm video-text` (scene found by length, exact time mapping,
+suggested texts, `.ass`/`.srt`/`.texts.json`). Checked on the owner's intro video: scene "Meeting
+Room" found (337.6 s vs 337.57 s), date + 3 chat lines + an advancement placed; the advancement
+("Is It a Bird?") appears exactly while the player is among birds. Phase 2: the editor page and
+one-button burn-in.
+
+- **Open questions for the owner:** OK to use the ffmpeg already on the PC for burning in? Which
+  texts matter most (chat, titles, names, dates)? A Minecraft-style font (a free one such as
+  Monocraft would be bundled) or a normal font?
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -553,6 +591,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | Mod changes are matched by mod id (else file name without version); dated "between backup A and B" | The files don't record the day a mod changed |
 | 2026-11-22 | The Flashback folder for a recording is the launcher instance with the recording's Minecraft version (else the most recently used) | Flashback opens a recording only in its own version; the owner keeps one instance per version |
 | 2026-11-22 | The library remembers each imported archive's path, size and date | Re-scanning a 600 GB folder must not unpack everything again to find the one new backup |
+| 2026-11-22 | A finished video is matched to its Flashback scene by length; time mapping follows Flashback's TIMELAPSE rule from its source (pairs with rising `ticks` only, else normal speed) | Matched the owner's two exported videos to 0.05 s; no need to ask which edit made which video |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -596,6 +635,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Text on finished videos, phase 1:** `mcsm video-text` lines a Flashback export up
+  with the server's history and writes styled `.ass` (Minecraft-like chat, date, titles) and `.srt`
+  captions. Fix: recordings on a different drive than the server folder couldn't be read
+  (`--replay F:\...` with a server on D:).
 - **2026-11-22:** **Flashback in launcher instances; video projects; future backups.** Flashback
   folders are found in PrismLauncher/MultiMC/Modrinth/CurseForge instances (before: only
   `.minecraft`, so the owner's Prism setup was missed) and the instance matching a recording's

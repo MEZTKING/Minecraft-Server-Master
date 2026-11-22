@@ -358,7 +358,10 @@ def read_replay(path: str, root: str, uuid_to_name: dict[str, str] | None = None
 
 
 def _read_any(path, root, uuid_to_name, kind, local_to_utc) -> m.Replay:
-    rel = os.path.relpath(path, root).replace(os.sep, "/")
+    try:
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+    except ValueError:                      # another drive (Windows): keep the full path
+        rel = os.path.abspath(path).replace(os.sep, "/")
     if kind is None:
         if os.path.isdir(path):
             kind = "flashback-dir" if _is_flashback_dir(path) else "replaymod-dir"

@@ -140,6 +140,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm report SERVER -o report.html` | The HTML dashboard. |
 | `mcsm export SERVER --sqlite s.db --json s.json --csv out/` | Data exports ([schema](docs/DATA_MODEL.md)). |
 | `mcsm events SERVER --type death --player Steve --since 2024-05-01` | Search events in the terminal. |
+| `mcsm video-text SERVER --video FILE.mp4` | Timed in-game texts (chat, joins, deaths, advancements, date) for a video exported from Flashback, lined up automatically from your Flashback edit; styled `.ass` + `.srt` ([guide](docs/VIDEO_TEXT.md)). |
 | `mcsm changes SERVER MORE...` | Minecraft version, mods, plugins and datapacks changed between backups ([guide](docs/BACKUPS.md#versions-mods-and-datapacks-over-time)). |
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
@@ -251,6 +252,7 @@ The HTML report always shows times in **your** browser's time zone.
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
+| [docs/VIDEO_TEXT.md](docs/VIDEO_TEXT.md) | In-game texts on finished Flashback videos without editing skills |
 | [docs/LIBRARY.md](docs/LIBRARY.md) | The library: importing backups (.tgz/.zip/folders) and recordings into one place, link/copy/move |
 | [docs/HISTORY.md](docs/HISTORY.md) | History viewer: the whole history as one recording, timeline, where positions come from |
 | [HANDOFF.md](HANDOFF.md) | Everything needed to continue development in a new session or account |
