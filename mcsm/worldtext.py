@@ -733,6 +733,20 @@ def camera_at(scene: dict, tick: float) -> tuple[list[float], float, float] | No
     return pos, ya + max(-180.0, min(180.0, _wrap(yb - ya) * f)), pa_ + (pb_ - pa_) * f
 
 
+# Flashback puts the (spectator) player at a CAMERA keyframe's position (player.snapTo), so the picture
+# is seen from the player's eyes, this much higher (a standing player's eye height).
+EYE_HEIGHT = 1.62
+
+
+def eye_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
+    """Where the picture is seen from at *tick*: :func:`camera_at` raised to eye height."""
+    cam = camera_at(scene, tick)
+    if cam is None:
+        return None
+    pos, yaw, pitch = cam
+    return [pos[0], pos[1] + EYE_HEIGHT, pos[2]], yaw, pitch
+
+
 def set_camera_track(edit_path: str, keyframes: list[dict]) -> None:
     """Replace the CAMERA keyframes of the edit's open scene with *keyframes* (``{tick, position,
     yaw, pitch, roll, interpolation_type}``), keeping the track itself and everything else."""

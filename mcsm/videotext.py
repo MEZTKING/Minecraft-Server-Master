@@ -813,7 +813,7 @@ def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float 
     clock = scene_clock(sc)
     secs = at_seconds if at_seconds is not None else (match["still_from"] if match.get("still_from") is not None else clock.duration) + 0.1
     tick = clock.replay_tick(min(secs, clock.duration))
-    cam = wt.camera_at(sc, tick)
+    cam = wt.eye_at(sc, tick)
     if cam is None:
         raise ValueError("this edit has no camera keyframes to place the text by")
     pos, yaw, pitch = cam

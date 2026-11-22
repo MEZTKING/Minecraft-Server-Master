@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (Flashback companion mod mcsm-link: the editor's real Minecraft picture).
+`CLAUDE.md`). Last updated: 2026-11-22 (editor map: real blocks with Minecraft's textures; camera eye height fix).
 
 ## What this project is
 
@@ -76,6 +76,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Animated text: fade, pop, words one by one (instant/fade/pop), fade out; border colour, shadow, glow, background box; in the world and on the video | ✅ Done; on-screen demos on the owner's clip; in-world animations not yet seen in Flashback | `mcsm/worldtext.py`, `videotext.py`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Live text editor page for finished videos (play, scrub, change text/timing/animation/look/place live; make from the page) | ✅ Done, tried on the owner's welcome clip | `mcsm/videoeditor.py`, `assets/web/videotext.html`, `mcsm video-editor`, Videos tab | `docs/VIDEO_TEXT.md` |
 | Editor on a Flashback edit before exporting (0p phase 1): the app's 3D map through the edit's camera (terrain from the backup after the recording, players as boxes), Camera/Map view, texts/song/beats, copy into the edit's Flashback folder | ✅ Done; tried on the owner's welcome-clip edit (composition matches the real export at 30 s) | `videotext.analyse_edit`, `videoeditor.py` (`tiles`, `tile_file`, `tracks_all`, `copy_key`), `videotext.html` (Clock, MAP3D), `mcsm video-editor --edit`, Videos tab | `docs/VIDEO_TEXT.md` |
+| Real blocks in the editor's map (textured from the installed client jar): visible faces within ~80 blocks of the camera path, block outline boxes from the game's models, crossed plants, tints; smooth terrain beyond | ✅ Done; on the owner's edit 178 chunks, 89k faces in 1.1 s; camera view at 30 s matches the real export (blocks, torch, spire, build, player) | `mcsm/blockmesh.py`, `videoeditor.py` (`/api/blocks`, `/blocktex`), `videotext.html` (`loadBlocks`, atlas) | `docs/VIDEO_TEXT.md` |
 | Flashback companion mod `mcsm-link` (Fabric, Minecraft 26.1.x): local token-protected link server in the game; status, seek + camera, real frames; editor view "Flashback (real)"; app/CLI install into an instance | ✅ Built (CI + locally) and smoke-tested in a test Minecraft 26.1.2 (link server, token check, real frame); not yet tried with Flashback and a replay open (owner test) | `companion/` (McsmLink.java), `mcsm/flashlink.py`, `videoeditor.py` (`/api/link*`, `/link/frame`), `videotext.html`, Videos tab, `mcsm flashback-link` | `docs/VIDEO_TEXT.md`, `companion/README.md` |
 | Camera keyframes in the editor (0p phase 2): Flashback's interpolation (centripetal Catmull-Rom SMOOTH, eases, HOLD), keyframe row on the timeline, fly camera, add/move/delete/type keyframes, snap to beats, undo; written into the copy's edit only | ✅ Done; tried on the owner's edit (13 keyframes, added one by flying, undo/reset, original file untouched) | `worldtext.camera_at`/`apply_camera`/`set_camera_track`, `videotext.scene_for_match` (`camera_override`), `videoeditor.py` (`/api/camera` with keyframes), `videotext.html` | `docs/VIDEO_TEXT.md` |
 | Music in the editor: song plays along, tempo detected, beats on the timeline; song on Flashback's AUDIO track of the copy's edit + a marker per beat/bar; mixed into the made video | ✅ Done; checked in the page on the owner's clip (song in sync) and in tests; not yet opened in Flashback | `mcsm/videomusic.py`, `videotext.py` (`make_items_in_world`, `burn_in`), `videoeditor.py` (`/api/music`, `/api/beats`), `videotext.html` | `docs/VIDEO_TEXT.md` |
@@ -597,7 +598,7 @@ companion mod that lets the editor drive a running Flashback (camera and time) �
 Java mod work and patching Flashback internals; (c) export a quick low-quality preview in Flashback and
 open it in the editor (works today).
 **Owner chose (2026-11-22):** "Flashback mod", then "do both". ✅ (b) built: `companion/` mod
-`mcsm-link` + editor view "Flashback (real)". (a) textured blocks: next.
+`mcsm-link` + editor view "Flashback (real)". ✅ (a) textured blocks done the same day.
 - **Open questions for the owner:** is the map preview (blocky terrain, no textures) enough to judge
   camera moves, or is the goal only to avoid the round trip for texts and music? Which Flashback
   features matter most to have in the editor (camera keyframes, timelapse, orbit/follow cameras)?
@@ -755,6 +756,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | A video's edit may have changed after exporting: edits saved after the video whose export start fits are offered as "probable", with the range that gives the video's length | The owner lengthened the welcome clip's edit after exporting it |
 | 2026-11-22 | Text borders in the world are black text displays just behind the text | Text displays have only a drop shadow; the owner wanted white blocky text with black borders |
 | 2026-11-22 | Test builds for the updater go to a public pre-release `latest-build` (fixed file name + build.json with SHA-256) | Actions artifacts need a GitHub sign-in to download; the app must update without one |
+| 2026-11-22 | The camera is seen from 1.62 blocks above a CAMERA keyframe's position (`worldtext.eye_at`); keyframes stay as Flashback stores them | Flashback puts the spectator player at the keyframe (player.snapTo), so the picture is from its eyes; found when the block preview put the camera inside the ground |
+| 2026-11-22 | Block textures are read from the Minecraft client jar installed on the PC, never bundled or downloaded | Mojang's assets can't be redistributed; every owner has the game |
 | 2026-11-22 | The companion mod uses Flashback only through reflection and has no build dependency on it | Flashback has no API; this keeps CI building without Flashback's jar and survives Flashback updates that keep the names |
 | 2026-11-22 | The mod's link server listens on 127.0.0.1 with a random token in the instance's config folder; the app proxies frames so the page never sees the token | Other programs/websites on the PC can't drive the game or read the screen |
 | 2026-11-22 | The song goes on Flashback's AUDIO track as a copy kept in the app's folder (cut/converted to .ogg with ffmpeg when it should start part-way); beat markers are replay markers named "♪ …" | Flashback stores only a file path per audio keyframe; a copy keeps the edit working when the original song moves |
@@ -791,6 +794,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   future Minecraft version, the add/remove packet ids in `paths.ADD_ENTITY` /
   `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
+- **Block preview is approximate:** one model per block (the first variant; rotations such as sideways
+  logs aren't applied), a block's shape is its model's outline box (stairs look like full blocks), no
+  lighting/biome colours beyond fixed tints; the world is the backup saved after the recording.
 - **Flashback link not yet tried with a replay open.** Status/seek/camera use Flashback's names (checked in
   its 0.40 jar and source); the captured picture is the game's main framebuffer, which per Flashback's
   source holds the game only (its windows are drawn on a separate layer), at the size of Flashback's game
@@ -821,6 +827,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Editor map: **real blocks with Minecraft's textures** near the camera path
+  (`blockmesh.build`: reads the chunks, keeps visible faces, block looks from the client jar's
+  blockstates/models with parents, `{"sprite": ...}` texture refs of 26.x, flat-plane models as plants;
+  the page builds a texture atlas with tints and one mesh, and leaves the smooth terrain out under the
+  blocks). **Fix: the camera is at eye height** (1.62 above Flashback's keyframe position) for text
+  placement, spot picking, the preview, new keyframes (stored back at feet height) and the link mod.
 
 - **2026-11-22:** **Flashback companion mod `mcsm-link`** (`companion/`, Fabric, Java 25, Minecraft 26.1.2,
   Loom 1.19.4): a link server in the game on 127.0.0.1 (port from 8796, token in

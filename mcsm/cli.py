@@ -921,7 +921,7 @@ def cmd_world_text(args) -> int:
         if scene is None:
             raise SystemExit("No Flashback edit found for this recording: give --at X,Y,Z instead.")
         tick = clock.replay_tick(args.in_front_at) if clock else args.in_front_at * 20
-        cam = wt.camera_at(scene, tick)
+        cam = wt.eye_at(scene, tick)
         if cam is None:
             raise SystemExit("That scene has no camera keyframes: give --at X,Y,Z instead.")
         pos, cyaw, cpitch = cam

@@ -2493,7 +2493,7 @@ class TestVideoEditor(unittest.TestCase):
                 self.assertIn(b"Text on your video", page)
                 got = json.loads(urllib.request.urlopen(url + "api/info").read())
                 self.assertEqual(len(got["camera"]["samples"]), 41)          # every 0.05 s over 2 s
-                self.assertEqual(got["camera"]["samples"][0][:3], [0, 64, 0])
+                self.assertEqual(got["camera"]["samples"][0][:3], [0, 65.62, 0])     # eye height above the keyframe
                 req = urllib.request.Request(url + "video", headers={"Range": "bytes=100-199"})
                 r = urllib.request.urlopen(req)
                 self.assertEqual(r.status, 206)
@@ -3206,3 +3206,69 @@ class TestFlashbackLink(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old_local
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestRealBlocks(unittest.TestCase):
+    """Real blocks near the camera with textures from the client jar, and the eye height."""
+
+    @staticmethod
+    def _jar(path):
+        cube_faces = {f: {"texture": "#" + f} for f in ("down", "up", "north", "south", "west", "east")}
+        files = {
+            "blockstates/stone.json": {"variants": {"": {"model": "minecraft:block/stone"}}},
+            "blockstates/short_grass.json": {"variants": {"": {"model": "minecraft:block/short_grass"}}},
+            "blockstates/oak_slab.json": {"variants": {"type=bottom": {"model": "minecraft:block/oak_slab"}}},
+            "models/block/cube.json": {"elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": cube_faces}]},
+            "models/block/cube_all.json": {"parent": "block/cube", "textures": {
+                **{f: "#all" for f in ("down", "up", "north", "south", "west", "east")}, "particle": "#all"}},
+            "models/block/stone.json": {"parent": "block/cube_all", "textures": {"all": {"sprite": "block/stone"}}},
+            "models/block/tinted_cross.json": {"parent": "block/cross"},
+            "models/block/cross.json": {"textures": {"particle": "#cross"}},
+            "models/block/short_grass.json": {"parent": "minecraft:block/tinted_cross",
+                                              "textures": {"cross": "minecraft:block/short_grass"}},
+            "models/block/oak_slab.json": {"textures": {"all": "block/oak_planks"}, "elements": [
+                {"from": [0, 0, 0], "to": [16, 8, 16], "faces": {f: {"texture": "#all"} for f in
+                                                                  ("down", "up", "north", "south", "west", "east")}}]},
+        }
+        with zipfile.ZipFile(path, "w") as zf:
+            for name, data in files.items():
+                zf.writestr("assets/minecraft/" + name, json.dumps(data))
+            zf.writestr("assets/minecraft/textures/block/stone.png", b"\x89PNG stone")
+
+    def test_blocks(self):
+        from mcsm import blockmesh as bm, terrain
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+            world = os.path.join(tmp, "srv", "world")
+            # a step: 64 high in the west half, 70 in the east half; one tuft of grass, one slab
+            h = lambda x, z: 64 if x < 8 else 70                      # noqa: E731
+            b = lambda x, y, z: ("minecraft:short_grass" if (x, z) == (2, 2) else
+                                 "minecraft:oak_slab" if (x, z) == (3, 3) else "minecraft:stone")   # noqa: E731
+            terrain.write_region(os.path.join(world, "region", "r.0.0.mca"), {(0, 0): terrain.make_chunk(0, 0, h, b)})
+            look = bm.Look(jar)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], look, radius=40)
+            faces = [struct.unpack_from("<5h", r["faces"], i) for i in range(0, len(r["faces"]), 10)]
+            names = {i["name"]: i for i in r["infos"]}
+            self.assertEqual(names["stone"]["kind"], "cube")
+            self.assertTrue(names["stone"]["tex"] is not None and "block/stone" in r["textures"])   # {"sprite": ...}
+            self.assertEqual(names["short_grass"]["kind"], "cross")
+            self.assertEqual((names["oak_slab"]["kind"], names["oak_slab"]["box"]), ("part", [0, 0, 0, 16, 8, 16]))
+            ox, oz = r["origin"]
+            at = {(x + ox, y, z + oz, d) for x, y, z, d, _i in faces}
+            self.assertIn((10, 70, 5, 0), at)                          # top of the high part
+            self.assertIn((8, 70, 5, 4), at)                           # the step's wall, facing west
+            self.assertNotIn((10, 70, 5, 4), at)                       # between two blocks: hidden
+            self.assertIn((2, 64, 2, 6), at)                           # the grass tuft, crossed quads
+            self.assertEqual(look.texture_png("block/stone"), b"\x89PNG stone")
+            self.assertIsNone(look.texture_png("block/nothing"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_eye_height(self):
+        from mcsm import worldtext as wt
+        sc = {"keyframeTracks": [{"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": {
+            "0": {"position": [1.0, 64.0, 2.0], "yaw": 10, "pitch": 5, "type": "camera"}}}]}
+        self.assertEqual(wt.camera_at(sc, 0)[0], [1.0, 64.0, 2.0])     # the keyframe as Flashback stores it
+        self.assertEqual(wt.eye_at(sc, 0), ([1.0, 64.0 + wt.EYE_HEIGHT, 2.0], 10.0, 5.0))   # what you see from

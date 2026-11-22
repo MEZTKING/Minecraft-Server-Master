@@ -14,8 +14,12 @@ You don't need an exported video. In the Videos tab press **Open a Flashback edi
 edit (`flashback/editor_states/<replay id>.json` in your Flashback folder; the scene open in Flashback
 is used), or `mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
 
-- The picture is the **app's 3D map seen through your edit's camera**: the terrain from the library
-  backup made right after the recording (blocky colours, no textures), the players as coloured boxes
+- The picture is the **app's 3D map seen through your edit's camera**, from the library backup made
+  right after the recording: **real Minecraft blocks with Minecraft's own textures** within about 80
+  blocks of the camera's path (taken from the Minecraft you have installed; slabs, posts and carpets
+  keep their shape, plants are crossed, grass, leaves and water get their colours), and smooth coloured
+  terrain further away. No lighting, shaders or animated mobs: for the exact picture use
+  **Flashback (real)** below. The players are coloured boxes
   with their names, moving along their recorded paths (sampled about once a second, so close-ups are
   approximate). The timeline is the edit's export range, with any timelapse taken into account.
 - **Camera view / Map view** (next to the time): *Map view* looks at the map from above, with your

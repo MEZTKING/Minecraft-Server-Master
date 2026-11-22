@@ -22,6 +22,9 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/tiles           (edit without a video) the terrain regions around the camera path
   GET  /tile/<rx>/<rz>/<step>  one region's surface: int16 heights + RGB (as the history viewer)
   POST /api/tracks          {"match": i}  every player's path through the video
+  GET  /api/blocks          (edit without a video) real blocks near the camera path: block looks, textures,
+                            and where the face list is (GET /blocks/<key>.bin)
+  GET  /blocktex/<name>.png a block texture from the Minecraft client jar installed on this PC
   GET  /api/link            is Minecraft with Flashback and the companion mod running, which replay is open
   POST /api/link/view       {"tick", "x", "y", "z", "yaw", "pitch", "fov"}  put Flashback there (paused)
   GET  /link/frame/<width>/<n>.png  the picture Flashback draws right now (the real view)
@@ -83,7 +86,7 @@ class VideoEditor:
         out, n = [], int(dur / step) + 1
         for i in range(n):
             tick = clock.replay_tick(min(i * step, clock.duration))
-            cam = wt.camera_at(sc, tick)
+            cam = wt.eye_at(sc, tick)
             if cam is None:
                 return {"samples": [], "step": step}
             pos, yaw, pitch = cam
@@ -327,6 +330,60 @@ class VideoEditor:
         os.replace(out + ".part", out)
         return out
 
+    # --- real blocks with Minecraft's textures near the camera -----------------------------------------
+    def _look(self):
+        from . import blockmesh as bm
+        if getattr(self, "_blook", None) is None:
+            m = self.vinfo["matches"][0] if self.vinfo["matches"] else {}
+            mc = None
+            if m.get("recording"):
+                mc = vt._replay_meta(m["recording"]).get("version_string")
+            self._bjar = bm.find_client_jar(mc)
+            self._blook = bm.Look(self._bjar)
+        return self._blook
+
+    def blocks(self) -> dict:
+        from . import blockmesh as bm
+        if getattr(self, "_blocks", None):
+            return self._blocks
+        found = self._terrain_source()
+        if not found:
+            return {"faces": 0, "message": "no library backup of this world"}
+        look = self._look()
+        if not look.zf:
+            return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
+        root, wdir = found
+        samples = self.camera_path(0)["samples"]
+        pts = [(s_[0], s_[2]) for s_ in samples[:: max(1, len(samples) // 600)]]
+        r = bm.build(root, wdir, pts, look, radius=80.0)
+        key = hashlib.sha1(f"{root}|{self.copy_key()}|{len(r['faces'])}".encode()).hexdigest()[:16]
+        d = os.path.join(os.path.dirname(self.project_file()), "frames")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"blocks-{key}.bin"), "wb") as fh:
+            fh.write(r["faces"])
+        self._blocks = {"faces": len(r["faces"]) // 10, "origin": r["origin"], "url": f"/blocks/{key}.bin",
+                        "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
+                        "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
+                        "jar": os.path.basename(self._bjar or "")}
+        return self._blocks
+
+    def block_texture(self, name: str) -> str | None:
+        """A texture from the client jar, kept as a file (the page loads it as an image)."""
+        if not name or ".." in name or not all(c.isalnum() or c in "_/-." for c in name):
+            return None
+        look = self._look()
+        data = look.texture_png(name)
+        if data is None:
+            return None
+        out = os.path.join(os.path.dirname(self.project_file()), "textures",
+                           os.path.splitext(os.path.basename(self._bjar or "jar"))[0], *name.split("/")) + ".png"
+        if not os.path.exists(out):
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            with open(out + ".part", "wb") as fh:
+                fh.write(data)
+            os.replace(out + ".part", out)
+        return out
+
     def tracks_all(self, index: int) -> dict:
         """Every player's path through the video: ``{name: [[video second, x, y, z], ...]}``."""
         from . import paths, replays
@@ -358,6 +415,12 @@ class VideoEditor:
     def file_for(self, path: str) -> str | None:
         if path == "/video":
             return self.video
+        if path.startswith("/blocks/") and path.endswith(".bin"):
+            name = os.path.basename(path)
+            full = os.path.join(os.path.dirname(self.project_file()), "frames", "blocks-" + name)
+            return full if os.path.isfile(full) else None
+        if path.startswith("/blocktex/") and path.endswith(".png"):
+            return self.block_texture(path[len("/blocktex/"):-4])
         if path.startswith("/link/frame/"):
             try:
                 w, n = path[len("/link/frame/"):].removesuffix(".png").split("/")
@@ -415,6 +478,8 @@ class VideoEditor:
             return self.tiles()
         if path == "/api/link":
             return self.link_status()
+        if path == "/api/blocks":
+            return self.blocks()
         if path == "/api/job":
             with self._lock:
                 return dict(self.job, log=self.job["log"][-30:])
@@ -497,7 +562,7 @@ class VideoEditor:
         sc = vt.scene_for_match(m)
         clock = vt.scene_clock(sc)
         tick = clock.replay_tick(min(t, clock.duration))
-        cam = wt.camera_at(sc, tick)
+        cam = wt.eye_at(sc, tick)
         if cam is None:
             raise ValueError("this edit has no camera keyframes")
         pos, yaw, pitch = cam

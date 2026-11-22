@@ -240,6 +240,7 @@ let NOVIDEO = false, VIEW = "camera", ALLTRACKS = {};
 // camera keyframes of an edit opened without a video (ticks of the replay), the clock between ticks and
 // seconds, the selected keyframe (its tick), the free-flying camera, and whether the camera was changed
 let KEYS = [], KSEL = null, CLOCK = null, FLY = null, CAMCHANGED = false;
+const EYE = 1.62;   // keyframes hold the spectator's feet; the picture is seen from its eyes (worldtext.EYE_HEIGHT)
 const PRESSED = new Set();
 function replayTick(v) {
   for (const [a, b, rate, t0] of CLOCK.pieces) if (v <= t0 + (b - a) / rate) return a + Math.max(0, v - t0) * rate;
@@ -950,7 +951,7 @@ function addKey() {
   snapshot();
   const tick = Math.round(replayTick(t)), prev = [...KEYS].reverse().find(k => k.tick <= tick);
   KEYS = KEYS.filter(k => k.tick !== tick);
-  KEYS.push({ tick, position: [...c.pos], yaw: c.yaw, pitch: c.pitch, roll: prev ? prev.roll : 0,
+  KEYS.push({ tick, position: [c.pos[0], c.pos[1] - EYE, c.pos[2]], yaw: c.yaw, pitch: c.pitch, roll: prev ? prev.roll : 0,
               interpolation_type: prev ? prev.interpolation_type : "SMOOTH" });
   KEYS.sort((a, b) => a.tick - b.tick); KSEL = tick; camChanged();
 }
@@ -974,7 +975,7 @@ $("#keySnapAll").onclick = () => {
 $("#camReset").onclick = () => { snapshot(); resetCamera(); };
 $("#keyHere").onclick = () => {
   const k = KEYS.find(k => k.tick === KSEL), c = FLY || camAt(vid.currentTime); if (!k || !c) return;
-  snapshot(); k.position = [...c.pos]; k.yaw = c.yaw; k.pitch = c.pitch; camChanged();
+  snapshot(); k.position = [c.pos[0], c.pos[1] - EYE, c.pos[2]]; k.yaw = c.yaw; k.pitch = c.pitch; camChanged();
 };
 for (const id of ["#kT", "#kX", "#kY", "#kZ", "#kYaw", "#kPitch", "#kRoll", "#kInterp"]) $(id).onchange = () => {
   const k = KEYS.find(k => k.tick === KSEL); if (!k) return;
@@ -1042,7 +1043,11 @@ window.addEventListener("resize", fit);
     CLOCK = INFO.clock; KEYS = INFO.keyframes || []; CAMCHANGED = !!INFO.camera_changed; TL.top = 44; fillKey();
     $("#makeScreen").hidden = true; $("#mOnVideo").closest("label").hidden = true;
     $("#addScreen").title += " (shown on the map preview; drawn on the video after you export from Flashback)";
-    const startMap = () => { MAP3D.init($("#map3d")); fit(); MAP3D.loadTerrain(msg => { $("#what").textContent = whatLine() + (msg ? " · " + msg : ""); }); };
+    const startMap = () => {
+      MAP3D.init($("#map3d")); fit();
+      const say = msg => { $("#what").textContent = whatLine() + (msg ? " · " + msg : ""); };
+      MAP3D.loadTerrain(say).then(() => MAP3D.loadBlocks(say));
+    };
     if (window.MAP3D) startMap(); else window.addEventListener("map3d-ready", startMap, { once: true });
     post("/api/tracks", { match: MATCH }).then(r => r.json()).then(j => {
       ALLTRACKS = j.players || {}; Object.assign(TRACKS, ALLTRACKS); });
@@ -1095,7 +1100,7 @@ async function realLoop() {
       const key = JSON.stringify([tick, c.pos.map(v => v.toFixed(2)), c.yaw.toFixed(1), c.pitch.toFixed(1), (c.fov || 70).toFixed(1)]);
       const moved = key !== REAL.last; REAL.last = key;
       if (moved) {
-        const r = await post("/api/link/view", { tick, x: c.pos[0], y: c.pos[1], z: c.pos[2], yaw: c.yaw, pitch: c.pitch, fov: c.fov || 70 });
+        const r = await post("/api/link/view", { tick, x: c.pos[0], y: c.pos[1] - EYE, z: c.pos[2], yaw: c.yaw, pitch: c.pitch, fov: c.fov || 70 });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || j.error) { REAL.msg = j.error || "Flashback stopped answering"; REAL.ok = false; break; }
         await sleep(vid.paused ? 120 : 30);                  // let the game draw the new moment
@@ -1135,18 +1140,23 @@ function init(canvas) {
   camMarker = new THREE.Mesh(new THREE.ConeGeometry(1.2, 3, 4), new THREE.MeshBasicMaterial({ color: 0xff4040 }));
   camMarker.visible = false; scene.add(camMarker);
 }
-function tileMesh(t, buf) {
+const TILES = [];                                     // [{t, buf, mesh}] so they can be rebuilt
+function tileMesh(t, buf, covered = null) {
   // vertices spread over the whole region (a hair wider than the samples) so regions meet without gaps
   const n = 512 / t.step, heights = new Int16Array(buf, 0, n * n), rgb = new Uint8Array(buf, n * n * 2, n * n * 3), NO = -32768;
   const pos = new Float32Array(n * n * 3), col = new Float32Array(n * n * 3), idx = [];
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const k = j * n + i, h = heights[k];
-    pos.set([t.rx * 512 + i * 512 / (n - 1), h === NO ? 0 : h + 1, t.rz * 512 + j * 512 / (n - 1)], k * 3);
+    pos.set([t.rx * 512 + i * 512 / (n - 1), h === NO ? 0 : h + 0.5, t.rz * 512 + j * 512 / (n - 1)], k * 3);
     col.set([rgb[k * 3] / 255, rgb[k * 3 + 1] / 255, rgb[k * 3 + 2] / 255], k * 3);
   }
   for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
     const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
     if (heights[a] === NO || heights[b] === NO || heights[c] === NO || heights[d] === NO) continue;
+    if (covered) {                                     // real blocks are shown there: leave the smooth surface out
+      const bx = Math.floor((t.rx * 512 + i * t.step) / 16), bz = Math.floor((t.rz * 512 + j * t.step) / 16);
+      if (covered.has(`${bx},${bz}`)) continue;
+    }
     idx.push(a, c, b, b, c, d);
   }
   const g = new THREE.BufferGeometry();
@@ -1163,7 +1173,7 @@ async function loadTerrain(say) {
     say(`loading the map ${done}/${list.tiles.length} (the first time reads the backup)`);
     try {
       const r = await fetch(`/tile/${t.rx}/${t.rz}/${t.step}`);
-      if (r.ok) scene.add(tileMesh(t, await r.arrayBuffer()));
+      if (r.ok) { const buf = await r.arrayBuffer(), mesh = tileMesh(t, buf); scene.add(mesh); TILES.push({ t, buf, mesh }); }
     } catch (e) { /* skip that region */ }
     done++;
   }
@@ -1217,7 +1227,94 @@ function render(cam, samples, players, view, keys = [], ksel = null) {
     renderer.render(scene, camMap);
   } else renderer.render(scene, camView);
 }
-window.MAP3D = { init, loadTerrain, resize, render };
+// --- real blocks near the camera, with Minecraft's own textures (from the installed game) -----------
+function loadImage(url) {
+  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+}
+async function buildAtlas(textures, tints) {
+  const N = Math.ceil(Math.sqrt(textures.length)), C = 16, cv = document.createElement("canvas");
+  cv.width = cv.height = N * C;
+  const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
+  const tmp = document.createElement("canvas"); tmp.width = tmp.height = C; const tg = tmp.getContext("2d"); tg.imageSmoothingEnabled = false;
+  const draw = (im, tint) => {                               // one 16x16 frame (animated strips: the first), tinted
+    tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, C, C);
+    tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
+    if (tint) {
+      tg.globalCompositeOperation = "multiply"; tg.fillStyle = `rgb(${tint[0]},${tint[1]},${tint[2]})`; tg.fillRect(0, 0, C, C);
+      tg.globalCompositeOperation = "destination-in"; tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
+    }
+    return tmp;
+  };
+  for (let i = 0; i < textures.length; i++) {
+    const x = (i % N) * C, y = Math.floor(i / N) * C, parts = textures[i].split("+");
+    const base = await loadImage(`/blocktex/${parts[0]}.png`);
+    if (base) g.drawImage(draw(base, tints[parts[0]]), x, y);
+    else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
+    if (parts[1]) {                                          // grass block side: + tinted overlay
+      const ov = await loadImage(`/blocktex/${parts[0]}_${parts[1]}.png`);
+      if (ov) g.drawImage(draw(ov, tints[`${parts[0]}_${parts[1]}`]), x, y);
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return { tex, N };
+}
+const SHADE = [1.0, 0.5, 0.8, 0.8, 0.62, 0.62];
+async function loadBlocks(say) {
+  let info;
+  try { info = await (await fetch("/api/blocks")).json(); } catch (e) { return; }
+  if (!info.faces) { if (info.message) say(info.message); return; }
+  say(`loading ${info.faces.toLocaleString()} block faces and their textures…`);
+  const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), buildAtlas(info.textures, info.tints)]);
+  const f = new Int16Array(buf), n = f.length / 5, [ox, oz] = info.origin, N = atlas.N, eps = 0.02 / N;
+  const covered = new Set();
+  for (let k = 0; k < n; k++) covered.add(`${(f[k * 5] + ox) >> 4},${(f[k * 5 + 2] + oz) >> 4}`);
+  for (const T of TILES) {                             // rebuild the smooth terrain without the block area
+    scene.remove(T.mesh); T.mesh.geometry.dispose(); T.mesh = tileMesh(T.t, T.buf, covered); scene.add(T.mesh);
+  }
+  const geo = { solid: { p: [], u: [], c: [], i: [] }, water: { p: [], u: [], c: [], i: [] } };
+  const quad = (G, pts, tex, v0, v1, u0, u1, shade) => {
+    const base = G.p.length / 3, cx = (tex % N) / N, cy = Math.floor(tex / N) / N;
+    for (const q of pts) G.p.push(q[0], q[1], q[2]);
+    const U = a => cx + eps + (a * (1 - 2 * eps * N)) / N, V = b => 1 - (cy + eps + ((1 - b) * (1 - 2 * eps * N)) / N);
+    G.u.push(U(u0), V(v0), U(u1), V(v0), U(u1), V(v1), U(u0), V(v1));
+    for (let k = 0; k < 4; k++) G.c.push(shade, shade, shade);
+    G.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  for (let k = 0; k < n; k++) {
+    const x = f[k * 5] + ox, y = f[k * 5 + 1], z = f[k * 5 + 2] + oz, d = f[k * 5 + 3], b = info.infos[f[k * 5 + 4]];
+    if (!b) continue;
+    const G = b.kind === "water" ? geo.water : geo.solid;
+    if (d === 6) {                                             // a plant: two crossed quads
+      const t = b.tex[0];
+      quad(G, [[x, y, z], [x + 1, y, z + 1], [x + 1, y + 1, z + 1], [x, y + 1, z]], t, 0, 1, 0, 1, 0.9);
+      quad(G, [[x + 1, y, z], [x, y, z + 1], [x, y + 1, z + 1], [x + 1, y + 1, z]], t, 0, 1, 0, 1, 0.9);
+      continue;
+    }
+    const [a0, b0, c0, a1, b1, c1] = b.box.map(v => v / 16), X0 = x + a0, X1 = x + a1, Y0 = y + b0, Y1 = y + b1, Z0 = z + c0, Z1 = z + c1;
+    const t = b.tex[d] ?? b.tex[0], sh = SHADE[d];
+    if (d === 0) quad(G, [[X0, Y1, Z0], [X1, Y1, Z0], [X1, Y1, Z1], [X0, Y1, Z1]], t, a0, a1, c0, c1, sh);
+    else if (d === 1) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y0, Z0], [X0, Y0, Z0]], t, a0, a1, c0, c1, sh);
+    else if (d === 2) quad(G, [[X1, Y0, Z0], [X0, Y0, Z0], [X0, Y1, Z0], [X1, Y1, Z0]], t, b0, b1, 1 - a1, 1 - a0, sh);
+    else if (d === 3) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y1, Z1], [X0, Y1, Z1]], t, b0, b1, a0, a1, sh);
+    else if (d === 4) quad(G, [[X0, Y0, Z0], [X0, Y0, Z1], [X0, Y1, Z1], [X0, Y1, Z0]], t, b0, b1, c0, c1, sh);
+    else quad(G, [[X1, Y0, Z1], [X1, Y0, Z0], [X1, Y1, Z0], [X1, Y1, Z1]], t, b0, b1, 1 - c1, 1 - c0, sh);
+  }
+  const mesh = (G, mat) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(G.p, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(G.u, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(G.c, 3));
+    g.setIndex(G.i);
+    return new THREE.Mesh(g, mat);
+  };
+  scene.add(mesh(geo.solid, new THREE.MeshBasicMaterial({ map: atlas.tex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide })));
+  if (geo.water.i.length) scene.add(mesh(geo.water, new THREE.MeshBasicMaterial({ map: atlas.tex, vertexColors: true, transparent: true,
+    opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })));
+  say(`real blocks near the camera (textures from ${info.jar})`);
+}
+window.MAP3D = { init, loadTerrain, loadBlocks, resize, render };
 window.dispatchEvent(new Event("map3d-ready"));
 </script>
 </body>
