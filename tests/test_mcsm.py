@@ -3431,7 +3431,7 @@ class TestMoments(unittest.TestCase):
         self.assertEqual(pvp["kinds"], {"death": 2, "chat": 1})
         self.assertEqual(pvp["players"], ["Alex", "Steve"])                     # the killer is in it
         self.assertEqual(pvp["score"], round((6 + 6 * 0.5 + 0.3) * (1 + 0.5 * 1), 1))   # Bob online too
-        self.assertEqual(pvp["recordings"], [{"path": "rec.zip", "player": "Steve"}])
+        self.assertEqual(pvp["recordings"], [{"path": "rec.zip", "player": "Steve", "mc": ""}])
         self.assertEqual(pvp["start"], int(at(30).timestamp() * 1000) - mo.PAD_BEFORE_MS)
         zombie = next(x for x in ms if "Zombie" in x["title"])
         self.assertEqual(zombie["score"], round(3 * (1 + 0.5 * 2), 1))           # a name in an item isn't PvP
@@ -3665,3 +3665,23 @@ class TestAfk(unittest.TestCase):
         self.assertLessEqual(b["end"] - t0, 61 * 60_000)              # the AFK tail isn't part of the build
         samples = tl.samples_from_tracks({"Builder": pts}, ["Builder"], t0, t0 + 100 * 60_000)
         self.assertTrue(samples and max(s[0].timestamp() for s in samples) * 1000 <= t0 + 61 * 60_000)
+
+
+class TestExportByVersion(unittest.TestCase):
+    """Copies only go into a Flashback of the recording's own Minecraft version."""
+
+    def test_export_target(self):
+        from mcsm import flashback as fbm, models as m
+        r = m.Replay("a.zip", None, 0, format="flashback", mc_version="1.21.11")
+        out = os.path.join("x", "out")
+        self.assertEqual(fbm.export_target(r, lambda _r: None, "C:/fb26", out),
+                         (os.path.join(out, "Flashback for Minecraft 1.21.11"), False))   # never the 26.x one
+        self.assertEqual(fbm.export_target(r, lambda _r: "C:/fb1.21.11", "C:/fb26", out), ("C:/fb1.21.11", True))
+        self.assertEqual(fbm.export_target(r, None, "C:/chosen", out), ("C:/chosen", True))     # chosen by hand
+        old = fbm.flashback_folders
+        try:
+            fbm.flashback_folders = lambda: [{"path": "C:/fb26", "name": "Flashback 26.1.2", "mc": "26.1.2"}]
+            self.assertIsNone(fbm.find_flashback_dir(None, "1.21.11", exact=True))
+            self.assertEqual(fbm.find_flashback_dir(None, "26.1.2", exact=True), "C:/fb26")
+        finally:
+            fbm.flashback_folders = old

@@ -103,7 +103,14 @@ highlights file. In Flashback open each copy in order and Export its scene, then
 another (the order list shows the ffmpeg command for that). Your recordings are not changed. The players'
 positions must have been read first (the status line says when).
 
-- Filters: kind of event (also *building & map art* and *exploring & searching*), a player, **with a recording** (moments no recording shows can't become a
+**Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. Each
+moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
+only into a Flashback of exactly that version. If there is none on this PC, they go into a folder
+"Flashback for Minecraft <version>" next to the highlights file (the timelapse summary says so first): add a
+Minecraft instance of that version with Fabric and Flashback (e.g. in Prism Launcher), start it once, then
+move that folder's `replays` and `editor_states` files into its `flashback` folder.
+
+- Filters: kind of event (also *building & map art* and *exploring & searching*), a Minecraft version, a player, **with a recording** (moments no recording shows can't become a
   video), order **best first** or **by date** (grouped by day).
 - **▶ Play** watches it on the map. **Keep** makes it a highlight (below); then **Export to Flashback**
   makes the replay copies with markers and one ready scene per highlight, as for highlights you mark

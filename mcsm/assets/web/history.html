@@ -152,6 +152,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="work">building &amp; map art</option><option value="travel">exploring &amp; searching</option>
     </select>
     <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
+    <select id="mVersion" title="Only moments recorded in this Minecraft version (Flashback opens a recording only in its own version)"><option value="">any version</option></select>
   </div>
   <div class="row">
     <label title="Hide moments no recording shows (they can't be made into a video)"><input type="checkbox" id="mRec" checked> with a recording</label>
@@ -874,15 +875,20 @@ async function loadMoments() {
   try { res = await (await fetch("api/moments")).json(); } catch (e) { return; }
   MOM = res.moments || []; momFinal = !!res.positions_final;
   $("#mPlayer").replaceChildren(new Option("everyone", ""));
+  const vs = $("#mVersion"), keepV = vs.value; vs.replaceChildren(new Option("any version", ""));
+  for (const v of [...new Set(MOM.map(m => m.mc).filter(Boolean))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })))
+    vs.appendChild(new Option(`Minecraft ${v}`, v));
+  vs.value = keepV;
   const sel = $("#mPlayer"), names = [...new Set(MOM.flatMap(m => m.players))].sort((a, b) => a.localeCompare(b));
   for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
   renderMoments();
 }
 function renderMoments() {
   const kind = $("#mKind").value, who = $("#mPlayer").value, rec = $("#mRec").checked, byTime = $("#mOrder").value === "time";
+  const ver = $("#mVersion").value;
   const kindOk = m => !kind || m.kinds[kind] || (kind === "work" && ["building", "map_art"].includes(m.mode))
     || (kind === "travel" && ["exploring", "searching", "journey"].includes(m.mode));
-  let list = MOM.filter(m => kindOk(m) && (!who || m.players.includes(who) || m.online.includes(who))
+  let list = MOM.filter(m => kindOk(m) && (!ver || m.mc === ver) && (!who || m.players.includes(who) || m.online.includes(who))
                              && (!rec || m.recordings.length));
   if (byTime) list = [...list].sort((a, b) => a.start - b.start);
   const ul = $("#moments"); ul.replaceChildren();
@@ -899,7 +905,8 @@ function renderMoments() {
     const meta = document.createElement("div"); meta.className = "meta";
     const pov = [...new Set(m.recordings.map(r => r.player || "?"))];
     meta.textContent = `${fmtShort(m.start)} · ${hms(m.end - m.start)} · ${m.players.join(", ") || "?"} · `
-      + (m.recordings.length ? `${m.recordings.length} recording${m.recordings.length > 1 ? "s" : ""} (${pov.join(", ")})` : "no recording");
+      + (m.recordings.length ? `${m.recordings.length} recording${m.recordings.length > 1 ? "s" : ""} (${pov.join(", ")})` : "no recording")
+      + (m.mc ? ` · Minecraft ${m.mc}` : "");
     const acts = document.createElement("div"); acts.className = "acts";
     const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
     btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined)" : "Watch this moment on the map",
@@ -915,6 +922,9 @@ function renderMoments() {
               + `in ${p.parts.length} part${p.parts.length > 1 ? "s" : ""} (one Flashback copy each, export them in order):\n${parts}\n\n`
               + `The copies take ${gb(p.bytes)}${p.free ? ` (${gb(p.free)} free)` : ""}, in ${p.folders.join(", ")}. `
               + (p.short.length ? `\n\nNot enough space: ${p.short.join("; ")}` : "")
+              + (p.folders.some(f => f.includes("Flashback for Minecraft")) ? `\n\nRecorded in Minecraft ${m.mc || "?"}: there's no Flashback for that version on this PC, `
+                 + "so the copies go into a 'Flashback for Minecraft …' folder. Add a Minecraft instance of that version with Fabric and Flashback, "
+                 + "start it once, then move that folder's 'replays' and 'editor_states' files into its flashback folder." : "")
               + `\n\nYour original recordings are not changed. Make them?`)) { $("#hlStatus").textContent = ""; return; }
           tlb.disabled = true;
           await post("api/timelapse/export", { id: m.id });
@@ -925,8 +935,11 @@ function renderMoments() {
             if (j.running) continue;
             if (j.error) throw new Error(j.error);
             const r = j.result;
+            const away = String(r.folder).includes("Flashback for Minecraft");
             $("#hlStatus").textContent = `Timelapse ready: ${r.parts.length} cop${r.parts.length === 1 ? "y" : "ies"} named "… (timelapse 1 of ${r.parts.length})" `
-              + `in Flashback. Open each in order and Export its scene; then put the videos one after another. Order list: ${r.order}`;
+              + (away ? `in ${r.folder} (no Flashback for Minecraft ${m.mc || "?"} on this PC: add one, start it once, and move these into its flashback folder). `
+                      : `in Flashback (${r.folder}). `)
+              + `Open each in order and Export its scene; then put the videos one after another. Order list: ${r.order}`;
             break;
           }
         } catch (e) { $("#hlStatus").textContent = `Timelapse: ${e.message}`; }
@@ -948,7 +961,7 @@ function renderMoments() {
   $("#mCount").textContent = `${Math.min(momShown, list.length)} of ${list.length}`;
   $("#mMore").hidden = list.length <= momShown;
 }
-for (const id of ["#mKind", "#mPlayer", "#mRec", "#mOrder"]) $(id).onchange = () => { momShown = 20; renderMoments(); };
+for (const id of ["#mKind", "#mPlayer", "#mVersion", "#mRec", "#mOrder"]) $(id).onchange = () => { momShown = 20; renderMoments(); };
 $("#mMore").onclick = () => { momShown += 20; renderMoments(); };
 
 // ---------- the area of a building/exploring stretch, outlined on the map ----------

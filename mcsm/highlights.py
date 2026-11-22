@@ -186,8 +186,8 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             by_replay.setdefault(id(r), (r, []))[1].append(h)
     folders = set()
     for r, hs in by_replay.values():
-        fb = (pick_dir(r) if pick_dir else None) or flashback_dir
-        target = os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+        fb, _installed = fbm.export_target(r, pick_dir, flashback_dir, out_dir)
+        target = os.path.join(fb, "replays")
         folders.add(target)
         r0 = _ms(r.start)
         total = int(r.raw_meta.get("total_ticks") or 0) or int(r.duration_ms / 50)
@@ -213,14 +213,11 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             result["skipped"].append(f"{r.path}: {exc}")
             continue
         state = {"scenes": scenes, "sceneIndex": 0}
-        if fb:
-            state_file = fbm.install_editor_state(fb, meta["uuid"], state)
-        else:
-            state_file = os.path.join(os.path.dirname(dst), f"{meta['uuid']}.json")
-            with open(state_file, "w", encoding="utf-8") as fh:
-                json.dump(state, fh, separators=(",", ":"))
+        state_file = fbm.install_editor_state(fb, meta["uuid"], state)
         result["replays"].append({"file": dst, "editor_state": state_file, "recorded_by": r.recorded_player,
                                   "minecraft": r.mc_version, "highlights": [h["title"] for h in hs]})
     result["folder"] = sorted(folders)[0] if len(folders) == 1 else (sorted(folders) or None)
-    result["installed"] = any(not f.startswith(os.path.join(out_dir, "flashback")) for f in folders)
+    result["installed"] = any(not f.startswith(os.path.abspath(out_dir)) for f in map(os.path.abspath, folders))
+    result["not_installed"] = sorted({os.path.dirname(f) for f in map(os.path.abspath, folders)
+                                      if f.startswith(os.path.abspath(out_dir))})
     return result

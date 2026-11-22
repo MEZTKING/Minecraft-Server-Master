@@ -174,8 +174,9 @@ def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict |
         out.append({"id": hashlib.sha1(f"{g[0]['t']}|{g[0]['kind']}|{g[0]['player']}".encode()).hexdigest()[:12],
                     "start": start, "end": end, "score": round(score, 1), "title": _title(g), "kinds": kinds,
                     "players": players, "events": [{k: v for k, v in e.items() if k != "killer"} for e in g],
-                    "online": online, "recordings": [{"path": r.path, "player": r.recorded_player} for r in recs],
-                    "why": why})
+                    "online": online, "recordings": [{"path": r.path, "player": r.recorded_player,
+                                                      "mc": r.mc_version} for r in recs],
+                    "mc": _version(recs), "why": why})
     if tracks:
         out += _work_moments(data, tracks, w, sessions, replays, canon)
     out.sort(key=lambda x: -x["score"])
@@ -234,7 +235,8 @@ def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans",
                     "title": f"{', '.join(players[:3])}{' and others' if len(players) > 3 else ''}: "
                              f"{WORK_LABEL[kind]} {where} ({length})",
                     "kinds": {kind: len(g)}, "players": players, "events": [], "online": online,
-                    "recordings": [{"path": r.path, "player": r.recorded_player} for r in recs], "why": why,
+                    "recordings": [{"path": r.path, "player": r.recorded_player, "mc": r.mc_version} for r in recs],
+                    "mc": _version(recs), "why": why,
                     "mode": kind, "area": area, "dim": lead["dim"], "y": lead["centre"][1], "clip": lead["clip"]})
     return out
 
@@ -280,6 +282,15 @@ _TOOLS = ("pickaxe", "_axe", "shovel", "_hoe", "sword", "bow", "trident", "shear
 def _tool(item: str) -> bool:
     """Tools and weapons also count as "used": they don't say what was built."""
     return any(t in item for t in _TOOLS)
+
+
+def _version(recs) -> str | None:
+    """The Minecraft version most of the recordings were made in."""
+    counts: dict[str, int] = {}
+    for r in recs:
+        if r.mc_version:
+            counts[r.mc_version] = counts.get(r.mc_version, 0) + 1
+    return max(counts, key=counts.get) if counts else None
 
 
 def _title(g: list[dict]) -> str:

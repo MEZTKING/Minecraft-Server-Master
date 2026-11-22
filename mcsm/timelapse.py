@@ -434,16 +434,16 @@ def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]
 
 
 def target_folder(r, flashback_dir, out_dir, pick_dir=None) -> str:
-    fb = (pick_dir(r) if pick_dir else None) or flashback_dir
-    return os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+    from . import flashback as fbm
+    return os.path.join(fbm.export_target(r, pick_dir, flashback_dir, out_dir)[0], "replays")
 
 
 def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made):
     from . import flashback as fbm
     for part in pm["parts"]:
         r, pl = part["replay"], part["plan"]
-        fb = (pick_dir(r) if pick_dir else None) or flashback_dir
-        target = os.path.join(fb, "replays") if fb else os.path.join(out_dir, "flashback")
+        fb, _installed = fbm.export_target(r, pick_dir, flashback_dir, out_dir)
+        target = os.path.join(fb, "replays")
         folders.add(target)
         keys = timelapse_keyframes(pl, r.start)
         markers = []
@@ -464,12 +464,7 @@ def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir
         meta = fbm.write_replay_copy(replay_file(r), dst, markers, suffix)
         state = fbm.editor_state(f"Timelapse {part['n']}/{total}: {title}"[:60], fbm.camera_keyframe(*pm["camera"]),
                                  keys, (keys[0][0], keys[-1][0]))
-        if fb:
-            state_file = fbm.install_editor_state(fb, meta["uuid"], state)
-        else:
-            state_file = os.path.join(os.path.dirname(dst), f"{meta['uuid']}.json")
-            with open(state_file, "w", encoding="utf-8") as fh:
-                json.dump(state, fh, separators=(",", ":"))
+        state_file = fbm.install_editor_state(fb, meta["uuid"], state)
         made.append(state_file)
         written.append({"n": part["n"], "file": dst, "editor_state": state_file, "seconds": part["seconds"],
                         "recorded_by": r.recorded_player})

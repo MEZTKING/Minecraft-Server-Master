@@ -999,9 +999,11 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
         raise ValueError("the recording of this edit wasn't found (import it into the library first)")
     with zipfile.ZipFile(src) as zf:
         mc = json.loads(zf.read("metadata.json").decode("utf-8")).get("version_string")
-    fb = flashback_dir or fbm.find_flashback_dir(None, mc)
+    fb = flashback_dir or fbm.find_flashback_dir(None, mc, exact=True)
     if not fb:
-        raise ValueError("no Flashback folder found")
+        raise ValueError(f"this recording was made in Minecraft {mc or '?'}, and there's no Flashback for that version "
+                         "on this PC: add a Minecraft instance of that version with Fabric and Flashback, start it once, "
+                         "then try again")
     # One copy per video: making it again replaces the earlier copy (same name and id, so Flashback
     # keeps any changes you made to its edit) instead of piling up gigabyte-sized copies.
     earlier = find_text_copy(fb, video) if video else None

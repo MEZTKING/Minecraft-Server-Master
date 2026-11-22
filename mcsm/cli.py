@@ -475,7 +475,7 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
                     args.cache, _track_files(args.tracks), cfg.get("title") or "", cfg.get("spawn"),
                     decode_replays=not args.no_replays, highlights_file=args.highlights,
                     flashback_dir=find_flashback_dir(args.flashback_dir), terrain_backups=older,
-                    flashback_pick=None if args.flashback_dir else (lambda r: find_flashback_dir(None, r.mc_version)),
+                    flashback_pick=None if args.flashback_dir else (lambda r: find_flashback_dir(None, r.mc_version, exact=True)),
                     terrain_label=(top or {}).get("label") or "", terrain_time=when(top) if top else None)
     return hm, hm.start(args.http_port)
 

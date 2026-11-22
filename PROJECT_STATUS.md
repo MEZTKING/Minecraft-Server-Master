@@ -924,6 +924,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   the backup saved after the recording (builds made later show, blocks broken during the recording
   don't), and players' positions come about once a second. Only CAMERA keyframes are followed (orbit and
   entity-tracking cameras aren't), as for texts.
+- **The owner has no Flashback for Minecraft 1.21.11** (recordings from Feb-Apr 2026 are 1.21.x): those can only be
+  opened after adding such an instance (Prism: "Flashback 26.2" exists without a flashback folder yet).
 - **Song and beat markers not yet opened in Flashback.** The AUDIO keyframe and marker formats come from
   Flashback's source (adapters quoted) and the owner's own edit files; detection on a click track gives
   119.45 BPM for 120 (good enough to line up; type the BPM if it drifts over a long song).
@@ -943,6 +945,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Owner's first timelapse: the 1.21.11 copies landed in the 26.1.2 Flashback, which can't open them
+  ("make it sorted by version"). Now highlights/timelapse copies only go into a Flashback of exactly the
+  recording's version (`find_flashback_dir(..., exact=True)`, `flashback.export_target`), else into
+  "Flashback for Minecraft <version>" next to the highlights file with instructions; world-text copies refuse with
+  a clear message; moments show their version and can be filtered by it; the timelapse summary warns first.
 
 - **2026-11-22:** Build timelapse after Fable's review: the point of view is whoever was near the build (not the
   longest file), the app's own copies and duplicate files are left out, renamed players' positions found, the plan

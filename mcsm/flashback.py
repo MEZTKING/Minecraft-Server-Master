@@ -152,12 +152,13 @@ def _activity(path: str) -> float:
     return newest
 
 
-def find_flashback_dir(explicit: str | None = None, mc_version: str | None = None) -> str | None:
+def find_flashback_dir(explicit: str | None = None, mc_version: str | None = None,
+                       exact: bool = False) -> str | None:
     """The Flashback data folder (contains ``replays/``), or None if not found.
 
     *explicit* wins. Otherwise, with *mc_version* (a recording's Minecraft version), an instance
     of exactly that version is preferred, since Flashback only opens a recording in the version
-    it was made with; then the most recently used Flashback folder.
+    it was made with; then (unless *exact*) the most recently used Flashback folder.
     """
     if explicit:
         return explicit if os.path.isdir(explicit) else None
@@ -171,7 +172,24 @@ def find_flashback_dir(explicit: str | None = None, mc_version: str | None = Non
         if same:
             same.sort(key=lambda f: ("flashback" not in f["name"].lower(), -_activity(f["path"])))
             return same[0]["path"]
+        if exact:
+            return None
     return max(found, key=lambda f: _activity(f["path"]))["path"]
+
+
+def export_target(r, pick_dir, flashback_dir: str | None, out_dir: str) -> tuple[str, bool]:
+    """Where a copy of recording *r* goes: ``(Flashback data folder, installed)``. With *pick_dir* (the
+    Flashback of the recording's own Minecraft version) a recording whose version has no Flashback on
+    this PC goes into ``<out_dir>/Flashback for Minecraft <version>`` instead of a Flashback that
+    couldn't open it (owner's first timelapse: 1.21.11 copies landed in 26.1.2)."""
+    if pick_dir is not None:
+        fb = pick_dir(r)
+        if fb:
+            return fb, True
+        return os.path.join(out_dir, f"Flashback for Minecraft {r.mc_version or 'unknown version'}"), False
+    if flashback_dir:
+        return flashback_dir, True
+    return os.path.join(out_dir, "flashback"), False
 
 
 def find_editor_state(uuid: str) -> str | None:
