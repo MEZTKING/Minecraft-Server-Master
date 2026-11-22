@@ -14,6 +14,8 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   GET  /api/project         the saved texts of this video (or a first title)
   POST /api/project         {"items": [...], "match": i}  save them (done by the page as you edit)
   POST /api/make            {"target": "world"|"video", "items": [...], "match": i}  make all of them
+  POST /api/image           {"name": "logo.png", "data": base64}  keep a picture for the project
+  GET  /image/<file>        a picture kept for the projects
 
 Projects are kept in ``%LOCALAPPDATA%/mcsm/video-text/`` (one file per video), never next to the video.
 """
@@ -77,8 +79,44 @@ class VideoEditor:
                 "camera": self.camera_path(0) if i["matches"] else {"samples": [], "step": 0.1}}
 
     # --- web routes --------------------------------------------------------------------------
+    IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+
+    def image_dir(self) -> str:
+        return os.path.join(os.path.dirname(self.project_file()), "images")
+
     def file_for(self, path: str) -> str | None:
-        return self.video if path == "/video" else None
+        if path == "/video":
+            return self.video
+        if path.startswith("/image/"):
+            name = path[len("/image/"):]
+            if name and name == os.path.basename(name) and os.path.splitext(name)[1].lower() in self.IMAGE_TYPES:
+                full = os.path.join(self.image_dir(), name)
+                return full if os.path.isfile(full) else None
+        return None
+
+    def add_image(self, body: dict) -> dict:
+        """Keep a picture the page sent (copied into the projects folder; your file isn't touched).
+        Same picture twice = one file. Returns its name and width/height."""
+        import base64
+        ext = os.path.splitext(str(body.get("name") or ""))[1].lower()
+        if ext not in self.IMAGE_TYPES:
+            raise ValueError("pictures can be PNG, JPG, GIF, WEBP or BMP")
+        try:
+            data = base64.b64decode(str(body.get("data") or ""), validate=True)
+        except ValueError:
+            raise ValueError("the picture didn't arrive in one piece")
+        if not data:
+            raise ValueError("empty picture")
+        name = hashlib.sha1(data).hexdigest()[:16] + ext
+        d = self.image_dir()
+        os.makedirs(d, exist_ok=True)
+        full = os.path.join(d, name)
+        if not os.path.exists(full):
+            with open(full + ".part", "wb") as fh:
+                fh.write(data)
+            os.replace(full + ".part", full)
+        size = vt.video_size(full)
+        return {"file": name, "width": size[0] if size else None, "height": size[1] if size else None}
 
     def api_get(self, path: str):
         if path == "/api/project":
@@ -217,6 +255,8 @@ class VideoEditor:
             return self.pick(int(body.get("match", 0)), float(body["t"]), float(body["x"]), float(body["y"]))
         if path == "/api/make":
             return self._start(body)
+        if path == "/api/image":
+            return self.add_image(body)
         return None
 
     def _start(self, body: dict) -> dict:
@@ -254,8 +294,9 @@ class VideoEditor:
             say(("Replaced" if r.get("replaced") else "Made") + f" '{r['name']}' in {r['flashback']}")
             return {"replay": r["replay"], "name": r["name"], "replaced": r.get("replaced", False)}
         m = self.vinfo["matches"][int(b.get("match", 0))] if self.vinfo["matches"] else {}
-        default_start = (m.get("still_from") or 0.0) + 0.2
-        out = vt.make_items_on_screen(self.video, items, self.vinfo["duration"], default_start, progress=say)
+        out = vt.make_items_on_screen(self.video, items, self.vinfo["duration"],
+                                      max(0.0, self.vinfo["duration"] - 4), progress=say,
+                                      image_dir=self.image_dir(), still_from=m.get("still_from"))
         say(f"Made {out}")
         return {"video": out}
 

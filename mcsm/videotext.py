@@ -431,9 +431,22 @@ class Title:
     border: float = 1.0             # border thickness (1 = normal)
     shadow: bool = True
     box: str = ""                   # background box colour ("" = none)
+    opacity: float = 1.0            # 0..1
+    roll: float = 0.0               # turned, degrees clockwise
+    tilt: float = 0.0               # tipped back/forward (degrees, 3D perspective)
+    turn: float = 0.0               # turned left/right (degrees, 3D perspective)
+    depth: float = 0.0              # 3D letters: thickness as a share of the letter height (0 = flat)
+    italic: bool = False
+    underline: bool = False
+    org: tuple | None = None        # point it turns around (shares of width/height; None = its centre)
 
 
-TITLE_ANIMATIONS = ("none", "fade", "pop", "words", "words-fade", "words-pop")
+TITLE_ANIMATIONS = ("none", "fade", "pop", "words", "words-fade", "words-pop", "rise", "slam")
+
+
+def _alpha(opacity: float) -> int:
+    """ASS alpha (0 = solid, 255 = invisible) for an opacity 0..1."""
+    return 255 - int(round(255 * max(0.0, min(1.0, opacity))))
 
 
 def _word_tags(t: Title, words: list[str]) -> str:
@@ -441,15 +454,16 @@ def _word_tags(t: Title, words: list[str]) -> str:
     start, invisible until its moment)."""
     bs = "\\"
     out = []
+    on = f"{_alpha(t.opacity):02X}"
     for i, w in enumerate(words):
         a = int((i * t.word_gap) * 1000)
         d = max(1, int(t.anim * 1000))
         if t.animation == "words":
-            tags = f"{bs}alpha&HFF&{bs}t({a},{a + 1},{bs}alpha&H00&)"
+            tags = f"{bs}alpha&HFF&{bs}t({a},{a + 1},{bs}alpha&H{on}&)"
         elif t.animation == "words-fade":
-            tags = f"{bs}alpha&HFF&{bs}t({a},{a + d},{bs}alpha&H00&)"
+            tags = f"{bs}alpha&HFF&{bs}t({a},{a + d},{bs}alpha&H{on}&)"
         else:                                           # words-pop: grows up from the line, snappy
-            tags = (f"{bs}alpha&HFF&{bs}fscy0{bs}t({a},{a + 1},{bs}alpha&H00&)"
+            tags = (f"{bs}alpha&HFF&{bs}fscy0{bs}t({a},{a + 1},{bs}alpha&H{on}&)"
                     f"{bs}t({a},{a + d},0.6,{bs}fscy100)")
         out.append("{" + tags + "}" + _ass_escape(w))
     return " ".join(out)
@@ -475,34 +489,58 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
         span = f"{_ass_time(t.start)},{_ass_time(t.end)}"
         words = t.text.split()
         by_word = t.animation.startswith("words") and len(words) > 1
-        fade_in = t.fade_in if t.animation == "fade" else (t.anim * 0.5 if t.animation == "pop" else 0.0)
+        anim = t.animation
+        fade_in = {"fade": t.fade_in, "pop": t.anim * 0.5, "slam": t.anim * 0.5, "rise": t.anim}.get(anim, 0.0)
         fad = f"{bs}fad({int(fade_in * 1000)},{int(t.fade_out * 1000)})"
         pop = ""
-        if t.animation == "pop":
-            d = max(2, int(t.anim * 1000))
+        d = max(2, int(t.anim * 1000))
+        if anim == "pop":
             pop = f"{bs}fscx0{bs}fscy0{bs}t(0,{d * 6 // 10},{bs}fscx118{bs}fscy118){bs}t({d * 6 // 10},{d},{bs}fscx100{bs}fscy100)"
+        elif anim == "slam":
+            pop = f"{bs}fscx260{bs}fscy260{bs}t(0,{d // 2},0.5,{bs}fscx100{bs}fscy100)"
+        a = _alpha(t.opacity)
+        alpha = f"{bs}alpha&H{a:02X}&" if a and not by_word else ""
+        ox, oy = (int(t.org[0] * width), int(t.org[1] * height)) if t.org else (cx, cy)
+        turn = ""
+        if t.roll or t.tilt or t.turn:
+            turn = f"{bs}org({ox},{oy})"
+            turn += f"{bs}frz{-t.roll:g}" if t.roll else ""
+            turn += f"{bs}frx{t.tilt:g}" if t.tilt else ""
+            turn += f"{bs}fry{t.turn:g}" if t.turn else ""
+        look = (f"{bs}i1" if t.italic else "") + (f"{bs}u1" if t.underline else "")
+
+        def place(dx: int = 0, dy: int = 0) -> str:
+            if anim == "rise":                       # glides up into place
+                return f"{bs}move({cx + dx},{cy + dy + px * 6 // 10},{cx + dx},{cy + dy},0,{d})"
+            return f"{bs}pos({cx + dx},{cy + dy})"
+
         body = _word_tags(t, words) if by_word else _ass_escape(t.text)
         if t.font:
             fad = f"{bs}fn{t.font}" + fad
+        tags = fad + pop + alpha + turn + look
         if t.box:
             pad = max(4, px // 6)
-            lines.append(f"Dialogue: {layer},{span},box,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c&HFFFFFF&"
-                         f"{bs}alpha&HFF&{bs}3c{_bgr(t.box)}{bs}3a&H60&{bs}bord{pad}}}{_ass_escape(t.text)}")
+            box_a = 0x60 + (0xFF - 0x60) * a // 255
+            lines.append(f"Dialogue: {layer},{span},box,,0,0,0,,{{{fad}{pop}{turn}{bs}fs{px}{place()}{bs}1c&HFFFFFF&"
+                         f"{bs}alpha&HFF&{bs}3c{_bgr(t.box)}{bs}3a&H{box_a:02X}&{bs}bord{pad}}}{_ass_escape(t.text)}")
             layer += 1
-        if t.style == "3d":
-            depth = max(4, px // 7)
-            for i in range(depth, 0, -1):
-                shade = int(150 - 90 * i / depth) // 2
-                lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx + i // 3},{cy + i})"
-                             f"{bs}1c&H{shade:02X}{shade:02X}{shade:02X}&{bs}bord{max(2, px // 45)}"
-                             f"{bs}3c&H101010&}}{body}")
+        depth = t.depth or (0.14 if t.style == "3d" else 0.0)
+        if depth > 0:
+            n = max(4, min(24, int(px * depth)))
+            r_, g_, b_ = (int(_bgr(t.colour)[i:i + 2], 16) for i in (6, 4, 2))
+            for i in range(n, 0, -1):
+                f = 0.55 - 0.3 * i / n
+                shade = f"&H{int(b_ * f):02X}{int(g_ * f):02X}{int(r_ * f):02X}&"
+                lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{tags}{bs}fs{px}{place(i // 3, i)}"
+                             f"{bs}1c{shade}{bs}bord{max(2, px // 45)}{bs}3c&H101010&}}{body}")
                 layer += 1
-            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
-                         f"{bs}bord{max(2, px // 45)}{bs}3c&H181818&}}{body}")
+            bord = max(2, px // 45) if t.style != "outline" else max(2, int(px / 12 * t.border))
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{tags}{bs}fs{px}{place()}{bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{bord}{bs}3c{_bgr(t.border_colour) if t.style == 'outline' else '&H181818&'}}}{body}")
         else:
             bord = max(0, int(px / 12 * t.border)) if t.style == "outline" else 0
             shad = max(1, px // 25) if t.shadow else 0
-            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{fad}{pop}{bs}fs{px}{bs}pos({cx},{cy}){bs}1c{_bgr(t.colour)}"
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{tags}{bs}fs{px}{place()}{bs}1c{_bgr(t.colour)}"
                          f"{bs}bord{bord}{bs}3c{_bgr(t.border_colour)}{bs}shad{shad}{bs}4c&H000000&}}{body}")
         layer += 1
     return "\n".join(head + lines) + "\n"
@@ -525,8 +563,44 @@ def pick_encoder(ffmpeg: str) -> list[str]:
     return ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
 
 
-def burn_in(video: str, ass_text: str, out: str, progress=None) -> str:
-    """Make a copy of *video* with the texts drawn in (the original is never changed)."""
+def image_filters(images: list[dict], width: int, height: int, first_input: int = 1,
+                  base: str = "0:v") -> tuple[list[str], str]:
+    """ffmpeg filter chains that lay *images* over the video ``[base]``: each ``{file, start, end,
+    x, y (centre, shares), height (share of the video height), opacity, roll, animation (none, fade,
+    rise, pop), anim, fade_out}``. Returns (chains, label of the result)."""
+    chains, cur = [], base
+    for k, im in enumerate(images, start=first_input):
+        h = max(2, int(round(float(im.get("height", 0.25)) * height / 2)) * 2)
+        s0 = float(im.get("start") or 0.0)
+        e0 = float(im["end"]) if im.get("end") is not None else 1e9
+        d = max(0.05, float(im.get("anim") or 0.4))
+        f = [f"scale=-2:{h}", "format=rgba"]
+        op = float(im.get("opacity", 1.0))
+        if op < 1:
+            f.append(f"colorchannelmixer=aa={max(0.0, op):.3f}")
+        roll = float(im.get("roll") or 0.0)
+        if roll:
+            a = f"{roll:g}*PI/180"
+            f.append(f"rotate=a={a}:c=none:ow=rotw({a}):oh=roth({a})")
+        if im.get("animation", "fade") in ("fade", "rise", "pop", "slam"):
+            f.append(f"fade=t=in:st={s0:.3f}:d={d:.3f}:alpha=1")
+        fo = float(im.get("fade_out") or 0.0)
+        if fo > 0 and e0 < 1e8:
+            f.append(f"fade=t=out:st={max(0.0, e0 - fo):.3f}:d={fo:.3f}:alpha=1")
+        chains.append(f"[{k}:v]{','.join(f)}[i{k}]")
+        x = f"{float(im.get('x', 0.5)) * width:.1f}-overlay_w/2"
+        y = f"{float(im.get('y', 0.5)) * height:.1f}-overlay_h/2"
+        if im.get("animation") == "rise":
+            y += f"+{0.6 * h:.1f}*max(0,1-(t-{s0:.3f})/{d:.3f})"
+        chains.append(f"[{cur}][i{k}]overlay=x='{x}':y='{y}':enable='between(t,{s0:.3f},{e0:.3f})'"
+                      f":eval=frame:shortest=1[v{k}]")
+        cur = f"v{k}"
+    return chains, cur
+
+
+def burn_in(video: str, ass_text: str, out: str, progress=None, images: list[dict] | None = None) -> str:
+    """Make a copy of *video* with the texts (and *images*, see :func:`image_filters`) drawn in
+    (the original is never changed)."""
     import tempfile
     ffmpeg = find_tool("ffmpeg")
     if not ffmpeg:
@@ -542,7 +616,21 @@ def burn_in(video: str, ass_text: str, out: str, progress=None) -> str:
         with open(os.path.join(work, "t.ass"), "w", encoding="utf-8") as fh:
             fh.write(ass_text)
         part = out + ".part.mp4"
-        cmd = [ffmpeg, "-v", "error", "-y", "-i", os.path.abspath(video), "-vf", "ass=t.ass",
+        has_text = "Dialogue:" in ass_text
+        if images:
+            size = video_size(video) or (1920, 1080)
+            inputs = []
+            for im in images:
+                gif = os.path.splitext(im["file"])[1].lower() == ".gif"
+                inputs += (["-ignore_loop", "0"] if gif else ["-loop", "1"]) + ["-i", os.path.abspath(im["file"])]
+            chains, cur = image_filters(images, size[0], size[1])
+            if has_text:
+                chains.append(f"[{cur}]ass=t.ass[out]")
+                cur = "out"
+            graph = ["-filter_complex", ";".join(chains), "-map", f"[{cur}]", "-map", "0:a?"]
+        else:
+            inputs, graph = [], ["-vf", "ass=t.ass"]
+        cmd = [ffmpeg, "-v", "error", "-y", "-i", os.path.abspath(video), *inputs, *graph,
                *pick_encoder(ffmpeg), "-pix_fmt", "yuv420p", "-c:a", "copy", "-progress", "pipe:1", "-nostats",
                os.path.abspath(part)]
         proc = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -732,9 +820,14 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
                 always: bool = False, animation: str = "none", anim: float = 0.4, word_gap: float = 0.3,
                 fade_out: float = 0.0, border_colour: str = "black", glow: bool = True, shadow: bool = False,
                 box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
-                spot: list[float] | None = None, follow: dict | None = None):
+                spot: list[float] | None = None, follow: dict | None = None, *, opacity: float = 1.0,
+                roll: float = 0.0, facing: str = "auto", turn: float = 0.0, tilt: float = 0.0,
+                depth: float = 0.0, italic: bool = False, underline: bool = False):
     """The text displays for one text (one or more lines) and the video second it appears at.
-    *follow* ``{"eid", "x", "y", "z"}``: the text rides on that player (above their head)."""
+    *follow* ``{"eid", "x", "y", "z"}``: the text rides on that player (above their head).
+    *facing*: auto (turns to the camera; upright on a spot), camera, upright, fixed (stays as it
+    was when it appeared, turned by *turn* and tipped by *tilt* degrees: -90 = lying face up).
+    *roll*: turned in its own plane (degrees clockwise). *depth*: 3D letters (share of the height)."""
     from . import worldtext as wt
     lay = world_layout(match, lines, at_seconds, distance, right, up, size_scale,
                        [follow["x"], follow["y"], follow["z"]] if follow else spot)
@@ -749,14 +842,37 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
         box_argb = (0x90 << 24) | (r_ << 16) | (g_ << 8) | b_
         box_argb = box_argb - (1 << 32) if box_argb >= 1 << 31 else box_argb
     lift = 0.3 + up                                 # riding: above the head, plus "up"
-    sizes = [sz for _t, sz, *_ in lay["texts"]]
-    for i, (text, size, x, y, z) in enumerate(lay["texts"]):
+    rows = lay["texts"]
+    sizes = [sz for _t, sz, *_ in rows]
+    op = 255 if opacity >= 1 else max(26, int(round(255 * opacity)))
+    fixed = facing == "fixed" and not follow
+    if follow:
+        face = "vertical" if facing == "upright" else "center"
+    elif fixed:
+        face = "fixed"
+    else:
+        face = "vertical" if facing == "upright" or (facing == "auto" and spot) else "center"
+    top_y = rows[0][3] + rows[0][1] if rows else 0.0
+    foot = rows[-1] if rows else None
+    for i, (text, size, x, y, z) in enumerate(rows):
         below = sum(sizes[i + 1:]) + 0.25 * sum(sizes[i + 1:])
-        texts.append(wt.WorldText(text, x, y, z, size=size, colour=colour, bold=True,
-                                  facing="center" if follow else ("vertical" if spot else "center"),
-                                  ride=follow["eid"] if follow else None,
-                                  offset=(right, lift + below, 0.0) if follow else (0.0, 0.0, 0.0),
-                                  outline=border_colour if outline else "", camera_yaw=yaw,
+        if follow:
+            off = (right, lift + below, 0.0)
+            piv = (right, lift + (sizes[0] + 1.25 * sum(sizes[1:])) / 2, 0.0)
+        elif fixed:                                 # all lines on the bottom line's foot, stacked in its own space
+            off = (0.0, y - foot[3], 0.0)
+            piv = (0.0, (top_y - foot[3]) / 2, 0.0)
+            x, y, z = foot[2], foot[3], foot[4]
+        else:
+            off = (0.0, 0.0, 0.0)
+            piv = (0.0, (top_y + foot[3]) / 2 - y, 0.0)
+        texts.append(wt.WorldText(text, x, y, z, size=size, colour=colour, bold=True, facing=face,
+                                  yaw=(yaw + 180 + turn) % 360 if fixed else 0.0, pitch=tilt if fixed else 0.0,
+                                  roll=roll, pivot=piv, depth=depth, italic=italic, underline=underline,
+                                  local=fixed, opacity=op,
+                                  ride=follow["eid"] if follow else None, offset=off,
+                                  outline=border_colour if outline else "",
+                                  camera_yaw=(yaw + turn) if fixed else yaw,
                                   appear_tick=start, disappear_tick=gone, animation=animation,
                                   anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),
                                   fade_out_ticks=int(fade_out * 20), glow=glow, shadow=shadow, background=box_argb))
@@ -809,15 +925,69 @@ ITEM_DEFAULTS = {"kind": "world", "lines": [], "start": None, "until": None, "an
                  "word_gap": 0.3, "fade_out": 0.0, "colour": "white", "border": True, "border_colour": "black",
                  "shadow": False, "glow": True, "box": False, "style": "outline", "font": "",
                  "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16, "spot": None,
-                 "follow": None}
+                 "follow": None, "id": None, "after": None, "length": None, "opacity": 1.0, "roll": 0.0,
+                 "facing": "auto", "turn": 0.0, "tilt": 0.0, "depth": 0.0, "italic": False, "underline": False,
+                 "file": "", "height": 0.25}
+ITEM_KINDS = ("world", "screen", "image")
 
 
 def _item(raw: dict) -> dict:
     it = {**ITEM_DEFAULTS, **{k: v for k, v in raw.items() if k in ITEM_DEFAULTS}}
     it["lines"] = [(str(t), float(sz)) for t, sz in it["lines"] if str(t).strip()]
-    for key in ("start", "until"):
+    for key in ("start", "until", "length"):
         it[key] = None if it[key] in (None, "") else float(it[key])
+    if it["style"] == "3d" and not it["depth"]:          # older projects: "3D" letters were a style
+        it["style"], it["depth"] = "outline", 0.14
     return it
+
+
+def appear_time(it: dict) -> float:
+    """Seconds until all of an item's lines (and words) have appeared."""
+    a = it.get("animation", "none")
+    if a == "none":
+        return 0.0
+    total = 0.0
+    for text, _sz in it.get("lines") or [("", 0)]:
+        n = len(str(text).split()) if a.startswith("words") else 1
+        total += max(0, n - 1) * float(it.get("word_gap", 0.3)) + float(it.get("anim", 0.4))
+    return total
+
+
+def resolve_times(items: list[dict], duration: float, default_start) -> list[dict]:
+    """Items (normalised with :func:`_item`) with real ``start`` and ``until`` seconds: an empty start
+    is *default_start(item)*, a ``length`` sets the end, and a follow-up (``after: {id, gap, from}``)
+    starts *gap* seconds after the start or end of the item it follows (chains of any length; a
+    loop or a missing item falls back to its own start)."""
+    by_id = {it["id"]: it for it in items if it.get("id") is not None}
+    memo: dict[int, tuple[float, float | None]] = {}
+
+    def times(it: dict, seen: frozenset) -> tuple[float, float | None]:
+        key = id(it)
+        if key in memo:
+            return memo[key]
+        start = it["start"] if it["start"] is not None else default_start(it)
+        after = it.get("after") if isinstance(it.get("after"), dict) else None
+        parent = by_id.get(after.get("id")) if after else None
+        if parent is not None and parent.get("id") not in seen and parent is not it:
+            ps, pe = times(parent, seen | {it.get("id")})
+            if after.get("from") == "start":
+                base = ps
+            else:
+                base = pe if pe is not None else ps + appear_time(parent) + 1.0
+            start = max(0.0, base + float(after.get("gap") or 0.0))
+        end = it["until"]
+        if it.get("length") is not None:
+            end = start + float(it["length"])
+        if end is not None and duration:
+            end = min(end, duration + 1)
+        memo[key] = (start, end)
+        return start, end
+
+    out = []
+    for it in items:
+        st, en = times(it, frozenset({it.get("id")}))
+        out.append({**it, "start": round(st, 3), "until": None if en is None else round(en, 3)})
+    return out
 
 
 def make_items_in_world(match: dict, items: list[dict], video: str | None = None, flashback_dir: str | None = None,
@@ -827,15 +997,22 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
     player."""
     from . import paths
     texts = []
-    for raw in items:
-        it = _item(raw)
+    clock0 = scene_clock(scene_for_match(match))
+    still = match.get("still_from")
+    dur = clock0.duration if clock0 else 0.0
+
+    def default(it):
+        if still is not None:
+            return still + (0.1 if it["kind"] == "world" else 0.2)
+        return max(0.0, dur - 4)
+    for it in resolve_times([_item(r) for r in items], dur, default):
         if it["kind"] != "world" or not it["lines"]:
             continue
         follow = None
         if it["follow"]:
             sc = scene_for_match(match)
             clock = scene_clock(sc)
-            start = it["start"] if it["start"] is not None else (match.get("still_from") or 0) + 0.1
+            start = it["start"]
             tick = int(clock.replay_tick(min(start, clock.duration)))
             seen = paths.players_in_view(match["recording"], tick, players or {})
             follow = seen.get(it["follow"])
@@ -845,7 +1022,10 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
         t, _secs = world_texts(match, it["lines"], it["start"], it["colour"], it["border"], it["distance"],
                                it["until"], False, it["animation"], it["anim"], it["word_gap"], it["fade_out"],
                                it["border_colour"], it["glow"], it["shadow"], "black" if it["box"] else "",
-                               it["right"], it["up"], it["size"], it["spot"] or None, follow)
+                               it["right"], it["up"], it["size"], it["spot"] or None, follow,
+                               opacity=float(it["opacity"]), roll=float(it["roll"]), facing=it["facing"],
+                               turn=float(it["turn"]), tilt=float(it["tilt"]), depth=float(it["depth"]),
+                               italic=bool(it["italic"]), underline=bool(it["underline"]))
         texts += t
     if not texts:
         raise ValueError("there are no 'in the world' texts")
@@ -853,30 +1033,47 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
 
 
 def make_items_on_screen(video: str, items: list[dict], duration: float, default_start: float = 0.0,
-                         out: str | None = None, progress=None) -> str:
-    """All 'on the video' texts of an editor project drawn into one new copy of *video*."""
+                         out: str | None = None, progress=None, image_dir: str | None = None,
+                         still_from: float | None = None) -> str:
+    """All 'on the video' texts and images of an editor project drawn into one new copy of *video*.
+    Image items name a file in *image_dir* (where the editor keeps the pictures you added)."""
     size = video_size(video) or (1920, 1080)
-    titles = []
-    for raw in items:
-        it = _item(raw)
+    titles, images = [], []
+
+    def default(it):
+        if still_from is not None:
+            return still_from + (0.1 if it["kind"] == "world" else 0.2)
+        return default_start
+    for it in resolve_times([_item(r) for r in items], duration, default):
+        end = it["until"] if it["until"] is not None else duration + 1
+        if it["kind"] == "image" and it["file"]:
+            name = os.path.basename(str(it["file"]))
+            path = os.path.join(image_dir, name) if image_dir else str(it["file"])
+            if not os.path.isfile(path):
+                raise ValueError(f"the picture {name} isn't there any more: add it again")
+            images.append({"file": path, "start": it["start"], "end": end, "x": it["x"], "y": it["y"],
+                           "height": it["height"], "opacity": it["opacity"], "roll": it["roll"],
+                           "animation": it["animation"], "anim": it["anim"], "fade_out": it["fade_out"]})
+            continue
         if it["kind"] != "screen" or not it["lines"]:
             continue
         lines = [(t, sz * it["size"] / 40.0) for t, sz in it["lines"]]   # blocks -> share of the height
-        start = it["start"] if it["start"] is not None else default_start
-        end = it["until"] if it["until"] is not None else duration + 1
-        for ti in screen_titles(lines, start, end, it["style"], it["colour"], it["animation"], it["anim"],
+        for ti in screen_titles(lines, it["start"], end, it["style"], it["colour"], it["animation"], it["anim"],
                                 it["word_gap"], it["fade_out"], it["border_colour"], it["shadow"],
-                                "black" if it["box"] else "", it["x"], it["y"]):
+                                "black" if it["box"] else "", it["x"], it["y"], opacity=float(it["opacity"]),
+                                roll=float(it["roll"]), tilt=float(it["tilt"]), turn=float(it["turn"]),
+                                depth=float(it["depth"]), italic=bool(it["italic"]),
+                                underline=bool(it["underline"])):
             ti.font = it["font"]
             titles.append(ti)
-    if not titles:
-        raise ValueError("there are no 'on the video' texts")
+    if not titles and not images:
+        raise ValueError("there are no 'on the video' texts or pictures")
     if out is None:
         stem, ext = os.path.splitext(video)
         out, n = f"{stem} (with text){ext}", 2
         while os.path.exists(out):
             out, n = f"{stem} (with text {n}){ext}", n + 1
-    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress)
+    return burn_in(video, titles_ass(titles, size[0], size[1]), out, progress, images=images)
 
 
 def find_text_copy(flashback_dir: str, video: str) -> dict | None:
@@ -895,18 +1092,23 @@ def find_text_copy(flashback_dir: str, video: str) -> dict | None:
 def screen_titles(lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
                   colour: str = "white", animation: str = "fade", anim: float = 0.4, word_gap: float = 0.3,
                   fade_out: float = 0.0, border_colour: str = "black", shadow: bool = True,
-                  box: str = "", x: float = 0.5, top: float = 0.16) -> list[Title]:
+                  box: str = "", x: float = 0.5, top: float = 0.16, **look) -> list[Title]:
     """Titles for *lines* (text, share of the picture height), top to bottom from *top* (share of the
-    height), centred on *x*; with an animation the next line starts once the previous one appeared."""
+    height), centred on *x*; with an animation the next line starts once the previous one appeared.
+    *look*: opacity, roll, tilt, turn, depth, italic, underline (see :class:`Title`); turning is
+    about the middle of all the lines."""
     titles, y, t0 = [], top, start
     for text, h in lines:
         titles.append(Title(text, t0, end, size=h, y=y + h / 2, colour=colour, style=style, fade_in=anim,
                             fade_out=fade_out, animation=animation, anim=anim, word_gap=word_gap,
-                            border_colour=border_colour, shadow=shadow, box=box, x=x))
+                            border_colour=border_colour, shadow=shadow, box=box, x=x, **look))
         y += h * 1.25
         if animation != "none":
             n = len(text.split()) if animation.startswith("words") else 1
             t0 += (n - 1) * word_gap + anim
+    middle = (top + (y - (lines[-1][1] * 0.25 if lines else 0))) / 2
+    for ti in titles:
+        ti.org = (x, middle)
     return titles
 
 

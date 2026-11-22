@@ -73,8 +73,11 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
     <button type="button" id="addScreen" title="A title drawn on the video, where the playhead is">+ Title on the video</button>
     <button type="button" id="addSub" title="A subtitle at the bottom of the video for 4 seconds">+ Subtitle</button>
     <button type="button" id="addCorner" title="A small label in the lower-left corner (a place or a name)">+ Corner label</button>
+    <button type="button" id="addImage" title="A picture (logo, photo, watermark) on the video, where the playhead is">+ Picture</button>
+    <input type="file" id="imgFile" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp" hidden>
   </div>
   <div class="row">
+    <button type="button" id="followUp" title="A new text that appears after the selected one ends; set the gap in seconds. Moving the first moves the whole chain">+ Follow-up</button>
     <button type="button" id="dup" title="Duplicate the selected text (Ctrl+D)">Duplicate</button>
     <button type="button" id="del" title="Delete the selected text (Delete)">Delete</button>
     <button type="button" id="undo" title="Undo (Ctrl+Z)">Undo</button>
@@ -84,31 +87,50 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
   <div id="ed" hidden>
     <h2>Selected text</h2>
     <label><span>Name</span><input id="name" type="text"></label>
-    <div class="seg"><button id="kWorld" type="button">In the world</button><button id="kScreen" type="button">On the video</button></div>
-    <div id="lines"></div>
-    <button type="button" class="small" id="addLine">+ line</button>
+    <div class="seg textOnly"><button id="kWorld" type="button">In the world</button><button id="kScreen" type="button">On the video</button></div>
+    <div id="lines" class="textOnly"></div>
+    <button type="button" class="small textOnly" id="addLine">+ line</button>
+    <div class="imageOnly">
+      <label><span>Picture</span><span class="hint" id="imgName" style="flex:1"></span><button type="button" class="small" id="imgReplace" title="Use another picture, keeping place and timing">Replace…</button></label>
+    </div>
 
     <h2>When</h2>
     <label><span>Appears at</span><input id="start" type="number" step="0.1" placeholder="camera stops"><button type="button" class="small" id="startNow" title="The playhead (I)">now</button><button type="button" class="small" id="startStill" title="When the camera stops at the end">camera stops</button></label>
     <label><span>Until</span><input id="until" type="number" step="0.1" placeholder="end"><button type="button" class="small" id="untilNow" title="The playhead (O)">now</button><button type="button" class="small" id="untilEnd">end</button></label>
+    <label><span>Or lasts (s)</span><input id="length" type="number" step="0.1" min="0.1" placeholder="—"><span class="hint">seconds, instead of Until</span></label>
+    <label><span>Follows</span><select id="afterId" title="Make it appear after another text or picture (a chain)"></select></label>
+    <label id="afterGapRow"><span>Gap (s)</span><input id="afterGap" type="number" step="0.1" title="Seconds after the other one (can be negative: overlap)"><select id="afterFrom"><option value="end">after it goes</option><option value="start">after it appears</option></select></label>
 
     <h2>Animation</h2>
     <label><span>Style</span><select id="animation">
       <option value="none">Appears at once</option><option value="fade">Fades in</option><option value="pop">Pops in</option>
       <option value="words">Words one by one, instantly</option><option value="words-fade">Words one by one, fading</option>
-      <option value="words-pop">Words one by one, popping</option></select></label>
+      <option value="words-pop">Words one by one, popping</option><option value="rise">Rises into place</option>
+      <option value="slam">Slams down (from big)</option></select></label>
     <label><span>Speed (s)</span><input id="anim" type="range" min="0.1" max="2" step="0.05"><span class="val" id="animV"></span></label>
     <label><span>Between words</span><input id="word_gap" type="range" min="0.05" max="1.5" step="0.05"><span class="val" id="word_gapV"></span></label>
     <label><span>Fade out (s)</span><input id="fade_out" type="range" min="0" max="3" step="0.1"><span class="val" id="fade_outV"></span></label>
 
     <h2>Look</h2>
-    <label><span>Colour</span><select id="colour"><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option><option>red</option><option>gray</option></select></label>
-    <label><span>Border</span><input id="border" type="checkbox"><select id="border_colour"><option>black</option><option>dark_gray</option><option>gold</option><option>dark_blue</option><option>dark_red</option><option>white</option></select></label>
-    <label><span>Shadow</span><input id="shadow" type="checkbox"></label>
-    <label><span>Dark box</span><input id="box" type="checkbox"></label>
+    <label><span>Opacity</span><input id="opacity" type="range" min="0.1" max="1" step="0.05"><span class="val" id="opacityV"></span></label>
+    <label class="textOnly"><span>Colour</span><select id="colour"><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option><option>red</option><option>gray</option></select></label>
+    <label class="textOnly"><span>Border</span><input id="border" type="checkbox"><select id="border_colour"><option>black</option><option>dark_gray</option><option>gold</option><option>dark_blue</option><option>dark_red</option><option>white</option></select></label>
+    <label class="textOnly"><span>Shadow</span><input id="shadow" type="checkbox"></label>
+    <label class="textOnly"><span>Dark box</span><input id="box" type="checkbox"></label>
+    <label class="textOnly"><span>3D depth</span><input id="depth" type="range" min="0" max="0.6" step="0.02" title="3D letters: how thick (0 = flat)"><span class="val" id="depthV"></span></label>
+    <label class="textOnly"><span>Italic</span><input id="italic" type="checkbox"><span style="color:var(--muted);margin-left:14px">Underline</span><input id="underline" type="checkbox"></label>
     <label class="worldOnly"><span>Always bright</span><input id="glow" type="checkbox"><span class="hint">off = lit by the world</span></label>
-    <label class="screenOnly"><span>Letters</span><select id="style"><option value="outline">flat</option><option value="3d">3D</option><option value="plain">plain</option></select></label>
-    <label class="screenOnly"><span>Font</span><select id="font"><option value="">Minecraft (if installed)</option><option>Arial Black</option><option>Impact</option><option>Segoe UI Black</option><option>Verdana</option><option>Georgia</option></select></label>
+    <label class="screenOnly textOnly"><span>Letters</span><select id="style"><option value="outline">with border</option><option value="plain">plain</option></select></label>
+    <label class="screenOnly textOnly"><span>Font</span><select id="font"><option value="">Minecraft (if installed)</option><option>Arial Black</option><option>Impact</option><option>Segoe UI Black</option><option>Verdana</option><option>Georgia</option></select></label>
+
+    <h2>Turn</h2>
+    <label><span>Rotate</span><input id="roll" type="range" min="-180" max="180" step="1" title="Turned in its own plane, degrees clockwise"><span class="val" id="rollV"></span></label>
+    <label class="worldOnly"><span>Faces</span><select id="facing" title="Which way the text looks">
+      <option value="auto">the camera (automatic)</option><option value="camera">the camera, always</option>
+      <option value="upright">the camera, staying upright</option><option value="fixed">one way, like a sign</option></select></label>
+    <label class="tiltRow"><span>Turn</span><input id="turn" type="range" min="-180" max="180" step="1" title="Turned left/right (degrees)"><span class="val" id="turnV"></span></label>
+    <label class="tiltRow"><span>Tilt</span><input id="tilt" type="range" min="-90" max="90" step="1" title="Tipped back/forward (degrees); in the world -90 = lying on the ground face up"><span class="val" id="tiltV"></span></label>
+    <div class="hint worldOnly" id="facingHint"></div>
 
     <h2>Place</h2>
     <div class="worldOnly">
@@ -124,13 +146,14 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
       <label><span>Across</span><input id="x" type="range" min="0" max="1" step="0.005"><span class="val" id="xV"></span></label>
       <label><span>Down</span><input id="y" type="range" min="0" max="1" step="0.005"><span class="val" id="yV"></span></label>
     </div>
-    <label><span>Size ×</span><input id="size" type="range" min="0.2" max="20" step="0.05"><span class="val" id="sizeV"></span></label>
+    <label class="textOnly"><span>Size ×</span><input id="size" type="range" min="0.02" max="20" step="0.01"><span class="val" id="sizeV"></span></label>
+    <label class="imageOnly"><span>Height</span><input id="height" type="range" min="0.02" max="1" step="0.01" title="Share of the video height"><span class="val" id="heightV"></span></label>
   </div>
 
   <h2>Make it</h2>
   <div class="row">
     <button class="go" id="makeWorld" type="button" title="One Flashback copy with all 'in the world' texts (and your edit); open it in Flashback and Export">Put world texts in Flashback</button>
-    <button class="go" id="makeScreen" type="button" title="One new copy of the video with all 'on the video' texts drawn on">Make the video with on-screen texts</button>
+    <button class="go" id="makeScreen" type="button" title="One new copy of the video with all 'on the video' texts and pictures drawn on">Make the video with on-screen texts &amp; pictures</button>
   </div>
   <div class="hint" style="margin-top:6px">Your texts are saved automatically. Making it again for this video replaces the earlier Flashback copy (close it in Flashback first).</div>
   <div id="log"></div>
@@ -148,12 +171,31 @@ const COLOURS = { white: "#ffffff", gold: "#ffaa00", yellow: "#ffff55", aqua: "#
   gray: "#aaaaaa", black: "#000000", dark_gray: "#555555", dark_blue: "#0000aa", dark_red: "#aa0000" };
 const DEFAULTS = { kind: "world", lines: [["Title", 5.5]], start: null, until: null, animation: "pop", anim: 0.4, word_gap: 0.3,
   fade_out: 0, colour: "white", border: true, border_colour: "black", shadow: false, glow: true, box: false, style: "outline",
-  font: "", right: 0, up: 0, distance: 55, size: 1, x: 0.5, y: 0.16 };
+  font: "", right: 0, up: 0, distance: 55, size: 1, x: 0.5, y: 0.16, opacity: 1, roll: 0, facing: "auto", turn: 0, tilt: 0,
+  depth: 0, italic: false, underline: false, after: null, length: null, file: "", height: 0.25, aspect: 1 };
 const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 const rad = d => d * Math.PI / 180;
 const stillFrom = () => { const m = INFO && INFO.matches[MATCH]; return m && m.still_from != null ? m.still_from : null; };
-const startOf = it => it.start != null ? it.start : (stillFrom() != null ? stillFrom() + (it.kind === "world" ? 0.1 : 0.2) : Math.max(0, INFO.duration - 4));
-const endOf = it => it.until != null ? it.until : INFO.duration;
+// when an item shows: its own start (empty = when the camera stops), or a gap after the item it follows
+// (chains of any length; mirrors videotext.resolve_times)
+function appearTime(it) {
+  if (it.animation === "none") return 0;
+  if (!it.lines.length) return +it.anim;
+  return it.lines.reduce((a, l) => a + (it.animation.startsWith("words") ?
+    Math.max(0, String(l[0]).split(/\s+/).filter(Boolean).length - 1) * it.word_gap : 0) + +it.anim, 0);
+}
+function times(it, seen = new Set()) {
+  let s = it.start != null ? it.start : (stillFrom() != null ? stillFrom() + (it.kind === "world" ? 0.1 : 0.2) : Math.max(0, INFO.duration - 4));
+  const a = it.after, p = a && ITEMS.find(i => i.id === a.id);
+  if (p && p !== it && !seen.has(p.id)) {
+    seen.add(it.id); const [ps, pe] = times(p, seen);
+    s = Math.max(0, (a.from === "start" ? ps : (pe != null ? pe : ps + appearTime(p) + 1)) + (+a.gap || 0));
+  }
+  let e = it.until; if (it.length != null) e = s + +it.length;
+  return [s, e];
+}
+const startOf = it => times(it)[0];
+const endOf = it => { const e = times(it)[1]; return e != null ? Math.min(e, INFO.duration) : INFO.duration; };
 
 // --- camera + projection (mirror videotext.py) ----------------------------------------------
 function camAt(t) {
@@ -218,25 +260,43 @@ function animState(kind, t, start, dur) {
   const k = Math.min(1, (t - start) / Math.max(0.001, dur));
   if (kind === "fade") return { alpha: 0.1 + 0.9 * k, scale: 1 };
   if (kind === "pop") return { alpha: 1, scale: Math.max(0.02, k < 0.6 ? (k / 0.6) * 1.18 : 1.18 - 0.18 * ((k - 0.6) / 0.4)) };
+  if (kind === "rise") return { alpha: 0.1 + 0.9 * k, scale: 1, dy: 0.6 * (1 - k) * (1 - k) };
+  if (kind === "slam") { const h = Math.min(1, (t - start) / Math.max(0.001, dur / 2)); return { alpha: 0.1 + 0.9 * h, scale: 1 + 1.6 * (1 - h) * (1 - h) }; }
   return { alpha: 1, scale: 1 };
 }
 const fadeOut = (it, t) => (it.until == null || !it.fade_out) ? 1 : Math.max(0, Math.min(1, (it.until - t) / it.fade_out));
 
 // --- drawing ---------------------------------------------------------------------------------
 const HITS = [];      // [item, x0, y0, x1, y1, pixels-per-block] from the last frame, for clicking/dragging
-function drawText(it, text, x, y, hPx, wPx, a, fontName) {
+function shadeOf(c, f) { const h = (COLOURS[c] || c || "#ffffff").replace("#", ""), n = parseInt(h, 16);
+  return `rgb(${((n >> 16) & 255) * f | 0},${((n >> 8) & 255) * f | 0},${(n & 255) * f | 0})`; }
+// org: [x, y] the whole text turns around (rotate / turn / tilt; turn and tilt are shown as a squash)
+function drawText(it, text, x, y, hPx, wPx, a, fontName, org) {
   if (!a || hPx < 1) return null;
-  ctx.save(); ctx.globalAlpha = a.alpha; ctx.translate(x, y); ctx.scale(a.scale, a.scale);
-  ctx.font = `bold ${hPx}px ${fontName}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, a.alpha * (it.opacity ?? 1)));
+  const o = org || [x, y], turned = it.roll || it.turn || it.tilt;
+  if (turned) { ctx.translate(o[0], o[1]); ctx.rotate(rad(it.roll || 0));
+    ctx.scale(Math.max(0.05, Math.abs(Math.cos(rad(it.turn || 0)))), Math.max(0.05, Math.abs(Math.cos(rad(it.tilt || 0))))); ctx.translate(-o[0], -o[1]); }
+  ctx.translate(x, y + (a.dy || 0) * hPx); ctx.scale(a.scale, a.scale);
+  ctx.font = `${it.italic ? "italic " : ""}bold ${hPx}px ${fontName}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const natural = ctx.measureText(text).width || 1, sx = wPx ? wPx / natural : 1;
   ctx.scale(sx, 1);
   if (it.box) { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(-natural / 2 - hPx * 0.2, -hPx * 0.65, natural + hPx * 0.4, hPx * 1.3); }
+  if (it.depth > 0) {                                        // 3D letters: darker layers below/behind
+    const n = Math.max(2, Math.min(14, Math.round(it.depth * 24))), world = it.kind === "world";
+    for (let k = n; k >= 1; k--) { const dy = k / n * it.depth * hPx * (world ? 0.55 : 1);
+      ctx.fillStyle = shadeOf(it.colour, 0.55 - 0.3 * k / n); ctx.fillText(text, world ? 0 : dy / 3 / sx, dy); }
+  }
   if (it.shadow) { ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(text, hPx * 0.08, hPx * 0.08); }
   if (it.border) { ctx.lineJoin = "round"; ctx.lineWidth = Math.max(2, hPx / 7); ctx.strokeStyle = COLOURS[it.border_colour] || "#000"; ctx.strokeText(text, 0, 0); }
-  ctx.fillStyle = COLOURS[it.colour] || "#fff"; ctx.fillText(text, 0, 0); ctx.restore();
+  ctx.fillStyle = COLOURS[it.colour] || "#fff"; ctx.fillText(text, 0, 0);
+  if (it.underline) ctx.fillRect(-natural / 2, hPx * 0.42, natural, Math.max(1, hPx / 12));
+  ctx.restore();
   const w = natural * sx * a.scale, h = hPx * a.scale;
   return [x - w / 2, y - h / 2, x + w / 2, y + h / 2];
 }
+const IMGS = {};
+function imgOf(f) { if (!IMGS[f]) { IMGS[f] = new Image(); IMGS[f].src = "/image/" + encodeURIComponent(f); } return IMGS[f]; }
 function screenFont(it) { return it.font ? `"${it.font}", sans-serif` : `"${INFO.font}", "Arial Black", sans-serif`; }
 function draw() {
   requestAnimationFrame(draw);
@@ -247,30 +307,45 @@ function draw() {
   for (const it of ITEMS) {
     if (t > endOf(it)) continue;
     const fo = fadeOut(it, t);
-    if (it.kind === "world") {
+    if (it.kind === "image") {
+      const im = it.file && imgOf(it.file), st = startOf(it);
+      if (!im || !im.complete || !im.naturalWidth || t < st) continue;
+      const k = it.animation === "none" ? 1 : Math.min(1, (t - st) / Math.max(0.05, it.anim));
+      const h = it.height * H, w = h * im.naturalWidth / im.naturalHeight, cx = it.x * W, cy = it.y * H + (it.animation === "rise" ? 0.6 * h * (1 - k) : 0);
+      ctx.save(); ctx.globalAlpha = Math.max(0, it.opacity * k * fo); ctx.translate(cx, cy); ctx.rotate(rad(it.roll || 0));
+      ctx.drawImage(im, -w / 2, -h / 2, w, h); ctx.restore();
+      HITS.push([it, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 0]);
+    } else if (it.kind === "world") {
       if (!cam) continue;
-      for (const p of worldPieces(it)) {
+      const pieces = worldPieces(it); if (!pieces.length) continue;
+      const ys = pieces.map(p => p.y), tops = pieces.map(p => p.y + p.size);
+      const mid = project(cam, [pieces.reduce((a, p) => a + p.x, 0) / pieces.length, (Math.min(...ys) + Math.max(...tops)) / 2,
+                                pieces.reduce((a, p) => a + p.z, 0) / pieces.length], W, H);
+      if (mid && pieces[0].dx) mid[0] += pieces[0].dx * mid[2];
+      for (const p of pieces) {
         const a = animState(p.anim, t, p.appear, p.animT); if (!a) continue; a.alpha *= fo;
         const pr = project(cam, [p.x, p.y + p.size * 0.5, p.z], W, H); if (!pr) continue;
         if (p.dx) pr[0] += p.dx * pr[2];                       // riding: "right" moves it beside the head
-        const r = drawText(it, p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, `"Minecraft", monospace`);
+        const r = drawText(it, p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, `"Minecraft", monospace`, mid);
         if (r) HITS.push([it, ...r, pr[2]]);
       }
     } else {
       let y = it.y, start = startOf(it);
+      const tot = it.lines.filter(l => String(l[0]).trim()).reduce((a, l, i, arr) => a + l[1] * it.size / 40 * (i < arr.length - 1 ? 1.25 : 1), 0);
+      const org = [it.x * W, (it.y + tot / 2) * H];
       for (const [text, s0] of it.lines) {
         if (!String(text).trim()) continue;
         const h = s0 * it.size / 40, hPx = h * H, words = String(text).split(/\s+/).filter(Boolean);
         const byWord = it.animation.startsWith("words") && words.length > 1, font = screenFont(it);
         if (!byWord) {
           const a = animState(singleOf(it.animation), t, start, it.anim);
-          if (a) { a.alpha *= fo; const r = drawText(it, text, it.x * W, (y + h / 2) * H, hPx, 0, a, font); if (r) HITS.push([it, ...r, 0]); }
+          if (a) { a.alpha *= fo; const r = drawText(it, text, it.x * W, (y + h / 2) * H, hPx, 0, a, font, org); if (r) HITS.push([it, ...r, 0]); }
         } else {
           ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const full = ctx.measureText(text).width, sp = ctx.measureText(" ").width; ctx.restore();
           let x = it.x * W - full / 2;
           words.forEach((w, i) => { ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const ww = ctx.measureText(w).width; ctx.restore();
             const a = animState(singleOf(it.animation), t, start + i * it.word_gap, it.anim);
-            if (a) { a.alpha *= fo; const r = drawText(it, w, x + ww / 2, (y + h / 2) * H, hPx, 0, a, font); if (r) HITS.push([it, ...r, 0]); }
+            if (a) { a.alpha *= fo; const r = drawText(it, w, x + ww / 2, (y + h / 2) * H, hPx, 0, a, font, org); if (r) HITS.push([it, ...r, 0]); }
             x += ww + sp; });
         }
         y += h * 1.25;
@@ -296,10 +371,10 @@ function drawTimeline() {
   const st = stillFrom(); if (st != null) { tctx.fillStyle = "rgba(95,184,95,0.25)"; tctx.fillRect(tlX(st), TL.top * dpr, tlX(INFO.duration) - tlX(st), H); }
   ITEMS.forEach((it, i) => {
     const y = (TL.top + i * TL.rowH) * dpr, x0 = tlX(startOf(it)), x1 = Math.max(x0 + 4 * dpr, tlX(endOf(it)));
-    tctx.fillStyle = it === SEL ? "#c9a032" : (it.kind === "world" ? "#3f6f9f" : "#7f5f9f");
+    tctx.fillStyle = it === SEL ? "#c9a032" : ({ world: "#3f6f9f", image: "#3f8f6f" }[it.kind] || "#7f5f9f");
     tctx.fillRect(x0, y + 2 * dpr, x1 - x0, (TL.rowH - 5) * dpr);
     tctx.fillStyle = "#fff"; tctx.save(); tctx.beginPath(); tctx.rect(x0, y, x1 - x0, TL.rowH * dpr); tctx.clip();
-    tctx.fillText(label(it), x0 + 4 * dpr, y + 15 * dpr); tctx.restore();
+    tctx.fillText((it.after ? "↳ " : "") + label(it), x0 + 4 * dpr, y + 15 * dpr); tctx.restore();
     tctx.fillStyle = "rgba(255,255,255,0.6)"; tctx.fillRect(x1 - 3 * dpr, y + 2 * dpr, 3 * dpr, (TL.rowH - 5) * dpr);   // end handle
   });
   const px = tlX(vid.currentTime); tctx.fillStyle = "#f04040"; tctx.fillRect(px - dpr, 0, 2 * dpr, H);
@@ -312,7 +387,8 @@ tl.addEventListener("pointerdown", e => {
     const x0 = tlX(startOf(it)), x1 = tlX(endOf(it));
     if (x >= x0 - 4 * dpr && x <= x1 + 6 * dpr) {
       select(it); snapshot();
-      tlDrag = { it, mode: Math.abs(x - x1) < 8 * dpr ? "end" : "move", t0: tlT(x), s: startOf(it), u: it.until };
+      tlDrag = { it, mode: Math.abs(x - x1) < 8 * dpr ? "end" : "move", t0: tlT(x), s: startOf(it), u: it.until,
+                 g: it.after ? +it.after.gap || 0 : null };
       tl.setPointerCapture(e.pointerId); return;
     }
   }
@@ -321,7 +397,9 @@ tl.addEventListener("pointerdown", e => {
 tl.addEventListener("pointermove", e => {
   if (!tlDrag) return;
   const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), t = tlT((e.clientX - r.left) * dpr), d = t - tlDrag.t0, it = tlDrag.it;
-  if (tlDrag.mode === "end") it.until = Math.max(startOf(it) + 0.2, Math.round(t * 10) / 10);
+  if (tlDrag.mode === "end") { if (it.length != null) it.length = Math.max(0.2, Math.round((t - startOf(it)) * 10) / 10);
+                              else it.until = Math.max(startOf(it) + 0.2, Math.round(t * 10) / 10); }
+  else if (tlDrag.g != null) it.after.gap = Math.round((tlDrag.g + d) * 10) / 10;          // a follow-up: its gap
   else { it.start = Math.max(0, Math.round((tlDrag.s + d) * 10) / 10); if (tlDrag.u != null) it.until = Math.round((tlDrag.u + d) * 10) / 10; }
   fillEditor(); changed(false);
 });
@@ -366,22 +444,43 @@ function select(it) { SEL = it; renderList(); fillEditor(); }
 function renderList() {
   const ul = $("#items"); ul.replaceChildren();
   ITEMS.forEach(it => { const li = document.createElement("li"); li.className = it === SEL ? "on" : "";
-    li.innerHTML = `<span class="k">${it.kind === "world" ? "world" : "video"}</span><span class="t"></span><span class="w"></span>`;
-    li.querySelector(".t").textContent = label(it); li.querySelector(".w").textContent = `${fmt(startOf(it))}–${it.until == null ? "end" : fmt(it.until)}`;
+    li.innerHTML = `<span class="k">${{ world: "world", image: "picture" }[it.kind] || "video"}</span><span class="t"></span><span class="w"></span>`;
+    const e = times(it)[1];
+    li.querySelector(".t").textContent = (it.after ? "↳ " : "") + label(it); li.querySelector(".w").textContent = `${fmt(startOf(it))}–${e == null ? "end" : fmt(Math.min(e, INFO.duration))}`;
     li.onclick = () => select(it); ul.appendChild(li); });
   $("#ed").hidden = !SEL;
   const need = Math.max(110, TL.top + ITEMS.length * TL.rowH + 8);    // one row per text
   if (Math.abs(tl.clientHeight - need) > 1) { tl.style.height = need + "px"; fit(); }
 }
 const FIELDS = ["animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "box", "glow", "style", "font",
-  "right", "up", "distance", "x", "y", "size"];
+  "right", "up", "distance", "x", "y", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "turn", "tilt", "height"];
+const DEC = { x: 2, y: 2, size: 2, opacity: 2, depth: 2, height: 2, roll: 0, turn: 0, tilt: 0 };
+const showVal = (f, v) => (+v).toFixed(DEC[f] ?? 1) + (["roll", "turn", "tilt"].includes(f) ? "°" : "");
+function showParts() {
+  const k = SEL.kind;
+  document.querySelectorAll(".worldOnly,.screenOnly,.textOnly,.imageOnly,.tiltRow").forEach(e => {
+    const c = e.classList;
+    e.hidden = (c.contains("worldOnly") && k !== "world") || (c.contains("screenOnly") && k === "world") ||
+      (c.contains("textOnly") && k === "image") || (c.contains("imageOnly") && k !== "image") ||
+      (c.contains("tiltRow") && !(k === "screen" || (k === "world" && SEL.facing === "fixed" && !SEL.follow)));
+  });
+  for (const o of $("#animation").options) o.hidden = k === "image" && !["none", "fade", "rise"].includes(o.value);
+  $("#facingHint").textContent = SEL.facing === "fixed" && !SEL.follow ?
+    "Stays put like a sign, facing where the camera looks when it appears; Turn spins it, Tilt -90 lays it on the ground." : "";
+}
 function fillEditor() {
   if (!SEL) return;
   $("#name").value = SEL.name || "";
   $("#kWorld").classList.toggle("on", SEL.kind === "world"); $("#kScreen").classList.toggle("on", SEL.kind === "screen");
-  document.querySelectorAll(".worldOnly").forEach(e => e.hidden = SEL.kind !== "world");
-  document.querySelectorAll(".screenOnly").forEach(e => e.hidden = SEL.kind !== "screen");
-  $("#start").value = SEL.start ?? ""; $("#until").value = SEL.until ?? "";
+  showParts();
+  $("#imgName").textContent = SEL.kind === "image" ? (SEL.name || SEL.file) : "";
+  $("#start").value = SEL.after ? startOf(SEL).toFixed(1) : (SEL.start ?? ""); $("#start").disabled = !!SEL.after;
+  $("#until").value = SEL.until ?? ""; $("#length").value = SEL.length ?? "";
+  const fsel = $("#afterId"); fsel.replaceChildren(new Option("— nothing: its own time —", ""));
+  ITEMS.filter(i => i !== SEL).forEach(i => fsel.appendChild(new Option(label(i), i.id)));
+  fsel.value = SEL.after ? String(SEL.after.id) : "";
+  $("#afterGapRow").hidden = !SEL.after;
+  if (SEL.after) { $("#afterGap").value = SEL.after.gap; $("#afterFrom").value = SEL.after.from || "end"; }
   $("#aCam").classList.toggle("on", !SEL.spot && !SEL.follow); $("#aSpot").classList.toggle("on", !!SEL.spot && !SEL.follow);
   $("#aFollow").classList.toggle("on", !!SEL.follow); $("#followRow").hidden = !SEL.follow;
   if (SEL.follow && ![...$("#follow").options].some(o => o.value === SEL.follow)) {
@@ -391,7 +490,7 @@ function fillEditor() {
   $("#spotInfo").textContent = picking ? "Click on the video where the text should stand (on the ground, a mountain…)." :
     (SEL.spot ? `Standing at ${SEL.spot.map(v => Math.round(v)).join(", ")} in the world.` : "");
   for (const f of FIELDS) { const el = $("#" + f); if (el.type === "checkbox") el.checked = !!SEL[f]; else el.value = SEL[f];
-    const v = $("#" + f + "V"); if (v) v.textContent = (+SEL[f]).toFixed(f === "x" || f === "y" ? 2 : 1); }
+    const v = $("#" + f + "V"); if (v) v.textContent = showVal(f, SEL[f]); }
   const box = $("#lines");
   if (box.dataset.for !== String(SEL.id) || box.children.length !== SEL.lines.length) {
     box.dataset.for = SEL.id; box.replaceChildren();
@@ -412,17 +511,34 @@ for (const f of FIELDS) {
   el.addEventListener("pointerdown", snapshot); el.addEventListener("focus", snapshot);
   el.addEventListener(el.type === "range" ? "input" : "change", () => {
     if (!SEL) return; SEL[f] = el.type === "checkbox" ? el.checked : (el.type === "range" ? +el.value : el.value);
-    const v = $("#" + f + "V"); if (v) v.textContent = (+el.value).toFixed(f === "x" || f === "y" ? 2 : 1);
+    const v = $("#" + f + "V"); if (v) v.textContent = showVal(f, el.value);
+    if (f === "facing") showParts();
     changed(el.type !== "range");
   });
   if (el.type === "range") el.addEventListener("change", () => changed(true));
 }
 $("#name").onchange = () => { snapshot(); SEL.name = $("#name").value; renderList(); changed(true); };
 $("#start").onchange = () => { snapshot(); SEL.start = $("#start").value === "" ? null : +$("#start").value; changed(true); };
-$("#until").onchange = () => { snapshot(); SEL.until = $("#until").value === "" ? null : +$("#until").value; changed(true); };
+$("#until").onchange = () => { snapshot(); SEL.until = $("#until").value === "" ? null : +$("#until").value; if (SEL.until != null) SEL.length = null; fillEditor(); changed(true); };
+$("#length").onchange = () => { snapshot(); SEL.length = $("#length").value === "" ? null : Math.max(0.1, +$("#length").value); if (SEL.length != null) SEL.until = null; fillEditor(); changed(true); };
+$("#afterId").onchange = () => {
+  if (!SEL) return; snapshot(); const v = $("#afterId").value;
+  if (!v) { SEL.start = Math.round(startOf(SEL) * 10) / 10; SEL.after = null; }        // keeps showing at the same time
+  else SEL.after = { id: +v, gap: 0.5, from: "end" };
+  fillEditor(); changed(true);
+};
+$("#afterGap").onchange = () => { if (SEL && SEL.after) { snapshot(); SEL.after.gap = +$("#afterGap").value || 0; fillEditor(); changed(true); } };
+$("#afterFrom").onchange = () => { if (SEL && SEL.after) { snapshot(); SEL.after.from = $("#afterFrom").value; fillEditor(); changed(true); } };
 $("#startNow").onclick = () => setTime("start", vid.currentTime); $("#untilNow").onclick = () => setTime("until", vid.currentTime);
 $("#startStill").onclick = () => setTime("start", null); $("#untilEnd").onclick = () => setTime("until", null);
-function setTime(key, v) { if (!SEL) return; snapshot(); SEL[key] = v == null ? null : Math.round(v * 10) / 10; fillEditor(); changed(true); }
+function setTime(key, v) {
+  if (!SEL) return; snapshot();
+  const r = v == null ? null : Math.round(v * 10) / 10;
+  if (key === "start" && SEL.after) { if (r != null) SEL.after.gap = Math.round(((+SEL.after.gap || 0) + r - startOf(SEL)) * 10) / 10; }
+  else if (key === "until" && SEL.length != null && r != null) SEL.length = Math.max(0.1, Math.round((r - startOf(SEL)) * 10) / 10);
+  else SEL[key] = r;
+  fillEditor(); changed(true);
+}
 $("#aCam").onclick = () => { if (SEL && (SEL.spot || SEL.follow)) { snapshot(); SEL.spot = null; SEL.follow = null; fillEditor(); changed(true); } };
 $("#aFollow").onclick = async () => {
   if (!SEL || !INFO.matches.length) return;
@@ -433,7 +549,7 @@ $("#aFollow").onclick = async () => {
   const sel = $("#follow"); sel.replaceChildren();
   j.players.forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
   snapshot(); SEL.follow = SEL.follow && j.players.includes(SEL.follow) ? SEL.follow : j.players[0]; SEL.spot = null; SEL.right = 0; SEL.up = 0;
-  if (SEL.size > 0.6) SEL.size = 0.35;                             // above a head: about 2-block letters
+  if (SEL.size > 0.3) SEL.size = 0.12;                             // above a head: name-tag-sized letters
   $("#spotInfo").textContent = "The text rides on the player: in Flashback it moves with them exactly. (The preview here follows them about once a second.)";
   fillEditor(); changed(true); loadTrack(SEL.follow);
 };
@@ -459,7 +575,7 @@ $("#addLine").onclick = () => { if (!SEL) return; snapshot(); SEL.lines.push(["N
 let nextId = 1;
 function add(props) {
   snapshot();
-  const it = { ...structuredClone(DEFAULTS), id: nextId++, ...props };
+  const it = { ...structuredClone(DEFAULTS), ...props, id: nextId++ };
   if (it.kind === "world" && !INFO.matches.length) it.kind = "screen";
   ITEMS.push(it); select(it); changed(true);
 }
@@ -468,8 +584,32 @@ $("#addTitle").onclick = () => add({ kind: "world", lines: [["New title", 5.5]],
 $("#addScreen").onclick = () => add({ kind: "screen", lines: [["New title", 5.5]], start: now(), until: Math.min(INFO.duration, now() + 4), animation: "fade" });
 $("#addSub").onclick = () => add({ kind: "screen", lines: [["Subtitle", 2.2]], start: now(), until: Math.min(INFO.duration, now() + 4), y: 0.86, animation: "fade", anim: 0.25, fade_out: 0.3, box: true, border: false, font: "Segoe UI Black" });
 $("#addCorner").onclick = () => add({ kind: "screen", lines: [["Place name", 2.6]], start: now(), until: Math.min(INFO.duration, now() + 5), x: 0.18, y: 0.82, animation: "words-fade", anim: 0.3, word_gap: 0.15, fade_out: 0.5 });
+$("#followUp").onclick = () => {
+  if (!SEL) return; const p = SEL;
+  if (p.until == null && p.length == null) { snapshot(); p.length = 3; }        // the first one has to end for the next to follow
+  add({ ...structuredClone(p), name: "", lines: p.kind === "image" ? [] : [["Next text", p.lines.length ? p.lines[p.lines.length - 1][1] : 4]],
+        start: null, until: null, length: 3, after: { id: p.id, gap: 0.5, from: "end" } });
+};
+function pickImage(done) {
+  const f = $("#imgFile"); f.value = "";
+  f.onchange = async () => {
+    const file = f.files[0]; if (!file) return;
+    $("#log").textContent = "Adding the picture…";
+    const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.readAsDataURL(file); });
+    const r = await post("/api/image", { name: file.name, data }), j = await r.json();
+    if (!r.ok) { $("#log").textContent = j.error || "Couldn't add the picture"; return; }
+    $("#log").textContent = "";
+    done({ file: j.file, aspect: j.width && j.height ? j.width / j.height : 1, name: file.name });
+  };
+  f.click();
+}
+$("#addImage").onclick = () => pickImage(m => add({ kind: "image", file: m.file, aspect: m.aspect, name: m.name, lines: [], start: now(),
+  until: Math.min(INFO.duration, now() + 4), x: 0.85, y: 0.15, height: 0.2, animation: "fade", anim: 0.4, fade_out: 0.4 }));
+$("#imgReplace").onclick = () => { if (SEL) pickImage(m => { snapshot(); SEL.file = m.file; SEL.aspect = m.aspect; SEL.name = m.name; fillEditor(); changed(true); }); };
 $("#dup").onclick = () => { if (SEL) add({ ...structuredClone(SEL), id: undefined, name: (SEL.name || label(SEL)) + " (copy)" }); };
-$("#del").onclick = () => { if (!SEL) return; snapshot(); ITEMS = ITEMS.filter(i => i !== SEL); SEL = ITEMS[0] || null; renderList(); fillEditor(); changed(true); };
+$("#del").onclick = () => { if (!SEL) return; snapshot();
+  ITEMS.forEach(i => { if (i.after && i.after.id === SEL.id) { i.start = Math.round(startOf(i) * 10) / 10; i.after = null; } });   // followers keep their time
+  ITEMS = ITEMS.filter(i => i !== SEL); SEL = ITEMS[0] || null; renderList(); fillEditor(); changed(true); };
 
 // --- undo / save -----------------------------------------------------------------------------
 let lastSnap = "";
@@ -542,6 +682,7 @@ window.addEventListener("resize", fit);
   const proj = await (await fetch("/api/project")).json();
   MATCH = Math.min(proj.match || 0, Math.max(0, INFO.matches.length - 1));
   ITEMS = (proj.items || []).map(it => ({ ...structuredClone(DEFAULTS), ...it }));
+  ITEMS.forEach(it => { if (it.style === "3d") { it.style = "outline"; if (!it.depth) it.depth = 0.14; } });   // older projects
   ITEMS.forEach(it => { nextId = Math.max(nextId, (+it.id || 0) + 1); if (!it.id) it.id = nextId++; });
   const sel = $("#match");
   INFO.matches.forEach((m, i) => { const o = document.createElement("option"); o.value = i;

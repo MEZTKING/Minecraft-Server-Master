@@ -81,20 +81,14 @@ BUTTON_TIPS = {
     "Open history viewer": "Open the 3D time machine: a time slider over the whole history, player paths, events "
                            "and highlights for videos.",
     "Open page": "Open the running viewer's page in your browser again.",
-    "Open live editor": "Open a page in your browser where the video plays with the text on it, and changes "
-                        "(position, size, colour, animation, timing) show instantly. Make it from there too.",
+    "Open live editor": "Open a page in your browser where the video plays with your texts and pictures on it, "
+                        "and changes (place, size, colour, rotation, animation, timing) show instantly. Make the "
+                        "Flashback copy or the new video from there.",
     "Check now": "Ask GitHub whether a newer version of this app exists (nothing personal is sent).",
     "What's new": "Show the changes in the new version.",
     "Update": "Download the new version, check it's genuine (SHA-256), then close, update and reopen the app.",
     "Later": "Hide this version's notice (you'll be told about the next one).",
     "Choose…": "Pick the finished video (exported from Flashback). The app finds its edit and recording.",
-    "Put it in the world (Flashback)": "Put the text into the Minecraft world itself: makes a copy of the recording "
-                                       "with your edit; open it in Flashback and press Export.",
-    "Put it on the video (new file)": "Make a new copy of the video with the text drawn on (the original isn't changed).",
-    "Preview": "Show one frame of the video with the text on it.",
-    "Preview world position": "Show where the in-world text will be: one frame at the moment it appears, with the "
-                              "text drawn where it will sit (worked out from your edit's camera). Adjust the "
-                              "'Place in the world' numbers and preview again.",
     "Chat & events as subtitles": "Write subtitle files with the chat, joins, deaths and advancements at the right "
                                   "moments of the video.",
 }
@@ -1032,165 +1026,28 @@ class App(ttk.Frame):
 
     # ------------------------------------------------------------------ videos
     def _tab_videos(self, nb) -> ttk.Frame:
-        """Text on a finished Flashback video: in the world (a Flashback copy to export again) or
-        drawn on the video (a new file). No editing skills needed."""
+        """Text and pictures on a finished Flashback video: everything happens in the live editor
+        (a page in the browser); this tab only picks the video."""
         f = ttk.Frame(nb, padding=12)
         f.columnconfigure(1, weight=1)
-        ttk.Label(f, text="Add a title to a video you exported from Flashback. The app finds the Flashback edit and "
-                          "recording it was made from. \"In the world\" puts real Minecraft text into the scene (open "
-                          "the copy in Flashback and press Export); \"On the video\" makes a new video with the text "
-                          "drawn on. See docs/VIDEO_TEXT.md.", wraplength=680, justify="left").grid(
-            row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(f, text="1. Finished video:").grid(row=1, column=0, sticky="w", pady=(10, 3))
+        ttk.Label(f, text="Add titles, subtitles and pictures to a video you exported from Flashback, without "
+                          "editing skills. Choose the video, then open the live editor: the video plays with your "
+                          "texts on it while you change them. Texts can stand in the Minecraft world itself (on a "
+                          "mountain, following a player) or be drawn on the video. See docs/VIDEO_TEXT.md.",
+                  wraplength=680, justify="left").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text="Finished video:").grid(row=1, column=0, sticky="w", pady=(10, 3))
         self.vid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self.vid_var).grid(row=1, column=1, sticky="ew", padx=4, pady=(10, 3))
         ttk.Button(f, text="Choose…", command=self._vid_pick).grid(row=1, column=2, sticky="w", pady=(10, 3))
-        ttk.Label(f, text="   Made from:").grid(row=2, column=0, sticky="w", pady=3)
-        self.vid_match_var = tk.StringVar()
-        self.vid_match_combo = ttk.Combobox(f, textvariable=self.vid_match_var, state="readonly")
-        self.vid_match_combo.grid(row=2, column=1, columnspan=2, sticky="ew", padx=4, pady=3)
-        ttk.Label(f, text="2. Big text:").grid(row=3, column=0, sticky="w", pady=(10, 3))
-        self.vid_big_var = tk.StringVar(value="Our First Expedition")
-        ttk.Entry(f, textvariable=self.vid_big_var).grid(row=3, column=1, columnspan=2, sticky="ew", padx=4, pady=(10, 3))
-        ttk.Label(f, text="   Small text above:").grid(row=4, column=0, sticky="w", pady=3)
-        self.vid_small_var = tk.StringVar(value="Welcome to")
-        ttk.Entry(f, textvariable=self.vid_small_var).grid(row=4, column=1, columnspan=2, sticky="ew", padx=4, pady=3)
-        when = ttk.Frame(f)
-        when.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 3))
-        ttk.Label(when, text="3. When:").pack(side="left")
-        self.vid_when_var = tk.StringVar(value="still")
-        ttk.Radiobutton(when, text="where the camera stops at the end", value="still",
-                        variable=self.vid_when_var).pack(side="left", padx=(8, 0))
-        ttk.Radiobutton(when, text="at second", value="at", variable=self.vid_when_var).pack(side="left", padx=(8, 0))
-        self.vid_at_var = tk.StringVar(value="0")
-        ttk.Entry(when, textvariable=self.vid_at_var, width=7).pack(side="left", padx=4)
-        ttk.Label(when, text="   until second:").pack(side="left")
-        self.vid_until_var = tk.StringVar(value="")
-        ttk.Entry(when, textvariable=self.vid_until_var, width=7).pack(side="left", padx=4)
-        ttk.Label(when, text="(empty = to the end)", foreground="gray").pack(side="left")
-        look = ttk.Frame(f)
-        look.grid(row=6, column=0, columnspan=3, sticky="w", pady=3)
-        ttk.Label(look, text="4. Look:").pack(side="left")
-        self.vid_colour_var = tk.StringVar(value="white")
-        ttk.Combobox(look, textvariable=self.vid_colour_var, width=9, state="readonly",
-                     values=["white", "gold", "yellow", "aqua", "green", "red", "gray"]).pack(side="left", padx=8)
-        self.vid_border_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(look, text="black border", variable=self.vid_border_var).pack(side="left")
-        self.vid_3d_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(look, text="3D letters (on the video only)", variable=self.vid_3d_var).pack(side="left", padx=8)
-        look2 = ttk.Frame(f)
-        look2.grid(row=7, column=0, columnspan=3, sticky="w", pady=3)
-        ttk.Label(look2, text="   border colour:").pack(side="left")
-        self.vid_border_colour_var = tk.StringVar(value="black")
-        ttk.Combobox(look2, textvariable=self.vid_border_colour_var, width=9, state="readonly",
-                     values=["black", "dark_gray", "gold", "dark_blue", "dark_red", "white"]).pack(side="left", padx=4)
-        self.vid_shadow_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(look2, text="shadow", variable=self.vid_shadow_var).pack(side="left", padx=4)
-        self.vid_glow_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(look2, text="always bright (in the world)", variable=self.vid_glow_var).pack(side="left", padx=4)
-        self.vid_box_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(look2, text="dark box behind", variable=self.vid_box_var).pack(side="left", padx=4)
-        anim = ttk.Frame(f)
-        anim.grid(row=8, column=0, columnspan=3, sticky="w", pady=3)
-        ttk.Label(anim, text="5. Animation:").pack(side="left")
-        self.vid_anim_var = tk.StringVar(value=self.ANIM_LABELS[1][1])
-        ttk.Combobox(anim, textvariable=self.vid_anim_var, width=34, state="readonly",
-                     values=[label for _k, label in self.ANIM_LABELS]).pack(side="left", padx=8)
-        ttk.Label(anim, text="speed (s):").pack(side="left")
-        self.vid_anim_speed_var = tk.StringVar(value="0.4")
-        ttk.Entry(anim, textvariable=self.vid_anim_speed_var, width=5).pack(side="left", padx=4)
-        ttk.Label(anim, text="between words (s):").pack(side="left")
-        self.vid_word_gap_var = tk.StringVar(value="0.3")
-        ttk.Entry(anim, textvariable=self.vid_word_gap_var, width=5).pack(side="left", padx=4)
-        ttk.Label(anim, text="fade out (s):").pack(side="left")
-        self.vid_fade_out_var = tk.StringVar(value="0")
-        ttk.Entry(anim, textvariable=self.vid_fade_out_var, width=5).pack(side="left", padx=4)
-        place = ttk.Frame(f)
-        place.grid(row=9, column=0, columnspan=3, sticky="w", pady=3)
-        ttk.Label(place, text="6. Place in the world (blocks):").pack(side="left")
-        self.vid_place_vars = {}
-        for key, label, default in (("right", "right", "0"), ("up", "up", "0"), ("distance", "distance", "55"),
-                                    ("size", "size ×", "1")):
-            ttk.Label(place, text=f"  {label}").pack(side="left")
-            var = tk.StringVar(value=default)
-            ttk.Entry(place, textvariable=var, width=6).pack(side="left", padx=(3, 0))
-            self.vid_place_vars[key] = var
-        ttk.Label(place, text="  (negative = left / down)", foreground="gray").pack(side="left")
         btns = ttk.Frame(f)
-        btns.grid(row=11, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        btns.grid(row=2, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(btns, text="Open live editor", command=self._vid_live).pack(side="left", padx=(0, 6))
-        ttk.Button(btns, text="Put it in the world (Flashback)", command=self._vid_world).pack(side="left")
-        ttk.Button(btns, text="Put it on the video (new file)", command=self._vid_screen).pack(side="left", padx=6)
-        ttk.Button(btns, text="Preview", command=self._vid_preview).pack(side="left")
-        ttk.Button(btns, text="Preview world position", command=self._vid_world_preview).pack(side="left", padx=(6, 0))
-        ttk.Button(btns, text="Chat & events as subtitles", command=self._vid_subtitles).pack(side="left", padx=6)
+        ttk.Button(btns, text="Chat & events as subtitles", command=self._vid_subtitles).pack(side="left")
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
-            row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
+            row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.vid_info = None
         return f
-
-    ANIM_LABELS = [("none", "Appears at once"), ("fade", "Fades in"),
-                   ("pop", "Pops in (springs out, then settles)"), ("words", "Words one by one, instantly"),
-                   ("words-fade", "Words one by one, fading in"), ("words-pop", "Words one by one, popping in")]
-
-    def _vid_look(self) -> dict:
-        """Animation and look options from the Videos tab (seconds as typed)."""
-        def num(var, name):
-            try:
-                return max(0.0, float(var.get() or 0))
-            except ValueError:
-                messagebox.showerror(APP_NAME, f"'{name}' must be a number of seconds")
-                raise
-        key = next((k for k, label in self.ANIM_LABELS if label == self.vid_anim_var.get()), "fade")
-        return {"animation": key, "anim": max(0.05, num(self.vid_anim_speed_var, "speed")),
-                "word_gap": max(0.05, num(self.vid_word_gap_var, "between words")),
-                "fade_out": num(self.vid_fade_out_var, "fade out"),
-                "border_colour": self.vid_border_colour_var.get(), "shadow": self.vid_shadow_var.get(),
-                "box": "black" if self.vid_box_var.get() else ""}
-
-    def _vid_place(self) -> dict:
-        out = {}
-        for key, var in self.vid_place_vars.items():
-            try:
-                out[key] = float(var.get() or 0)
-            except ValueError:
-                messagebox.showerror(APP_NAME, f"'{key}' must be a number of blocks")
-                raise
-        return {"right": out["right"], "up": out["up"], "distance": max(2.0, out["distance"] or 55.0),
-                "size_scale": max(0.05, out["size"] or 1.0)}
-
-    def _vid_world_preview(self) -> None:
-        """One frame of the video at the moment the text appears, with the text drawn where it will be
-        in the world (worked out from the edit's camera and zoom)."""
-        import tempfile
-        from . import videotext as vt
-        match = self._vid_match()
-        if not match:
-            messagebox.showinfo(APP_NAME, "Choose a video whose Flashback edit was found first.")
-            return
-        lines, at, place, info = self._vid_lines(True), self._vid_when(), self._vid_place(), self.vid_info
-        colour, border = self.vid_colour_var.get(), self.vid_border_colour_var.get()
-
-        def work(_):
-            lay = vt.world_layout(match, lines, at, **place)
-            titles = vt.world_preview_titles(lay, info["width"], info["height"], colour, border)
-            if not titles:
-                raise ValueError("the text would be behind the camera: use a positive distance")
-            work_dir = tempfile.mkdtemp(prefix="mcsm-preview-")
-            with open(os.path.join(work_dir, "t.ass"), "w", encoding="utf-8") as fh:
-                fh.write(vt.titles_ass(titles, info["width"], info["height"]))
-            out = os.path.join(work_dir, "world position.jpg")
-            # "where the camera stops": show the very end (the camera is fully still there)
-            t = info["duration"] - 0.15 if at is None else min(info["duration"] - 0.05, lay["seconds"] + 0.5)
-            subprocess.run([vt.find_tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", info["video"],
-                            "-copyts", "-vf", "ass=t.ass", "-frames:v", "1", out], cwd=work_dir, check=True)
-            x, y, z = lay["texts"][0][2:]
-            print(f"In the world at about ({x:.0f}, {y:.0f}, {z:.0f}); seen from the camera at {lay['seconds']:.1f} s "
-                  f"(field of view {lay['fov']:.0f}). The real text uses Minecraft's own font.")
-            return out
-
-        self._run("Preview of the world position", work, lambda out: open_path(out))
 
     def _vid_live(self) -> None:
         """The live editor page: the video plays with the text drawn on it while you change it."""
@@ -1200,7 +1057,7 @@ class App(ttk.Frame):
             return
         if getattr(self, "vid_editor", None):
             self.vid_editor.stop()
-        self.vid_editor = VideoEditor(self.vid_info["video"], info=self.vid_info)
+        self.vid_editor = VideoEditor(self.vid_info["video"], world_dir=self._vid_world_dir(), info=self.vid_info)
         url = self.vid_editor.start()
         self.vid_status_var.set(f"Live editor open in your browser: {url}")
         webbrowser.open(url)
@@ -1230,139 +1087,16 @@ class App(ttk.Frame):
 
         def after(info):
             self.vid_info = info
-            names = []
-            for m_ in info["matches"]:
-                rec = os.path.basename(m_["recording"]) if m_.get("recording") else "recording not found"
-                how = "" if m_["match"] == "exact" else " (edit changed after exporting)"
-                names.append(f"'{m_['name']}' of {rec}{how}")
-            self.vid_match_combo["values"] = names or ["no matching Flashback edit found"]
-            self.vid_match_combo.current(0)
-            still = info["matches"][0].get("still_from") if info["matches"] else None
-            self.vid_status_var.set(f"{info['duration']:.1f} s, {info['width']}x{info['height']}. "
-                                    + (f"The camera stops at {still:.1f} s." if still is not None else
-                                       "No still ending found: choose a second."))
-            if still is None:
-                self.vid_when_var.set("at")
+            m = info["matches"][0] if info["matches"] else None
+            still = m.get("still_from") if m else None
+            found = (f"Made from '{m['name']}' of {os.path.basename(m['recording'])}." if m and m.get("recording") else
+                     ("Its Flashback edit was found, but not the recording (import it into the library)." if m else
+                      "No Flashback edit found: only 'on the video' texts and pictures."))
+            self.vid_status_var.set(f"{info['duration']:.1f} s, {info['width']}x{info['height']}. {found} "
+                                    + (f"The camera stops at {still:.1f} s. " if still is not None else "")
+                                    + "Now open the live editor.")
 
         self._run("Looking at the video", work, after)
-
-    def _vid_match(self) -> dict | None:
-        if not self.vid_info or not self.vid_info["matches"]:
-            return None
-        return self.vid_info["matches"][max(0, self.vid_match_combo.current())]
-
-    def _vid_lines(self, world: bool) -> list:
-        small, big = self.vid_small_var.get().strip(), self.vid_big_var.get().strip()
-        out = []
-        if small:
-            out.append((small, 3.0 if world else 0.07))
-        if big:
-            out.append((big, 5.5 if world else 0.13))
-        return out
-
-    def _vid_when(self) -> float | None:
-        if self.vid_when_var.get() == "still":
-            return None
-        try:
-            return float(self.vid_at_var.get())
-        except ValueError:
-            messagebox.showerror(APP_NAME, "Type the second as a number, e.g. 12.5")
-            raise
-
-    def _vid_world(self) -> None:
-        from . import videotext as vt
-        match = self._vid_match()
-        if not match or not match.get("recording"):
-            messagebox.showinfo(APP_NAME, "Choose a video whose Flashback edit and recording were found (import the "
-                                          "recordings into the library first).")
-            return
-        lines = self._vid_lines(True)
-        if not lines:
-            return
-        at = self._vid_when()
-        until = self._vid_until()
-        colour, border = self.vid_colour_var.get(), self.vid_border_var.get()
-        look = self._vid_look()
-        look["glow"] = self.vid_glow_var.get()
-
-        look.update(self._vid_place())
-        look["video"] = self.vid_info["video"]
-
-        def work(_):
-            return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until, **look)
-
-        def after(r):
-            when = f"appears at {r['appears_at']:.1f} s" if r.get("appears_at") is not None else "there all the time"
-            self.vid_status_var.set(f"Done ({when}): open '{r['name']}' in Flashback ({r['flashback']}), your edit "
-                                    "is on it; press Export.")
-            messagebox.showinfo(APP_NAME, f"In Flashback, open the replay '{r['name']}'. Your edit is copied to it "
-                                          "with the same export range: check the text, then Export.\n\n"
-                                          f"{r['replay']}")
-
-        self._run("Putting the text in the world", work, after)
-
-    def _vid_until(self) -> float | None:
-        text = self.vid_until_var.get().strip()
-        if not text:
-            return None
-        try:
-            return float(text)
-        except ValueError:
-            messagebox.showerror(APP_NAME, "Type the 'until' second as a number, or leave it empty")
-            raise
-
-    def _vid_times(self) -> tuple[float, float]:
-        info, match = self.vid_info, self._vid_match()
-        at = self._vid_when()
-        start = at if at is not None else ((match or {}).get("still_from") if (match or {}).get("still_from") is not None else max(0.0, info["duration"] - 4)) + 0.2
-        until = self._vid_until()
-        return start, (until if until is not None else info["duration"] + 1)
-
-    def _vid_screen(self) -> None:
-        from . import videotext as vt
-        if not self.vid_info:
-            messagebox.showinfo(APP_NAME, "Choose a video first.")
-            return
-        lines = self._vid_lines(False)
-        if not lines:
-            return
-        start, end = self._vid_times()
-        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "plain")
-        video, colour, look = self.vid_info["video"], self.vid_colour_var.get(), self._vid_look()
-
-        def work(_):
-            print("Making the video (your original isn't changed)…")
-            return vt.make_on_screen(video, lines, start, end, style, colour, progress=print, **look)
-
-        def after(out):
-            self.vid_status_var.set(f"Done: {out}")
-            open_path(os.path.dirname(out))
-
-        self._run("Putting the text on the video", work, after)
-
-    def _vid_preview(self) -> None:
-        import tempfile
-        from . import videotext as vt
-        if not self.vid_info:
-            messagebox.showinfo(APP_NAME, "Choose a video first.")
-            return
-        start, end = self._vid_times()
-        style = "3d" if self.vid_3d_var.get() else ("outline" if self.vid_border_var.get() else "plain")
-        lines, info, colour, look = self._vid_lines(False), self.vid_info, self.vid_colour_var.get(), self._vid_look()
-        look["animation"] = "none"                        # a still frame shows the settled text
-
-        def work(_):
-            titles = vt.screen_titles(lines, start, end, style, colour, **look)
-            work_dir = tempfile.mkdtemp(prefix="mcsm-preview-")
-            with open(os.path.join(work_dir, "t.ass"), "w", encoding="utf-8") as fh:
-                fh.write(vt.titles_ass(titles, info["width"], info["height"]))
-            out = os.path.join(work_dir, "preview.jpg")
-            t = min(info["duration"] - 0.1, start + 1.0)
-            subprocess.run([vt.find_tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", info["video"],
-                            "-copyts", "-vf", "ass=t.ass", "-frames:v", "1", out], cwd=work_dir, check=True)
-            return out
-
-        self._run("Preview", work, lambda out: open_path(out))
 
     def _vid_subtitles(self) -> None:
         if self.data is None:

@@ -617,7 +617,8 @@ def _make_handler(live: LiveMap):
                 return self._send(403, b"forbidden", "text/plain")
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}") if n else {}
+                limit = 80_000_000 if path == "/api/image" else 1_000_000     # pictures come as base64
+                body = json.loads(self.rfile.read(min(n, limit)) or b"{}") if n else {}
             except ValueError:
                 return self._send(400, b"bad json", "text/plain")
             try:
@@ -636,7 +637,8 @@ def _make_handler(live: LiveMap):
             """Send a file from disk; honours a ``Range: bytes=a-b`` request (video seeking)."""
             size = os.path.getsize(full)
             ctype = {".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
-                     ".webm": "video/webm"}.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+                     ".webm": "video/webm", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
             start, end, code = 0, size - 1, 200
             rng = self.headers.get("Range", "")
             if rng.startswith("bytes="):

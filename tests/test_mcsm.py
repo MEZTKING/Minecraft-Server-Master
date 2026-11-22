@@ -2177,9 +2177,9 @@ class TestVideoMaking(unittest.TestCase):
         try:
             app = gui.App(root)
             self.assertIn("Videos", [app.nb.tab(t, "text") for t in app.nb.tabs()])
-            self.assertEqual(app._vid_lines(True), [("Welcome to", 3.0), ("Our First Expedition", 5.5)])
-            app.vid_small_var.set("")
-            self.assertEqual(app._vid_lines(False), [("Our First Expedition", 0.13)])
+            # the text controls live in the live editor now; the tab only picks the video
+            self.assertFalse(hasattr(app, "vid_big_var") or hasattr(app, "_vid_lines"))
+            self.assertEqual(app.vid_status_var.get(), "Choose a video.")
         finally:
             root.destroy()
             del root
@@ -2718,4 +2718,153 @@ class TestFollowPlayer(unittest.TestCase):
                 vt.make_items_in_world(match, [{"kind": "world", "lines": [["X", 1]], "start": 0.2, "follow": "Alex"}],
                                        None, fb, players=players)    # not in view: told so
         finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestAdvancedText(unittest.TestCase):
+    """Opacity, rotation, facing, 3D letters, rise/slam, chained texts and pictures."""
+
+    def test_rotation_turns_about_the_pivot(self):
+        import math
+        import struct
+        from mcsm import worldtext as wt
+        t = wt.WorldText("Hi", 0, 64, 0, size=1.0, roll=90, pivot=(0.0, 0.5, 0.0))
+        tx, ty, tz = wt.translation_of(t)
+        # clockwise quarter turn about (0, 0.5): the text's foot (0, 0) goes to (-0.5, 0.5)
+        self.assertAlmostEqual(tx, -0.5, places=5)
+        self.assertAlmostEqual(ty, 0.5, places=5)
+        qx, qy, qz, qw = wt.quaternion_of(t)
+        self.assertAlmostEqual(qz, -math.sqrt(0.5), places=5)
+        self.assertAlmostEqual(qw, math.sqrt(0.5), places=5)
+        pk = wt.text_data_packet(5, t)
+        self.assertIn(bytes([13, 40]) + struct.pack(">ffff", qx, qy, qz, qw), pk)   # left rotation, quaternion
+        self.assertIn(bytes([11, 39]), pk)                                           # translation
+        flat = wt.text_data_packet(5, wt.WorldText("Hi", 0, 64, 0, size=1.0))
+        self.assertNotIn(bytes([13, 40]), flat)                                      # unchanged when not turned
+
+    def test_opacity_italic_underline(self):
+        from mcsm import worldtext as wt
+        pk = wt.text_data_packet(5, wt.WorldText("Hi", 0, 0, 0, opacity=128, italic=True, underline=True))
+        self.assertIn(bytes([26, 0, 128]), pk)
+        self.assertIn(b"italic", pk)
+        self.assertIn(b"underlined", pk)
+
+    def test_depth_layers(self):
+        from mcsm import worldtext as wt
+        t = wt.WorldText("Big", 0, 64, 0, size=4.0, colour="gold", outline="black", camera_yaw=0.0, depth=0.25)
+        parts = wt.with_depth(t)
+        self.assertEqual(len(parts), 7)                          # 6 layers + the text
+        self.assertEqual(parts[-1].colour, "gold")
+        self.assertTrue(all(p.colour.startswith("#") and not p.outline for p in parts[:-1]))
+        self.assertTrue(all(p.z > t.z and p.y < t.y for p in parts[:-1]))   # behind (camera looks +z) and lower
+        self.assertGreater(parts[0].z, parts[-2].z)              # the first layer is the deepest
+        self.assertEqual(wt.with_depth(wt.WorldText("Flat", 0, 0, 0)), [wt.WorldText("Flat", 0, 0, 0)])
+
+    def test_rise_and_slam_plans(self):
+        from mcsm import worldtext as wt
+        for anim in ("rise", "slam"):
+            e = wt._plan_entity(9, wt.WorldText("X", 0, 64, 0, size=1, appear_tick=100, animation=anim, anim_ticks=8),
+                                1, 99, 131)
+            self.assertIn(bytes([26, 0, 26]), e.start[1])        # starts faint
+            self.assertTrue(e.updates and all(t_ > 100 for t_, *_ in e.updates))
+            self.assertGreaterEqual(e.settled, 108)
+
+    def test_fixed_facing_and_chains(self):
+        from mcsm import videotext as vt
+        cam = {"position": [0, 64, 0], "yaw": 30, "pitch": 0}
+        match = {"still_from": 1.0}
+        sc = {"name": "S", "exportStartTicks": 0, "exportEndTicks": 200, "keyframeTracks": [
+            {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "200": cam}}]}
+        orig = vt.scene_for_match
+        vt.scene_for_match = lambda m: sc
+        try:
+            texts, _ = vt.world_texts(match, [("Top", 2.0), ("Bottom", 3.0)], 2.0, facing="fixed", turn=10, tilt=-90,
+                                      roll=5, opacity=0.5)
+        finally:
+            vt.scene_for_match = orig
+        self.assertTrue(all(t.facing == "fixed" and t.local for t in texts))
+        self.assertAlmostEqual(texts[0].yaw, 220.0)               # camera yaw + 180 + turn
+        self.assertEqual(texts[0].pitch, -90)
+        self.assertEqual((texts[0].x, texts[0].y, texts[0].z), (texts[1].x, texts[1].y, texts[1].z))
+        self.assertAlmostEqual(texts[0].offset[1], 3.0 + 0.25 * 2.0)   # stacked in its own space
+        self.assertEqual(texts[0].opacity, 128)
+        items = [vt._item(i) for i in (
+            {"id": 1, "kind": "screen", "lines": [["A", 3]], "start": 1.0, "length": 2.0},
+            {"id": 2, "kind": "screen", "lines": [["B", 3]], "after": {"id": 1, "gap": 0.5, "from": "end"}, "length": 1},
+            {"id": 3, "kind": "image", "file": "x.png", "after": {"id": 2, "gap": 1.0, "from": "start"}},
+            {"id": 4, "kind": "screen", "lines": [["Loop", 3]], "start": 9.0, "after": {"id": 5, "gap": 1}},
+            {"id": 5, "kind": "screen", "lines": [["Loop", 3]], "start": 8.0, "after": {"id": 4, "gap": 1}},
+            {"id": 6, "kind": "screen", "lines": [["Lost", 3]], "after": {"id": 99, "gap": 1}},
+            {"kind": "screen", "lines": [["Old", 3]], "style": "3d"})]
+        r = vt.resolve_times(items, 20.0, lambda it: 0.2)
+        self.assertEqual((r[0]["start"], r[0]["until"]), (1.0, 3.0))
+        self.assertEqual((r[1]["start"], r[1]["until"]), (3.5, 4.5))
+        self.assertEqual(r[2]["start"], 4.5)                      # 1 s after B appears
+        self.assertIsInstance(r[3]["start"], float)               # a loop doesn't hang
+        self.assertEqual(r[5]["start"], 0.2)                      # follows nothing that exists: its own time
+        self.assertEqual((items[6]["style"], items[6]["depth"]), ("outline", 0.14))   # older "3D" style
+
+    def test_screen_look_and_pictures(self):
+        from mcsm import videotext as vt
+        titles = vt.screen_titles([("One", 0.1), ("Two", 0.1)], 0, 5, animation="rise", opacity=0.5, roll=10,
+                                  italic=True, depth=0.2)
+        ass = vt.titles_ass(titles, 1920, 1080, "x")
+        self.assertIn("\\frz-10", ass)
+        self.assertIn("\\alpha&H7F&", ass)                      # half see-through
+        self.assertIn("\\move(", ass)
+        self.assertIn("\\i1", ass)
+        self.assertEqual(len({t.org for t in titles}), 1)         # both lines turn about one point
+        slam = vt.titles_ass(vt.screen_titles([("S", 0.1)], 0, 5, animation="slam"), 1920, 1080, "x")
+        self.assertIn("\\fscx260", slam)
+        chains, last = vt.image_filters([{"file": "a.png", "start": 1, "end": 4, "x": 0.8, "y": 0.2, "height": 0.2,
+                                          "opacity": 0.5, "roll": 15, "animation": "rise", "fade_out": 0.5}], 1280, 720)
+        g = ";".join(chains)
+        self.assertEqual(last, "v1")
+        for part in ("scale=-2:144", "colorchannelmixer=aa=0.500", "rotate=a=15*PI/180", "fade=t=in:st=1.000",
+                     "fade=t=out:st=3.500", "between(t,1.000,4.000)", "shortest=1"):
+            self.assertIn(part, g)
+        ff = vt.find_tool("ffmpeg")
+        if not ff:
+            self.skipTest("ffmpeg not installed")
+        tmp = tempfile.mkdtemp()
+        try:
+            src, pic = os.path.join(tmp, "clip.mp4"), os.path.join(tmp, "logo.png")
+            subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2:r=10", "-pix_fmt",
+                            "yuv420p", src], check=True)
+            subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=yellow:s=40x20", "-frames:v", "1", pic],
+                           check=True)
+            out = vt.make_items_on_screen(src, [{"id": 1, "kind": "image", "file": "logo.png", "start": 0.2, "x": 0.5,
+                                                 "y": 0.5, "height": 0.5, "animation": "none"}], 2.0, image_dir=tmp)
+            frame = os.path.join(tmp, "f.rgb")
+            subprocess.run([ff, "-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-vf", "crop=2:2:159:89",
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", frame], check=True)
+            with open(frame, "rb") as fh:
+                r_, g_, b_ = fh.read()[:3]
+            self.assertTrue(r_ > 180 and g_ > 180 and b_ < 90, (r_, g_, b_))      # the yellow picture is drawn
+            with self.assertRaises(ValueError):
+                vt.make_items_on_screen(src, [{"kind": "image", "file": "gone.png"}], 2.0, image_dir=tmp)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_editor_keeps_pictures(self):
+        import base64
+        from mcsm import videoeditor as ve
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            ed = ve.VideoEditor(os.path.join(tmp, "v.mp4"), info={"video": os.path.join(tmp, "v.mp4"), "duration": 5,
+                                                                    "width": 320, "height": 180, "matches": []})
+            r = ed.add_image({"name": "Logo.PNG", "data": base64.b64encode(b"\x89PNG fake").decode()})
+            self.assertTrue(r["file"].endswith(".png"))
+            self.assertEqual(ed.file_for("/image/" + r["file"]), os.path.join(ed.image_dir(), r["file"]))
+            self.assertIsNone(ed.file_for("/image/..\\..\\secret.png"))
+            self.assertIsNone(ed.file_for("/image/missing.png"))
+            with self.assertRaises(ValueError):
+                ed.add_image({"name": "evil.exe", "data": "AAAA"})
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)

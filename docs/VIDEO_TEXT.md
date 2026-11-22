@@ -1,84 +1,88 @@
 # Text on finished videos (no editing skills needed)
 
-## The easiest way: the live editor
+## The live editor
 
-In the **Videos** tab choose your video, then press **Open live editor** (or
-`mcsm video-editor --video FILE --world <library world>`). A page opens in your browser where the video
-plays with **all your texts drawn on it while you change them**.
+In the **Videos** tab choose your video (the app finds the Flashback edit and recording it was made
+from), then press **Open live editor** (or `mcsm video-editor --video FILE --world <library world>`).
+A page opens in your browser where the video plays with **all your texts and pictures drawn on it while
+you change them**. Everything is done there; the Videos tab only picks the video (and can still write
+the chat and events as subtitles, see below).
 
-- **Any number of texts**, each **in the world** (real Minecraft text in the scene, projected with your
-  edit's camera, so it moves correctly as the camera moves) or **on the video** (drawn on top).
-  Buttons: **+ Title in the world**, **+ Title on the video**, **+ Subtitle** (bottom, dark box, 4 s),
-  **+ Corner label** (a place or name, lower left), **Duplicate**, **Delete**.
-- **Where in the world:** *In front of the camera* (a title, placed relative to the camera when it
-  appears; it stays at that spot in the world, so a moving camera leaves it behind) or **At a spot in the
-  world…**: click on the video where the text should stand, e.g. far out on a mountain. The app follows
-  the camera ray through the real terrain (read from the library backup made right after the recording)
-  and stands the text there, upright and turning to face the camera, so it looks like part of the
-  landscape; far spots get bigger letters automatically. Far spots are exact; right in front of a low
-  camera it can be a block off.
-- **Follow a player:** the text **rides on the player** (above their head) and moves with them; in
-  Flashback the game itself keeps it attached, so it stays in sync however fast they or the camera
-  move. Choose from the players in view when the text appears; *Right*/*Up* move it beside/above the
-  head. The preview in the page follows them about once a second.
-- **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green = where
-  the camera stands still). Drag a bar to move it in time, drag its right edge to change how long it
-  stays, click elsewhere to move the playhead.
-- **Drag a text on the video** to move it: on-screen texts move freely; texts in the world move left,
-  right, up and down in the world (in blocks, as seen from the camera).
-- **Each text:** a name, one or more lines (each with its own letter size), when it appears (a second,
-  *now*, or *when the camera stops*) and until when, animation (appears / fades / pops / words one by one,
-  speed, gap between words, fade out), colour, border and its colour, shadow, dark box, always bright (in
-  the world) or 3D letters and a font (on the video), and its place and size.
+### Adding things
+
+- **+ Title in the world**: real Minecraft text in the scene (projected with your edit's camera, so it
+  moves correctly as the camera moves). **+ Title on the video**: drawn on top. **+ Subtitle** (bottom,
+  dark box, 4 s), **+ Corner label** (a place or a name, lower left).
+- **+ Picture**: a logo, photo or watermark on the video (PNG, JPG, GIF, WEBP, BMP). The picture is
+  copied into the editor's folder (your file isn't touched); **Replace…** swaps it and keeps its place
+  and timing. Pictures can't be put *in* the world yet, only on the video.
+- **+ Follow-up**: a new text that appears **after the selected one goes**, 0.5 s later by default.
+  Change the **Gap** to any number of seconds (negative = they overlap), or choose *after it appears*
+  instead of *after it goes*. Follow-ups can be followed too, so you can build a chain of any length;
+  moving the first one on the timeline moves the whole chain. Any text or picture can follow any other
+  with **Follows**; choose *nothing* to give it its own time again (it stays where it is).
+- **Duplicate**, **Delete** (texts that followed the deleted one keep their current time), **Undo**,
+  **Redo**.
+
+### Each text
+
+- **Lines**, each with its own letter size, and a name.
+- **When:** *Appears at* (a second, *now* or *when the camera stops*), *Until* (a second, *now* or the
+  end) or **Or lasts** a number of seconds, and **Follows** / **Gap** for chains.
+- **Animation:** appears at once, fades in, pops in, words one by one (instantly, fading or popping),
+  **rises into place**, **slams down** (comes in big and lands like a stamp); speed, time between words,
+  fade out at the end.
+- **Look:** **opacity** (see-through), colour, border and its colour, shadow, dark box, **3D depth**
+  (3D letters: darker layers behind and below the letters, in the world and on the video), **italic**,
+  **underline**, always bright (in the world), letters with border or plain and a font (on the video).
+- **Turn:** **Rotate** turns the text in its own plane (degrees, clockwise; a text with several lines
+  turns as a whole). On the video, **Turn** and **Tilt** add a 3D perspective. In the world, **Faces**
+  chooses how it looks at you:
+  - *the camera (automatic)*: turns to face the camera (upright on a spot);
+  - *the camera, always*; *the camera, staying upright*;
+  - *one way, like a sign*: it stays put facing where the camera looks when it appears, so a moving
+    camera sees it from the side. **Turn** spins it, **Tilt** tips it (-90 lays it on the ground face up,
+    like writing on the floor).
+- **Place:** in the world *In front of the camera* (Right / Up / Distance in blocks), **At a spot…**
+  (click on the video where it should stand, e.g. far out on a mountain: the app follows the camera ray
+  through the real terrain from the library backup made right after the recording; far spots get bigger
+  letters) or **Follow a player** (the text rides on the player and moves with them exactly in
+  Flashback; Right/Up move it beside/above the head). On the video: *Across* / *Down*.
+- **Size ×**: from 0.02 (name-tag size above a player) to 20 (huge, on a far mountain). Following a
+  player starts small.
+- **Pictures:** height (share of the video height), across/down, opacity, rotate, appears / fades in /
+  rises into place, fade out, and the same timing and chains as texts.
+
+### Working with it
+
+- **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green =
+  picture, light green = where the camera stands still; ↳ = a follow-up). Drag a bar to move it (a
+  follow-up's drag changes its gap), drag its right edge to change how long it stays, click elsewhere to
+  move the playhead.
+- **Drag a text or picture on the video** to move it; texts in the world move left, right, up and down
+  in the world (in blocks, as seen from the camera).
 - **Keys:** <kbd>Space</kbd> play/pause, <kbd>←</kbd>/<kbd>→</kbd> one frame (with Shift: one second),
   <kbd>I</kbd>/<kbd>O</kbd> start/end of the selected text at the playhead, <kbd>Ctrl+Z</kbd> /
   <kbd>Ctrl+Y</kbd> undo/redo, <kbd>Ctrl+D</kbd> duplicate, <kbd>Delete</kbd>.
-- **Saved automatically** for each video (in `%LOCALAPPDATA%\mcsmideo-text`, never next to your
-  video), so you can close the page and continue later.
-- **Make it:** **Put world texts in Flashback** makes one Flashback copy with all in-world texts (making
-  it again replaces it); **Make the video with on-screen texts** makes one new video with all on-screen
-  texts drawn on.
+- **Saved automatically** for each video (in `%LOCALAPPDATA%\mcsm\video-text`, pictures in its
+  `images` folder; never next to your video), so you can close the page and continue later.
 
-The drawing in the page uses the fonts your browser has; the finished video uses Minecraft's own font in
-the world and your chosen font on the video.
+### Making it
 
-## The app's Videos tab
+- **Put world texts in Flashback** makes one copy of the recording with all in-world texts, plus a copy
+  of your edit with the same export range, in the Flashback folder for its Minecraft version. Open it in
+  Flashback and press Export: the video comes out with the text in the world (lit by it, hidden behind
+  blocks and players). You can keep editing the camera there with the texts visible. Making it again for
+  the same video **replaces** that copy (same name and id, swapped in when complete; close the replay in
+  Flashback first), and changes you made to the copy's edit are kept.
+- **Make the video with on-screen texts & pictures** makes `<video> (with text).mp4` next to the original
+  with ffmpeg (the fastest encoder your PC really has: NVIDIA, AMD or Intel, else the normal one).
 
-1. **Finished video → Choose…**: pick the video you exported from Flashback. The app finds the
-   Flashback edit it came from (even if you changed the edit afterwards, e.g. made it longer), the
-   recording, and where the camera stops moving at the end.
-2. **Big text** and an optional **small text above** (e.g. "Welcome to" / "Our First Expedition").
-3. **When:** where the camera stops at the end (good for titles), or at a second you choose, and
-   optionally **until second** (empty = to the end of the video). In the world the text then really
-   *appears* at that moment of the recording (and disappears at "until"), so it's not visible
-   earlier in the shot.
-4. **Look:** colour (white by default), **black border**, and for on-screen text optionally
-   **3D letters**. On-screen text uses Minecraft's own logo font ("Minecraft Ten") when it's
-   installed, else Arial Black.
-5. **Animation:** appears at once, **fades in**, **pops in** (springs out a little too big, then
-   settles), or **words one by one** (instantly, fading or popping), with the **speed**, the time
-   **between words** and an optional **fade out** at the end. With two lines, the big line starts once
-   the small one has appeared. More look options: **border colour**, **shadow**, **always bright**
-   (in the world; off = lit by the world, dark at night) and a **dark box** behind the text.
-6. **Place in the world (blocks):** move the text **right** / **up** (negative = left / down), set its
-   **distance** from the camera and make it bigger or smaller (**size ×**). **Preview world position**
-   shows a frame of your video with the text drawn where it will be in the world, worked out from your
-   edit's camera position, angle and zoom (checked against the real result in Flashback). Adjust and
-   preview again until it sits right, then put it in the world.
-7. Then either:
-   - **Put it in the world (Flashback)**: real Minecraft text in the scene (lit by the world,
-     hidden behind blocks). A copy of the recording named `… (text)` and a copy of your edit (with
-     the same export range as your video) go into the Flashback folder for its Minecraft version.
-     Open it in Flashback and press Export: the video comes out with the text in the world.
-     Pressing it again for the same video **replaces** that copy (same name and id, made as a new file
-     and swapped in when complete; close the replay in Flashback first). Changes you made to the copy's
-     edit in Flashback are kept. Other videos get their own copy.
-   - **Put it on the video (new file)**: `<video> (with text).mp4` next to the original, made with
-     ffmpeg (the fastest encoder your PC really has: NVIDIA, AMD or Intel, else the normal one).
-   - **Preview**: one frame with the on-screen text, to check size and place first.
-   - **Chat & events as subtitles**: the `video-text` files below (load your server first).
+Your original video, recording and edit are never changed. The page draws with your browser's fonts;
+the finished video uses Minecraft's own font in the world and your chosen font on the video. The page's
+preview of *one way, like a sign* and of Turn/Tilt is an approximation; Flashback shows the real thing.
 
-Your original video, recording and edit are never changed.
+## Chat and events as subtitles
 
 You exported a video from Flashback and want the in-game texts on it: chat, "X joined the game",
 deaths, advancements, the date. Normally that means placing every text by hand in an editor such
@@ -128,10 +132,8 @@ Burning the texts into a finished copy of the video (the original is never chang
 ffmpeg -i video.mp4 -vf "ass=video.ass" -c:a copy video-with-text.mp4
 ```
 
-## Not yet
+## Notes
 
-- A page where you watch the video with the texts on it, switch texts on/off, change words and
-  drag them on a timeline, add your own titles, and press one button to make the finished video.
 - Flashback renders without the game HUD, so the chat isn't in the video to compare with; the
   timing comes from the edit and the recording (checked: an advancement for spotting a parrot
   appears exactly while the player is among birds).
@@ -165,7 +167,13 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
 - **When:** `--appear-at SECONDS` / `--until SECONDS` (seconds of your exported video, from your
   edit): the text is added to the world at that tick of the recording and removed at "until".
   Without them it's there the whole recording. `--border` adds the black border.
+- **Rotation, facing, 3D letters (from the live editor):** a turned text uses the display's own
+  rotation (a quaternion) about the middle of the whole text; *one way, like a sign* is a fixed display
+  turned to where the camera looked; 3D letters are darker copies stacked behind the text. These were
+  built from the game's data formats and checked in tests, not yet watched in Flashback: tell us if a
+  text turns the wrong way.
 - **Animations in the world:** pops use the game's own smooth size animation (display interpolation),
+  rising texts glide up with the same interpolation,
   fades step the text's opacity every tick, and words one by one are one text per word, placed with
   Minecraft's font widths so the line looks the same. If you jump to a later moment in Flashback, the
   text is shown as it is at that moment (no replayed animation).
