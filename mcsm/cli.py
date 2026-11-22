@@ -11,6 +11,8 @@ sync      make video markers/subtitles for a replay (+ music beat sync)
 flashback copy a Flashback replay with server events as markers in its timeline
 timelapse activity-aware timelapse of an area, set up in Flashback
 live      live 3D map of players (RCON)
+history   3D time machine over all backups and recordings
+library   keep all backups and recordings in one library folder
 music     detect the tempo (BPM) of a song
 
 Run ``mcsm <command> --help`` for the options of each command, and see
@@ -23,6 +25,8 @@ import argparse
 from contextlib import ExitStack
 import os
 import sys
+import tarfile
+import zipfile
 from datetime import date, datetime, timedelta  # noqa: F401
 
 from . import __version__, models as m
@@ -50,13 +54,16 @@ def _load(args) -> m.ServerData:
     rp = getattr(args, "replay", None)
     if rp and os.path.isfile(rp):
         extra.append(rp)
-    servers = args.server if isinstance(args.server, list) else [args.server]
-    if len(servers) == 1:
+    from .library import expand_sources
+    servers, recordings, world = expand_sources(args.server if isinstance(args.server, list) else [args.server])
+    if len(servers) == 1 and not recordings:
         root = _OPEN.enter_context(open_server(servers[0]))
         return analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
     from .archive import analyze_many
-    return analyze_many(servers, _OPEN, tz=tz, latest_log_date=latest, extra_replays=extra,
-                        progress=lambda msg: print(msg, file=sys.stderr))
+    data = analyze_many(servers, _OPEN, tz=tz, latest_log_date=latest, extra_replays=extra,
+                        progress=lambda msg: print(msg, file=sys.stderr), recordings=recordings)
+    data.library_world = world
+    return data
 
 
 def _print_warnings(data: m.ServerData) -> None:
@@ -673,6 +680,54 @@ def _write_timelapse_overlays(plan, area, base: str) -> None:
         fh.write("\n".join(chapters) + "\n")
 
 
+def cmd_library(args) -> int:
+    from . import library as lib
+    say = lambda msg: print(msg, flush=True)  # noqa: E731
+    library = args.library or lib.default_library_dir()
+    if args.action == "import":
+        if not args.paths:
+            print("give one or more backups (folders, .zip or .tgz) to import", file=sys.stderr)
+            return 2
+        failed = 0
+        for p in args.paths:
+            try:
+                r = lib.import_backup(p, library, args.mode, args.world, say, force=args.force)
+            except (OSError, ValueError, tarfile.TarError, zipfile.BadZipFile) as exc:
+                print(f"Could not import {p}: {exc}", file=sys.stderr)
+                failed += 1
+                continue
+            if r.get("skipped"):
+                continue
+            print(f"Imported into {r['backup']}\n"
+                  f"  {r['files']:,} files, {lib.human_bytes(r['bytes'])}; "
+                  f"{r['deduplicated']:,} shared with other backups, "
+                  f"{lib.human_bytes(r['bytes_written'])} new on disk ({r['mode']})\n"
+                  f"  recordings: {r['recordings_new']} new, {r['recordings_known']} already in the library")
+        return 1 if failed else 0
+    if args.action == "add-recordings":
+        worlds = lib.list_worlds(library)
+        w = next((x for x in worlds if args.world and x["name"].lower() == args.world.lower()), None)
+        if w is None and len(worlds) == 1 and not args.world:
+            w = worlds[0]
+        if w is None:
+            print(f"choose the world with --world ({', '.join(x['name'] for x in worlds) or 'import a backup first'})",
+                  file=sys.stderr)
+            return 2
+        r = lib.add_recordings(args.paths, w["path"], args.mode, say)
+        print(f"{r['added']} recordings added to {w['name']}, {r['known']} already there")
+        return 0
+    worlds = lib.list_worlds(library)
+    print(f"Library: {library}")
+    if not worlds:
+        print("  (empty: mcsm library import BACKUP)")
+    for w in worlds:
+        print(f"\n{w['name']}  (seed {w.get('seed')}, {w['recordings']} recordings)  {w['path']}")
+        for b in w["backups"]:
+            print(f"  {b['name']:<20} {b.get('version') or '?':<10} {b.get('files', 0):>8,} files  "
+                  f"{lib.human_bytes(b.get('bytes')):>9}  from {b.get('source', '?')}")
+    return 0
+
+
 def cmd_music(args) -> int:
     from .music import detect_beats
     grid = detect_beats(args.file)
@@ -832,6 +887,20 @@ def build_parser() -> argparse.ArgumentParser:
                         "slider; newest: only the newest backup's")
     p.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     p.set_defaults(func=cmd_history)
+
+    p = sub.add_parser("library", help="keep all backups and recordings in one library folder",
+                       description="One folder per world; each backup in a dated folder; every recording stored "
+                                   "once. Give a library world folder as SERVER to any command to load all of it.")
+    p.add_argument("action", choices=["list", "import", "add-recordings"])
+    p.add_argument("paths", nargs="*", help="import: backup folders, .zip or .tgz files; "
+                                            "add-recordings: recording files or folders")
+    p.add_argument("--library", metavar="DIR", help="library folder (default Documents/mcsm-library)")
+    p.add_argument("--mode", choices=["auto", "link", "copy", "move"], default="auto",
+                   help="auto (default): hard links on the same drive (no extra space), else copy; "
+                        "move: move the files in")
+    p.add_argument("--world", help="world folder name in the library (default: from the backup's level name)")
+    p.add_argument("--force", action="store_true", help="import even if a backup from the same time is there")
+    p.set_defaults(func=cmd_library)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")
     p.add_argument("file")

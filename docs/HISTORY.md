@@ -62,7 +62,8 @@ Flashback ready to export.
    - Copying takes a while for long recordings, which can be hundreds of MB each. Your original
      recordings are never changed, and existing Flashback timelines are never overwritten.
 
-Highlights are saved in `Documents\mcsm-highlights\<world>.json` (`--highlights FILE` to
+Highlights are saved in `Documents\mcsm-highlights\<world>.json`, or in the world's folder
+(`highlights.json`) when you load a world from the [library](LIBRARY.md) (`--highlights FILE` to
 change), so they're kept between sessions and whichever backups you load. Flashback's folder
 is found automatically (`%APPDATA%\.minecraft\flashback`); give `--flashback-dir` for a
 launcher with its own folder. If it isn't found, the copies go into a `flashback` folder

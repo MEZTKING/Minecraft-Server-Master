@@ -21,7 +21,9 @@ mcsm/
   assets/icon.png    window icon
   assets/web/        live.html (live 3D map), history.html (history viewer) + vendored three.js r160 (MIT)
   source.py          open a folder or .zip (selective "lite" extraction, replay stubs, ensure_full)
-  archive.py         merge several backups (any versions) into one ServerData
+  archive.py         merge several backups (any versions) into one ServerData (+ library recordings)
+  library.py         library folder: import folders/.zip/.tgz per world, recordings stored once,
+                     unchanged files hard-linked; expand_sources() turns a world folder into its backups
   analyzer.py        runs all parsers, merges results into ServerData
   models.py          dataclasses: ServerData, Event, Session, PlayerProfile, Replay, ...
   timeutil.py        time zones, LogClock (local log time -> UTC), duration parsing

@@ -19,6 +19,8 @@ into:
    and click-to-follow. Uses the server's built-in RCON; no mods needed.
 6. **Many backups as one history** – give several backups (any versions, e.g. 1.21 and 26.1)
    and get one merged report: every event once, all replays, progress over time per player.
+   The **library** keeps all your backups (folders, `.zip`, PebbleHost `.tgz`) and recordings in
+   one folder per world, each recording stored once, and loads a whole world with one click.
 7. **Raw data exports** – SQLite, JSON and CSV for your own spreadsheets or scripts.
 
 It comes as a **Windows installer** with a normal app window (nothing else to install),
@@ -144,6 +146,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
 | `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
+| `mcsm library import BACKUP...` / `list` / `add-recordings` | Keep all backups and recordings in one library folder, one folder per world; then give the world's folder as SERVER to any command ([guide](docs/LIBRARY.md)). |
 | `mcsm history SERVER [MORE...]` | 3D time machine: a time slider over the whole history, with player paths from Flashback recordings, events, sessions and replay coverage. The map shows **each backup's world at its time**, so you can watch builds appear. Mark **highlights for videos** and export them to Flashback with markers and ready-made export ranges ([guide](docs/HISTORY.md)). |
 
 Run `mcsm <command> --help` for every option.
@@ -247,6 +250,7 @@ The HTML report always shows times in **your** browser's time zone.
 | [docs/FLASHBACK.md](docs/FLASHBACK.md) | Markers into Flashback replays; the exact files written; launcher folders |
 | [docs/TIMELAPSE.md](docs/TIMELAPSE.md) | Activity-aware timelapse: what you need, options, outputs |
 | [docs/LIVE_MAP.md](docs/LIVE_MAP.md) | Live 3D map: enabling RCON, starting the map, security, troubleshooting |
+| [docs/LIBRARY.md](docs/LIBRARY.md) | The library: importing backups (.tgz/.zip/folders) and recordings into one place, link/copy/move |
 | [docs/HISTORY.md](docs/HISTORY.md) | History viewer: the whole history as one recording, timeline, where positions come from |
 | [HANDOFF.md](HANDOFF.md) | Everything needed to continue development in a new session or account |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | What's done, what's planned (incl. timelapse design), decisions – the hand-off doc |

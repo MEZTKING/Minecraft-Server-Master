@@ -128,6 +128,8 @@ class HistoryMap(TerrainServer):
                  terrain_label: str = "", terrain_time: int | None = None):
         from . import highlights as hl
         self.data, self.replay_file = data, replay_file
+        if not highlights_file and data.library_world:      # a library world keeps its own highlights
+            highlights_file = os.path.join(data.library_world, "highlights.json")
         self.highlights = hl.Store(highlights_file or hl.default_file(data.world.get("level_name") or title))
         self.flashback_dir = flashback_dir
         self._export_lock = threading.Lock()

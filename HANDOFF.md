@@ -141,7 +141,10 @@ Problems found in that report and their status (details in `PROJECT_STATUS.md` b
    formats were verified from source only). Ask for their Flashback version.
 5. Ask what **"edit"** should mean in the unified view (notes? highlight marking for video?
    merging player names?).
-6. Then: timelapse Phase B (Ledger or world snapshots, block by block), heatmaps, track
+6. *(Done 2026-11-22: the **library**, `mcsm library` / app Library tab / docs/LIBRARY.md,
+   keeps all backups and recordings in one folder per world. Ask the owner to import their
+   other saves into it and whether singleplayer saves should count.)*
+7. Then: timelapse Phase B (Ledger or world snapshots, block by block), heatmaps, track
    playback, and the other backlog ideas.
 
 ## 8. Research findings (verified from source; do not redo)

@@ -140,6 +140,7 @@ class ServerData:
     backups: list[dict[str, Any]] = field(default_factory=list)          # one entry per backup, oldest first
     player_history: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # name -> per-backup snapshot
     sources: dict[str, str] = field(default_factory=dict)                # backup label -> extracted root
+    library_world: str | None = None                                     # library world folder, if loaded from one
 
     def player(self, name: str) -> PlayerProfile | None:
         return self.players.get(name.lower())

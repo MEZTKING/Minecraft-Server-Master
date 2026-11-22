@@ -27,7 +27,7 @@ from contextlib import ExitStack
 from datetime import date, datetime, tzinfo
 from typing import Callable
 
-from . import logs, models as m, players as players_mod, world as world_mod
+from . import logs, models as m, players as players_mod, replays as replay_mod, world as world_mod
 from .analyzer import analyze
 from .players import play_time_ticks
 from .source import open_server
@@ -63,8 +63,13 @@ def _offset_samples(root: str) -> list:
 
 def analyze_many(paths: list[str], stack: ExitStack, tz: tzinfo | None = None,
                  latest_log_date: date | None = None, extra_replays: list[str] | None = None,
-                 progress: Callable[[str], None] | None = None) -> m.ServerData:
-    """Open (selectively), analyse and merge several backups. *stack* keeps them extracted."""
+                 progress: Callable[[str], None] | None = None,
+                 recordings: list[str] | None = None) -> m.ServerData:
+    """Open (selectively), analyse and merge several backups. *stack* keeps them extracted.
+
+    *recordings*: extra folders whose recordings belong to these backups (a library world's
+    ``recordings`` folder, see :mod:`mcsm.library`).
+    """
     say = progress or (lambda msg: None)
     used: set[str] = set()
     opened = []
@@ -85,11 +90,13 @@ def analyze_many(paths: list[str], stack: ExitStack, tz: tzinfo | None = None,
         d = analyze(root, tz=tz, latest_log_date=latest_log_date, extra_offset_samples=samples)
         parts.append((label, p, root, d))
     parts.sort(key=lambda t: (_snapshot_time(t[3]) is None, _snapshot_time(t[3]) or datetime.min.replace(tzinfo=UTC)))
-    return merge(parts, tz, samples, extra_replays)
+    if recordings:
+        say("Reading recordings ...")
+    return merge(parts, tz, samples, extra_replays, recordings)
 
 
 def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None,
-          extra_replays: list[str] | None = None) -> m.ServerData:
+          extra_replays: list[str] | None = None, recordings: list[str] | None = None) -> m.ServerData:
     """Merge analysed backups (oldest first) into one ServerData."""
     newest = parts[-1][3]
     out = m.ServerData(root=newest.root, generated_at=datetime.now(UTC))
@@ -131,7 +138,6 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
             if not os.path.isabs(r.path):
                 r.path = f"{label}/{r.path}"
             out.replays.append(r)
-    out.replays.sort(key=lambda r: (r.start is None, r.start))
 
     for label, _p, _root, d in parts:
         out.warnings += [f"[{label}] {w}" for w in d.warnings
@@ -207,6 +213,38 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
         prof = profile_for(s.player)
         prof.session_count += 1
         prof.session_seconds += s.seconds
+
+    # Recordings kept outside the backups (library) and extra replay files, read with the
+    # merged clock and player names; de-duplicated against the backups' own recordings.
+    clock = LogClock(explicit=tz, samples=samples or [])
+    uuid_to_name = {p.uuid.lower(): p.name for p in out.players.values() if p.uuid}
+    extra_sets = [(rec, None) for rec in (recordings or [])]
+    if extra_replays:
+        extra_sets.append((newest.root, list(extra_replays)))
+    for i, (rec, files) in enumerate(extra_sets):
+        if files is None:
+            label = "recordings" if i == 0 else f"recordings ({i + 1})"
+            out.sources[label] = rec
+            found, warns = replay_mod.read_replays(rec, uuid_to_name, None, clock.to_utc)
+        else:
+            label = None
+            found, warns = [], []
+            for f in files:
+                try:
+                    found.append(replay_mod.read_replay(f, rec, uuid_to_name, None, clock.to_utc))
+                    found[-1].path = os.path.abspath(f)
+                except Exception as exc:  # noqa: BLE001 -- a bad extra file is a warning, not a failure
+                    warns.append(f"could not read replay {f}: {exc}")
+        out.warnings += warns
+        for r in found:
+            key = (os.path.basename(r.path.rstrip("/")), r.start)
+            if key in seen_replays:
+                continue
+            seen_replays.add(key)
+            if label and not os.path.isabs(r.path):
+                r.path = f"{label}/{r.path}"
+            out.replays.append(r)
+    out.replays.sort(key=lambda r: (r.start is None, r.start))
 
     # A new world = different level name, or a different seed when both seeds are known
     # (a backup whose seed couldn't be read is not a new world by itself).

@@ -136,6 +136,7 @@ class App(ttk.Frame):
         nb = ttk.Notebook(self)
         nb.grid(row=1, column=0, sticky="nsew", pady=8)
         self.nb = nb
+        nb.add(self._tab_library(nb), text="Library")
         nb.add(self._tab_report(nb), text="Statistics report")
         nb.add(self._tab_sync(nb), text="Video & music sync")
         nb.add(self._tab_export(nb), text="Export data")
@@ -149,6 +150,144 @@ class App(ttk.Frame):
         if grid:
             b.grid(**grid)
         return b
+
+    def _tab_library(self, nb) -> ttk.Frame:
+        from . import library as lib
+        f = ttk.Frame(nb, padding=12)
+        f.columnconfigure(1, weight=1)
+        f.rowconfigure(4, weight=1)
+        ttk.Label(f, text="Keep all your backups and recordings in one place: one folder per world, each backup "
+                          "in a dated folder, every recording stored once. Files that didn't change between "
+                          "backups are stored once too. Then load a whole world with one click. "
+                          "See docs/LIBRARY.md.", wraplength=660, justify="left").grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text="Library folder:").grid(row=1, column=0, sticky="w", pady=(8, 3))
+        self.lib_dir_var = tk.StringVar(value=lib.default_library_dir())
+        ttk.Entry(f, textvariable=self.lib_dir_var).grid(row=1, column=1, sticky="ew", padx=4, pady=(8, 3))
+        lb = ttk.Frame(f)
+        lb.grid(row=1, column=2, sticky="w", pady=(8, 3))
+        ttk.Button(lb, text="Browse…", command=lambda: (self._pick_dir(self.lib_dir_var), self._lib_refresh())).pack(side="left")
+        ttk.Button(lb, text="Open", command=lambda: os.path.isdir(self.lib_dir_var.get()) and open_path(self.lib_dir_var.get())).pack(side="left", padx=(4, 0))
+        modes = ttk.Frame(f)
+        modes.grid(row=2, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(modes, text="Adding files:").pack(side="left")
+        self.lib_mode_var = tk.StringVar(value="auto")
+        for value, text in (("auto", "Link (no extra space; copy if on another drive)"), ("copy", "Copy"),
+                            ("move", "Move (originals go into the library)")):
+            ttk.Radiobutton(modes, text=text, value=value, variable=self.lib_mode_var).pack(side="left", padx=(6, 0))
+        btns = ttk.Frame(f)
+        btns.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 6))
+        ttk.Button(btns, text="Import backup folder…", command=lambda: self._lib_import(folder=True)).pack(side="left")
+        ttk.Button(btns, text="Import backup file (.zip / .tgz)…", command=lambda: self._lib_import(folder=False)).pack(side="left", padx=4)
+        ttk.Button(btns, text="Add recordings…", command=self._lib_add_recordings).pack(side="left")
+        ttk.Button(btns, text="Add my Flashback replays", command=lambda: self._lib_add_recordings(flashback=True)).pack(side="left", padx=4)
+        cols = ("version", "files", "size", "source")
+        tree = ttk.Treeview(f, columns=cols, height=8)
+        tree.heading("#0", text="World / backup")
+        for c, w, t in (("version", 80, "Version"), ("files", 80, "Files"), ("size", 80, "Size"), ("source", 260, "Imported from")):
+            tree.heading(c, text=t)
+            tree.column(c, width=w, anchor="w")
+        tree.column("#0", width=220)
+        tree.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        tree.bind("<Double-1>", lambda _e: self._lib_load())
+        self.lib_tree = tree
+        bottom = ttk.Frame(f)
+        bottom.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Button(bottom, text="Load this world (all its backups and recordings)", command=self._lib_load).pack(side="left")
+        ttk.Button(bottom, text="Refresh", command=self._lib_refresh).pack(side="left", padx=4)
+        self.after(200, self._lib_refresh)
+        return f
+
+    def _lib_selected_world(self) -> str | None:
+        from . import library as lib
+        sel = self.lib_tree.selection()
+        if sel:
+            item = sel[0]
+            parent = self.lib_tree.parent(item)
+            return None if item == "__empty" else (parent or item)
+        worlds = lib.list_worlds(self.lib_dir_var.get())
+        return worlds[0]["path"] if len(worlds) == 1 else None
+
+    def _lib_refresh(self) -> None:
+        from . import library as lib
+        tree = self.lib_tree
+        tree.delete(*tree.get_children())
+        try:
+            worlds = lib.list_worlds(self.lib_dir_var.get())
+        except OSError:
+            worlds = []
+        for w in worlds:
+            bs = w["backups"]
+            tree.insert("", "end", iid=w["path"], open=True,
+                        text=f"{w['name']}  ({len(bs)} backups, {w['recordings']} recordings)",
+                        values=(bs[-1].get("version") or "" if bs else "", "", "", ""))
+            for b in bs:
+                tree.insert(w["path"], "end", iid=b["path"], text=b["name"],
+                            values=(b.get("version") or "?", f"{b.get('files', 0):,}", lib.human_bytes(b.get("bytes")),
+                                    b.get("source", "")))
+        if not worlds:
+            tree.insert("", "end", iid="__empty", text="(empty: import a backup)")
+
+    def _lib_import(self, folder: bool) -> None:
+        from . import library as lib
+        if folder:
+            p = filedialog.askdirectory(title="Choose a backup folder to import")
+            paths = [p] if p else []
+        else:
+            paths = list(filedialog.askopenfilenames(
+                title="Choose backup file(s) to import",
+                filetypes=[("Backups", "*.zip *.tgz *.tar.gz *.tar"), ("All files", "*.*")]))
+        if not paths:
+            return
+        library, mode = self.lib_dir_var.get(), self.lib_mode_var.get()
+        if mode == "move" and not messagebox.askyesno(
+                APP_NAME, "Move the backup's files into the library? They will no longer be in their "
+                          "current folder."):
+            return
+
+        def work(_):
+            for p in paths:
+                r = lib.import_backup(p, library, mode if folder else "auto", None, print)
+                if not r.get("skipped"):
+                    print(f"Imported into {r['backup']}: {r['files']:,} files, {lib.human_bytes(r['bytes'])}; "
+                          f"{r['deduplicated']:,} shared with other backups; recordings: {r['recordings_new']} "
+                          f"new, {r['recordings_known']} already there")
+
+        self._run("Importing into the library", work, lambda _r: self._lib_refresh())
+
+    def _lib_add_recordings(self, flashback: bool = False) -> None:
+        from . import library as lib
+        w = self._lib_selected_world()
+        if not w:
+            messagebox.showinfo(APP_NAME, "Select the world the recordings belong to (import a backup first).")
+            return
+        if flashback:
+            from .flashback import find_flashback_dir
+            fb = find_flashback_dir(None)
+            paths = [os.path.join(fb, "replays")] if fb and os.path.isdir(os.path.join(fb, "replays")) else []
+            if not paths:
+                messagebox.showinfo(APP_NAME, "Flashback's replay folder wasn't found; use Add recordings… instead.")
+                return
+        else:
+            paths = list(filedialog.askopenfilenames(
+                title="Choose recordings (.zip / .mcpr)", filetypes=[("Recordings", "*.zip *.mcpr"), ("All files", "*.*")]))
+        if not paths:
+            return
+        mode = self.lib_mode_var.get()
+
+        def work(_):
+            r = lib.add_recordings(paths, w, mode, print)
+            print(f"{r['added']} recordings added, {r['known']} already in the library")
+
+        self._run("Adding recordings", work, lambda _r: self._lib_refresh())
+
+    def _lib_load(self) -> None:
+        w = self._lib_selected_world()
+        if not w or w == "__empty":
+            messagebox.showinfo(APP_NAME, "Import a backup first, then select its world.")
+            return
+        self.server_var.set(w)
+        self._load()
 
     def _tab_report(self, nb) -> ttk.Frame:
         f = ttk.Frame(nb, padding=12)
@@ -796,13 +935,17 @@ class App(ttk.Frame):
             # Backups stay (selectively) extracted while loaded: Flashback copies and
             # timelapses read full replays from them later. Closed on the next load / exit.
             try:
-                if len(paths) == 1:
-                    root = stack.enter_context(open_server(paths[0]))
-                    print(f"Reading {paths[0]}")
+                from .library import expand_sources
+                servers, recs, world = expand_sources(paths)      # a library world = all its backups
+                if len(servers) == 1 and not recs:
+                    root = stack.enter_context(open_server(servers[0]))
+                    print(f"Reading {servers[0]}")
                     data = analyze(root, tz=tz, latest_log_date=latest)
                 else:
                     from .archive import analyze_many
-                    data = analyze_many(paths, stack, tz=tz, latest_log_date=latest, progress=print)
+                    data = analyze_many(servers, stack, tz=tz, latest_log_date=latest, progress=print,
+                                        recordings=recs)
+                    data.library_world = world
                 return data, cli.live_settings(data.root)
             except BaseException:
                 stack.close()

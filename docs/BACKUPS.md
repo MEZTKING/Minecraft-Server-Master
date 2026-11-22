@@ -13,6 +13,10 @@ Every analysis command accepts several backups: `summary`, `report`, `export`, `
 zips at once, and **+ Add backup…** adds more to the list. The status line then says
 "N backups merged".
 
+To keep many backups organised, import them into the **library** once
+([LIBRARY.md](LIBRARY.md)) and load the world's folder instead: it stands for all its backups
+plus all their recordings, and PebbleHost `.tgz` downloads are unpacked there once.
+
 The order you give them in doesn't matter. They are sorted by their newest data (last log line
 or the world's last-played time).
 

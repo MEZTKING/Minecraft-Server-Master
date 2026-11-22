@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (history viewer: terrain from every backup).
+`CLAUDE.md`). Last updated: 2026-11-22 (library: all backups and recordings in one place).
 
 ## What this project is
 
@@ -64,6 +64,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | "Everything as one recording" 3D time-machine map (Phase 2a): time slider, recorded player's path from Flashback recordings (cached), log-in positions, events pinned in 3D, sessions + replay coverage timeline, playback, app History tab | ✅ Done, checked on the owner's real backup (216 recordings) | `mcsm/paths.py`, `history.py`, `assets/web/history.html`, `mcsm history`, app History tab | `docs/HISTORY.md` |
 | History viewer terrain per backup: the map shows the world as it was at the time on the slider (next backup saved at or after it), or one pinned backup; unchanged regions shared | ✅ Done, checked on the owner's May + November backups | `mcsm/live.py` (`TerrainServer` layers), `history.py`, `assets/web/history.html`, `--terrain`, app checkbox | `docs/HISTORY.md` |
 | Highlights for videos: mark spans in the history viewer; export Flashback copies with start/end markers + one export-range scene per highlight, and a CSV clip list | ✅ Done, not yet tried in a real Flashback | `mcsm/highlights.py`, `history.py`, `assets/web/history.html` | `docs/HISTORY.md` |
+| Library: one folder per world for all backups (folders, .zip, PebbleHost .tgz) and recordings (each stored once); link/copy/move; unchanged files hard-linked; a world folder works as SERVER everywhere; app Library tab | ✅ Done, checked on the owner's May + November backups and the May .tgz | `mcsm/library.py`, `archive.py` (recordings), `mcsm library`, app Library tab | `docs/LIBRARY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -221,6 +222,46 @@ list. Writing it also uncovered the 26.3 `System chat:` log prefix (see changelo
 range)? (Source suggests yes; to be confirmed in-game.) Should highlights also become markers
 in `mcsm sync` video exports (SRT/EDL)?
 
+### 0d. One library for all saves and recordings (requested 2026-11-22)
+
+**The ask:** "i have other saves too and more recordings, they should be saved in one place to
+make it more organized".
+
+**Design:**
+- A **library folder** (default `Documents\mcsm-library`, `--library DIR`), one folder per world
+  (level name + seed), each backup in its own dated folder, every recording stored **once**:
+  ```
+  mcsm-library/
+    <World>/
+      world.json
+      backups/2026-05-19 21-04/   server files (without recordings) + mcsm-backup.json
+      recordings/recordings/players/<uuid>/<date>.zip   union of all backups' recordings
+      recordings/imported/…       loose recordings added by hand (e.g. Flashback client replays)
+      highlights.json
+  ```
+- `mcsm library import SOURCE…` takes a folder, `.zip` or **PebbleHost `.tgz`**. Archives are
+  unpacked once, straight into the library. Modes: **link** (default on the same drive:
+  hard links, so it's instant and uses no extra space, and the originals can be deleted
+  afterwards), **copy**, **move**. A file identical to one in another backup of the same world
+  is hard-linked, not stored twice (May and November shared 595 region files). Importing the
+  same backup again is skipped.
+- `mcsm library add-recordings FILE_OR_DIR… --world NAME`, `mcsm library list`.
+- Every command accepts a library world folder as SERVER: it loads all of that world's
+  backups plus its recordings. Highlights default to `<World>/highlights.json`.
+- App: a **Library** tab (folder, import buttons, mode, list of worlds and backups, **Load this
+  world**).
+
+✅ **Done 2026-11-22** as designed. Checked on the owner's backups: May (14.5 GB) and November
+(39.2 GB) folders imported in 15 s with no extra space (link mode), 978 recordings in one place,
+2,847 files shared; loading the library world gives the same history as both originals
+(10,583 events, 978 replays), and the history viewer reuses the path cache. The real May `.tgz`
+(13.7 GB) imports directly in about 40 s with the same 762 recordings and logs as the owner's
+unpacked folder (see changelog for the `Recordings for:` colon fix).
+
+**Open questions:** do "other saves" include singleplayer worlds (`.minecraft/saves`)? They
+have no logs, so they would only add terrain. Should Flashback's own replay folder be imported
+automatically?
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -358,9 +399,19 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-21 | Players are one person per uuid: old names (from `UUID of player` log lines / `formerly known as`) fold into the current name; `names_seen` keeps the old ones | A renamed player showed up twice on the real server |
 | 2026-11-22 | Terrain per backup: "follow the time slider" shows the first backup saved **at or after** the slider time (after the last: the newest) | It contains everything built up to that moment; "the last backup before" showed the May world for almost all of May–November on the owner's server |
 | 2026-11-22 | Terrain layers share tiles by key (file name + size + mtime + step); older backups are built after the newest, one at a time | Unchanged regions are read once (595 of May's 1,158 on the real backups); zip backups are unpacked one at a time to limit disk use |
+| 2026-11-22 | Library import defaults to hard links on the same drive (else copy); recordings move out of the backup folders into one per-world `recordings` folder | No extra space and instant; the originals stay intact and can be deleted later; each recording stored once |
+| 2026-11-22 | Library backups are named and de-duplicated by snapshot time (last-played / latest.log); worlds matched by level name + seed | Importing the same download twice does nothing; a reset world gets its own folder |
+| 2026-11-22 | Archive member names are made Windows-safe (`:` → `_`) when unpacking `.tgz`/`.zip` | ServerReplay's `Recordings for: NAME` folders can't be created on Windows |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
+
+- **Library link mode shares data with the original folder.** Running a server from the
+  original afterwards would change the library's copy too (documented). Explorer shows every
+  backup at full size although shared files are stored once.
+- **Singleplayer saves are not imported into the library** (no logs; would only add terrain).
+- **Identical events in the same second count once when backups are merged** (also when one
+  library backup is loaded): the May backup has one chat message sent twice in one second.
 
 - **Flashback files not yet opened in a real Flashback.** The marker and editor-state formats
   were verified by reading Flashback's source (master, Nov 2026), not by running it. If a
@@ -392,6 +443,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Library: all backups and recordings in one place.** `mcsm library import`
+  (folders, `.zip`, PebbleHost `.tgz` unpacked once), `add-recordings`, `list`; one folder per
+  world, a dated folder per backup, recordings stored once, unchanged files hard-linked between
+  backups, re-imports skipped. Every command and the app's Load accept a library world folder
+  (all its backups + recordings); highlights live in the world folder. New app **Library** tab
+  (import, *Add my Flashback replays*, world list, *Load this world*). Archive names with `:`
+  (ServerReplay `Recordings for: NAME`) are unpacked as `_` on Windows. Merged backups now also
+  read `--replay` extra files (were ignored when several backups were given).
 - **2026-11-22:** **History viewer: terrain from every backup.** Each loaded backup becomes a
   terrain layer; the map follows the time slider (the first backup saved at or after that time)
   or a backup chosen in the new **Terrain** menu. Regions unchanged between backups are read

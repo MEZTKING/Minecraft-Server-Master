@@ -1393,3 +1393,168 @@ class TestLiteZipAndArchive(unittest.TestCase):
             d = analyze(root)
         self.assertGreater(d.world["size_bytes"], 300_000)                 # skipped region file still counted
         self.assertEqual(d.world["dimensions"]["overworld"]["region_files"], 2)
+
+
+class TestLibrary(unittest.TestCase):
+    """Two backups of one server into one library: the old one as a folder, the new one as a
+    PebbleHost-style .tgz with extra recordings and one changed file."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tarfile
+        from fixtures import add_extra_replays
+        cls.tmp = tempfile.mkdtemp(prefix="mcsm-lib-")
+        cls.old = build_server(os.path.join(cls.tmp, "src", "old"))
+        cls.old_replays = len(analyze(cls.old).replays)
+        new = os.path.join(cls.tmp, "src", "new", "home", "servers", "abc")
+        shutil.copytree(cls.old, new)
+        add_extra_replays(new)
+        with open(os.path.join(new, "ops.json"), "w") as fh:        # changed between backups
+            json.dump([], fh)
+        old_t, new_t = time.time() - 30 * 86400, time.time()
+        os.utime(os.path.join(cls.old, "logs", "latest.log"), (old_t, old_t))
+        os.utime(os.path.join(new, "logs", "latest.log"), (new_t, new_t))
+        cls.tgz = os.path.join(cls.tmp, "src", "backup.tgz")
+        with tarfile.open(cls.tgz, "w:gz") as tf:
+            tf.add(os.path.join(cls.tmp, "src", "new", "home"), arcname="home")
+            evil = tarfile.TarInfo("../escaped.txt")              # must never be written
+            evil.size = 2
+            import io as _io
+            tf.addfile(evil, _io.BytesIO(b"no"))
+        cls.lib = os.path.join(cls.tmp, "lib")
+        from mcsm import library as lib
+        cls.r_old = lib.import_backup(cls.old, cls.lib, mode="copy")
+        cls.r_new = lib.import_backup(cls.tgz, cls.lib)
+        cls.world = cls.r_old["world"]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_layout_and_dedup(self):
+        from mcsm import library as lib
+        worlds = lib.list_worlds(self.lib)
+        self.assertEqual([w["name"] for w in worlds], ["Friends SMP"])
+        self.assertEqual(self.r_new["world"], self.world)
+        bs = worlds[0]["backups"]
+        self.assertEqual(len(bs), 2)
+        self.assertLess(bs[0]["snapshot_ms"], bs[1]["snapshot_ms"])
+        self.assertTrue(bs[1]["source"].endswith("backup.tgz"))
+        for b in bs:                                               # recordings live outside the backups
+            self.assertFalse(os.path.exists(os.path.join(b["path"], "recordings")))
+            self.assertTrue(os.path.isfile(os.path.join(b["path"], "server.properties")))
+        # unchanged file shared, changed file not
+        self.assertTrue(os.path.samefile(os.path.join(bs[0]["path"], "usercache.json"),
+                                         os.path.join(bs[1]["path"], "usercache.json")))
+        self.assertFalse(os.path.samefile(os.path.join(bs[0]["path"], "ops.json"),
+                                          os.path.join(bs[1]["path"], "ops.json")))
+        self.assertGreater(self.r_new["deduplicated"], 5)
+        # each recording stored once
+        self.assertEqual(self.r_old["recordings_new"], self.old_replays)
+        self.assertEqual(self.r_new["recordings_known"], self.old_replays)
+        self.assertEqual(self.r_new["recordings_new"], 4)
+        self.assertEqual(worlds[0]["recordings"], self.old_replays + 4)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "lib", "escaped.txt")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "escaped.txt")))
+        self.assertFalse(os.path.exists(os.path.join(self.lib, ".incoming")))
+        # the source folder is untouched by copy mode
+        self.assertTrue(os.path.isdir(os.path.join(self.old, "recordings")))
+
+    def test_windows_names(self):
+        from mcsm.library import _local_name
+        n = _local_name("home/servers/x/recordings/players/Recordings for: Steve (abc)/a.zip")
+        self.assertEqual(n, "home/servers/x/recordings/players/Recordings for_ Steve (abc)/a.zip"
+                         if os.name == "nt" else "home/servers/x/recordings/players/Recordings for: Steve (abc)/a.zip")
+
+    def test_reimport_skipped(self):
+        from mcsm import library as lib
+        r = lib.import_backup(self.old, self.lib)
+        self.assertTrue(r["skipped"])
+        self.assertEqual(len(lib.world_backups(self.world)), 2)
+
+    def test_load_world_as_server(self):
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+        for target in (self.world, self.lib):                      # a one-world library counts as that world
+            with redirect_stderr(StringIO()):
+                d = cli._load(cli.parse_args(["summary", target]))
+            self.assertEqual(len(d.backups), 2)
+            self.assertEqual(d.library_world, self.world)
+            self.assertEqual(len(d.replays), self.old_replays + 4)
+            r = next(r for r in d.replays if r.path.endswith("20-05-00.zip"))
+            self.assertTrue(r.path.startswith("recordings/"))
+            self.assertTrue(os.path.isfile(cli._replay_file(d, r)))
+            self.assertEqual(r.recorded_player, "Steve")               # uuid folder still mapped to the name
+            self.assertEqual(len([e for e in d.events if e.type == "chat"]), 4)   # shared logs not doubled
+        out = StringIO()
+        with redirect_stdout(out), redirect_stderr(StringIO()):
+            self.assertEqual(cli.main(["library", "list", "--library", self.lib]), 0)
+        self.assertIn("Friends SMP", out.getvalue())
+
+    def test_link_mode_and_add_recordings(self):
+        from mcsm import library as lib
+        lib2 = os.path.join(self.tmp, "lib2")
+        r = lib.import_backup(self.old, lib2, mode="link")
+        self.assertEqual(r["mode"], "link")
+        self.assertTrue(os.path.samefile(os.path.join(self.old, "server.properties"),
+                                         os.path.join(r["backup"], "server.properties")))
+        self.assertEqual(r["bytes_written"], 0)
+        # a loose Flashback client replay
+        loose = os.path.join(self.tmp, "flashback", "replays")
+        os.makedirs(loose, exist_ok=True)
+        src = os.path.join(self.world, "recordings", "recordings", "players", STEVE, "2024-05-03--20-05-00.zip")
+        shutil.copy2(src, os.path.join(loose, "Client clip.zip"))
+        s = lib.add_recordings([loose], r["world"], mode="copy")
+        self.assertEqual(s["added"], 1)
+        self.assertEqual(lib.add_recordings([loose], r["world"], mode="copy")["known"], 1)
+        self.assertTrue(os.path.isfile(os.path.join(r["world"], "recordings", "imported", "Client clip.zip")))
+        from io import StringIO
+        from contextlib import redirect_stderr
+        with redirect_stderr(StringIO()):
+            d = cli._load(cli.parse_args(["summary", r["world"]]))
+        self.assertTrue(any(x.path.endswith("Client clip.zip") for x in d.replays))
+
+    def test_history_highlights_in_world(self):
+        from io import StringIO
+        from contextlib import redirect_stderr
+        from mcsm.history import HistoryMap
+        with redirect_stderr(StringIO()):
+            d = cli._load(cli.parse_args(["summary", self.world]))
+        hm = HistoryMap(d, lambda r: cli._replay_file(d, r), d.root, None, 16, os.path.join(self.tmp, "cache"),
+                        [], "", None, decode_replays=False)
+        self.assertEqual(hm.highlights.path, os.path.join(self.world, "highlights.json"))
+
+    def test_gui_library_tab(self):
+        """Import through the app's Library tab, then load the world with one click."""
+        if not _have_display():
+            self.skipTest("no display")
+        import tkinter as tk
+        from mcsm import gui
+        root = tk.Tk()
+        try:
+            app = gui.App(root)
+            lib3 = os.path.join(self.tmp, "lib3")
+            app.lib_dir_var.set(lib3)
+            app.lib_mode_var.set("copy")
+            orig = gui.filedialog.askdirectory
+            gui.filedialog.askdirectory = lambda **kw: self.old
+            self.addCleanup(setattr, gui.filedialog, "askdirectory", orig)
+            app._lib_import(folder=True)
+            deadline = time.time() + 30
+            while app.busy and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            worlds = app.lib_tree.get_children()
+            self.assertEqual(len(worlds), 1, app.log_text.get("1.0", "end")[-1500:])
+            self.assertEqual(len(app.lib_tree.get_children(worlds[0])), 1)
+            app.lib_tree.selection_set(worlds[0])
+            app._lib_load()
+            deadline = time.time() + 30
+            while (app.data is None or app.busy) and time.time() < deadline:
+                root.update()
+                time.sleep(0.05)
+            self.assertIsNotNone(app.data)
+            self.assertEqual(app.data.library_world, worlds[0])
+            self.assertEqual(len(app.data.replays), self.old_replays)
+        finally:
+            root.destroy()
