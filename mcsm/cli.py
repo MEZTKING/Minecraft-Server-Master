@@ -7,6 +7,7 @@ report    build the HTML statistics dashboard
 export    write JSON / SQLite / CSV files
 events    search events from the terminal
 replays   list replay recordings found on the server
+changes   Minecraft version, mods and datapacks changed between backups
 sync      make video markers/subtitles for a replay (+ music beat sync)
 flashback copy a Flashback replay with server events as markers in its timeline
 timelapse activity-aware timelapse of an area, set up in Flashback
@@ -119,6 +120,8 @@ def run_summary(data: m.ServerData, args=None) -> int:
         print("Events      : " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])))
     print(f"Replays     : {len(data.replays)}")
     print(f"Mods/plugins: {len(data.mods)}")
+    if getattr(data, "changes", None):
+        print(f"Changes     : {len(data.changes)} version/mod/datapack changes between backups (mcsm changes)")
     print()
     print(f"{'Player':<20}{'Play time':>12}{'Sessions':>10}{'Deaths':>8}{'Chat':>8}  Last seen")
     for p in sorted(data.players.values(), key=lambda p: -play_time_ticks(p.stats)):
@@ -179,6 +182,37 @@ def cmd_events(args) -> int:
     for e in rows:
         print(f"{_local(e.time)}  {e.type:<13} {(e.player or ''):<16} {e.text}")
     print(f"({len(rows)} events)", file=sys.stderr)
+    return 0
+
+
+def cmd_changes(args) -> int:
+    data = _load(args)
+    return run_changes(data, args)
+
+
+def run_changes(data: m.ServerData, args=None) -> int:
+    """Minecraft version, mods, plugins and datapacks changed between backups."""
+    kinds = set(getattr(args, "kind", None) or [])
+    if len(data.backups) < 2:
+        print("Give two or more backups (or a library world) to see what changed between them.")
+        return 0
+    for b in data.backups:
+        print(f"{_local(b.get('time'))}  {b.get('label')}: Minecraft {b.get('version') or '?'}, "
+              f"{len(b.get('mod_list') or [])} mods/plugins, {len(b.get('datapacks') or [])} datapacks")
+    print()
+    last = None
+    sign = {"added": "+", "removed": "-", "updated": "^", "changed": "!"}
+    for c in data.changes:
+        if kinds and c["kind"] not in kinds:
+            continue
+        span = (c.get("after"), c.get("time"))
+        if span != last:
+            print(f"Between {_local(span[0])} and {_local(span[1])}:")
+            last = span
+        v = f"{c['from']} -> {c['to']}" if c["action"] == "updated" else (c["to"] or c["from"])
+        print(f"  {sign.get(c['action'], '*')} {c['kind']:<9} {c['name']}  {v}".rstrip())
+    if not data.changes:
+        print("No changes found between the backups.")
     return 0
 
 
@@ -714,11 +748,34 @@ def cmd_library(args) -> int:
             print("\nNothing was changed. Run `mcsm library import-all FOLDER` to import this.")
             return 0
         mode = "copy" if args.mode == "auto" else args.mode
+        if mode != "copy":
+            print(f"Note: --mode {mode} " + ("MOVES the files out of your folders." if mode == "move" else
+                  "hard-links the files: the library shares data with your folders."), flush=True)
         print(f"\nImporting into {library} ({mode}) ...", flush=True)
         r = lib.import_all(plan, library, mode, args.world, say)
         print(f"\nDone: {len(r['imported'])} imported, {len(r['skipped'])} already there, "
               f"{len(r['failed'])} failed" + "".join(f"\n  failed: {f['path']}: {f['error']}" for f in r["failed"]))
         return 1 if r["failed"] else 0
+    if args.action == "tidy":
+        if len(args.paths) != 1:
+            print("give the one folder that holds your backups", file=sys.stderr)
+            return 2
+        if args.undo:
+            r = lib.tidy_undo(args.paths[0], say)
+            print(f"{r['put_back']} moves undone")
+            return 0
+        plan = lib.scan(args.paths[0], library)
+        moves = lib.tidy_plan(plan, rename=args.rename)
+        print(lib.describe_tidy(plan, moves), flush=True)
+        if not args.apply or not moves:
+            if moves:
+                print("Nothing was changed. WARNING: --apply moves files in your original folder "
+                      "(never deletes; undo with --undo). Import into the library first.")
+            return 0
+        r = lib.tidy_apply(plan, moves, say)
+        print(f"{r['moved']} moved. To put everything back: mcsm library tidy FOLDER --undo "
+              f"(log: {r['undo_file']})")
+        return 0
     if args.action == "add-recordings":
         worlds = lib.list_worlds(library)
         w = next((x for x in worlds if args.world and x["name"].lower() == args.world.lower()), None)
@@ -784,6 +841,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--grep", help="text to search for")
     p.add_argument("--limit", type=int, help="only the last N matches")
     p.set_defaults(func=cmd_events)
+
+    p = sub.add_parser("changes", help="Minecraft version, mods and datapacks changed between backups")
+    _add_common(p)
+    p.add_argument("--kind", action="append", choices=["minecraft", "mod", "plugin", "datapack", "world"],
+                   help="only this kind of change (repeatable)")
+    p.set_defaults(func=cmd_changes)
 
     p = sub.add_parser("replays", help="list ReplayMod (.mcpr) and Flashback (.zip) recordings"); _add_common(p)
     p.set_defaults(func=cmd_replays)
@@ -906,7 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("library", help="keep all backups and recordings in one library folder",
                        description="One folder per world; each backup in a dated folder; every recording stored "
                                    "once. Give a library world folder as SERVER to any command to load all of it.")
-    p.add_argument("action", choices=["list", "import", "scan", "import-all", "add-recordings"])
+    p.add_argument("action", choices=["list", "import", "scan", "import-all", "add-recordings", "tidy"])
     p.add_argument("paths", nargs="*", help="import: backup folders, .zip or .tgz files; scan / import-all: "
                                             "a folder full of backups (any host); add-recordings: recording "
                                             "files or folders")
@@ -916,6 +979,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "(import-all: copy, so originals are only read); move: move the files in")
     p.add_argument("--world", help="world folder name in the library (default: from the backup's level name)")
     p.add_argument("--force", action="store_true", help="import even if a backup from the same time is there")
+    p.add_argument("--apply", action="store_true",
+                   help="tidy: really move the files (without it, tidy only shows the plan)")
+    p.add_argument("--rename", action="store_true", help="tidy: also put the date in front of backup folder names")
+    p.add_argument("--undo", action="store_true", help="tidy: put back everything the last tidy moved")
     p.set_defaults(func=cmd_library)
 
     p = sub.add_parser("music", help="detect the tempo (BPM) and first beat of a song")

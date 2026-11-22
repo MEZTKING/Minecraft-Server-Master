@@ -1392,6 +1392,36 @@ class TestLiteZipAndArchive(unittest.TestCase):
             html = rep.render(d)
             self.assertIn("backup-2024-05-02", html)
 
+    def test_changes_between_backups(self):
+        from contextlib import ExitStack
+        from mcsm.archive import analyze_many, changes, datapacks_of
+        with ExitStack() as stack:
+            d = analyze_many([self.old_zip, self.new_zip], stack)
+        mc = [c for c in d.changes if c["kind"] == "minecraft"]
+        self.assertEqual([(c["from"], c["to"]) for c in mc], [("1.20.4", "26.1.2")])
+        self.assertEqual(mc[0]["time"], d.backups[1]["time"])
+        self.assertEqual(datapacks_of({"datapacks_enabled": ["vanilla", "file/sit.zip", "fabric"],
+                                       "datapacks_folder": ["sit.zip", "horse.zip"]}), ["horse.zip", "sit.zip"])
+        b1 = {"label": "a", "time": 1, "version": "26.1", "world_number": 1, "datapacks": ["sit.zip", "horse.zip"],
+              "mod_list": [{"id": "lithium", "name": "Lithium", "version": "0.24", "kind": "mod"},
+                           {"id": "", "name": "", "file": "spark-1.10.172-fabric.jar", "kind": "mod", "version": ""},
+                           {"id": "serverreplay", "name": "Server Replay", "version": "3.4.1", "kind": "mod"}]}
+        b2 = {"label": "b", "time": 2, "version": "26.3", "world_number": 1, "datapacks": ["sit.zip", "hero.zip"],
+              "mod_list": [{"id": "", "name": "", "file": "spark-1.10.180-fabric.jar", "kind": "mod", "version": ""},
+                           {"id": "serverreplay", "name": "Server Replay", "version": "3.6.0", "kind": "mod"},
+                           {"id": "vanish", "name": "Vanish", "version": "1.6", "kind": "mod"}]}
+        got = {(c["kind"], c["action"], c["name"]) for c in changes([b1, b2])}
+        self.assertEqual(got, {("minecraft", "updated", "Minecraft"), ("mod", "removed", "Lithium"),
+                               ("mod", "updated", "spark"), ("mod", "updated", "Server Replay"),
+                               ("mod", "added", "Vanish"), ("datapack", "added", "hero.zip"),
+                               ("datapack", "removed", "horse.zip")})
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+        out = StringIO()
+        with redirect_stdout(out), redirect_stderr(StringIO()):
+            self.assertEqual(cli.main(["changes", self.old_zip, self.new_zip]), 0)
+        self.assertIn("1.20.4 -> 26.1.2", out.getvalue())
+
     def test_cli_multi(self):
         from io import StringIO
         from contextlib import redirect_stdout, redirect_stderr
@@ -1639,7 +1669,7 @@ class TestLibraryScan(unittest.TestCase):
         same = {rel(c["path"]): c["why"] for c in plan["same"]}
         self.assertEqual(same["Nov01/QUJD.tgz"], "unpacked copy next to it")
         self.assertEqual(same["Nov01 again/QUJD.tgz"], "identical file")
-        self.assertIn("same backup as the .tar", same["Sep/OLD.tgz"])
+        self.assertIn("compressed (the .tar is used)", same["Sep/OLD.tgz"])
         self.assertEqual([rel(p) for p in plan["unsupported"]], ["old.7z"])
         self.assertEqual(plan["ignored"].get(".mp4"), 1)
         self.assertEqual([rel(r["group"]) for r in plan["recordings"]], ["All recordings"])
@@ -1674,3 +1704,168 @@ class TestLibraryScan(unittest.TestCase):
         with redirect_stdout(out), redirect_stderr(StringIO()):
             self.assertEqual(cli.main(["library", "scan", self.top, "--library", self.lib]), 0)
         self.assertIn("Nothing was changed", out.getvalue())
+
+
+class TestLibrarySafety(unittest.TestCase):
+    """Regression tests for the review of mcsm/library.py (2026-11-22)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="mcsm-libsafe-")
+        self.lib = os.path.join(self.tmp, "lib")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _server(self, name, age_days):
+        root = build_server(os.path.join(self.tmp, name))
+        t = time.time() - age_days * 86400
+        os.utime(os.path.join(root, "logs", "latest.log"), (t, t))
+        return root
+
+    def _unfinished(self, root, chunk: bytes):
+        d = os.path.join(root, "recordings", "players", STEVE, "2024-05-03--22-00-00")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "metadata.json"), "w") as fh:
+            json.dump({"name": "x", "total_ticks": len(chunk), "chunks": {}}, fh)
+        with open(os.path.join(d, "c0.flashback"), "wb") as fh:
+            fh.write(chunk)
+        return d
+
+    def test_grown_recording_folder_is_kept_whole(self):
+        from mcsm import library as lib
+        a, b = self._server("a", 10), self._server("b", 5)
+        self._unfinished(a, b"\xd7\x80\xe8\x84" + b"a" * 10)
+        self._unfinished(b, b"\xd7\x80\xe8\x84" + b"b" * 20)       # the same recording, grown
+        c = self._server("c", 1)
+        self._unfinished(c, b"\xd7\x80\xe8\x84" + b"b" * 20)
+        for s in (a, b, c):
+            lib.import_backup(s, self.lib, mode="copy")
+        w = lib.list_worlds(self.lib)[0]["path"]
+        base = os.path.join(w, "recordings", "recordings", "players", STEVE)
+        dirs = sorted(d for d in os.listdir(base) if d.startswith("2024-05-03--22-00-00"))
+        self.assertEqual(dirs, ["2024-05-03--22-00-00", "2024-05-03--22-00-00 (2)"])   # not (3)
+        for d in dirs:
+            self.assertEqual(sorted(os.listdir(os.path.join(base, d))), ["c0.flashback", "metadata.json"])
+
+    def test_changed_recording_file_stored_once(self):
+        from mcsm import library as lib
+        servers = [self._server(n, age) for n, age in (("a", 10), ("b", 5), ("c", 1))]
+        for s in servers[1:]:
+            p = os.path.join(s, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
+            with zipfile.ZipFile(p, "a") as zf:
+                zf.writestr("extra.txt", "changed")
+        for s in servers:
+            lib.import_backup(s, self.lib, mode="copy")
+        w = lib.list_worlds(self.lib)[0]["path"]
+        names = sorted(os.listdir(os.path.join(w, "recordings", "recordings", "players", "Steve")))
+        self.assertEqual(names, ["2024-05-03--18-00-00 (2).mcpr", "2024-05-03--18-00-00.mcpr"])
+
+    def test_more_complete_copy_is_not_dropped(self):
+        from mcsm import library as lib
+        full = self._server("full", 3)
+        part = os.path.join(self.tmp, "part")
+        shutil.copytree(full, part)
+        shutil.rmtree(os.path.join(part, "world", "stats"))               # unpacked only partly
+        r1 = lib.import_backup(part, self.lib, mode="copy")
+        r2 = lib.import_backup(full, self.lib, mode="copy")
+        self.assertFalse(r2["skipped"])
+        self.assertEqual(r2["more_complete_than"], r1["backup"])
+        r3 = lib.import_backup(full, self.lib, mode="copy")
+        self.assertTrue(r3["skipped"])
+
+    def test_failed_import_leaves_nothing(self):
+        from mcsm import library as lib
+        s = self._server("a", 1)
+        real = lib._place
+        calls = {"n": 0}
+
+        def boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 5:
+                raise OSError("disk full")
+            return real(*a, **k)
+        lib._place = boom
+        try:
+            with self.assertRaises(OSError):
+                lib.import_backup(s, self.lib, mode="copy")
+        finally:
+            lib._place = real
+        w = lib.list_worlds(self.lib)[0]["path"]
+        self.assertEqual(lib.world_backups(w), [])
+        self.assertEqual([n for n in os.listdir(os.path.join(w, "backups"))], [])
+        self.assertEqual(lib.import_backup(s, self.lib, mode="copy")["skipped"], False)
+
+    def test_scan_rules(self):
+        from mcsm import library as lib
+        top = os.path.join(self.tmp, "top")
+        os.makedirs(os.path.join(top, "logs"))                    # a stray logs folder at the top
+        s = self._server("srv", 2)
+        launcher = os.path.join(top, "client")                    # a game launcher folder
+        os.makedirs(os.path.join(launcher, "logs"))
+        os.makedirs(os.path.join(launcher, "saves"))
+        open(os.path.join(launcher, "options.txt"), "w").close()
+        open(os.path.join(launcher, "usercache.json"), "w").write("[]")
+        _zip_dir(s, os.path.join(top, "A.zip"))
+        shutil.copytree(s, os.path.join(top, "A", "srv"))
+        shutil.rmtree(os.path.join(top, "A", "srv", "world"))     # a cancelled unpack
+        _zip_dir(self._server("third", 4), os.path.join(top, "world.zip"))
+        import tarfile
+        with tarfile.open(os.path.join(top, "world.tar"), "w") as tf:   # same stem, other content
+            tf.add(self._server("other", 7), arcname="srv")
+        plan = lib.scan(top, self.lib)
+        picked = sorted(os.path.relpath(c["path"], top) for c in plan["backups"])
+        self.assertEqual(picked, ["A.zip", "world.tar", "world.zip"])
+        same = {os.path.relpath(c["path"], top): c["why"] for c in plan["same"]}
+        self.assertIn("incomplete", same[os.path.join("A", "srv")])
+
+    def test_tar_hard_links_and_overlap(self):
+        import io as _io
+        import tarfile
+        from mcsm import library as lib
+        s = self._server("a", 1)
+        tgz = os.path.join(self.tmp, "b.tgz")
+        with tarfile.open(tgz, "w:gz") as tf:
+            tf.add(s, arcname="srv")
+            link = tarfile.TarInfo("srv/ops-copy.json")
+            link.type, link.linkname = tarfile.LNKTYPE, "srv/ops.json"
+            tf.addfile(link)
+        r = lib.import_backup(tgz, self.lib, mode="copy")
+        self.assertTrue(os.path.isfile(os.path.join(r["backup"], "ops-copy.json")))
+        with self.assertRaises(ValueError):
+            lib.import_backup(self.tmp, self.lib)                 # the source contains the library
+
+    def test_same_name_recordings_of_two_players_both_kept(self):
+        from mcsm.archive import merge
+        from mcsm import models as mm
+        d1 = analyze(self._server("a", 2))
+        r = d1.replays[0]
+        twin = mm.Replay(**{**r.__dict__})
+        twin.recorded_player = "Alex"
+        d1.replays.append(twin)
+        out = merge([("a", "a", d1.root, d1)])
+        self.assertEqual(sum(1 for x in out.replays if os.path.basename(x.path) == os.path.basename(r.path)), 2)
+
+    def test_tidy_moves_duplicates_and_undo(self):
+        from mcsm import library as lib
+        top = os.path.join(self.tmp, "Game Backup")
+        s = self._server("srv", 2)
+        os.makedirs(os.path.join(top, "June09"))
+        _zip_dir(s, os.path.join(top, "June09", "A.zip"))
+        shutil.copytree(s, os.path.join(top, "June09", "A", "srv"))      # complete unpacked copy
+        os.makedirs(os.path.join(top, "2026-01-01 Already dated"))
+        shutil.copytree(self._server("other", 9), os.path.join(top, "2026-01-01 Already dated", "srv"))
+        before = sorted(os.path.relpath(os.path.join(c, f), top) for c, _d, fs in os.walk(top) for f in fs)
+        plan = lib.scan(top, self.lib)
+        moves = lib.tidy_plan(plan, rename=True)
+        self.assertEqual([os.path.relpath(m["to"], top) for m in moves],
+                         [os.path.join(lib.DUPLICATES_DIR, "June09", "A.zip"),
+                          datetime.fromtimestamp(plan["backups"][-1]["when"]).strftime("%Y-%m-%d") + " June09"])
+        lib.tidy_apply(plan, moves)
+        day = os.path.basename(moves[1]["to"])
+        self.assertTrue(os.path.isfile(os.path.join(top, lib.DUPLICATES_DIR, "June09", "A.zip")))
+        self.assertTrue(os.path.isdir(os.path.join(top, day, "A", "srv")))
+        self.assertTrue(os.path.isdir(os.path.join(top, "2026-01-01 Already dated")))   # left alone
+        lib.tidy_undo(top)
+        after = sorted(os.path.relpath(os.path.join(c, f), top) for c, _d, fs in os.walk(top) for f in fs)
+        self.assertEqual(after, before)                                          # exactly as it was
+        self.assertFalse(os.path.exists(os.path.join(top, lib.DUPLICATES_DIR)))

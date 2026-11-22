@@ -94,7 +94,8 @@ def history_payload(data: m.ServerData, title: str = "") -> dict:
             continue
         end = r.end or r.start
         replays.append({"i": i, "start": _ms(r.start), "end": _ms(end), "player": r.recorded_player,
-                        "path": r.path, "format": r.format, "estimated": bool(r.raw_meta.get("duration_note"))})
+                        "path": r.path, "format": r.format, "estimated": bool(r.raw_meta.get("duration_note")),
+                        "mc": r.mc_version or ""})
     sessions = [{"player": s.player, "start": _ms(s.start), "end": _ms(s.end)} for s in data.sessions if s.start]
     times = [x for x in [e["t"] for e in events] + [s["start"] for s in sessions] + [s["end"] for s in sessions]
              + [r["end"] for r in replays] if x]
@@ -112,7 +113,12 @@ def history_payload(data: m.ServerData, title: str = "") -> dict:
         "sessions": sessions,
         "replays": replays,
         "backups": [{"label": b.get("label"), "t": _ms(b.get("time")) if hasattr(b.get("time"), "timestamp") else None,
-                     "version": b.get("version")} for b in data.backups],
+                     "version": b.get("version"), "mods": len(b.get("mod_list") or []),
+                     "datapacks": b.get("datapacks") or []} for b in data.backups],
+        "changes": [{"t": _ms(c.get("time")) if hasattr(c.get("time"), "timestamp") else None,
+                     "after": _ms(c.get("after")) if hasattr(c.get("after"), "timestamp") else None,
+                     "kind": c["kind"], "action": c["action"], "name": c["name"], "from": c["from"], "to": c["to"]}
+                    for c in getattr(data, "changes", [])],
         "spawn": data.world.get("spawn"),
     }
 

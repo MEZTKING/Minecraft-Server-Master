@@ -95,6 +95,74 @@ def analyze_many(paths: list[str], stack: ExitStack, tz: tzinfo | None = None,
     return merge(parts, tz, samples, extra_replays, recordings)
 
 
+_BUILTIN_PACKS = ("vanilla", "fabric", "bundle", "trade_rebalance", "minecart_improvements", "redstone_experiments")
+
+
+def datapacks_of(world: dict) -> list[str]:
+    """The world's own datapacks: enabled ``file/...`` packs plus the ``datapacks/`` folder.
+
+    Built-in packs (vanilla, feature flags) and packs that mods provide are left out: those
+    follow the Minecraft version and mod list, which are compared separately.
+    """
+    names = set()
+    for p in world.get("datapacks_enabled") or []:
+        p = str(p)
+        if p.startswith("file/"):
+            names.add(p[5:])
+    for p in world.get("datapacks_folder") or []:
+        names.add(str(p))
+    return sorted(names, key=str.lower)
+
+
+def _mod_key(x: dict) -> str:
+    """Identify a mod across updates: its id, else its file name without the version part."""
+    if x.get("id"):
+        return x["id"].lower()
+    import re
+    base = (x.get("file") or x.get("name") or "").lower()
+    return re.split(r"[-_+ ](?:v?\d)", base[:-4] if base.endswith(".jar") else base)[0]
+
+
+def changes(backups: list[dict]) -> list[dict]:
+    """What changed between consecutive backups (oldest first).
+
+    Each entry: ``{time, after, before_label, label, kind, action, name, from, to}`` where
+    *kind* is ``minecraft`` / ``mod`` / ``plugin`` / ``datapack`` / ``world`` and *action* is
+    ``added`` / ``removed`` / ``updated`` / ``changed``. The change happened some time between
+    the two backups' times (*after* .. *time*).
+    """
+    out = []
+    for prev, cur in zip(backups, backups[1:]):
+        base = {"time": cur.get("time"), "after": prev.get("time"),
+                "before_label": prev.get("label"), "label": cur.get("label")}
+
+        def add(kind, action, name, a="", b=""):
+            out.append({**base, "kind": kind, "action": action, "name": name, "from": a, "to": b})
+        if prev.get("version") and cur.get("version") and prev["version"] != cur["version"]:
+            add("minecraft", "updated", "Minecraft", prev["version"], cur["version"])
+        if prev.get("world_number") != cur.get("world_number"):
+            add("world", "changed", cur.get("level_name") or "world", prev.get("level_name") or "", cur.get("level_name") or "")
+        pm = {_mod_key(x): x for x in prev.get("mod_list") or []}
+        cm = {_mod_key(x): x for x in cur.get("mod_list") or []}
+        if prev.get("mod_list") is not None and cur.get("mod_list") is not None:
+            for k in sorted(set(pm) | set(cm)):
+                a, b = pm.get(k), cm.get(k)
+                kind = (b or a).get("kind") or "mod"
+                name = (b or a).get("name") or k
+                if a and not b:
+                    add(kind, "removed", name, a.get("version", ""), "")
+                elif b and not a:
+                    add(kind, "added", name, "", b.get("version", ""))
+                elif (a.get("version") or a.get("file")) != (b.get("version") or b.get("file")):
+                    add(kind, "updated", name, a.get("version") or a.get("file", ""), b.get("version") or b.get("file", ""))
+        pd, cd = set(prev.get("datapacks") or []), set(cur.get("datapacks") or [])
+        for n in sorted(cd - pd, key=str.lower):
+            add("datapack", "added", n)
+        for n in sorted(pd - cd, key=str.lower):
+            add("datapack", "removed", n)
+    return out
+
+
 def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None,
           extra_replays: list[str] | None = None, recordings: list[str] | None = None) -> m.ServerData:
     """Merge analysed backups (oldest first) into one ServerData."""
@@ -131,7 +199,7 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
     seen_replays = set()
     for label, _p, _root, d in parts:
         for r in d.replays:
-            key = (os.path.basename(r.path.rstrip("/")), r.start)
+            key = (os.path.basename(r.path.rstrip("/")), r.start, (r.recorded_player or "").lower())
             if key in seen_replays:
                 continue
             seen_replays.add(key)
@@ -237,7 +305,7 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
                     warns.append(f"could not read replay {f}: {exc}")
         out.warnings += warns
         for r in found:
-            key = (os.path.basename(r.path.rstrip("/")), r.start)
+            key = (os.path.basename(r.path.rstrip("/")), r.start, (r.recorded_player or "").lower())
             if key in seen_replays:
                 continue
             seen_replays.add(key)
@@ -268,9 +336,12 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
             "size_bytes": w.get("size_bytes"), "game_time_hours": w.get("game_time_hours"),
             "players": len(d.players), "events": len(d.events), "log_files": len(d.log_files),
             "replays": len(d.replays), "mods": len(d.mods),
+            "mod_list": [{k: x.get(k, "") for k in ("id", "name", "version", "loader", "kind", "file")} for x in d.mods],
+            "datapacks": datapacks_of(d.world),
             "first_event": d.events[0].time if d.events else None,
             "last_event": d.events[-1].time if d.events else None,
         })
+    out.changes = changes(out.backups)
     if len(worlds_seen) > 1:
         out.warnings.append(f"these backups contain {len(worlds_seen)} different worlds (level name/seed); "
                             "player stats shown are from the newest backup")

@@ -23,7 +23,11 @@ In the app: load your backup(s), open the **History** tab, press **Open history 
 - **Happening now**: those events as a list. Click one to fly to it.
 - **Recordings at this moment**: each Flashback/ReplayMod recording covering the current time,
   and how far into it you are (e.g. `12:40`). In Flashback, open that replay and go to that
-  time to see the moment in full. Click to copy the replay's path.
+  time to see the moment in full. Click to copy the replay's path. Each one shows the
+  **Minecraft version** it was recorded in: Flashback opens a recording only in that version.
+- **Server at this moment** (with several backups): the Minecraft version, number of mods and
+  datapacks from the backup that covers this time, and what changed since the backup before
+  (mods added/removed/updated, datapacks, Minecraft version). Hover for the datapack names.
 
 ## The timeline
 

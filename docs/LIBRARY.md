@@ -83,7 +83,9 @@ Before importing it shows a plan:
 
 - **Backups to import**, oldest first.
 - **Copies of a backup, skipped:** an archive next to the folder you unpacked it into
-  (`A.tgz` + `A\…`), a `.tar` next to its `.tgz`, and byte-identical archives in different folders.
+  (`A.tgz` + `A\…`; only if that folder is complete, otherwise the archive is used), a `.tar`
+  next to its `.tgz` (checked with the size stored inside the `.tgz`), and byte-identical archives
+  in different folders.
   The fastest copy is used: an unpacked folder, then `.tar`, then `.zip` / `.tgz`. If it can't
   tell that two copies are the same backup, it imports both, and the second is then skipped
   because a backup from the same moment is already there. Nothing is lost either way; at most a
@@ -127,7 +129,38 @@ On the owner's PC: the May (14.5 GB) and November (39.2 GB) backup folders were 
 and 2,847 of November's files are shared with May. Loading the library world gives exactly
 the same history as loading both original folders.
 
+## Tidying the original folder (optional)
+
+The library never needs your originals to change. If you *want* the original folder tidier,
+**Tidy the original folder…** (or `mcsm library tidy FOLDER`) can do it, with a warning first:
+
+- **Nothing is deleted.** Copies of a backup that the scan found (an archive next to its unpacked
+  folder, a `.tar` next to its `.tgz`, identical files) are **moved** into
+  `_duplicates (check, then delete)\` inside that folder, keeping their paths. Look through it
+  and delete it yourself when you're happy, to free the space.
+- Optionally, folders holding one backup get the date in front (`2026-06-09 June09_2026_PostEXP2`)
+  so they sort by date. Folders that already start with a date are left alone.
+- Everything is moved on the same drive (instant) and logged in `mcsm-tidy-undo.json`;
+  **Undo tidy…** (`mcsm library tidy FOLDER --undo`) puts it all back.
+- `mcsm library tidy FOLDER` only shows the plan; add `--apply` to move, `--rename` for dates.
+- Import into the library first, and don't tidy while an import is reading the folder.
+
 ## Good to know
+
+- **Safety while importing:** in copy and link mode your files are only read. Each backup is
+  built in a hidden `.partial-…` folder and only renamed into place when it is complete, so an
+  interrupted import never leaves a half backup behind (leftovers older than a day are cleaned
+  up on the next import). Copies are written as `*.part` and renamed when done. A folder that
+  can't be read stops the import instead of being left out quietly, and paths longer than
+  Windows' 260 characters work.
+- **The same backup twice:** if a copy of a backup (same moment) is already in the library and
+  is at least as complete, only new recordings from the second copy are added. If the new copy
+  is *more* complete (e.g. the first was unpacked only partly), it is imported too.
+- **Recordings that changed:** a recording that differs from the one already stored (an unfinished
+  recording that grew between backups) is kept as `name (2)` once, not once per backup; an
+  unfinished recording folder is always kept whole.
+- **Recordings from your game folder** (*Add my Flashback replays*, *Add recordings…*) are always
+  copied, never linked, unless you choose Move and confirm it.
 
 - With **link** mode the library and the original share the same data. Don't run a Minecraft
   server from the original folder afterwards (it would change the library's copy too). Delete

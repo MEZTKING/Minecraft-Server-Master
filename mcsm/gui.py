@@ -196,6 +196,8 @@ class App(ttk.Frame):
         bottom.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Button(bottom, text="Load this world (all its backups and recordings)", command=self._lib_load).pack(side="left")
         ttk.Button(bottom, text="Refresh", command=self._lib_refresh).pack(side="left", padx=4)
+        ttk.Button(bottom, text="Tidy the original folder…", command=self._lib_tidy).pack(side="left", padx=(16, 0))
+        ttk.Button(bottom, text="Undo tidy…", command=self._lib_tidy_undo).pack(side="left", padx=4)
         self._lib_refresh()
         return f
 
@@ -236,8 +238,7 @@ class App(ttk.Frame):
         if not top:
             return
         library = self.lib_dir_var.get()
-        mode = self.lib_mode_var.get()
-        mode = "copy" if mode == "auto" else mode
+        mode = "copy"      # a whole folder is always copied: the originals are only read
 
         def scan(_):
             plan = lib.scan(top, library)
@@ -248,8 +249,7 @@ class App(ttk.Frame):
             if not plan["backups"] and not plan["recordings"]:
                 messagebox.showinfo(APP_NAME, "No backups or recordings found in that folder.")
                 return
-            words = {"copy": "copied (the originals are only read)", "move": "MOVED out of their folders",
-                     "link": "hard-linked (no extra space)"}[mode]
+            words = "copied (the originals are only read, never changed)"
             if not messagebox.askyesno(APP_NAME, f"Import {len(plan['backups'])} backups and "
                                                  f"{sum(r['count'] for r in plan['recordings'])} loose recordings "
                                                  f"into {library}?\n\n{len(plan['same'])} duplicate copies are skipped. "
@@ -266,6 +266,48 @@ class App(ttk.Frame):
 
         self._run("Scanning for backups", scan, confirm)
 
+    def _lib_tidy(self) -> None:
+        """Optional: move duplicate copies aside (and date folder names) in the ORIGINAL folder."""
+        from . import library as lib
+        top = filedialog.askdirectory(title="Choose the folder that holds your original backups")
+        if not top:
+            return
+        rename = messagebox.askyesno(APP_NAME, "Also put the date in front of backup folder names "
+                                               "(e.g. '2026-06-09 June09_2026_PostEXP2') so they sort by date?",
+                                     default="no")
+
+        def scan(_):
+            plan = lib.scan(top, self.lib_dir_var.get())
+            moves = lib.tidy_plan(plan, rename=rename)
+            print(lib.describe_tidy(plan, moves))
+            return plan, moves
+
+        def confirm(result):
+            plan, moves = result
+            if not moves:
+                messagebox.showinfo(APP_NAME, "Nothing to tidy: no duplicate copies found.")
+                return
+            if not messagebox.askyesno(
+                    APP_NAME, f"WARNING: this changes your ORIGINAL folder.\n\n{len(moves)} items will be MOVED "
+                              f"(not deleted): duplicate copies go into '{lib.DUPLICATES_DIR}'"
+                              f"{', and folders get their date in front' if rename else ''}. The list is in the "
+                              "log below.\n\nImport into the library first. You can put everything back with "
+                              "'Undo tidy…'.\n\nMove them now?", icon="warning", default="no"):
+                return
+            self._run("Tidying the original folder",
+                      lambda _d: print(f"{lib.tidy_apply(plan, moves, print)['moved']} moved; undo with 'Undo tidy…'"))
+
+        self._run("Planning the tidy", scan, confirm)
+
+    def _lib_tidy_undo(self) -> None:
+        from . import library as lib
+        top = filedialog.askdirectory(title="Choose the folder you tidied")
+        if not top:
+            return
+        if not messagebox.askyesno(APP_NAME, "Put back everything the last tidy moved in this folder?"):
+            return
+        self._run("Undoing the tidy", lambda _d: print(f"{lib.tidy_undo(top, print)['put_back']} items put back"))
+
     def _lib_import(self, folder: bool) -> None:
         from . import library as lib
         if folder:
@@ -280,7 +322,7 @@ class App(ttk.Frame):
         library, mode = self.lib_dir_var.get(), self.lib_mode_var.get()
         if mode == "move" and not messagebox.askyesno(
                 APP_NAME, "Move the backup's files into the library? They will no longer be in their "
-                          "current folder."):
+                          "current folder.", default="no"):
             return
 
         def work(_):
@@ -311,7 +353,13 @@ class App(ttk.Frame):
                 title="Choose recordings (.zip / .mcpr)", filetypes=[("Recordings", "*.zip *.mcpr"), ("All files", "*.*")]))
         if not paths:
             return
-        mode = self.lib_mode_var.get()
+        # Recordings are copied unless Move is chosen (and confirmed): they often live in a game
+        # folder (Flashback's replays) that shouldn't share data with the library.
+        mode = "move" if self.lib_mode_var.get() == "move" and not flashback else "copy"
+        if mode == "move" and not messagebox.askyesno(
+                APP_NAME, "Move these recordings into the library? They will no longer be in their "
+                          "current folder.", default="no"):
+            return
 
         def work(_):
             r = lib.add_recordings(paths, w, mode, print)
@@ -340,6 +388,9 @@ class App(ttk.Frame):
         ttk.Label(f, text="Quick summary of the loaded server:").grid(row=4, column=0, sticky="w")
         self._button(f, "Show summary", lambda: self._run("Summary", lambda d: cli.run_summary(d)),
                      row=4, column=1, sticky="w", padx=4)
+        ttk.Label(f, text="Minecraft version, mods and datapacks changed between backups:").grid(row=5, column=0, sticky="w", pady=(8, 0))
+        self._button(f, "Show changes", lambda: self._run("Changes between backups", lambda d: cli.run_changes(d)),
+                     row=5, column=1, sticky="w", padx=4, pady=(8, 0))
         return f
 
     def _scrollable(self, nb) -> tuple[ttk.Frame, ttk.Frame]:

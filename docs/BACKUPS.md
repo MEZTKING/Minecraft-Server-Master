@@ -39,6 +39,41 @@ Each backup is read with whatever layout it has: 1.13–1.21 (`world/stats`, …
 **Server versions** table lists every version the server ran, from the version logged at each
 start. `level.dat` only records the *last* version that saved the world.
 
+## Versions, mods and datapacks over time
+
+Servers change: Minecraft updates, mods come and go, datapacks are swapped. `mcsm` compares the
+backups in order and lists **what changed between each pair**:
+
+```
+mcsm changes backup-may.tgz backup-nov.tgz        (or a library world folder)
+mcsm changes ... --kind mod --kind datapack
+```
+
+```
+Between 2026-05-19 14:19 and 2026-11-20 08:16:
+  ^ minecraft Minecraft  26.1.2 -> 26.3
+  ^ mod       Server Replay  3.4.1+26.1 -> 3.6.0+26.3
+  - mod       Distant Horizons  3.0.2-b
+  + mod       Vanish  1.6.16+26.3
+  + datapack  HerosJourney-v2.0.4-Data-Pack.zip
+```
+
+The same list is in the report's **Backups** tab ("What changed between backups"), in the app
+(*Statistics report* tab → **Show changes**) and, at each moment, in the history viewer. A change
+happened some time between the two backups; the files don't record the exact day. Datapacks are
+the world's own (`datapacks/` and the enabled `file/…` packs); built-in and mod-provided packs
+follow the Minecraft version and mod list.
+
+Why it matters for the other tools:
+
+- **ServerReplay 3.4.0/3.4.1** recordings contain no movement, so there are no paths for the weeks
+  the server ran them. The change list shows when it was updated.
+- **Flashback opens a recording only in the Minecraft version it was made with**; the history
+  viewer shows each recording's version.
+- Mods can change log lines (e.g. 26.3's `System chat:`), add blocks the terrain doesn't know
+  (drawn grey) and add statistics; datapacks add advancements and death messages. Each backup is
+  read with its own layout, so version changes in the files themselves are handled.
+
 ## Big backups
 
 Zip backups are read **selectively**: logs, player files, world info, and only the small

@@ -125,6 +125,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   <ul id="now"></ul>
   <h2>Recordings at this moment</h2>
   <ul id="recs"></ul>
+  <h2 id="serverHead" hidden>Server at this moment</h2>
+  <div id="server" class="meta" hidden></div>
   <h2>Highlights for videos</h2>
   <div class="row" style="margin-top:2px">
     <button id="hlIn" type="button" title="Use the current time as the start (key I)">Start (I)</button>
@@ -568,12 +570,44 @@ function renderPanel() {
     const li = document.createElement("li");
     const w = document.createElement("span"); w.className = "when"; w.textContent = hms(T - r.start);
     const file = r.path.split("/").pop();
-    li.append(w, document.createTextNode(`${r.player || "?"} · ${file}${r.estimated ? " (no timeline inside)" : ""}`));
-    li.title = `${r.path}\nIn Flashback, open this replay and go to ${hms(T - r.start)}.\nStarts ${fmt(r.start)}, length ${hms(r.end - r.start)}.`;
+    li.append(w, document.createTextNode(`${r.player || "?"} · ${file}${r.mc ? " · " + r.mc : ""}${r.estimated ? " (no timeline inside)" : ""}`));
+    li.title = `${r.path}\nIn Flashback, open this replay and go to ${hms(T - r.start)}.` +
+      (r.mc ? `\nRecorded in Minecraft ${r.mc}: open it with that version of Minecraft + Flashback.` : "") +
+      `\nStarts ${fmt(r.start)}, length ${hms(r.end - r.start)}.`;
     li.onclick = () => { try { navigator.clipboard.writeText(r.path); toastStatus(`Copied path of ${file}`); } catch (e) {} };
     recs.appendChild(li);
   }
   if (!recs.children.length) recs.innerHTML = `<li class="empty">No recording covers this moment.</li>`;
+  renderServerAt(T);
+}
+
+// What the server ran at time T: the first backup taken at or after T (as for the terrain),
+// and what changed since the backup before it. Changes are only known to fall between backups.
+const CHANGE_WORD = { added: "+", removed: "−", updated: "↑", changed: "≠" };
+let serverShown = null;
+const fmtDay = t => new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+function renderServerAt(T) {
+  const bs = (H.backups || []).filter(b => b.t).sort((a, b) => a.t - b.t);
+  const box = $("#server"), head = $("#serverHead");
+  if (!bs.length) { box.hidden = head.hidden = true; return; }
+  const b = bs.find(x => x.t >= T) || bs[bs.length - 1];
+  if (serverShown === b) return;
+  serverShown = b;
+  const prev = bs[bs.indexOf(b) - 1];
+  const ch = (H.changes || []).filter(c => c.t === b.t);
+  box.replaceChildren();
+  const line = (text, title) => { const d = document.createElement("div"); d.textContent = text; if (title) d.title = title; box.appendChild(d); return d; };
+  line(`Minecraft ${b.version || "?"} · ${b.mods} mods · ${b.datapacks.length} datapacks`,
+       `From the backup taken ${fmtDay(b.t)}${b.datapacks.length ? "\nDatapacks: " + b.datapacks.join(", ") : ""}`);
+  if (ch.length && prev) {
+    line(`Changed between ${fmtDay(prev.t)} and ${fmtDay(b.t)}:`).style.marginTop = "4px";
+    for (const c of ch.slice(0, 12)) {
+      const v = c.action === "updated" ? `${c.from} → ${c.to}` : (c.to || c.from || "");
+      line(`${CHANGE_WORD[c.action] || "·"} ${c.name}${v ? "  " + v : ""}`, `${c.kind} ${c.action}`);
+    }
+    if (ch.length > 12) line(`… and ${ch.length - 12} more (see the report's Backups tab)`);
+  }
+  box.hidden = head.hidden = false;
 }
 let following = null;
 $("#players").onclick = e => {

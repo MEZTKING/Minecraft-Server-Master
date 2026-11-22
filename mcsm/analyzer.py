@@ -39,6 +39,8 @@ def analyze(root: str, tz: tzinfo | None = None, latest_log_date: date | None = 
     if os.path.isdir(wdir):
         data.world["size_bytes"], data.world["file_count"] = world_mod.dir_size(wdir)
     data.mods = world_mod.list_mods(root)
+    dp = os.path.join(wdir, "datapacks")
+    data.world["datapacks_folder"] = sorted(n for n in os.listdir(dp) if not n.startswith(".")) if os.path.isdir(dp) else []
     if not os.path.isfile(os.path.join(root, "server.properties")):
         data.warnings.append("server.properties not found -- is this the right folder?")
     if not os.path.isdir(wdir):

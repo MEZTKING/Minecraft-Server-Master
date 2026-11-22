@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (library: all backups and recordings in one place).
+`CLAUDE.md`). Last updated: 2026-11-22 (library safety fixes after review; versions/mods/datapacks over time; optional tidy).
 
 ## What this project is
 
@@ -66,6 +66,8 @@ More features "like these" are planned, listed under **Backlog** below.
 | Highlights for videos: mark spans in the history viewer; export Flashback copies with start/end markers + one export-range scene per highlight, and a CSV clip list | ✅ Done, not yet tried in a real Flashback | `mcsm/highlights.py`, `history.py`, `assets/web/history.html` | `docs/HISTORY.md` |
 | Library: one folder per world for all backups (folders, .zip, PebbleHost .tgz) and recordings (each stored once); link/copy/move; unchanged files hard-linked; a world folder works as SERVER everywhere; app Library tab | ✅ Done, checked on the owner's May + November backups and the May .tgz | `mcsm/library.py`, `archive.py` (recordings), `mcsm library`, app Library tab | `docs/LIBRARY.md` |
 | Import a whole folder of backups from any host: scan + plan (one copy per backup, recordings, ignored/unsupported files), world-only backups (Aternos/Realms/singleplayer) | ✅ Done, scan checked on the owner's 600 GB backup folder | `mcsm/library.py` (`scan`, `import_all`), `mcsm library scan/import-all`, app *Import a whole folder…* | `docs/LIBRARY.md` |
+| Minecraft versions, mods, plugins and datapacks over time: what changed between backups (`mcsm changes`, report Backups tab, app button, history viewer "Server at this moment"); each recording's Minecraft version | ✅ Done, checked on the owner's May + November backups | `mcsm/archive.py` (`changes`), `cli.py`, `report.py`, `history.html` | `docs/BACKUPS.md`, `docs/HISTORY.md` |
+| Optional tidy of the original backup folder: duplicates moved aside (never deleted), optional dated names, undo | ✅ Done (tested on fixtures; not run on the owner's folder) | `mcsm/library.py` (`tidy_*`), `mcsm library tidy`, app *Tidy the original folder…* | `docs/LIBRARY.md` |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -288,6 +290,54 @@ i dont know if you need to consider taking a backup from which hosting company".
 June 9's `.tar` next to its `.tgz`, and an identical July 4 `.tgz` in a second folder), found
 1,980 loose recordings, ignored 4 videos + 4 `.jar` (35 GB), and flagged the `.7z`.
 
+### 0f. Minecraft versions, mods and datapacks over time (raised 2026-11-22)
+
+**The ask:** "remember that a few different versions of Minecraft was used aswell as a few
+different mods and some datapacks, each were removed updated changed at random times, so these
+can affect our work".
+
+**How it affects the tools:**
+- File layouts moved between versions (26.1 moved players and dimensions): the parsers handle
+  every layout; each backup is read on its own.
+- ServerReplay versions differ: 3.4.0/3.4.1 recorded no movement (no paths for those weeks).
+- Flashback can only open a recording in the Minecraft version it was made with, so a
+  highlight from May needs that version's Minecraft + Flashback.
+- Mods change log lines (26.3 `System chat:`), add blocks the terrain colours don't know (drawn
+  grey) and add stats; datapacks add advancements and death messages.
+
+**Design:**
+- Keep each backup's mod list (id, name, version, loader) and datapacks (enabled list from
+  `level.dat` plus the `datapacks/` folder) in `ServerData.backups`.
+- `archive.changes()`: compare backups in order and list what changed between each pair:
+  Minecraft version, loader, mods added/removed/updated, datapacks added/removed. A change is
+  dated "between backup A and backup B" (the exact day is not in the files).
+- Show it: a "What changed" table in the report's Backups tab, `mcsm changes SERVER…` in the
+  terminal, and in the history viewer the change list at each backup line plus the Minecraft
+  version of each recording.
+
+✅ **Done 2026-11-22** as designed. May → November on the owner's server: Minecraft 26.1.2 → 26.3,
+ServerReplay 3.4.1 → 3.6.0 (explains May's recordings without movement), 9 mods removed, 3 added,
+4 updated, one datapack swapped.
+
+### 0g. Optional tidy of the original backup folder (requested 2026-11-22)
+
+**The ask:** "With an option to fix the messy files first with a warning but mainly we dont want
+to touch original files".
+
+**Design:**
+- Off by default. `mcsm library tidy FOLDER` shows the plan; `--apply` carries it out after a
+  warning; the app asks with a warning dialog (No is the default).
+- It never deletes: copies of a backup that the scan skipped (archive next to its unpacked
+  folder, `.tar` next to `.tgz`, identical files) are **moved** into
+  `FOLDER\_duplicates (check, then delete)\…` keeping their paths. Same drive: instant.
+- Optional `--rename`: backup folders get a sortable date in front
+  (`2026-06-09 June09_2026_PostEXP2`).
+- Every move is written to `FOLDER\mcsm-tidy-undo.json`; `mcsm library tidy FOLDER --undo`
+  (app: *Undo tidy*) puts everything back.
+
+✅ **Done 2026-11-22** as designed (tested: tidy + undo restores the folder exactly). Not run on the
+owner's folder: their originals stay untouched unless they choose to.
+
 ### 1. Activity-aware timelapse of an area (requested 2026-11-19)
 
 **The ask:** keep a fixed camera on an area (a base or town) and make a timelapse that shows
@@ -430,6 +480,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | Archive member names are made Windows-safe (`:` → `_`) when unpacking `.tgz`/`.zip` | ServerReplay's `Recordings for: NAME` folders can't be created on Windows |
 | 2026-11-22 | Backups are recognised by content, not by hosting company | Hosts change formats and many share the same panel; what matters is server root vs world-only vs archive |
 | 2026-11-22 | Two backups within 2 s of each other count as the same | `.zip` stores times to 2 seconds; a zip and a folder of the same world differed by 0.3 s |
+| 2026-11-22 | Library safety rules after an independent review: backups are built in `.partial-*` and renamed when complete; copies go through `*.part`; walks raise on unreadable folders; long-path prefixes on Windows; a same-time copy is skipped only if the stored one is at least as complete | A failed or partial import must never look like a finished backup, and nothing may be silently left out of 600 GB |
+| 2026-11-22 | "Import a whole folder" and added recordings always copy (Move only when chosen and confirmed for recordings) | The owner's originals must never change; Flashback's live replay folder shouldn't share data with the library |
+| 2026-11-22 | Tidy never deletes: duplicates are moved aside on the same drive with an undo log | The owner wants originals untouched by default; deleting stays a human decision |
+| 2026-11-22 | Mod changes are matched by mod id (else file name without version); dated "between backup A and B" | The files don't record the day a mod changed |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 
 ## Known gaps and unverified assumptions
@@ -473,6 +527,24 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** **Library fixes from an independent code review** (no path could change the
+  originals; these were about the library's own correctness): the app's *Import a whole folder*
+  always copies (it used the Move/Link choice); recordings added by hand copy by default;
+  interrupted imports leave no half backup (built in `.partial-*`, `*.part` files, stale leftovers
+  cleaned); unreadable folders and paths over 260 characters no longer drop files silently; a
+  grown unfinished recording is kept whole as `name (2)` (files were mixed into one folder) and a
+  changed recording is stored once (was once per backup); a more complete copy of the same backup
+  is no longer skipped; the scan no longer trusts an incomplete unpacked folder over its archive,
+  treats any `logs` folder or game launcher folder as a server, or pairs `world.tar` with a
+  different `world.zip`; tar hard links are kept; name collisions on Windows are kept as
+  `(2)`; a library inside the source (or vice versa) is refused; two players' recordings with the
+  same file name and start are both kept; faster world lookups and de-duplication index.
+- **2026-11-22:** **Versions, mods and datapacks over time.** `mcsm changes`, a "What changed
+  between backups" table in the report, *Show changes* in the app, and "Server at this moment" in
+  the history viewer; each recording shows its Minecraft version.
+- **2026-11-22:** **Optional tidy of the original folder** (`mcsm library tidy`, app *Tidy the
+  original folder…* / *Undo tidy…*): duplicate copies moved aside, optional dated folder names,
+  never deletes, fully undoable.
 - **2026-11-22:** **Import a whole folder of backups, from any host.** `mcsm library scan FOLDER`
   (plan only) and `import-all`, app *Import a whole folder of backups…* (plan, ask, import; always
   copies). Detects server folders, world-only folders (Aternos/Realms/singleplayer, imported

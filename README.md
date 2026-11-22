@@ -140,6 +140,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm report SERVER -o report.html` | The HTML dashboard. |
 | `mcsm export SERVER --sqlite s.db --json s.json --csv out/` | Data exports ([schema](docs/DATA_MODEL.md)). |
 | `mcsm events SERVER --type death --player Steve --since 2024-05-01` | Search events in the terminal. |
+| `mcsm changes SERVER MORE...` | Minecraft version, mods, plugins and datapacks changed between backups ([guide](docs/BACKUPS.md#versions-mods-and-datapacks-over-time)). |
 | `mcsm replays SERVER` | List `.mcpr` recordings with their time range and event counts. |
 | `mcsm sync SERVER --replay 1 ...` | Make markers/subtitles for a video ([guide](docs/VIDEO_SYNC.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |

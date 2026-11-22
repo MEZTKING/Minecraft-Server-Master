@@ -57,7 +57,8 @@ def _payload(data: m.ServerData) -> dict:
                      "format": r.format, "start_source": r.start_source, "unfinished": r.unfinished,
                      "markers": r.markers, "size": r.size_bytes} for r in data.replays],
         "log_files": [m.to_jsonable(f) for f in data.log_files],
-        "backups": m.to_jsonable(data.backups),
+        "backups": m.to_jsonable([{k: v for k, v in b.items() if k != "mod_list"} for b in data.backups]),
+        "changes": m.to_jsonable(getattr(data, "changes", [])),
         "player_history": m.to_jsonable(data.player_history),
     }
 
@@ -481,6 +482,18 @@ RENDER.backups = () => {
     { key: "players", label: "Players", num: 1, fmt: fmtN }, { key: "events", label: "Events", num: 1, fmt: fmtN },
     { key: "log_files", label: "Logs", num: 1, fmt: fmtN }, { key: "replays", label: "Replays", num: 1, fmt: fmtN },
   ], B, { sort: "time", dir: 1 }));
+  const C = D.changes || [];
+  if (C.length) {
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h2>What changed between backups (${C.length})</h2><p class="muted" style="margin-top:-8px">Minecraft version, mods, plugins and datapacks compared backup by backup. Each change happened some time between the two backups; the files don't say the exact day.</p><div id="chTable"></div>`;
+    el.insertBefore(card, el.children[1] || null);
+    const ACT = { added: "Added", removed: "Removed", updated: "Updated", changed: "Changed" };
+    $("#chTable").appendChild(table([
+      { key: "after", label: "After", fmt: dIso }, { key: "time", label: "By", fmt: dIso },
+      { key: "kind", label: "What" }, { key: "action", label: "Change", fmt: v => esc(ACT[v] || v) },
+      { key: "name", label: "Name" }, { key: "from", label: "From" }, { key: "to", label: "To" },
+    ], C, { sort: "time", dir: 1 }));
+  }
   if (!names.length) return;
   const draw = () => {
     const name = $("#hPlayer").value, key = $("#hStat").value, [, label, f] = HIST_STATS.find(x => x[0] === key);
