@@ -932,6 +932,10 @@ class App(ttk.Frame):
         ttk.Radiobutton(when, text="at second", value="at", variable=self.vid_when_var).pack(side="left", padx=(8, 0))
         self.vid_at_var = tk.StringVar(value="0")
         ttk.Entry(when, textvariable=self.vid_at_var, width=7).pack(side="left", padx=4)
+        ttk.Label(when, text="   until second:").pack(side="left")
+        self.vid_until_var = tk.StringVar(value="")
+        ttk.Entry(when, textvariable=self.vid_until_var, width=7).pack(side="left", padx=4)
+        ttk.Label(when, text="(empty = to the end)", foreground="gray").pack(side="left")
         look = ttk.Frame(f)
         look.grid(row=6, column=0, columnspan=3, sticky="w", pady=3)
         ttk.Label(look, text="4. Look:").pack(side="left")
@@ -1029,25 +1033,38 @@ class App(ttk.Frame):
         if not lines:
             return
         at = self._vid_when()
+        until = self._vid_until()
         colour, border = self.vid_colour_var.get(), self.vid_border_var.get()
 
         def work(_):
-            return vt.make_in_world(match, lines, at, colour, border, progress=print)
+            return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until)
 
         def after(r):
-            self.vid_status_var.set(f"Done: open '{r['name']}' in Flashback ({r['flashback']}), your edit is on it; "
-                                    "press Export.")
+            when = f"appears at {r['appears_at']:.1f} s" if r.get("appears_at") is not None else "there all the time"
+            self.vid_status_var.set(f"Done ({when}): open '{r['name']}' in Flashback ({r['flashback']}), your edit "
+                                    "is on it; press Export.")
             messagebox.showinfo(APP_NAME, f"In Flashback, open the replay '{r['name']}'. Your edit is copied to it "
                                           "with the same export range: check the text, then Export.\n\n"
                                           f"{r['replay']}")
 
         self._run("Putting the text in the world", work, after)
 
+    def _vid_until(self) -> float | None:
+        text = self.vid_until_var.get().strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            messagebox.showerror(APP_NAME, "Type the 'until' second as a number, or leave it empty")
+            raise
+
     def _vid_times(self) -> tuple[float, float]:
         info, match = self.vid_info, self._vid_match()
         at = self._vid_when()
         start = at if at is not None else ((match or {}).get("still_from") or max(0.0, info["duration"] - 4)) + 0.2
-        return start, info["duration"] + 1
+        until = self._vid_until()
+        return start, (until if until is not None else info["duration"] + 1)
 
     def _vid_screen(self) -> None:
         from . import videotext as vt

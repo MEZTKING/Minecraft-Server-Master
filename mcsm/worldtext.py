@@ -41,7 +41,10 @@ PROTOCOLS = {
     776: (1, 99, 132),     # 26.2
     777: (1, 101, 135),    # 26.3
 }
+# remove_entities packet id per protocol (same data reports; also seen in real recordings)
+REMOVE_ENTITIES = {775: 77, 776: 77, 777: 78}
 GAME_PACKET = "flashback:action/game_packet"
+NEXT_TICK = "flashback:action/next_tick"
 FLASHBACK_MAGIC = 0xD780E884
 
 SER_BYTE, SER_INT, SER_FLOAT, SER_COMPONENT, SER_VECTOR3 = 0, 1, 3, 5, 39
@@ -70,6 +73,8 @@ class WorldText:
     outline: str = ""               # border colour (e.g. "black"); empty = no border
     outline_width: float = 0.0      # border thickness in blocks (0 = automatic, about 1/14 of the size)
     camera_yaw: float | None = None  # where it's seen from (needed for the border)
+    appear_tick: int | None = None   # replay tick it appears at (None: there from the start)
+    disappear_tick: int | None = None  # replay tick it goes away at (None: stays)
 
 
 # --- encoding -----------------------------------------------------------------------------
@@ -148,6 +153,58 @@ def _record(action: int, payload: bytes) -> bytes:
     return _varint(action) + struct.pack(">I", len(payload)) + payload
 
 
+def _header(chunk: bytes) -> tuple[list[str], int]:
+    """Action names and the offset of the snapshot size field of a ``cN.flashback`` file."""
+    if struct.unpack(">I", chunk[:4])[0] != FLASHBACK_MAGIC:
+        raise ValueError("not a Flashback chunk file")
+    i = 4
+    n, i = _read_varint(chunk, i)
+    names = []
+    for _ in range(n):
+        ln, i = _read_varint(chunk, i)
+        names.append(chunk[i:i + ln].decode("utf-8"))
+        i += ln
+    return names, i
+
+
+def add_timed(chunk: bytes, snapshot: list[bytes], at_tick: dict[int, list[bytes]]) -> bytes:
+    """Add game packets to one chunk file: *snapshot* ones to its snapshot (there when playback
+    starts or jumps into this chunk), and *at_tick* ``{tick in this chunk: packets}`` into the
+    record stream right after that many ``next_tick`` actions (so they happen at that moment)."""
+    names, i = _header(chunk)
+    if GAME_PACKET not in names:
+        raise ValueError("this chunk has no game packets")
+    action = names.index(GAME_PACKET)
+    tick_action = names.index(NEXT_TICK) if NEXT_TICK in names else None
+    size = struct.unpack(">I", chunk[i:i + 4])[0]
+    snap_end = i + 4 + size
+    extra = b"".join(_record(action, r) for r in snapshot)
+    head = chunk[:i] + struct.pack(">I", size + len(extra)) + chunk[i + 4:snap_end] + extra
+    if not at_tick:
+        return head + chunk[snap_end:]
+    if tick_action is None:
+        raise ValueError("this chunk has no tick markers")
+    pending = sorted(at_tick.items())
+    out = [head]
+    j, tick, start = snap_end, 0, snap_end
+    while pending and pending[0][0] <= 0:                 # tick 0 = right after the snapshot
+        out.append(b"".join(_record(action, r) for r in pending.pop(0)[1]))
+    while j < len(chunk) and pending:
+        a, k = _read_varint(chunk, j)
+        ln = struct.unpack(">I", chunk[k:k + 4])[0]
+        j = k + 4 + ln
+        if a == tick_action:
+            tick += 1
+            while pending and pending[0][0] <= tick:
+                out.append(chunk[start:j])
+                start = j
+                out.append(b"".join(_record(action, r) for r in pending.pop(0)[1]))
+    out.append(chunk[start:])
+    for _t, recs in pending:                              # past the last tick: at the very end
+        out.append(b"".join(_record(action, r) for r in recs))
+    return b"".join(out)
+
+
 def add_to_chunk(chunk: bytes, records: list[bytes]) -> bytes:
     """Append game-packet records to the snapshot of one ``cN.flashback`` file."""
     if struct.unpack(">I", chunk[:4])[0] != FLASHBACK_MAGIC:
@@ -202,14 +259,37 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
             raise ValueError(f"Minecraft {meta.get('version_string') or '?'} (protocol {proto}) isn't supported "
                              f"yet for in-world text (supported: {known} = 26.1.x, 26.2, 26.3)")
         add_id, data_id, type_id = PROTOCOLS[proto]
-        records = []
         texts_in = texts
         texts = [part for t in texts_in for part in with_outline(t)]
+        spawns = []                                       # (appear, disappear, packets to add, entity id)
         for k, t in enumerate(texts):
             eid = 2_000_000_000 + k                      # far above anything the server hands out
             uid = uuid_mod.uuid4()
-            records.append(_varint(add_id) + add_entity_packet(eid, uid, type_id, t.x, t.y, t.z, t.yaw, 0.0))
-            records.append(_varint(data_id) + text_data_packet(eid, t))
+            pk = [_varint(add_id) + add_entity_packet(eid, uid, type_id, t.x, t.y, t.z, t.yaw, 0.0),
+                  _varint(data_id) + text_data_packet(eid, t)]
+            spawns.append((t.appear_tick, t.disappear_tick, pk, eid))
+        remove_id = REMOVE_ENTITIES[proto]
+        # where each chunk file starts (replay ticks), from the metadata's chunk list
+        starts, pos = {}, 0
+        for name, info_ in sorted((meta.get("chunks") or {}).items(),
+                                  key=lambda kv: int("".join(ch for ch in kv[0] if ch.isdigit()) or 0)):
+            starts[name] = pos
+            pos += int((info_ or {}).get("duration") or 0)
+
+        def plan_for(name: str, length: int) -> tuple[list[bytes], dict[int, list[bytes]]]:
+            c0 = starts.get(name, 0)
+            c1 = c0 + length
+            snap, timed = [], {}
+            for appear, gone, pk, eid in spawns:
+                a = appear if appear is not None else -1
+                g = gone if gone is not None else 1 << 60
+                if a <= c0 < g:
+                    snap += pk                            # already there when this chunk starts
+                elif c0 < a < c1:
+                    timed.setdefault(a - c0, []).extend(pk)
+                if c0 < g < c1 and (a <= c0 or a < g):
+                    timed.setdefault(g - c0, []).append(_varint(remove_id) + _varint(1) + _varint(eid))
+            return snap, timed
         meta["original_uuid_mcsm"] = meta.get("uuid")
         meta["uuid"] = str(uuid_mod.uuid4())
         meta["name"] = (meta.get("name") or "Replay") + name_suffix
@@ -227,7 +307,9 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                     out_info.compress_type = info.compress_type
                     out_info.external_attr = info.external_attr
                     if info.filename.endswith(".flashback") and "/" not in info.filename:
-                        zout.writestr(out_info, add_to_chunk(zin.read(info), records))
+                        length = int(((meta.get("chunks") or {}).get(info.filename) or {}).get("duration") or 0)
+                        snap, timed = plan_for(info.filename, length)
+                        zout.writestr(out_info, add_timed(zin.read(info), snap, timed))
                         chunks += 1
                         continue
                     with zin.open(info) as fin, zout.open(out_info, "w", force_zip64=True) as fout:

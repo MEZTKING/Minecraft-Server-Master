@@ -903,19 +903,23 @@ def cmd_world_text(args) -> int:
         meta = json.loads(zf.read("metadata.json").decode("utf-8"))
     uid = str(meta.get("uuid") or "")
     yaw = args.yaw
+    clock = scene = None
+    if args.appear_at is not None or args.until is not None or not args.at:
+        state = args.state or fbm.find_editor_state(uid)
+        if state:
+            scene = vt.load_scenes(state)[args.scene if args.scene is not None else 0]
+            clock = vt.scene_clock(scene, int(meta.get("total_ticks") or 0) or None)
+    if (args.appear_at is not None or args.until is not None) and clock is None:
+        raise SystemExit("--appear-at/--until count seconds of your exported video, which needs the Flashback edit "
+                         "(not found; give --state FILE)")
     if args.at:
         try:
             x, y, z = (float(v) for v in args.at.split(","))
         except ValueError:
             raise SystemExit("--at needs X,Y,Z (e.g. --at 120,80,-560)")
     else:
-        state = args.state or fbm.find_editor_state(uid)
-        if not state:
+        if scene is None:
             raise SystemExit("No Flashback edit found for this recording: give --at X,Y,Z instead.")
-        scenes = vt.load_scenes(state)
-        idx = args.scene if args.scene is not None else 0
-        scene = scenes[idx]
-        clock = vt.scene_clock(scene, int(meta.get("total_ticks") or 0) or None)
         tick = clock.replay_tick(args.in_front_at) if clock else args.in_front_at * 20
         cam = wt.camera_at(scene, tick)
         if cam is None:
@@ -929,8 +933,12 @@ def cmd_world_text(args) -> int:
     colour = args.colour.lower()
     if colour not in wt.COLOURS and not (colour.startswith("#") and len(colour) == 7):
         raise SystemExit(f"--colour: one of {', '.join(wt.COLOURS)} or #RRGGBB")
+    appear = int(clock.replay_tick(args.appear_at)) if args.appear_at is not None else None
+    gone = int(clock.replay_tick(args.until)) if args.until is not None else None
     text = wt.WorldText(args.text, x, y, z, size=args.size, colour=colour, bold=args.bold, facing=args.facing,
-                        yaw=yaw or 0.0, shadow=not args.no_shadow, glow=not args.no_glow)
+                        yaw=yaw or 0.0, shadow=not args.no_shadow, glow=not args.no_glow,
+                        outline="black" if args.border else "", camera_yaw=yaw,
+                        appear_tick=appear, disappear_tick=gone)
     fb_dir = None
     if args.output:
         dst = args.output
@@ -1179,6 +1187,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yaw", type=float, help="for --facing fixed: direction it faces (degrees)")
     p.add_argument("--no-shadow", action="store_true")
     p.add_argument("--no-glow", action="store_true", help="lit by the world instead of always bright")
+    p.add_argument("--border", action="store_true", help="black border around the letters")
+    p.add_argument("--appear-at", type=float, metavar="SECONDS",
+                   help="appear at this second of your exported video (default: there all the time)")
+    p.add_argument("--until", type=float, metavar="SECONDS", help="disappear at this second of the video")
     p.add_argument("--flashback-dir", help="Flashback folder to put the copy in (default: the one for its version)")
     p.add_argument("-o", "--output", metavar="FILE", help="write the copy here instead of into Flashback")
     p.set_defaults(func=cmd_world_text)

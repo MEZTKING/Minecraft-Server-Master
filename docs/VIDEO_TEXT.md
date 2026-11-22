@@ -6,7 +6,10 @@
    Flashback edit it came from (even if you changed the edit afterwards, e.g. made it longer), the
    recording, and where the camera stops moving at the end.
 2. **Big text** and an optional **small text above** (e.g. "Welcome to" / "Our First Expedition").
-3. **When:** where the camera stops at the end (good for titles), or at a second you choose.
+3. **When:** where the camera stops at the end (good for titles), or at a second you choose, and
+   optionally **until second** (empty = to the end of the video). In the world the text then really
+   *appears* at that moment of the recording (and disappears at "until"), so it's not visible
+   earlier in the shot.
 4. **Look:** colour (white by default), **black border**, and for on-screen text optionally
    **3D letters**. On-screen text uses Minecraft's own logo font ("Minecraft Ten") when it's
    installed, else Arial Black.
@@ -102,9 +105,14 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
 - **Output:** a new replay named `… (text)` with a new id, put into the Flashback folder that
   matches the recording's Minecraft version, plus a copy of your edit for it; or `-o FILE`.
   The original recording and edit are never changed.
+- **When:** `--appear-at SECONDS` / `--until SECONDS` (seconds of your exported video, from your
+  edit): the text is added to the world at that tick of the recording and removed at "until".
+  Without them it's there the whole recording. `--border` adds the black border.
 - **Versions:** recordings made with Minecraft 26.1.x, 26.2 and 26.3. The packets were checked
   byte for byte against what those Minecraft versions write themselves.
 - The text is added at the start of every chunk file of the recording, so it's there wherever you
   jump to. If the recorded player changes dimension, the text appears again from the next chunk
   file on (and also exists in the other dimension at the same coordinates).
-- Not yet tried in a real Flashback.
+- Tried in the owner's Flashback (26.1.2, 2026-11-22): the text is in the world (a player walking
+  past hides it). Seen from other directions the black border looks different (it is built for the
+  camera's direction at the moment it appears).

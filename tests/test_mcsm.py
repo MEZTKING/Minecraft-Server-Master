@@ -2219,3 +2219,71 @@ class TestButtonTips(unittest.TestCase):
             del root
             import gc
             gc.collect()
+
+
+class TestWorldTextTiming(unittest.TestCase):
+    """Text that appears at one replay tick and goes away at another."""
+
+    @staticmethod
+    def _chunk(ticks: int) -> bytes:
+        from mcsm import worldtext as wt
+        names = [wt.GAME_PACKET, wt.NEXT_TICK]
+        out = struct.pack(">I", wt.FLASHBACK_MAGIC) + wt._varint(len(names))
+        for n in names:
+            out += wt._varint(len(n)) + n.encode()
+        out += struct.pack(">I", 0)                                       # empty snapshot
+        for _ in range(ticks):
+            out += wt._varint(1) + struct.pack(">I", 0)                   # next_tick
+        return out
+
+    @staticmethod
+    def _events(chunk: bytes):
+        """[(tick, game packet id, first payload bytes)] in the snapshot (tick -1) and records."""
+        from mcsm import worldtext as wt
+        names, i = wt._header(chunk)
+        size = struct.unpack(">I", chunk[i:i + 4])[0]
+        out, j = [], i + 4
+        end = j + size
+        tick = -1
+        while j < len(chunk):
+            if j == end:
+                tick = 0
+            a, k = wt._read_varint(chunk, j)
+            ln = struct.unpack(">I", chunk[k:k + 4])[0]
+            payload = chunk[k + 4:k + 4 + ln]
+            j = k + 4 + ln
+            if names[a] == wt.NEXT_TICK:
+                tick = max(tick, 0) + 1
+            else:
+                pid, _ = wt._read_varint(payload, 0)
+                out.append((tick, pid))
+        return out
+
+    def test_appear_and_disappear(self):
+        from mcsm import worldtext as wt
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, "rec.zip")
+            with zipfile.ZipFile(src, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({
+                    "uuid": "u", "protocol_version": 775, "total_ticks": 30,
+                    "chunks": {"c0.flashback": {"duration": 10}, "c1.flashback": {"duration": 10},
+                               "c2.flashback": {"duration": 10}}}))
+                for n in range(3):
+                    zf.writestr(f"c{n}.flashback", self._chunk(10))
+            dst = os.path.join(tmp, "out.zip")
+            # appears at replay tick 4 (in c0), goes away at tick 25 (in c2)
+            wt.write_world_text_copy(src, dst, [wt.WorldText("Hi", 0, 70, 0, appear_tick=4, disappear_tick=25)])
+            with zipfile.ZipFile(dst) as zf:
+                c0, c1, c2 = (self._events(zf.read(f"c{n}.flashback")) for n in range(3))
+            add, data, remove = 1, 99, 77
+            self.assertEqual(c0, [(4, add), (4, data)])              # spawned 4 ticks into the first file
+            self.assertEqual(c1, [(-1, add), (-1, data)])            # already there when jumping to c1
+            self.assertEqual(c2, [(-1, add), (-1, data), (5, remove)])  # removed 5 ticks into c2 (tick 25)
+            # no timing: in every snapshot, never removed
+            dst2 = os.path.join(tmp, "out2.zip")
+            wt.write_world_text_copy(src, dst2, [wt.WorldText("Hi", 0, 70, 0)])
+            with zipfile.ZipFile(dst2) as zf:
+                self.assertEqual(self._events(zf.read("c2.flashback")), [(-1, add), (-1, data)])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

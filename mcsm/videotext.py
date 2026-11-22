@@ -549,11 +549,13 @@ def analyse_video(video: str, world_dir: str | None = None) -> dict:
 
 def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float | None, colour: str = "white",
                   outline: bool = True, distance: float = 55.0, flashback_dir: str | None = None,
-                  progress=None) -> dict:
+                  progress=None, until_seconds: float | None = None, always: bool = False) -> dict:
     """Put *lines* (text, letter height in blocks; first = top) into the world of a copy of the
     matched recording, in front of the camera at *at_seconds* of the video (None: where the camera
-    stops at the end). The copy and a copy of the edit (with the export range of this video) go
-    into the Flashback folder for the recording's Minecraft version."""
+    stops at the end). The text appears at that moment and stays until *until_seconds* (None: to
+    the end); with *always* it is there for the whole recording. The copy and a copy of the edit
+    (with the export range of this video) go into the Flashback folder for the recording's
+    Minecraft version."""
     from . import flashback as fbm, worldtext as wt
     say = progress or (lambda msg: None)
     src = match.get("recording")
@@ -566,12 +568,15 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     if cam is None:
         raise ValueError("this edit has no camera keyframes to place the text by")
     pos, yaw, pitch = cam
+    appear = None if always else int(clock.replay_tick(min(secs, clock.duration)))
+    gone = None if (always or until_seconds is None) else int(clock.replay_tick(min(until_seconds, clock.duration)))
     cx, cy, cz = wt.in_front(pos, yaw, pitch, distance)
     texts, y = [], cy + distance * 0.32            # upper part of the picture, like a title
     for text, size in lines:
         y -= size * 1.35
         texts.append(wt.WorldText(text, cx, y + size * 1.35, cz, size=size, colour=colour, bold=True,
-                                  outline="black" if outline else "", camera_yaw=yaw))
+                                  outline="black" if outline else "", camera_yaw=yaw,
+                                  appear_tick=appear, disappear_tick=gone))
     with zipfile.ZipFile(src) as zf:
         mc = json.loads(zf.read("metadata.json").decode("utf-8")).get("version_string")
     fb = flashback_dir or fbm.find_flashback_dir(None, mc)
@@ -587,7 +592,8 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     meta = wt.write_world_text_copy(src, dst, texts)
     edit = wt.copy_edit(match["state"], os.path.join(fb, "editor_states", meta["uuid"] + ".json"), match["uuid"],
                         (match["start"], match["end"]))
-    return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb}
+    return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb,
+            "appears_at": None if always else secs, "until": until_seconds}
 
 
 def make_on_screen(video: str, lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",
