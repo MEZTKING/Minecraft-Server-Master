@@ -662,7 +662,7 @@ def world_layout(match: dict, lines: list[tuple[str, float]], at_seconds: float 
     import math
     sc = scene_for_match(match)
     clock = scene_clock(sc)
-    secs = at_seconds if at_seconds is not None else (match.get("still_from") or clock.duration) + 0.1
+    secs = at_seconds if at_seconds is not None else (match["still_from"] if match.get("still_from") is not None else clock.duration) + 0.1
     tick = clock.replay_tick(min(secs, clock.duration))
     cam = wt.camera_at(sc, tick)
     if cam is None:
@@ -700,7 +700,8 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
                   progress=None, until_seconds: float | None = None, always: bool = False,
                   animation: str = "none", anim: float = 0.4, word_gap: float = 0.3, fade_out: float = 0.0,
                   border_colour: str = "black", glow: bool = True, shadow: bool = False,
-                  box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0) -> dict:
+                  box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
+                  video: str | None = None) -> dict:
     """Put *lines* (text, letter height in blocks; first = top) into the world of a copy of the
     matched recording, in front of the camera at *at_seconds* of the video (None: where the camera
     stops at the end). The text appears at that moment and stays until *until_seconds* (None: to
@@ -737,18 +738,42 @@ def make_in_world(match: dict, lines: list[tuple[str, float]], at_seconds: float
     fb = flashback_dir or fbm.find_flashback_dir(None, mc)
     if not fb:
         raise ValueError("no Flashback folder found")
-    base = os.path.splitext(os.path.basename(src))[0] + " (text)"
-    dst = os.path.join(fb, "replays", base + ".zip")
-    n = 2
-    while os.path.exists(dst):
-        dst = os.path.join(fb, "replays", f"{base} {n}.zip")
-        n += 1
-    say(f"Writing a copy of {os.path.basename(src)} with the text in its world…")
-    meta = wt.write_world_text_copy(src, dst, texts)
-    edit = wt.copy_edit(match["state"], os.path.join(fb, "editor_states", meta["uuid"] + ".json"), match["uuid"],
-                        (match["start"], match["end"]))
+    # One copy per video: making it again replaces the earlier copy (same name and id, so Flashback
+    # keeps any changes you made to its edit) instead of piling up gigabyte-sized copies.
+    earlier = find_text_copy(fb, video) if video else None
+    if earlier:
+        dst, keep = earlier["path"], earlier["uuid"]
+        say(f"Replacing the earlier copy {os.path.basename(dst)}…")
+    else:
+        keep = None
+        base = os.path.splitext(os.path.basename(src))[0] + " (text)"
+        dst = os.path.join(fb, "replays", base + ".zip")
+        n = 2
+        while os.path.exists(dst):
+            dst = os.path.join(fb, "replays", f"{base} {n}.zip")
+            n += 1
+        say(f"Writing a copy of {os.path.basename(src)} with the text in its world…")
+    meta = wt.write_world_text_copy(src, dst, texts, keep_uuid=keep, video=video)
+    edit_path = os.path.join(fb, "editor_states", meta["uuid"] + ".json")
+    if os.path.exists(edit_path):
+        edit = edit_path                              # keep your edit of the earlier copy as it is
+    else:
+        edit = wt.copy_edit(match["state"], edit_path, match["uuid"], (match["start"], match["end"]))
     return {"replay": dst, "edit": edit, "name": meta["name"], "texts": texts, "flashback": fb,
-            "appears_at": None if always else secs, "until": until_seconds}
+            "appears_at": None if always else secs, "until": until_seconds, "replaced": bool(earlier)}
+
+
+def find_text_copy(flashback_dir: str, video: str) -> dict | None:
+    """The copy made earlier for *video* (``mcsm_video`` in its metadata), if any."""
+    key = os.path.normcase(os.path.abspath(video))
+    d = os.path.join(flashback_dir, "replays")
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not name.lower().endswith(".zip"):
+            continue
+        meta = _replay_meta(os.path.join(d, name))
+        if meta.get("mcsm_video") == key and meta.get("uuid"):
+            return {"path": os.path.join(d, name), "uuid": meta["uuid"]}
+    return None
 
 
 def screen_titles(lines: list[tuple[str, float]], start: float, end: float, style: str = "outline",

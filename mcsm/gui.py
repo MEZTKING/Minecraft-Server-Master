@@ -1143,6 +1143,7 @@ class App(ttk.Frame):
         look["glow"] = self.vid_glow_var.get()
 
         look.update(self._vid_place())
+        look["video"] = self.vid_info["video"]
 
         def work(_):
             return vt.make_in_world(match, lines, at, colour, border, progress=print, until_seconds=until, **look)
@@ -1170,7 +1171,7 @@ class App(ttk.Frame):
     def _vid_times(self) -> tuple[float, float]:
         info, match = self.vid_info, self._vid_match()
         at = self._vid_when()
-        start = at if at is not None else ((match or {}).get("still_from") or max(0.0, info["duration"] - 4)) + 0.2
+        start = at if at is not None else ((match or {}).get("still_from") if (match or {}).get("still_from") is not None else max(0.0, info["duration"] - 4)) + 0.2
         until = self._vid_until()
         return start, (until if until is not None else info["duration"] + 1)
 

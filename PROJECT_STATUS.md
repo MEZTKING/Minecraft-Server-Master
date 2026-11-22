@@ -705,6 +705,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** "Put it in the world" again for the same video **replaces** its copy (same name and
+  id, edit kept) instead of adding another ~1 GB copy; copies remember their video (`mcsm_video`).
+  Fix: a camera that is still from 0 s was treated as "not found".
 - **2026-11-22:** **Choosing where in-world text goes:** Videos tab "Place in the world" (right, up,
   distance, size) and **Preview world position**: the in-world text is projected into a frame of the
   video using the edit's camera and FOV keyframes (matched the owner's Flashback screenshot within ~1.5%

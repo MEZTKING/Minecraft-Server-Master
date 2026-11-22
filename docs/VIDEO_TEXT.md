@@ -28,6 +28,9 @@
      hidden behind blocks). A copy of the recording named `… (text)` and a copy of your edit (with
      the same export range as your video) go into the Flashback folder for its Minecraft version.
      Open it in Flashback and press Export: the video comes out with the text in the world.
+     Pressing it again for the same video **replaces** that copy (same name and id, made as a new file
+     and swapped in when complete; close the replay in Flashback first). Changes you made to the copy's
+     edit in Flashback are kept. Other videos get their own copy.
    - **Put it on the video (new file)**: `<video> (with text).mp4` next to the original, made with
      ffmpeg (the fastest encoder your PC really has: NVIDIA, AMD or Intel, else the normal one).
    - **Preview**: one frame with the on-screen text, to check size and place first.

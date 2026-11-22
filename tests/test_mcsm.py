@@ -2420,3 +2420,43 @@ class TestWorldPlacement(unittest.TestCase):
         self.assertIsNone(vt.project(cam, 0.0, 0.0, 70.0, 1920, 1080, (0.0, 64.0, -10.0)))   # behind
         self.assertAlmostEqual(vt.fov_at({"keyframeTracks": [{"keyframeType": "FOV", "keyframesByTick": {
             "0": {"fov": 30}, "100": {"fov": 70}}}]}, 50), 50.0)
+
+
+class TestReplaceTextCopy(unittest.TestCase):
+    def test_making_again_replaces_the_copy_and_keeps_its_edit(self):
+        from mcsm import videotext as vt
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "fb")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            os.makedirs(os.path.join(fb, "replays"))
+            state = os.path.join(fb, "editor_states", "orig.json")
+            cam = {"position": [0, 64, 0], "yaw": 0, "pitch": 0}
+            with open(state, "w") as fh:
+                json.dump({"scenes": [{"name": "S", "exportStartTicks": 0, "exportEndTicks": 10, "keyframeTracks": [
+                    {"keyframeType": "CAMERA", "keyframesByTick": {"0": cam, "10": cam}}]}]}, fh)
+            rec = os.path.join(tmp, "orig.zip")
+            with zipfile.ZipFile(rec, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"uuid": "orig", "protocol_version": 775, "total_ticks": 10,
+                                                         "version_string": "26.1.2",
+                                                         "chunks": {"c0.flashback": {"duration": 10}}}))
+                zf.writestr("c0.flashback", TestWorldTextTiming._chunk(10))
+            match = {"recording": rec, "state": state, "scene": 0, "uuid": "orig", "start": 0, "end": 10,
+                     "still_from": 0.0}
+            video = os.path.join(tmp, "clip.mp4")
+            r1 = vt.make_in_world(match, [("One", 3.0)], None, flashback_dir=fb, video=video)
+            with open(r1["edit"], "a") as fh:
+                fh.write(" ")                                  # you changed the copy's edit in Flashback
+            mark = os.path.getsize(r1["edit"])
+            r2 = vt.make_in_world(match, [("Two", 3.0)], None, flashback_dir=fb, video=video)
+            self.assertTrue(r2["replaced"])
+            self.assertEqual(r2["replay"], r1["replay"])
+            self.assertEqual(len(os.listdir(os.path.join(fb, "replays"))), 1)      # no pile of copies
+            self.assertEqual(os.path.getsize(r2["edit"]), mark)                    # your edit kept
+            with zipfile.ZipFile(r2["replay"]) as zf:
+                self.assertIn(b"Two", zf.read("c0.flashback"))
+                self.assertNotIn(b"One", zf.read("c0.flashback"))
+            r3 = vt.make_in_world(match, [("Other", 3.0)], None, flashback_dir=fb, video=os.path.join(tmp, "b.mp4"))
+            self.assertFalse(r3["replaced"])                                          # another video: own copy
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
