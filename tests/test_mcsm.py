@@ -3908,3 +3908,94 @@ class TestBuildWorld3D(unittest.TestCase):
             self.assertIsNone(bw.texture("../evil"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestBackupChanges(unittest.TestCase):
+    """What changed on the ground between two backups: builds, map art, new land; natural changes ignored."""
+
+    @staticmethod
+    def _server(base, name, h, b, chunks, extra=None):
+        from mcsm import terrain
+        root = os.path.join(base, name)
+        os.makedirs(os.path.join(root, "world", "region"))
+        with open(os.path.join(root, "server.properties"), "w") as fh:
+            fh.write("level-name=world\n")
+        terrain.write_region(os.path.join(root, "world", "region", "r.0.0.mca"),
+                             {(cx, cz): terrain.make_chunk(cx, cz, h, b) for cx, cz in chunks})
+        for (rx, rz), cks in (extra or {}).items():
+            terrain.write_region(os.path.join(root, "world", "region", f"r.{rx}.{rz}.mca"),
+                                 {(cx & 31, cz & 31): terrain.make_chunk(cx, cz, h, b) for cx, cz in cks})
+        return root, os.path.join(root, "world")
+
+    def test_compare(self):
+        from mcsm import changes as ch
+        tmp = tempfile.mkdtemp()
+        try:
+            chunks = [(cx, cz) for cx in range(8) for cz in range(4)]
+            flat = lambda x, z: 64                                                  # noqa: E731
+            grass = lambda x, y, z: "minecraft:grass_block"                         # noqa: E731
+            old = self._server(tmp, "old", flat, grass, chunks)
+
+            def h(x, z):
+                if 8 <= x < 32 and 8 <= z < 32:
+                    return 72                                                       # a house
+                if 80 <= x < 84 and 40 <= z < 44:
+                    return 70                                                       # a tree
+                return 64
+
+            def b(x, y, z):
+                if 8 <= x < 32 and 8 <= z < 32:
+                    return "minecraft:oak_planks"
+                if 80 <= x < 84 and 40 <= z < 44:
+                    return "minecraft:oak_leaves"
+                if 48 <= x < 112 and 0 <= z < 16:
+                    return "minecraft:white_concrete"                               # flat map art
+                return "minecraft:grass_block"
+            # a base on land that didn't exist yet (region 1, 0): stone brick walls and floors
+
+            def base_h(x, z):
+                return (64 + (x + z) % 7) if x >= 512 else h(x, z)
+
+            def base_b(x, y, z):
+                return "minecraft:stone_bricks" if x >= 512 else b(x, y, z)
+            new = self._server(tmp, "new", base_h, base_b, chunks,
+                               extra={(1, 0): [(cx, cz) for cx in range(34, 37) for cz in range(0, 3)]})
+            res = ch.compare(old, new, coarse_step=16)
+            kinds = sorted((a["kind"], a["new_land"]) for a in res["areas"])
+            self.assertIn(("build", False), kinds)
+            self.assertIn(("map_art", False), kinds)
+            self.assertIn(("build", True), kinds)
+            self.assertEqual(len(kinds), 3)                                         # the tree is not a build
+            house = next(a for a in res["areas"] if a["kind"] == "build" and not a["new_land"])
+            self.assertTrue(house["area"][0] <= 8 and house["area"][2] >= 32 and house["area"][1] <= 8)
+            self.assertGreaterEqual(house["blocks2"], 400)
+            self.assertGreater(len(res["cells"]["minecraft:overworld"]), 0)
+            self.assertEqual(ch.compare(old, old, coarse_step=16)["areas"], [])
+            cache = os.path.join(tmp, "cache")
+            first = ch.compare_cached(old, new, cache=cache, coarse_step=16)
+            self.assertEqual(ch.compare_cached(old, new, cache=cache, coarse_step=16), json.loads(json.dumps(first)))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_moments(self):
+        from mcsm import changes as ch
+        t0, t1 = 1_000_000, 9_000_000
+        area = {"kind": "build", "area": [0, 0, 32, 32], "cells": 64, "blocks2": 1024, "volume": 8000, "y": 72,
+                "new_land": False, "dim": "minecraft:overworld"}
+        far = {**area, "area": [500, 500, 532, 532]}
+        pairs = [{"from": t0, "to": t1, "areas": [area, far],
+                  "cells": {"minecraft:overworld": [[x, z] for x in range(0, 32, 4) for z in range(0, 32, 4)]}}]
+        tracks = {"Steve": [[t0 + 1000 * k, 510.0, 70.0, 510.0, "minecraft:overworld"] for k in range(120)]}
+        work = [{"id": "w", "mode": "building", "area": [-4, -4, 36, 36], "dim": "minecraft:overworld",
+                 "start": t0 + 5000, "score": 10.0, "why": ["building"]}]
+        out = ch.change_moments(pairs, tracks, work)
+        self.assertEqual(work[0]["confirmed"], 64 * 16)                             # the backups confirm the build
+        self.assertEqual(work[0]["score"], 12.0)
+        self.assertEqual(len(out), 1)                                               # the confirmed one is no new moment
+        m = out[0]
+        self.assertEqual((m["players"], m["mode"], m["area"]), (["Steve"], "changed", [500, 500, 532, 532]))
+        self.assertEqual(m["start"], t0 + 119_000)                                  # the last time Steve was there
+        self.assertIn("Steve", m["title"])
+        lonely = ch.change_moments([{**pairs[0], "areas": [far]}], {}, [])
+        self.assertTrue(lonely[0]["title"].startswith("Unknown builder"))
+        self.assertEqual(lonely[0]["start"], t1)

@@ -8,6 +8,7 @@ Served on ``http://127.0.0.1:<port>`` (this computer only):
     /api/terrain/...       terrain tiles (same as the live map); ``?layer=N`` for an older backup
     /api/history           time range, players, events, sessions, replays, backups
     /api/paths             player paths decoded so far (grows while recordings are read)
+    /api/changes           what changed on the ground between backups (:mod:`mcsm.changes`), as found so far
 
 Position sources: player paths decoded from Flashback recordings (:mod:`mcsm.paths`), live-map
 track recordings (``mcsm live --record``), and join positions from the logs.
@@ -162,7 +163,7 @@ class HistoryMap(TerrainServer):
     # -- lifecycle ----------------------------------------------------------
     def start(self, port: int = 8766, host: str = "127.0.0.1") -> str:
         self._httpd = serve(self, port, host)
-        for target in (self._httpd.serve_forever, self._build_terrain, self._decode):
+        for target in (self._httpd.serve_forever, self._build_terrain, self._decode, self._find_changes):
             threading.Thread(target=target, daemon=True).start()
         return f"http://{host}:{self._httpd.server_address[1]}/"
 
@@ -193,6 +194,76 @@ class HistoryMap(TerrainServer):
         with self._lock:
             self.warnings += warns
         self.decode_progress = [self.decode_progress[1], self.decode_progress[1]]
+
+    # -- changes between backups ----------------------------------------------
+    def _snapshots(self) -> list[dict]:
+        """Every backup with a time, oldest first: ``{"path", "t", "label"}`` (the newest is ``root``)."""
+        snaps = [{"path": b["path"], "t": b.get("t"), "label": b.get("label") or ""} for b in self._terrain_backups]
+        if self.root and self.world:
+            snaps.append({"path": self.root, "world": self.world, "t": self.terrain_time, "label": self.terrain_label})
+        return sorted((s for s in snaps if s.get("t") is not None), key=lambda s: s["t"])
+
+    def _find_changes(self) -> None:
+        """Compare each pair of consecutive backups (newest first) once the map's terrain is built."""
+        import contextlib
+        import time as time_mod
+        from . import changes as ch, source, terrain as terrain_mod, world as world_mod
+        self.changes_progress = [0, 0]
+        self._change_pairs: list[dict] = []
+        snaps = self._snapshots()
+        if len(snaps) < 2:
+            self.changes_progress = [0, 0]
+            self._changes_done = True
+            return
+        self.changes_progress = [0, len(snaps) - 1]
+        while not self._stop.is_set():            # wait for the terrain (it reads the same files)
+            layers = list(self.terrain_layers)
+            if len(layers) >= len(self._terrain_backups) + 1 and all(L["done"] for L in layers):
+                break
+            time_mod.sleep(2)
+        cache = terrain_mod.default_cache_dir() if self.terrain_cache is None else (self.terrain_cache or None)
+        try:
+            n = len(terrain_mod.region_files(self.root, self.world, "minecraft:overworld")) if self.root else 0
+            coarse = self.terrain_step or terrain_mod.auto_step(max(1, n))
+            for i in range(len(snaps) - 1, 0, -1):
+                if self._stop.is_set():
+                    return
+                with contextlib.ExitStack() as stack:
+                    pair = []
+                    for s in (snaps[i - 1], snaps[i]):
+                        if s.get("world"):
+                            pair.append((s["path"], s["world"]))
+                        else:
+                            root = stack.enter_context(source.open_server(s["path"], include_regions=True))
+                            props = world_mod.read_properties(os.path.join(root, "server.properties"))
+                            pair.append((root, world_mod.world_dir(root, props)))
+                    try:
+                        res = ch.compare_cached(pair[0], pair[1], coarse_step=coarse, tile_cache=cache, stop=self._stop)
+                    except Exception as exc:          # noqa: BLE001 -- one unreadable backup mustn't stop the rest
+                        self.warnings.append(f"changes between backups {snaps[i - 1]['label']} and {snaps[i]['label']}: {exc}")
+                        res = {"areas": [], "cells": {}}
+                with self._lock:
+                    self._change_pairs.append({"from": snaps[i - 1]["t"], "to": snaps[i]["t"],
+                                               "from_label": snaps[i - 1]["label"], "to_label": snaps[i]["label"], **res})
+                self.changes_progress[0] += 1
+        finally:
+            self._changes_done = True
+
+    def changes_info(self) -> dict:
+        """The changes found so far, newest backup interval first (without the cell lists)."""
+        from . import changes as ch
+        _n, tracks = getattr(self, "_tracks", (0, {}))
+        with self._lock:
+            pairs = list(getattr(self, "_change_pairs", []))
+        out = []
+        for p in sorted(pairs, key=lambda p: -p["to"]):
+            areas = []
+            for ar in p["areas"]:
+                who = ch.presence(ar["area"], ar["dim"], p["from"], p["to"], tracks) if tracks else {"players": []}
+                areas.append({**ar, "label": ch.label(ar["kind"]), "players": who["players"][:3]})
+            out.append({k: p[k] for k in ("from", "to", "from_label", "to_label")} | {"areas": areas})
+        return {"pairs": out, "progress": list(getattr(self, "changes_progress", [0, 0])),
+                "done": bool(getattr(self, "_changes_done", False))}
 
     def decode_now(self) -> None:
         """Decode synchronously (tests and ``--no-server`` runs)."""
@@ -251,6 +322,8 @@ class HistoryMap(TerrainServer):
             return self._payload
         if path == "/api/paths":
             return self.paths()
+        if path == "/api/changes":
+            return self.changes_info()
         if path == "/api/highlights":
             return self.highlights_info()
         if path == "/api/moments":
@@ -405,8 +478,18 @@ class HistoryMap(TerrainServer):
                 except Exception:                         # noqa: BLE001 -- keep the event moments
                     self._work_state = "done"
             threading.Thread(target=work, daemon=True).start()
+        changes_done = bool(getattr(self, "_changes_done", False)) or not self._httpd
+        if final and self._work_state == "done" and changes_done and not getattr(self, "_change_moments", False):
+            from . import changes as ch                   # building moments the backups confirm, and the others
+            self._change_moments = True
+            _n, tracks = getattr(self, "_tracks", (0, {}))
+            with self._lock:
+                pairs = list(getattr(self, "_change_pairs", []))
+                if pairs:
+                    extra = ch.change_moments(pairs, tracks or {}, self._moments)
+                    self._moments = sorted(self._moments + extra, key=lambda x: -x["score"])
         return {"moments": self._moments, "weights": mo.WEIGHTS,
-                "positions_final": final and self._work_state == "done"}
+                "positions_final": final and self._work_state == "done" and changes_done}
 
     # -- highlights ----------------------------------------------------------
     def highlights_info(self) -> dict:

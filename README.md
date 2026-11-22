@@ -156,7 +156,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |
 | `mcsm library import-all FOLDER` / `scan` / `import` / `list` / `add-recordings` | Keep all backups (any host, also world-only downloads and singleplayer saves) and recordings in one library folder, one folder per world, duplicates stored once; `import-all` sorts a whole messy folder after showing a plan; then give the world's folder as SERVER to any command ([guide](docs/LIBRARY.md)). |
-| `mcsm history SERVER [MORE...]` | 3D time machine: a time slider over the whole history, with player paths from Flashback recordings, events, sessions and replay coverage. The map shows **each backup's world at its time**, so you can watch builds appear. Mark **highlights for videos** and export them to Flashback with markers and ready-made export ranges ([guide](docs/HISTORY.md)). |
+| `mcsm history SERVER [MORE...]` | 3D time machine: a time slider over the whole history, with player paths from Flashback recordings, events, sessions and replay coverage. The map shows **each backup's world at its time**, so you can watch builds appear, and **Changes** outlines what was built, dug or turned into map art between backups (also as moments, with who was there). Mark **highlights for videos** and export them to Flashback with markers and ready-made export ranges ([guide](docs/HISTORY.md)). |
 
 Run `mcsm <command> --help` for every option.
 

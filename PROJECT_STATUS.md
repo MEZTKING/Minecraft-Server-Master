@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (editor and timelapse view share the 3D world code; editor hides ignored players).
+`CLAUDE.md`). Last updated: 2026-11-22 (changes between backups on the map and as moments, 0t step 3).
 
 ## What this project is
 
@@ -85,6 +85,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | Editor extras: opacity, rotate, facing (camera / upright / fixed like a sign, turn, tilt), 3D depth, italic, underline, rise and slam animations, chained follow-ups with any gap, "lasts" seconds, pictures on the video (opacity, rotate, fade/rise); app Videos tab now only picks the video | ✅ Done; on-screen results checked frame by frame with ffmpeg; in-world rotation/facing/3D/rise not yet seen in Flashback | `worldtext.py` (`translation_of`, `quaternion_of`, `with_depth`, `transform_packet`), `videotext.py` (`resolve_times`, `image_filters`), `videoeditor.py` (`/api/image`), `videotext.html`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
 | Build timelapse view: the build's real world in 3D, look around, preview, camera automatic / own views (gliding) / set in Flashback; parts under 2 s left out; join exported parts with music | ✅ Done, the view and join not yet tried by the owner | `mcsm/world3d.py`, `mcsm/assets/web/map3d.js`, `mcsm/timelapse.py`, `mcsm/videojoin.py`, history viewer, `mcsm timelapse-join`, Videos tab | `docs/HISTORY.md` |
+| Changes between backups: builds, map art, digging found by comparing each backup's ground with the one before; Changes toggle on the history map, change moments, building moments confirmed | ✅ Done, checked on the owner's 15 backups (26 change moments, 86 builds confirmed) | `mcsm/changes.py`, history viewer | `docs/HISTORY.md` |
 | Ignored players (never supposed to join), left out everywhere | ✅ Done | `mcsm/ignore.py`, `mcsm ignore`, Ignored players… | README |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
@@ -712,7 +713,9 @@ moving camera smoothly with LINEAR keyframes in a timelapse is untested in the r
 ✅ **Steps 1-3 done 2026-11-22** (owner: "Yes, build it"): movement stretches (`mcsm/activity.py`) as moments in
 the list, the story and on the map (area outlined), stats between backups in their description, Keep = best
 3 minutes. ✅ Step 4 (owner: "Timelapse of builds"): the Timelapse button on building/map-art moments (Fable's
-design). Still to do: the surface comparison between backups.
+design). ✅ Step 3/5 (owner: "Backup changes on map"): the surface comparison between backups
+(`mcsm/changes.py`, Fable reviewed) on the history map (Changes toggle + list) and as moments; it also confirms
+building moments. 0t is complete.
 
 **The ask:** "sometimes players can spend long hours looking like their doing nothing but they have lots
 going on. like making a massive map on the ground or looking for something" (the moments finder only sees
@@ -905,6 +908,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Known gaps and unverified assumptions
 
+- **Changes between backups are estimates** from the map's top-down surface sampled every 4 blocks: work under
+  a roof or underground is invisible, builds on newly explored land are guessed from man-made block colours
+  (game villages look the same), and the "confirmed" note counts every changed cell in a building moment's
+  area (permissive: 86 of the owner's ~105 builds). Who did it comes only from recorded positions.
+
 - **Timelapse view and join not yet tried by the owner.** Camera views assume the owner's Flashback FOV is
   near 70.
 
@@ -969,6 +977,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Changes between backups (0t step 3, owner: "Backup changes on map"; Fable reviewed):
+  `mcsm/changes.py` compares each pair of consecutive backups (coarse map tiles first, then every 4 blocks; natural
+  changes such as trees, water/ice, snow and the End's island ignored; areas of 250+ blocks² close together;
+  man-made blocks on newly explored land), cached per pair. History viewer: Changes toggle (outlines + list,
+  who was there), up to 5 change moments per interval, building moments confirmed. On the owner's library: 14
+  intervals in a few minutes, 26 change moments, 86 builds confirmed.
 
 - **2026-11-22:** The video editor's 3D map now uses `mcsm/world3d.py` too (one copy of the terrain-tile, block and
   texture code; its cache moved to `%LOCALAPPDATA%/mcsm/build-view/`), checked on the owner's "Meeting Room"

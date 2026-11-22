@@ -132,6 +132,26 @@ loops if it's shorter than the video and fades out over the last 2 seconds. It n
 Your recordings are not changed. The players' positions must have been read first (the status line says
 when).
 
+**Changes between backups.** With two or more backups, the viewer compares each backup's ground with the
+one before (in the background, a few minutes the first time for a big library, then saved). Tick
+**Changes** next to **Terrain**: the map outlines what changed between the backup shown and the one before
+it (orange = built, purple = map art, brown = dug out or cleared, grey = changed), and a list under it gives
+each change's size and who was recorded there; click one to fly to it. Move the time slider (or pick a
+backup in **Terrain**) to see another interval.
+
+- Natural changes are left out: growing trees, water and ice, snow, lava, water plants, and the End's
+  island around 0, 0 (the dragon fight). Small scattered changes (a block here and there) don't count;
+  an area needs about 250 blocks² of changed ground that sits close together.
+- On land that didn't exist yet in the older backup (explored since), areas covered in clearly man-made
+  blocks (planks, bricks, glass, wool, concrete…) count as built "on new land". A village the game made
+  can look the same.
+- Changes also become **moments** ("changes between backups" in the kind filter; untick *with a
+  recording*, as most have none): "Unknown builder" when nobody was recorded there, otherwise who was
+  there, at the last time they were seen there. Building moments the backups confirm get "the backups show
+  about N blocks² changed there" and rank a little higher; such an area gets no moment of its own. At most
+  5 change moments per backup interval.
+- The map's colours and heights are sampled every few blocks, so sizes are estimates.
+
 **Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. Each
 moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
 only into a Flashback of exactly that version. If there is none on this PC, they go into a folder

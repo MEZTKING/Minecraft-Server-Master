@@ -88,6 +88,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .legend i { display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 #help { position: fixed; right: 12px; top: 12px; padding: 6px 10px; font-size: 12px; color: var(--text-2); max-width: 260px; }
 #toggle { display: none; }
+#chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
+#chgList li:hover { background: var(--chip); }
+#chgList .sw { align-self: center; }
 #tlv { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); width: min(980px, calc(100% - 32px));
   max-height: calc(100% - 32px); overflow-y: auto; padding: 12px; z-index: 10; }
 #tlv .head { display: flex; align-items: center; gap: 8px; }
@@ -130,6 +133,11 @@ ul { list-style: none; margin: 0; padding: 0; }
     <label title="Each backup's world: see builds appear as time moves">Terrain <select id="terrainSel">
       <option value="follow">Follow the time slider</option>
     </select></label>
+    <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
+  </div>
+  <div id="chgBox" hidden>
+    <div class="meta" id="chgHead"></div>
+    <ul id="chgList"></ul>
   </div>
   <div class="row">
     <label>Trail <select id="trailLen">
@@ -160,6 +168,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="">all kinds</option><option value="death">deaths</option><option value="advancement">advancements</option>
       <option value="first_join">first joins</option><option value="chat">conversations</option><option value="marker">markers</option>
       <option value="work">building &amp; map art</option><option value="travel">exploring &amp; searching</option>
+      <option value="change">changes between backups</option>
     </select>
     <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
     <select id="mVersion" title="Only moments recorded in this Minecraft version (Flashback opens a recording only in its own version)"><option value="">any version</option></select>
@@ -1111,6 +1120,60 @@ $("#tlvMake").onclick = async () => {
   if (TLV && TLV.m === m) $("#tlvMake").disabled = false;
 };
 
+// ---------- what changed on the ground between backups (mcsm/changes.py) ----------
+const CHG_COLOUR = { build: "#eb6834", map_art: "#a855f7", dug: "#8d6e63", changed: "#9e9e9e" };
+let CHG = { pairs: [], done: false }, chgGroup = new THREE.Group(), chgShown = "";
+scene.add(chgGroup);
+async function loadChanges() {
+  try { CHG = await (await fetch("api/changes")).json(); } catch (e) { return; }
+  chgShown = ""; drawChanges();
+  if (!CHG.done) setTimeout(loadChanges, 5000);
+}
+function chgPair() {                                // the interval that ends with the backup the map shows
+  const L = layerOf(wantedLayer());
+  return L && L.t != null ? CHG.pairs.find(p => p.to === L.t) : null;
+}
+function drawChanges() {
+  const on = $("#chgOn").checked, dim = $("#dim").value, p = on ? chgPair() : null;
+  const key = `${on}|${dim}|${p ? p.to : ""}|${p ? p.areas.length : 0}|${CHG.done}`;
+  if (key === chgShown) return;
+  chgShown = key;
+  for (const o of [...chgGroup.children]) { chgGroup.remove(o); o.geometry.dispose(); o.material.dispose(); }
+  $("#chgBox").hidden = !on;
+  if (!on) return;
+  const done = CHG.progress ? `${CHG.progress[0]} of ${CHG.progress[1]} backup intervals compared` : "";
+  if (!p) {
+    $("#chgHead").textContent = CHG.pairs.length || CHG.done
+      ? "Move the time slider to a time between two backups to see what changed then." + (CHG.done ? "" : ` (${done}…)`)
+      : `Comparing the backups… ${done}`;
+    $("#chgList").replaceChildren();
+    return;
+  }
+  const here = p.areas.filter(a => a.dim === dim);
+  $("#chgHead").textContent = `Between the backups of ${fmtDay(p.from)} and ${fmtDay(p.to)}: `
+    + (here.length ? `${here.length} change${here.length > 1 ? "s" : ""} on the ground` : "nothing big changed on the ground here")
+    + (CHG.done ? "" : ` (still comparing: ${done})`);
+  const ul = $("#chgList"); ul.replaceChildren();
+  for (const a of here) {
+    const [x0, z0, x1, z1] = a.area, y = a.y + 1.5, col = new THREE.Color(CHG_COLOUR[a.kind] || "#9e9e9e");
+    const g = new THREE.BufferGeometry().setFromPoints([[x0, z0], [x1, z0], [x1, z1], [x0, z1], [x0, z0]].map(([x, z]) => new THREE.Vector3(x, y, z)));
+    chgGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: col })));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide }));
+    fill.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); chgGroup.add(fill);
+    const li = document.createElement("li");
+    const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = CHG_COLOUR[a.kind] || "#9e9e9e";
+    const tx = document.createElement("span");
+    tx.textContent = `${a.label}${a.new_land ? " (new land)" : ""} at ${Math.round((x0 + x1) / 2)}, ${Math.round((z0 + z1) / 2)} · ~${a.blocks2.toLocaleString()} blocks²`
+      + (a.players.length ? ` · ${a.players.join(", ")}` : "");
+    li.title = "Show it on the map";
+    li.onclick = () => focusOn(new THREE.Vector3((x0 + x1) / 2, a.y, (z0 + z1) / 2), Math.max(140, Math.max(x1 - x0, z1 - z0) * 3));
+    li.append(sw, tx); ul.appendChild(li);
+  }
+}
+$("#chgOn").onchange = () => { store.set("mcsm-changes", $("#chgOn").checked ? "1" : ""); chgShown = ""; drawChanges(); };
+$("#chgOn").checked = store.get("mcsm-changes") === "1";
+
 // ---------- the area of a building/exploring stretch, outlined on the map ----------
 let areaLine = null;
 function showArea(m, move = true) {
@@ -1239,6 +1302,7 @@ function frame(now) {
       lastLayerCheck = now;
       const d = $("#dim").value;
       if (!terrainBusy[d] && wantedLayer() !== shownLayer[d]) loadTerrain(d);
+      if ($("#chgOn").checked) drawChanges();                 // the outlines follow the backup shown
     }
     for (const [name, m] of Object.entries(markers)) {
       if (!m.group.visible) { m.label.style.display = "none"; continue; }
@@ -1317,7 +1381,7 @@ async function init() {
     : saved && saved >= H.range[0] && saved <= H.range[1] ? saved : (starts.length ? starts[starts.length - 1] : H.range[1]);
   DAYS = [...new Set(starts.map(t => new Date(t).toDateString()))].map(d => new Date(d).getTime()).sort((a, b) => a - b);
   resize(); setView(); update(performance.now(), true);
-  showSpan(); loadHighlights().then(loadMoments).then(() => { if (storyLink) setStory(true); else if (storyOn) buildStory(); });
+  showSpan(); loadChanges(); loadHighlights().then(loadMoments).then(() => { if (storyLink) setStory(true); else if (storyOn) buildStory(); });
   await loadPaths();
   fitAll();
 }
