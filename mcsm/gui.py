@@ -195,7 +195,7 @@ class App(ttk.Frame):
         bottom.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Button(bottom, text="Load this world (all its backups and recordings)", command=self._lib_load).pack(side="left")
         ttk.Button(bottom, text="Refresh", command=self._lib_refresh).pack(side="left", padx=4)
-        self.after(200, self._lib_refresh)
+        self._lib_refresh()
         return f
 
     def _lib_selected_world(self) -> str | None:

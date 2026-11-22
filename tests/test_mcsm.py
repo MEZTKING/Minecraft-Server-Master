@@ -1558,3 +1558,6 @@ class TestLibrary(unittest.TestCase):
             self.assertEqual(len(app.data.replays), self.old_replays)
         finally:
             root.destroy()
+            del root
+            import gc
+            gc.collect()
