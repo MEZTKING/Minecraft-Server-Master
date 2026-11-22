@@ -23,14 +23,17 @@ tab and command.
 
 Open the **Library** tab.
 
-1. **Library folder**: `Documents\mcsm-library` by default. Choose another one (e.g. a big
-   drive) with *Browse…*.
+1. **Library folder**: `Documents\mcsm-library` by default. Choose another one with
+   *Browse…*. For big collections, put it **on the same drive as your backups** (e.g.
+   `F:\Game Backup\mcsm-library`): unpacking and de-duplicating stay on that drive.
 2. **Adding files**:
    - **Link** (default): the library points at the same data on disk with hard links. It's
      instant and uses no extra space, and the originals are not changed. Afterwards you can
      delete the original folders and nothing is lost: the data stays in the library. Only
      works on the same drive; on another drive it copies.
-   - **Copy**: a full copy.
+   - **Copy**: the originals are only read, never touched. Only what isn't a duplicate is
+     stored: a file identical to one already in the library (another backup, or the same
+     recording) is stored once. Use this to keep your original backups exactly as they are.
    - **Move**: the files are moved into the library (instant on the same drive).
 3. **Import backup folder…** for an unpacked backup; **Import backup file (.zip / .tgz)…** for a
    download. Archives are unpacked straight into the library once, so you never unpack them
@@ -66,10 +69,16 @@ A library world folder works as SERVER for **every** command (`summary`, `report
   time or `latest.log`). Importing a backup whose time is already in the library is skipped,
   so importing the same download twice does nothing.
 - **Recordings** (ServerReplay `recordings/`, ReplayMod, Flashback) go into the world's
-  `recordings` folder. One that's already there (same path and same content) is not stored
-  again. One with the same name but different content is kept as `name (2).zip`.
+  `recordings` folder. One that's already there (same file name and identical content, even
+  under a differently named player folder, since ServerReplay changed its folder names between
+  versions) is not stored again. One with the same name but different content is kept as `name (2).zip`.
 - **Files that didn't change** between backups (same path and identical content, e.g. old
   region files and log archives) are stored once and hard-linked into each backup.
+- **Added recordings** (`add-recordings` / *Add recordings…*) keep their folder layout under
+  `recordings\imported\<folder name>\`, so `players\<uuid>\` folders still say whose
+  recording it is; ones already in the world are skipped.
+- `.7z` archives aren't supported (Python has no 7-Zip reader): unpack them first and import
+  the folder.
 - Each backup folder has an `mcsm-backup.json` with where it came from, when it was imported,
   the Minecraft version and the counts.
 - Archive safety: entries that would land outside the library, links and devices in a `.tgz`

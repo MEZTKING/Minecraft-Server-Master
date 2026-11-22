@@ -1507,7 +1507,13 @@ class TestLibrary(unittest.TestCase):
         s = lib.add_recordings([loose], r["world"], mode="copy")
         self.assertEqual(s["added"], 1)
         self.assertEqual(lib.add_recordings([loose], r["world"], mode="copy")["known"], 1)
-        self.assertTrue(os.path.isfile(os.path.join(r["world"], "recordings", "imported", "Client clip.zip")))
+        self.assertTrue(os.path.isfile(os.path.join(r["world"], "recordings", "imported", "replays", "Client clip.zip")))
+        # a folder of recordings the world already has (same names, same content) adds nothing
+        again = os.path.join(self.tmp, "all-recordings")
+        shutil.copytree(os.path.join(self.old, "recordings"), os.path.join(again, "recordings"))
+        s2 = lib.add_recordings([again], r["world"], mode="copy")
+        self.assertEqual(s2["added"], 0)
+        self.assertEqual(s2["known"], self.old_replays)
         from io import StringIO
         from contextlib import redirect_stderr
         with redirect_stderr(StringIO()):

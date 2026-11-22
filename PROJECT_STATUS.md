@@ -443,6 +443,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-22:** Library: recordings are de-duplicated by file name + content anywhere in the
+  world (ServerReplay renamed its player folders between versions); `add-recordings` keeps the
+  folder layout (`players/<uuid>/` still names the player); docs recommend copy mode to leave
+  originals untouched and a library on the backups' drive.
 - **2026-11-22:** **Library: all backups and recordings in one place.** `mcsm library import`
   (folders, `.zip`, PebbleHost `.tgz` unpacked once), `add-recordings`, `list`; one folder per
   world, a dated folder per backup, recordings stored once, unchanged files hard-linked between

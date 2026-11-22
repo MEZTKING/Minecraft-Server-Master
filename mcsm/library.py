@@ -232,6 +232,28 @@ def _identical(a: str, b: str) -> bool:
     return filecmp.cmp(a, b, shallow=False)
 
 
+def _recording_index(rec_root: str) -> dict[tuple[str, int], list[str]]:
+    """(file name, size) -> paths of the recording files already in a world."""
+    index: dict[tuple[str, int], list[str]] = {}
+    if os.path.isdir(rec_root):
+        for p in _walk_files(rec_root):
+            index.setdefault((os.path.basename(p).lower(), os.path.getsize(p)), []).append(p)
+    return index
+
+
+def _find_twin(index: dict, path: str, size: int) -> str | None:
+    return next((c for c in index.get((os.path.basename(path).lower(), size), []) if _identical(path, c)), None)
+
+
+def _link(existing: str, target: str) -> bool:
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        os.link(existing, target)
+        return True
+    except OSError:
+        return False
+
+
 def _replay_paths(root: str) -> list[str]:
     """Replay files/folders in a server, relative to it ('/'-separated)."""
     return [os.path.relpath(p, root).replace(os.sep, "/") for _k, p in find_replay_sources(root)]
@@ -282,6 +304,7 @@ def _import_root(root: str, library: str, mode: str, world_name: str | None, sou
                 return head
         return None
     seen_replays: dict[str, bool] = {}
+    rec_index = _recording_index(rec_root)
     t0, last = time.monotonic(), 0.0
     for p in _walk_files(root):
         rel = os.path.relpath(p, root).replace(os.sep, "/")
@@ -306,10 +329,24 @@ def _import_root(root: str, library: str, mode: str, world_name: str | None, sou
                 while os.path.exists(f"{stem} ({k}){ext}"):
                     k += 1
                 target = f"{stem} ({k}){ext}"
+            twin = _find_twin(rec_index, p, size)
+            if twin and r == rel:                       # same recording stored under another folder name
+                if r not in seen_replays:
+                    stats["recordings_known"] += 1
+                seen_replays[r] = False
+                if mode == "move":
+                    os.remove(p)
+                continue
             if r not in seen_replays:
                 stats["recordings_new"] += 1
             seen_replays[r] = True
-            _place(p, target, mode, stats)
+            if twin and _link(twin, target):
+                stats["deduplicated"] += 1
+                if mode == "move":
+                    os.remove(p)
+            else:
+                _place(p, target, mode, stats)
+            rec_index.setdefault((os.path.basename(target).lower(), size), []).append(target)
         else:
             target = os.path.join(dest, *rel.split("/"))
             twin = next((c for c in have.get((rel, size), []) if _identical(p, c)), None)
@@ -457,42 +494,57 @@ def import_backup(source: str, library: str | None = None, mode: str = "auto", w
 
 def add_recordings(paths: list[str], world_dir: str, mode: str = "auto",
                    progress: Callable[[str], None] | None = None) -> dict:
-    """Add loose recordings (``.zip``/``.mcpr`` files or folders of them) to a library world."""
+    """Add loose recordings (``.zip``/``.mcpr`` files or folders of them) to a library world.
+
+    A folder keeps its layout under ``recordings/imported/<folder name>/`` (so ServerReplay's
+    ``players/<uuid>/`` folders still say whose recording it is). A recording already anywhere in
+    the world (same file name, identical content) is not stored again.
+    """
     say = progress or (lambda msg: None)
     if not is_world_dir(world_dir):
         raise ValueError(f"{world_dir} is not a library world folder")
     dest_root = os.path.join(world_dir, "recordings", "imported")
-    stats = {"linked": 0, "copied": 0, "moved": 0, "bytes_written": 0, "added": 0, "known": 0}
+    index = _recording_index(os.path.join(world_dir, "recordings"))
+    stats = {"linked": 0, "copied": 0, "moved": 0, "bytes_written": 0, "added": 0, "known": 0,
+             "deduplicated": 0}
     for src in paths:
+        src = os.path.abspath(src)
         if os.path.isdir(src) and not (_is_flashback_dir(src) or _is_replaymod_dir(src)):
-            found = find_replay_sources(src)
+            found = [p for _k, p in find_replay_sources(src)]
+            base_dir = os.path.join(dest_root, _safe(os.path.basename(src.rstrip("/\\"))))
             if not found:
                 say(f"  no recordings found in {src}")
         else:
-            found = [(None, src)]
-        for _k, p in found:
-            base = os.path.basename(p.rstrip("/\\"))
-            target = os.path.join(dest_root, base)
+            found, base_dir, src = [src], dest_root, os.path.dirname(src)
+        for p in found:
+            target = os.path.join(base_dir, os.path.relpath(p, src))
             m = mode if mode != "auto" else ("link" if _same_drive(p, world_dir) else "copy")
-            if os.path.isdir(p):
-                if os.path.exists(target):
+            files = list(_walk_files(p)) if os.path.isdir(p) else [p]
+            if not os.path.isdir(p):
+                if _find_twin(index, p, os.path.getsize(p)):
                     stats["known"] += 1
                     continue
-                for f in _walk_files(p):
-                    _place(f, os.path.join(target, os.path.relpath(f, p)), m, stats)
-            else:
                 if os.path.exists(target):
-                    if _identical(p, target):
-                        stats["known"] += 1
-                        continue
                     stem, ext = os.path.splitext(target)
                     k = 2
                     while os.path.exists(f"{stem} ({k}){ext}"):
                         k += 1
                     target = f"{stem} ({k}){ext}"
-                _place(p, target, m, stats)
+            elif os.path.exists(target):
+                stats["known"] += 1
+                continue
+            for f in files:
+                t = target if f == p else os.path.join(target, os.path.relpath(f, p))
+                size = os.path.getsize(f)
+                twin = _find_twin(index, f, size) if f != p else None
+                if twin and _link(twin, t):
+                    stats["deduplicated"] += 1
+                else:
+                    _place(f, t, m, stats)
+                index.setdefault((os.path.basename(t).lower(), size), []).append(t)
             stats["added"] += 1
-            say(f"  + {base}")
+            if stats["added"] % 50 == 0:
+                say(f"  {stats['added']} added, {stats['known']} already there")
     return stats
 
 
