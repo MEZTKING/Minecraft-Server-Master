@@ -116,10 +116,11 @@ much space they take. In the view you can:
 Flashback copy per recording file, named "… (timelapse 1 of 4)", each with the camera, the timelapse and one
 scene, and an order list next to the highlights file. **Why several parts?** A build that took several
 play sessions is spread over several recording files (Flashback starts a new file each time someone joins
-again), and a Flashback edit can only use one file. All parts run at one speed so they join seamlessly. A
-part that would be shorter than 2 seconds of video is left out (its few seconds aren't worth a copy to open
-and export), and the others share its time, so the total stays about 3 minutes; the order list names
-what was left out.
+again), and a Flashback edit can only use one file. All parts run at one speed so they join seamlessly.
+Very short parts are left out (a few seconds aren't worth a copy to open and export) and the others share
+their time, so the total stays about 3 minutes; the order list names what was left out. **Leave out parts
+shorter than … s of video** in the view sets how short (2 s at first; 0 keeps every part; at most 30 s): the
+plan, the part count and the preview update at once, and the app remembers your choice.
 
 In Flashback open each copy in order and Export its scene; then **join** the exported videos: the app's
 **Videos** tab → **Join timelapse parts…** (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4

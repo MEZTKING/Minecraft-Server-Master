@@ -271,7 +271,8 @@ def _fmt(sec: float) -> str:
 
 MAX_CAMERA_SIZE = 160          # huge map-art areas: keep the camera within render distance
 MIN_ACTIVE_S = 20              # a file with less activity than this inside the area is skipped
-MIN_PART_S = 2.0               # a part shorter than this in the video isn't worth its own copy (owner: "why 9")
+MIN_PART_S = 2.0               # default: a part shorter than this in the video isn't worth its own copy (owner: "why 9")
+MAX_MIN_PART_S = 30.0          # the most the owner can set it to (the timelapse view's "leave out parts under")
 
 
 def samples_from_tracks(tracks: dict[str, list[list]], players: list[str], start_ms: int, end_ms: int,
@@ -328,7 +329,7 @@ def moment_camera(moment: dict, area: Area) -> tuple[float, float, float, float,
 
 
 def plan_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
-                target_seconds: float = 180.0, gap_seconds: float = 0.5) -> dict:
+                target_seconds: float = 180.0, gap_seconds: float = 0.5, min_part_s: float | None = None) -> dict:
     """What a timelapse of a build moment would be (nothing is written): the point of view, the files in
     order with their own plan at one shared speed, the camera, total length and size."""
     import bisect
@@ -388,8 +389,9 @@ def plan_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
             files.append((r, ws))
     if not files:
         raise ValueError("the recordings show too little of the build")
+    cut = MIN_PART_S if min_part_s is None else max(0.0, min(MAX_MIN_PART_S, float(min_part_s)))
     skipped: list[dict] = []
-    for _round in range(4):
+    for _round in range(8):
         active = sum(w.seconds for _r, ws in files for w in ws)
         gaps = sum(len(ws) - 1 for _r, ws in files)        # breaks inside a file (the files are cut apart)
         budget = target_seconds - gaps * gap_seconds
@@ -402,17 +404,17 @@ def plan_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
             parts.append({"replay": r, "plan": pl, "seconds": round(pl.total_seconds, 1), "windows": ws})
         # a part of a second or two only makes work (one more copy to open and export): leave it out, and
         # share the length among the others (the speed is worked out again, so it still fits the target)
-        tiny = [q for q in parts if q["seconds"] < MIN_PART_S]
+        tiny = [q for q in parts if q["seconds"] < cut]
         if not tiny or len(tiny) == len(parts):
             break
         skipped += [{"file": q["replay"].path.split("/")[-1], "seconds": q["seconds"]} for q in tiny]
-        files = [(q["replay"], q["windows"]) for q in parts if q["seconds"] >= MIN_PART_S]
+        files = [(q["replay"], q["windows"]) for q in parts if q["seconds"] >= cut]
     cam = moment_camera(moment, area)
     for i, q in enumerate(parts, 1):
         q["n"] = i
         del q["windows"]
     return {"pov": pov, "area": area, "camera": cam, "speed": round(speed, 1), "parts": parts,
-            "skipped": skipped,
+            "skipped": skipped, "min_part_s": cut,
             "bytes": sum(p["replay"].size_bytes or 0 for p in parts),
             "seconds": round(sum(p["seconds"] for p in parts), 1), "active_seconds": round(active),
             "windows": len(windows)}
@@ -505,12 +507,13 @@ def from_ms(ms: int) -> datetime:
 
 def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
                   replay_file, flashback_dir: str | None, out_dir: str, pick_dir=None,
-                  target_seconds: float = 180.0, progress=None, camera: dict | None = None) -> dict:
+                  target_seconds: float = 180.0, progress=None, camera: dict | None = None,
+                  min_part_s: float | None = None) -> dict:
     """Write the timelapse of a build moment: one Flashback copy per recording of the chosen point of
     view, each with the camera (see :func:`part_camera`), the timelapse and one scene, plus an order list."""
     from . import flashback as fbm
     say = progress or (lambda _m: None)
-    pm = plan_moment(data, moment, tracks, target_seconds)
+    pm = plan_moment(data, moment, tracks, target_seconds, min_part_s=min_part_s)
     title = moment.get("title") or "Build"
     total = len(pm["parts"])
     written, folders, made = [], set(), []
@@ -576,7 +579,7 @@ def _write_order(pm, title, written, out_dir, folders, camera=None) -> dict:
         if (camera or {}).get("mode") == "free":
             fh.write("No camera was set: in Flashback, place your own camera keyframes in each copy before exporting.\n\n")
         for sk in pm.get("skipped") or []:
-            fh.write(f"Left out (under {MIN_PART_S:g} s of video): {sk['file']}\n")
+            fh.write(f"Left out (under {pm.get('min_part_s', MIN_PART_S):g} s of video): {sk['file']}\n")
         for w in written:
             fh.write(f"{w['n']}. {os.path.basename(w['file'])}  ({_fmt(w['seconds'])})\n")
         fh.write("\nJoining the exported videos with ffmpeg: list them in a text file as lines  file 'part1.mp4'  "

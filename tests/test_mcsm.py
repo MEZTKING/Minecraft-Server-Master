@@ -3718,6 +3718,11 @@ class TestTimelapseCamera(unittest.TestCase):
         self.assertEqual([s["file"] for s in pm["skipped"]], ["b2.zip"])
         self.assertAlmostEqual(pm["seconds"], 180, delta=3)                      # the length is shared out again
         self.assertTrue(all(p["seconds"] >= tl.MIN_PART_S for p in pm["parts"]))
+        self.assertEqual(pm["min_part_s"], tl.MIN_PART_S)
+        keep_all = tl.plan_moment(d, moment, tracks, min_part_s=0)              # the owner's cut-off: 0 keeps every part
+        self.assertEqual(len(keep_all["parts"]), 3)
+        self.assertEqual(keep_all["skipped"], [])
+        self.assertEqual(tl.plan_moment(d, moment, tracks, min_part_s=999)["min_part_s"], tl.MAX_MIN_PART_S)
         line = tl.timeline(pm)
         self.assertEqual(line[0][2], 0)
         self.assertAlmostEqual(line[-1][3], pm["seconds"], delta=0.01)

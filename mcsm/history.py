@@ -312,7 +312,8 @@ class HistoryMap(TerrainServer):
             return bw.texture(rest[len("tex/"):-4])
         return None
 
-    def timelapse(self, moment_id: str, export: bool = False, camera: dict | None = None) -> dict:
+    def timelapse(self, moment_id: str, export: bool = False, camera: dict | None = None,
+                  min_part_s: float | None = None) -> dict:
         """A timelapse of a build moment: the plan (nothing is read or written), or start making the
         Flashback copies in the background (progress: GET /api/timelapse/job)."""
         import shutil
@@ -326,7 +327,7 @@ class HistoryMap(TerrainServer):
         _n, tracks = getattr(self, "_tracks", (0, {}))
         if not tracks:
             raise ValueError("the players' positions haven't been read yet: wait until the status line says they are")
-        pm = tl.plan_moment(self.data, mom, tracks)
+        pm = tl.plan_moment(self.data, mom, tracks, min_part_s=min_part_s)
         out_dir = os.path.dirname(os.path.abspath(self.highlights.path))
         # where each copy goes (each recording's Minecraft version can have its own Flashback), and space there
         need: dict[str, int] = {}
@@ -349,7 +350,8 @@ class HistoryMap(TerrainServer):
         cx, cy, cz, cyaw, cpitch = pm["camera"]
         summary = {"pov": pm["pov"], "speed": pm["speed"], "seconds": pm["seconds"], "bytes": pm["bytes"],
                    "free": free_total or None, "folders": sorted(need), "short": short,
-                   "skipped": pm.get("skipped") or [], "timeline": tl.timeline(pm),
+                   "skipped": pm.get("skipped") or [], "min_part_s": pm["min_part_s"],
+                   "max_min_part_s": tl.MAX_MIN_PART_S, "timeline": tl.timeline(pm),
                    "area": [pm["area"].x1, pm["area"].z1, pm["area"].x2, pm["area"].z2], "y": mom.get("y"),
                    "auto_view": {"eye": [cx, cy + tl.EYE_HEIGHT, cz], "yaw": cyaw, "pitch": cpitch},
                    "parts": [{"n": p["n"], "file": p["replay"].path.split("/")[-1], "seconds": p["seconds"]}
@@ -366,7 +368,7 @@ class HistoryMap(TerrainServer):
             try:
                 r = tl.export_moment(self.data, mom, tracks, self.replay_file, self.flashback_dir, out_dir,
                                      pick_dir=self.flashback_pick, progress=self._tl_job["log"].append,
-                                     camera=camera)
+                                     camera=camera, min_part_s=min_part_s)
                 self._tl_job["result"] = {**summary, **{k: v for k, v in r.items() if k in ("parts", "order", "folder")}}
             except Exception as exc:                     # noqa: BLE001 -- shown on the page
                 self._tl_job["error"] = f"{type(exc).__name__}: {exc}"
@@ -422,8 +424,10 @@ class HistoryMap(TerrainServer):
             self.highlights.put(body, players)
             return self.highlights_info()
         if path in ("/api/timelapse/plan", "/api/timelapse/export"):
+            cut = body.get("min_part_s")
             return self.timelapse(str(body.get("id", "")), export=path.endswith("export"),
-                                  camera=body.get("camera") if isinstance(body.get("camera"), dict) else None)
+                                  camera=body.get("camera") if isinstance(body.get("camera"), dict) else None,
+                                  min_part_s=float(cut) if isinstance(cut, (int, float)) else None)
         if path == "/api/highlights/delete":
             self.highlights.delete(str(body.get("id", "")))
             return self.highlights_info()

@@ -201,6 +201,9 @@ ul { list-style: none; margin: 0; padding: 0; }
     <button id="tlvUndo" type="button" title="Forget the last saved view">Remove last</button>
     <button id="tlvAuto" type="button" title="Look from the automatic camera again">Automatic view</button>
     <span class="meta" id="tlvViews"></span></div>
+  <div class="row"><label title="A part shorter than this in the finished video gets no copy of its own; the other parts share its time, so the length stays the same. 0 keeps every part.">
+    Leave out parts shorter than <input id="tlvCut" type="number" min="0" max="30" step="0.5" value="2" style="width:4.5em"> s of video</label>
+    <span class="meta" id="tlvParts"></span></div>
   <div class="note" id="tlvInfo"></div>
   <div class="row"><button id="tlvMake" class="primary" type="button">Make the timelapse</button></div>
   <div class="note" id="tlvStatus"></div>
@@ -964,6 +967,7 @@ $("#mMore").onclick = () => { momShown += 20; renderMoments(); };
 
 // ---------- timelapse of a build: look around in 3D, preview, choose the camera, make the copies ----------
 let TLV = null;                                    // {m, p, M, t, playing, views, raf, last}
+let TLV_CUT = (() => { const v = parseFloat(store.get("mcsm-tl-cut")); return isFinite(v) ? v : 2; })();   // remembered
 const gb = b => (b / 1e9).toFixed(1) + " GB";
 function tlvCam() { return document.querySelector("input[name=tlvCam]:checked").value; }
 function tlvReal(t) {                              // timelapse second -> real time (ms) and part
@@ -1016,7 +1020,7 @@ async function openTimelapse(m) {
   $("#tlv").hidden = false; $("#tlvTitle").textContent = `Timelapse: ${m.title}`;
   $("#tlvStatus").textContent = "Planning the timelapse…"; $("#tlvInfo").textContent = ""; $("#tlvMake").disabled = true;
   let p, M;
-  try { [p, M] = await Promise.all([post("api/timelapse/plan", { id: m.id }), import("./map3d.js")]); }
+  try { [p, M] = await Promise.all([post("api/timelapse/plan", { id: m.id, min_part_s: TLV_CUT }), import("./map3d.js")]); }
   catch (e) { $("#tlvStatus").textContent = `Timelapse: ${e.message}`; return; }
   M.init($("#tlv3d")); M.clearWorld();
   TLV = { m, p, M, t: 0, playing: false, views: [], last: performance.now() };
@@ -1025,17 +1029,7 @@ async function openTimelapse(m) {
   M.lookFrom(p.auto_view.eye, [(x0 + x1) / 2, (p.y ?? 64) + 4, (z0 + z1) / 2], 70);
   document.querySelector("input[name=tlvCam][value=auto]").checked = true;
   tlvShowViews();
-  const parts = p.parts.map(x => `${x.n}. ${x.file} (${hms(x.seconds * 1000)})`).join(" · ");
-  $("#tlvInfo").textContent = `Filmed from ${p.pov}'s recordings at ${p.speed}x while building: about ${hms(p.seconds * 1000)} in all, `
-    + `in ${p.parts.length} part${p.parts.length > 1 ? "s" : ""} (one Flashback copy for each recording file; export them in order, then join them `
-    + `in the app's Videos tab): ${parts}.`
-    + (p.skipped.length ? ` Left out, under 2 s of video each: ${p.skipped.map(x => x.file).join(", ")}.` : "")
-    + ` The copies take ${gb(p.bytes)}${p.free ? ` (${gb(p.free)} free)` : ""}, in ${p.folders.join(", ")}.`
-    + (p.short.length ? ` Not enough space: ${p.short.join("; ")}.` : "")
-    + (p.folders.some(f => f.includes("Flashback for Minecraft")) ? ` Recorded in Minecraft ${m.mc || "?"}: there's no Flashback for that version on this PC, `
-       + "so the copies go into a 'Flashback for Minecraft …' folder. Add a Minecraft instance of that version with Fabric and Flashback, "
-       + "start it once, then move that folder's 'replays' and 'editor_states' files into its flashback folder." : "")
-    + " Your original recordings are not changed.";
+  tlvShowPlan();
   $("#tlvStatus").textContent = "Loading the world around the build…";
   $("#tlvMake").disabled = !!p.short.length;
   TLV.raf = requestAnimationFrame(tlvFrame);
@@ -1044,6 +1038,35 @@ async function openTimelapse(m) {
                  blocks: `/api/tl3d/${m.id}/blocks`, tex: n => `/tl3d/${m.id}/tex/${n}.png` };
   M.loadTerrain(say, urls).then(() => TLV && TLV.m === m && M.loadBlocks(say, urls));
 }
+function tlvShowPlan() {
+  const { m, p } = TLV;
+  $("#tlvCut").value = p.min_part_s; $("#tlvCut").max = p.max_min_part_s;
+  $("#tlvParts").textContent = `${p.parts.length} part${p.parts.length > 1 ? "s" : ""}` + (p.skipped.length ? `, ${p.skipped.length} left out` : "");
+  const parts = p.parts.map(x => `${x.n}. ${x.file} (${hms(x.seconds * 1000)})`).join(" · ");
+  $("#tlvInfo").textContent = `Filmed from ${p.pov}'s recordings at ${p.speed}x while building: about ${hms(p.seconds * 1000)} in all, `
+    + `in ${p.parts.length} part${p.parts.length > 1 ? "s" : ""} (one Flashback copy for each recording file; export them in order, then join them `
+    + `in the app's Videos tab): ${parts}.`
+    + (p.skipped.length ? ` Left out, under ${p.min_part_s} s of video each: ${p.skipped.map(x => `${x.file} (${x.seconds} s)`).join(", ")}.` : "")
+    + ` The copies take ${gb(p.bytes)}${p.free ? ` (${gb(p.free)} free)` : ""}, in ${p.folders.join(", ")}.`
+    + (p.short.length ? ` Not enough space: ${p.short.join("; ")}.` : "")
+    + (p.folders.some(f => f.includes("Flashback for Minecraft")) ? ` Recorded in Minecraft ${m.mc || "?"}: there's no Flashback for that version on this PC, `
+       + "so the copies go into a 'Flashback for Minecraft …' folder. Add a Minecraft instance of that version with Fabric and Flashback, "
+       + "start it once, then move that folder's 'replays' and 'editor_states' files into its flashback folder." : "")
+    + " Your original recordings are not changed.";
+}
+$("#tlvCut").onchange = async () => {              // another cut-off: plan again (the world stays loaded)
+  if (!TLV) return;
+  const v = Math.max(0, Math.min(TLV.p.max_min_part_s || 30, parseFloat($("#tlvCut").value) || 0));
+  TLV_CUT = v; store.set("mcsm-tl-cut", String(v));
+  const m = TLV.m;
+  $("#tlvParts").textContent = "planning…"; $("#tlvMake").disabled = true;
+  try {
+    const p = await post("api/timelapse/plan", { id: m.id, min_part_s: v });
+    if (!TLV || TLV.m !== m) return;
+    TLV.p = p; TLV.t = Math.min(TLV.t, p.seconds); tlvShowPlan();
+    $("#tlvMake").disabled = !!p.short.length;
+  } catch (e) { $("#tlvStatus").textContent = `Timelapse: ${e.message}`; }
+};
 function closeTimelapse() {
   if (TLV) cancelAnimationFrame(TLV.raf);
   TLV = null; $("#tlv").hidden = true;
@@ -1069,7 +1092,7 @@ $("#tlvMake").onclick = async () => {
   if (mode === "views" && !TLV.views.length) { $("#tlvStatus").textContent = "Save at least one view first (or choose another camera)."; return; }
   $("#tlvMake").disabled = true;
   try {
-    await post("api/timelapse/export", { id: m.id, camera: { mode, views: TLV.views } });
+    await post("api/timelapse/export", { id: m.id, camera: { mode, views: TLV.views }, min_part_s: TLV.p.min_part_s });
     for (;;) {                                     // the copies are made in the background
       await new Promise(res => setTimeout(res, 2000));
       const j = await (await fetch("api/timelapse/job")).json();

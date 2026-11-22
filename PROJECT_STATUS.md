@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (timelapse view with own camera, join parts, ignored players).
+`CLAUDE.md`). Last updated: 2026-11-22 (timelapse parts cut-off adjustable).
 
 ## What this project is
 
@@ -970,6 +970,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** The timelapse view's "Leave out parts shorter than … s of video" (owner: "make the cutoff
+  adjustable"): 0-30 s, default 2, remembered in the browser; re-plans at once (`plan_moment(min_part_s=)`,
+  `min_part_s` in /api/timelapse/plan|export).
 
 - **2026-11-22:** Timelapse follow-up (owner: "why it makes 9 timelapses", "fix it all", "look around in the world
   and show a timelapse", "ignore permanently some players"): parts under 2 s left out and the length shared out
