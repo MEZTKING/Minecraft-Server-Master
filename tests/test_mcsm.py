@@ -300,6 +300,21 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def _new_tk():
+    """tk.Tk(), retried: on GitHub's Windows runners Tcl now and then fails to find init.tcl
+    when a test process creates several Tk windows one after another."""
+    import tkinter as tk
+    for attempt in range(5):
+        try:
+            return tk.Tk()
+        except tk.TclError:
+            if attempt == 4:
+                raise
+            import gc
+            gc.collect()
+            time.sleep(0.5)
+
+
 def _have_display() -> bool:
     try:
         import tkinter
@@ -320,7 +335,7 @@ class TestGUI(ServerTestCase):
         import tkinter as tk
         from mcsm import gui
         gui.open_path = lambda p: None
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             app.server_var.set(self.root)
@@ -367,7 +382,7 @@ class TestGUI(ServerTestCase):
             for sec in range(40, 100):
                 fh.write(json.dumps({"t": int((t0 + timedelta(seconds=sec)).timestamp() * 1000), "players": [
                     {"name": "Steve", "x": -50, "y": 70, "z": -60, "dimension": "minecraft:overworld"}]}) + "\n")
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             app.server_var.set(root_dir)
@@ -408,7 +423,7 @@ class TestGUI(ServerTestCase):
         a = _zip_dir(build_server(os.path.join(tmp, "a")), os.path.join(tmp, "a.zip"))
         b = _zip_dir(build_server(os.path.join(tmp, "b")), os.path.join(tmp, "b.zip"))
         gui.messagebox.showinfo = gui.messagebox.showerror = lambda *x, **k: None
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             app.server_var.set(a + gui.SEP + b)
@@ -438,7 +453,7 @@ class TestGUI(ServerTestCase):
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
         srv = FakeRconServer(password="pw")
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             app.live_host_var.set(f"127.0.0.1:{25565}")   # game port is stripped
@@ -470,7 +485,7 @@ class TestGUI(ServerTestCase):
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
         tmp = tempfile.mkdtemp()
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             app.server_var.set(build_server(os.path.join(tmp, "s")))
@@ -1536,7 +1551,7 @@ class TestLibrary(unittest.TestCase):
             self.skipTest("no display")
         import tkinter as tk
         from mcsm import gui
-        root = tk.Tk()
+        root = _new_tk()
         try:
             app = gui.App(root)
             lib3 = os.path.join(self.tmp, "lib3")
