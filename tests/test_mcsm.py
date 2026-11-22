@@ -3902,7 +3902,7 @@ class TestBuildWorld3D(unittest.TestCase):
             finally:
                 bm.find_client_jar = old
             self.assertGreater(info["faces"], 0)
-            self.assertEqual(info["url"], "/tl3d/x/blocks.bin")
+            self.assertEqual(info["url"], "/tl3d/x/" + os.path.basename(bw.blocks_file()))
             self.assertTrue(os.path.isfile(bw.blocks_file()))
             self.assertTrue(os.path.isfile(bw.texture("block/stone")))
             self.assertIsNone(bw.texture("../evil"))

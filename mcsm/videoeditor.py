@@ -320,112 +320,44 @@ class VideoEditor:
         self._tsrc = found
         return found
 
+    def _world3d(self):
+        """The backup's world for the 3D map (shared with the timelapse view, :mod:`mcsm.world3d`)."""
+        from . import world3d
+        if not hasattr(self, "_w3d"):
+            found = self._terrain_source()
+            mc = None
+            m = self.vinfo["matches"][0] if self.vinfo["matches"] else {}
+            if m.get("recording"):
+                mc = vt._replay_meta(m["recording"]).get("version_string")
+            self._w3d = world3d.BuildWorld(found[0], found[1], mc=mc, label=os.path.basename(found[0])) if found else None
+        return self._w3d
+
     def tiles(self) -> dict:
         """Regions near the camera path: close ones every 2 blocks, the rest every 4 (at most 49)."""
-        from . import terrain
-        found = self._terrain_source()
-        if not found:
+        bw = self._world3d()
+        if bw is None:
             return {"tiles": [], "message": "no library backup of this world: the map has no terrain"}
-        root, wdir = found
-        have = {}
-        for p in terrain.region_files(root, wdir, "minecraft:overworld"):
-            try:
-                _r, rx, rz, _e = os.path.basename(p).split(".")
-                have[(int(rx), int(rz))] = p
-            except ValueError:
-                continue
-        near, around = set(), set()
-        for x, _y, z, *_ in self.camera_path(0)["samples"][::10]:
-            rx, rz = int(x) >> 9, int(z) >> 9
-            near.add((rx, rz))
-            for dx in (-1, 0, 1):
-                for dz in (-1, 0, 1):
-                    around.add((rx + dx, rz + dz))
-        keys = sorted(near) + sorted(around - near)
-        out = [{"rx": rx, "rz": rz, "step": 2 if (rx, rz) in near else 4} for rx, rz in keys if (rx, rz) in have][:49]
-        self._regions = have
-        return {"tiles": out, "backup": os.path.basename(root)}
+        pts = [(x, z) for x, _y, z, *_ in self.camera_path(0)["samples"][::10]]
+        return bw.tiles(points=pts, max_tiles=49)
 
     def tile_file(self, rx: int, rz: int, step: int) -> str | None:
         """One region's surface as a file (int16 heights, little-endian, then RGB), cached."""
-        import array
-        import sys
-        from . import terrain
-        if not hasattr(self, "_regions"):
-            self.tiles()
-        p = getattr(self, "_regions", {}).get((rx, rz))
-        if not p or step not in (1, 2, 4, 8, 16):
-            return None
-        src = self._terrain_source()
-        key = hashlib.sha1(f"{src[0]}|{rx}|{rz}|{step}".encode()).hexdigest()[:20]
-        out = os.path.join(os.path.dirname(self.project_file()), "tiles", key + ".bin")
-        if os.path.exists(out):
-            return out
-        t = terrain.read_region_cached(p, step, terrain.default_cache_dir())
-        if t is None:
-            return None
-        heights = array.array("h", t.heights)
-        if sys.byteorder != "little":
-            heights.byteswap()
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        with open(out + ".part", "wb") as fh:
-            fh.write(heights.tobytes() + bytes(t.colours))
-        os.replace(out + ".part", out)
-        return out
+        bw = self._world3d()
+        return bw.tile_file(rx, rz, step) if bw else None
 
     # --- real blocks with Minecraft's textures near the camera -----------------------------------------
-    def _look(self):
-        from . import blockmesh as bm
-        if getattr(self, "_blook", None) is None:
-            m = self.vinfo["matches"][0] if self.vinfo["matches"] else {}
-            mc = None
-            if m.get("recording"):
-                mc = vt._replay_meta(m["recording"]).get("version_string")
-            self._bjar = bm.find_client_jar(mc)
-            self._blook = bm.Look(self._bjar)
-        return self._blook
-
     def blocks(self) -> dict:
-        from . import blockmesh as bm
-        if getattr(self, "_blocks", None):
-            return self._blocks
-        found = self._terrain_source()
-        if not found:
+        bw = self._world3d()
+        if bw is None:
             return {"faces": 0, "message": "no library backup of this world"}
-        look = self._look()
-        if not look.zf:
-            return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
-        root, wdir = found
         samples = self.camera_path(0)["samples"]
         pts = [(s_[0], s_[2]) for s_ in samples[:: max(1, len(samples) // 600)]]
-        r = bm.build(root, wdir, pts, look, radius=80.0)
-        key = hashlib.sha1(f"{root}|{self.copy_key()}|{len(r['faces'])}".encode()).hexdigest()[:16]
-        d = os.path.join(os.path.dirname(self.project_file()), "frames")
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, f"blocks-{key}.bin"), "wb") as fh:
-            fh.write(r["faces"])
-        self._blocks = {"faces": len(r["faces"]) // 10, "origin": r["origin"], "url": f"/blocks/{key}.bin",
-                        "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
-                        "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
-                        "jar": os.path.basename(self._bjar or "")}
-        return self._blocks
+        return bw.blocks("/blocks/", points=pts, radius=80.0)
 
     def block_texture(self, name: str) -> str | None:
         """A texture from the client jar, kept as a file (the page loads it as an image)."""
-        if not name or ".." in name or not all(c.isalnum() or c in "_/-." for c in name):
-            return None
-        look = self._look()
-        data = look.texture_png(name)
-        if data is None:
-            return None
-        out = os.path.join(os.path.dirname(self.project_file()), "textures",
-                           os.path.splitext(os.path.basename(self._bjar or "jar"))[0], *name.split("/")) + ".png"
-        if not os.path.exists(out):
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-            with open(out + ".part", "wb") as fh:
-                fh.write(data)
-            os.replace(out + ".part", out)
-        return out
+        bw = self._world3d()
+        return bw.texture(name) if bw else None
 
     def tracks_all(self, index: int) -> dict:
         """Every player's path through the video: ``{name: [[video second, x, y, z], ...]}``."""
@@ -452,6 +384,8 @@ class VideoEditor:
             v = clock.video_time(min(max(tick, clock.start), clock.end))
             if v is not None:
                 out.setdefault(who or rec_name, []).append([round(v, 3), round(x, 2), round(y, 2), round(z, 2)])
+        ignored = self._ignored()
+        out = {n: pts for n, pts in out.items() if n.lower() not in ignored}
         self._all_tracks[index] = out
         return {"players": out}
 
@@ -459,9 +393,9 @@ class VideoEditor:
         if path == "/video":
             return self.video
         if path.startswith("/blocks/") and path.endswith(".bin"):
-            name = os.path.basename(path)
-            full = os.path.join(os.path.dirname(self.project_file()), "frames", "blocks-" + name)
-            return full if os.path.isfile(full) else None
+            bw = self._world3d()
+            full = bw.blocks_file() if bw else ""
+            return full if bw and os.path.basename(path) == os.path.basename(full) and os.path.isfile(full) else None
         if path.startswith("/blocktex/") and path.endswith(".png"):
             return self.block_texture(path[len("/blocktex/"):-4])
         if path.startswith("/link/frame/"):
@@ -557,6 +491,12 @@ class VideoEditor:
         self._players[index] = out
         return out
 
+    @staticmethod
+    def _ignored() -> set[str]:
+        """Lower-case names on the ignore list (players who were never supposed to join, mcsm.ignore)."""
+        from . import ignore
+        return ignore.names_of(ignore.load())[0]
+
     def players_at(self, index: int, t: float) -> dict:
         from . import paths
         m = self.vinfo["matches"][index]
@@ -565,7 +505,8 @@ class VideoEditor:
         clock = vt.scene_clock(vt.scene_for_match(m))
         tick = int(clock.replay_tick(min(t, clock.duration)))
         seen = paths.players_in_view(m["recording"], tick, self.players_map(index))
-        return {"players": sorted(seen)}
+        ignored = self._ignored()
+        return {"players": sorted(n for n in seen if n.lower() not in ignored)}
 
     def track(self, index: int, name: str) -> dict:
         """Where *name* is through the video: ``[[video second, x, y, z], ...]`` (about every second)."""

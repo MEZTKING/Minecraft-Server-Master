@@ -291,7 +291,7 @@ class HistoryMap(TerrainServer):
         return bw
 
     def file_for(self, path: str) -> str | None:
-        """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks.bin, tex/<name>.png."""
+        """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png."""
         if not path.startswith("/tl3d/"):
             return None
         mid, _, rest = path[len("/tl3d/"):].partition("/")
@@ -305,7 +305,7 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.tile_file(rx, rz, step)
-        if rest == "blocks.bin":
+        if rest == os.path.basename(bw.blocks_file()):
             f = bw.blocks_file()
             return f if os.path.isfile(f) else None
         if rest.startswith("tex/") and rest.endswith(".png"):

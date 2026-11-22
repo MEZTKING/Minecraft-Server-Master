@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (timelapse parts cut-off adjustable).
+`CLAUDE.md`). Last updated: 2026-11-22 (editor and timelapse view share the 3D world code; editor hides ignored players).
 
 ## What this project is
 
@@ -906,8 +906,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Known gaps and unverified assumptions
 
 - **Timelapse view and join not yet tried by the owner.** Camera views assume the owner's Flashback FOV is
-  near 70. The editor (`videoeditor.py`) still has its own copy of the tile/block code that `world3d.py` now
-  also has (to merge later). The video editor's player boxes don't leave out ignored players.
+  near 70.
 
 - **Library link mode shares data with the original folder.** Running a server from the
   original afterwards would change the library's copy too (documented). Explorer shows every
@@ -970,6 +969,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** The video editor's 3D map now uses `mcsm/world3d.py` too (one copy of the terrain-tile, block and
+  texture code; its cache moved to `%LOCALAPPDATA%/mcsm/build-view/`), checked on the owner's "Meeting Room"
+  edit (325k block faces). The editor's player boxes and "who's in view" leave out ignored players.
 
 - **2026-11-22:** The timelapse view's "Leave out parts shorter than … s of video" (owner: "make the cutoff
   adjustable"): 0-30 s, default 2, remembered in the browser; re-plans at once (`plan_moment(min_part_s=)`,

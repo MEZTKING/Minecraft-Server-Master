@@ -1,8 +1,9 @@
-"""The real world around a build, for looking around in 3D before making its timelapse.
+"""The real world in 3D from a backup: for the timelapse view (around a build) and the video editor's map
+(along an edit's camera path).
 
-Terrain (the same surface tiles as the history viewer) and, close to the build, real blocks with the
-game's own textures (:mod:`mcsm.blockmesh`), from the library backup saved at or right after the build
-ended (so the finished build shows). Files are cached in ``%LOCALAPPDATA%/mcsm/build-view/``.
+Terrain (the same surface tiles as the history viewer) and, close by, real blocks with the game's own
+textures (:mod:`mcsm.blockmesh`). The timelapse view uses the library backup saved at or right after the
+build ended (so the finished build shows). Files are cached in ``%LOCALAPPDATA%/mcsm/build-view/``.
 """
 
 from __future__ import annotations
@@ -24,11 +25,16 @@ def cache_dir() -> str:
 
 
 class BuildWorld:
-    def __init__(self, root: str, world: str, area: list[float], mc: str | None = None,
+    """*area* ``[x0, z0, x1, z1]`` (a build) is where tiles and blocks are taken by default; the editor gives
+    points along its camera path instead (:meth:`tiles`/:meth:`blocks` with *points*)."""
+
+    def __init__(self, root: str, world: str, area: list[float] | None = None, mc: str | None = None,
                  label: str = "", cache: str | None = None):
-        self.root, self.world, self.area, self.mc, self.label = root, world, [float(v) for v in area], mc, label
+        self.root, self.world, self.mc, self.label = root, world, mc, label
+        self.area = [float(v) for v in area] if area else None
         self.cache = cache or cache_dir()
         self.key = hashlib.sha1(f"{os.path.abspath(root)}|{self.area}".encode()).hexdigest()[:16]
+        self.jar: str | None = None
         self._regions: dict[tuple[int, int], str] | None = None
         self._look = None
         self._blocks: dict | None = None
@@ -45,15 +51,18 @@ class BuildWorld:
             self._regions = have
         return self._regions
 
-    def tiles(self) -> dict:
-        """The regions of the build (every 2 blocks) and around it (every 4)."""
-        x0, z0, x1, z1 = self.area
-        near = {(rx, rz) for rx in range(int(x0) >> 9, (int(x1) >> 9) + 1) for rz in range(int(z0) >> 9, (int(z1) >> 9) + 1)}
+    def tiles(self, points: list[tuple[float, float]] | None = None, max_tiles: int = MAX_TILES) -> dict:
+        """The regions of the build or under *points* (every 2 blocks) and around them (every 4)."""
+        if points is not None:
+            near = {(int(x) >> 9, int(z) >> 9) for x, z in points}
+        else:
+            x0, z0, x1, z1 = self.area
+            near = {(rx, rz) for rx in range(int(x0) >> 9, (int(x1) >> 9) + 1) for rz in range(int(z0) >> 9, (int(z1) >> 9) + 1)}
         around = {(rx + dx, rz + dz) for rx, rz in near for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
         have = self.regions()
         keys = sorted(near) + sorted(around - near)
         out = [{"rx": rx, "rz": rz, "step": 2 if (rx, rz) in near else 4} for rx, rz in keys if (rx, rz) in have]
-        return {"tiles": out[:MAX_TILES], "backup": self.label or os.path.basename(self.root)}
+        return {"tiles": out[:max_tiles], "backup": self.label or os.path.basename(self.root)}
 
     def tile_file(self, rx: int, rz: int, step: int) -> str | None:
         p = self.regions().get((rx, rz))
@@ -81,21 +90,28 @@ class BuildWorld:
             self._look = bm.Look(self.jar)
         return self._look
 
-    def blocks(self, url_prefix: str) -> dict:
-        """Real blocks over the build, written to a file the page fetches (``<url_prefix>blocks.bin``)."""
+    def blocks(self, url_prefix: str, points: list[tuple[float, float]] | None = None,
+               radius: float = BLOCK_MARGIN) -> dict:
+        """Real blocks over the build (or within *radius* of *points*), written to a file the page fetches
+        (``<url_prefix>`` + the file's name, see :meth:`blocks_file`)."""
         if self._blocks is not None:
             return self._blocks
         look = self.look()
         if not look.zf:
             return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
-        x0, z0, x1, z1 = self.area
-        pts = [(x, z) for x in _steps(x0, x1, 16) for z in _steps(z0, z1, 16)]
-        r = bm.build(self.root, self.world, pts, look, radius=BLOCK_MARGIN)
+        if points is None:
+            x0, z0, x1, z1 = self.area
+            pts = [(x, z) for x in _steps(x0, x1, 16) for z in _steps(z0, z1, 16)]
+        else:
+            pts = list(points)
+            self.key = hashlib.sha1(f"{os.path.abspath(self.root)}|{pts[:1]}|{pts[-1:]}|{len(pts)}|{radius}".encode()).hexdigest()[:16]
+        r = bm.build(self.root, self.world, pts, look, radius=radius)
         os.makedirs(self.cache, exist_ok=True)
         with open(self.blocks_file() + ".part", "wb") as fh:
             fh.write(r["faces"])
         os.replace(self.blocks_file() + ".part", self.blocks_file())
-        self._blocks = {"faces": len(r["faces"]) // 10, "origin": r["origin"], "url": url_prefix + "blocks.bin",
+        self._blocks = {"faces": len(r["faces"]) // 10, "origin": r["origin"],
+                        "url": url_prefix + os.path.basename(self.blocks_file()),
                         "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
                         "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
                         "jar": os.path.basename(self.jar or "")}
