@@ -24,4 +24,4 @@ mcsm-gui = "mcsm.gui:main"
 include = ["mcsm*"]
 
 [tool.setuptools.package-data]
-mcsm = ["assets/*.png", "assets/web/*.html", "assets/web/vendor/*"]
+mcsm = ["assets/*.png", "assets/web/*.html", "assets/web/*.js", "assets/web/vendor/*"]

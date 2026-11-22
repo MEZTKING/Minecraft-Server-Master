@@ -142,6 +142,7 @@ class ServerData:
     sources: dict[str, str] = field(default_factory=dict)                # backup label -> extracted root
     changes: list[dict[str, Any]] = field(default_factory=list)          # mods/datapacks/version changes between backups
     library_world: str | None = None                                     # library world folder, if loaded from one
+    ignored: list[str] = field(default_factory=list)                     # lower-case names left out (mcsm.ignore)
 
     def player(self, name: str) -> PlayerProfile | None:
         return self.players.get(name.lower())

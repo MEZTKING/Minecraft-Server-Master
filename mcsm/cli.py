@@ -61,13 +61,17 @@ def _load(args) -> m.ServerData:
         extra.append(rp)
     from .library import expand_sources
     servers, recordings, world = expand_sources(args.server if isinstance(args.server, list) else [args.server])
+    from . import ignore
     if len(servers) == 1 and not recordings:
         root = _OPEN.enter_context(open_server(servers[0]))
-        return analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
-    from .archive import analyze_many
-    data = analyze_many(servers, _OPEN, tz=tz, latest_log_date=latest, extra_replays=extra,
-                        progress=lambda msg: print(msg, file=sys.stderr), recordings=recordings)
-    data.library_world = world
+        data = analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
+    else:
+        from .archive import analyze_many
+        data = analyze_many(servers, _OPEN, tz=tz, latest_log_date=latest, extra_replays=extra,
+                            progress=lambda msg: print(msg, file=sys.stderr), recordings=recordings)
+        data.library_world = world
+    if not getattr(args, "show_ignored", False):
+        ignore.apply(data)                     # players who were never supposed to join
     return data
 
 
@@ -99,6 +103,8 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                                 "(default: learned from advancement files)")
     p.add_argument("--latest-log-date", metavar="YYYY-MM-DD",
                    help="date of the last line in logs/latest.log (default: file modification date)")
+    p.add_argument("--show-ignored", action="store_true",
+                   help="also show the players on the ignore list (mcsm ignore)")
 
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1012,35 @@ def cmd_video_editor(args) -> int:
     return 0
 
 
+def cmd_timelapse_join(args) -> int:
+    """Join the videos exported from a timelapse's Flashback copies, in order, optionally with music."""
+    from . import videojoin
+    try:
+        videojoin.join(args.videos, args.output, args.music, args.music_start or 0.0)
+    except ValueError as exc:
+        print(f"Can't join: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_ignore(args) -> int:
+    """The players left out everywhere (people who were never supposed to join)."""
+    from . import ignore
+    if args.action == "add":
+        items = ignore.add(args.names)
+    elif args.action == "remove":
+        items = ignore.remove(args.names)
+    else:
+        items = ignore.load()
+    if not items:
+        print("Nobody is ignored.")
+    for i in items:
+        other = [n for n in i.get("names", []) if n != i["name"]]
+        print(f"{i['name']}" + (f"  (also: {', '.join(other)})" if other else "") + (f"  {i['uuid']}" if i.get("uuid") else ""))
+    print(f"List: {ignore.default_file()}", file=sys.stderr)
+    return 0
+
+
 def cmd_story(args) -> int:
     """The whole server's story, start to finish: the history viewer on a whole library world."""
     from . import library as lib
@@ -1304,6 +1339,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--http-port", type=int)
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(func=cmd_story)
+
+    p = sub.add_parser("timelapse-join", help="join the videos exported from a timelapse's parts into one, with music")
+    p.add_argument("videos", nargs="+", help="the exported videos (put in '(timelapse n of N)' order when the names have it)")
+    p.add_argument("-o", "--output", required=True, help="the joined video (.mp4)")
+    p.add_argument("--music", help="a song for the sound (replaces the videos' sound; loops; fades out at the end)")
+    p.add_argument("--music-start", type=float, help="start this many seconds into the song")
+    p.set_defaults(func=cmd_timelapse_join)
+
+    p = sub.add_parser("ignore", help="players to leave out everywhere (never supposed to join): list, add, remove")
+    p.add_argument("action", choices=["list", "add", "remove"])
+    p.add_argument("names", nargs="*", help="player names")
+    p.set_defaults(func=cmd_ignore)
 
     p = sub.add_parser("flashback-link", help="the Flashback companion mod: status, or install it into an instance")
     p.add_argument("action", choices=["status", "install"])

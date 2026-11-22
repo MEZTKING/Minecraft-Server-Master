@@ -45,6 +45,10 @@ BUTTON_TIPS = {
     "Folder…": "Choose an unpacked server folder (or a library world folder) and load it.",
     "+ Add backup…": "Add more backups to the ones already chosen; they are merged into one history.",
     "Load server": "Read the chosen server/backups: logs, players, stats and recordings. Needed by most tabs.",
+    "Join timelapse parts…": "Pick the videos you exported from a timelapse's parts: they are joined in order "
+                             "into one video, with a song if you like (needs ffmpeg).",
+    "Ignored players…": "Players who were never supposed to join: leave them out everywhere (reports, moments, "
+                        "story, timelapses, maps). Nothing in your backups is changed.",
     "Browse…": "Pick a folder or file for this field.",
     "Open": "Open this folder in Explorer.",
     "Import a whole folder of backups…": "Scan a folder full of backups (any host), show what was found and "
@@ -254,9 +258,58 @@ class App(ttk.Frame):
         ttk.Entry(opts, textvariable=self.latest_var, width=12).pack(side="left", padx=4)
         self.load_btn = ttk.Button(opts, text="Load server", command=self._load)
         self.load_btn.pack(side="right")
+        ttk.Button(opts, text="Ignored players…", command=self._ignored_players).pack(side="right", padx=4)
         self.status_var = tk.StringVar(value="No server loaded")
         ttk.Label(box, textvariable=self.status_var, foreground="gray", wraplength=820).grid(row=2, column=0, columnspan=5, sticky="w", pady=(6, 0))
         self._build_updates(box)
+
+    def _ignored_players(self) -> None:
+        """Players left out everywhere: people who were never supposed to join (mcsm.ignore)."""
+        from . import ignore
+        win = tk.Toplevel(self)
+        win.title("Ignored players")
+        win.transient(self)
+        ttk.Label(win, text="These players are left out everywhere: reports, events, moments, the story, highlights, "
+                            "timelapses and the viewers' maps. Your backups and recordings are not changed.",
+                  wraplength=460).pack(anchor="w", padx=10, pady=(10, 6))
+        lb = tk.Listbox(win, height=8, selectmode="extended")
+        lb.pack(fill="both", expand=True, padx=10)
+
+        def refresh():
+            lb.delete(0, "end")
+            for i in ignore.load():
+                lb.insert("end", i["name"])
+        refresh()
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=6)
+        known = sorted((p.name for p in self.data.players.values()), key=str.lower) if self.data else []
+        name_var = tk.StringVar()
+        ttk.Combobox(row, textvariable=name_var, values=known, width=24).pack(side="left")
+        note = tk.StringVar()
+
+        def add():
+            n = name_var.get().strip()
+            if not n:
+                return
+            ignore.add([n], self.data)
+            name_var.set("")
+            refresh()
+            if self.data:
+                gone = ignore.apply(self.data)
+                note.set(f"Left out of the loaded server: {', '.join(gone)}. Pages that are already open "
+                         "(history viewer, live editor) show it after they are started again." if gone else
+                         f"{n} isn't in the loaded server (they will be left out wherever they turn up).")
+
+        def remove():
+            names = [lb.get(i) for i in lb.curselection()]
+            if names:
+                ignore.remove(names)
+                refresh()
+                note.set("Taken off the list: they come back the next time you load the server.")
+        ttk.Button(row, text="Ignore", command=add).pack(side="left", padx=4)
+        ttk.Button(row, text="Stop ignoring", command=remove).pack(side="left")
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+        ttk.Label(win, textvariable=note, foreground="gray", wraplength=460).pack(anchor="w", padx=10, pady=(0, 10))
 
     # ------------------------------------------------------------------ updates
     UPDATE_CHANNELS = [("test", "every new test build"), ("stable", "stable releases only"), ("off", "off")]
@@ -1085,11 +1138,43 @@ class App(ttk.Frame):
                           "then shows what the game draws.", wraplength=680, justify="left").grid(
             row=6, column=0, columnspan=3, sticky="w", pady=(14, 3))
         ttk.Button(f, text="Install the Flashback link…", command=self._vid_install_link).grid(row=7, column=0, sticky="w")
+        ttk.Label(f, text="A timelapse in several parts (one per recording file)? After exporting each part from "
+                          "Flashback, join them here into one video, in order, with a song if you like.",
+                  wraplength=680, justify="left").grid(row=8, column=0, columnspan=3, sticky="w", pady=(14, 3))
+        ttk.Button(f, text="Join timelapse parts…", command=self._vid_join).grid(row=9, column=0, sticky="w")
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.vid_info = None
         return f
+
+    def _vid_join(self) -> None:
+        """Join exported timelapse parts into one video (mcsm timelapse-join)."""
+        from . import videojoin
+        vids = filedialog.askopenfilenames(title="The exported videos of the timelapse parts",
+                                           filetypes=[("Videos", "*.mp4 *.mov *.mkv *.webm"), ("All files", "*.*")])
+        if not vids:
+            return
+        order = videojoin.ordered(sorted(vids, key=lambda p: os.path.basename(p).lower()))
+        music = None
+        if messagebox.askyesno(APP_NAME, "Joining in this order:\n\n" + "\n".join(
+                f"{i}. {os.path.basename(v)}" for i, v in enumerate(order, 1))
+                + "\n\nAdd a song as the sound? (It replaces the videos' own sound and fades out at the end.)"):
+            music = filedialog.askopenfilename(title="Song", filetypes=[("Music", "*.mp3 *.ogg *.wav *.m4a *.flac"),
+                                                                        ("All files", "*.*")]) or None
+        first = os.path.basename(order[0])
+        name = videojoin._PART.sub("", os.path.splitext(first)[0]).strip() or "timelapse"
+        out = filedialog.asksaveasfilename(title="Save the joined video as", defaultextension=".mp4",
+                                           initialdir=os.path.dirname(order[0]), initialfile=f"{name} timelapse.mp4",
+                                           filetypes=[("MP4 video", "*.mp4")])
+        if not out:
+            return
+        argv = ["timelapse-join", *order, "-o", out] + (["--music", music] if music else [])
+        args = self._parse(argv)
+        if args is not None:
+            self.vid_status_var.set("Joining the timelapse parts… (see the log)")
+            self._run("Join timelapse parts", lambda _d: cli.cmd_timelapse_join(args),
+                      after=lambda rc: self.vid_status_var.set(f"Joined: {out}" if rc == 0 else "Joining failed (see the log)."))
 
     def _vid_live(self) -> None:
         """The live editor page: the video plays with the text drawn on it while you change it."""
@@ -1554,6 +1639,10 @@ class App(ttk.Frame):
                     data = analyze_many(servers, stack, tz=tz, latest_log_date=latest, progress=print,
                                         recordings=recs)
                     data.library_world = world
+                from . import ignore
+                left_out = ignore.apply(data)             # players who were never supposed to join
+                if left_out:
+                    print(f"Ignored players left out: {', '.join(left_out)}")
                 return data, cli.live_settings(data.root)
             except BaseException:
                 stack.close()

@@ -133,6 +133,7 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 |---|---|
 | `--tz Europe/London` / `--tz +02:00` | Time zone the **server** writes its logs in. Normally detected automatically – see [Time zones](#time-zones). |
 | `--latest-log-date 2024-05-03` | Date of the last line in `logs/latest.log`, if the file's modification date is wrong. |
+| `--show-ignored` | Also show the players on the ignore list (see `mcsm ignore`). |
 
 | Command | What it does |
 |---|---|
@@ -149,6 +150,8 @@ backups into one history; see [docs/BACKUPS.md](docs/BACKUPS.md)), plus these co
 | `mcsm story [WORLD]` | The whole server's story, start to finish: the history viewer plays the important moments of every backup and recording in order ([guide](docs/HISTORY.md#the-server-story-start-to-finish)). |
 | `mcsm flashback-link status` / `install --instance NAME` | The Flashback companion mod: the editor's real Minecraft picture ([guide](docs/VIDEO_TEXT.md), [mod](companion/README.md)). |
 | `mcsm music SONG.wav` | Detect a song's BPM and first beat ([guide](docs/MUSIC_SYNC.md)). |
+| `mcsm ignore list` / `add NAME...` / `remove NAME...` | Players who were never supposed to join: left out everywhere (reports, events, moments, the story, highlights, timelapses, the viewers' maps). One list for all servers, kept in `%LOCALAPPDATA%\mcsm\ignored_players.json`, by name and UUID (renames stay ignored). Your backups and recordings are not changed; taking someone off the list brings them back the next time you load. In the app: **Ignored players…** next to **Load server**. |
+| `mcsm timelapse-join PART1.mp4 PART2.mp4 ... -o OUT.mp4 [--music SONG]` | Join the videos exported from a build timelapse's parts into one, in order, with a song if you like ([guide](docs/HISTORY.md)). |
 | `mcsm flashback SERVER --replay N --install` | Copy a Flashback replay with server events as markers ([guide](docs/FLASHBACK.md)). |
 | `mcsm timelapse SERVER --replay N --area X1,Z1,X2,Z2 --tracks DIR --install` | Activity-aware area timelapse set up in Flashback ([guide](docs/TIMELAPSE.md)). |
 | `mcsm live SERVER --host ADDRESS` | Live 3D map of players in your browser ([guide](docs/LIVE_MAP.md)). Add `--demo` to try it without a server. |

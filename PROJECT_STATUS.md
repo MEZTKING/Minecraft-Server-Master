@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (timelapse of a build from its moment, 0t step 4).
+`CLAUDE.md`). Last updated: 2026-11-22 (timelapse view with own camera, join parts, ignored players).
 
 ## What this project is
 
@@ -84,6 +84,8 @@ More features "like these" are planned, listed under **Backlog** below.
 | Music in the editor: song plays along, tempo detected, beats on the timeline; song on Flashback's AUDIO track of the copy's edit + a marker per beat/bar; mixed into the made video | ✅ Done; checked in the page on the owner's clip (song in sync) and in tests; not yet opened in Flashback | `mcsm/videomusic.py`, `videotext.py` (`make_items_in_world`, `burn_in`), `videoeditor.py` (`/api/music`, `/api/beats`), `videotext.html` | `docs/VIDEO_TEXT.md` |
 | Editor extras: opacity, rotate, facing (camera / upright / fixed like a sign, turn, tilt), 3D depth, italic, underline, rise and slam animations, chained follow-ups with any gap, "lasts" seconds, pictures on the video (opacity, rotate, fade/rise); app Videos tab now only picks the video | ✅ Done; on-screen results checked frame by frame with ffmpeg; in-world rotation/facing/3D/rise not yet seen in Flashback | `worldtext.py` (`translation_of`, `quaternion_of`, `with_depth`, `transform_packet`), `videotext.py` (`resolve_times`, `image_filters`), `videoeditor.py` (`/api/image`), `videotext.html`, `gui.py` | `docs/VIDEO_TEXT.md` |
 | In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
+| Build timelapse view: the build's real world in 3D, look around, preview, camera automatic / own views (gliding) / set in Flashback; parts under 2 s left out; join exported parts with music | ✅ Done, the view and join not yet tried by the owner | `mcsm/world3d.py`, `mcsm/assets/web/map3d.js`, `mcsm/timelapse.py`, `mcsm/videojoin.py`, history viewer, `mcsm timelapse-join`, Videos tab | `docs/HISTORY.md` |
+| Ignored players (never supposed to join), left out everywhere | ✅ Done | `mcsm/ignore.py`, `mcsm ignore`, Ignored players… | README |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
 ## Backlog (feature requests and ideas, in priority order)
@@ -686,6 +688,25 @@ event (0r), mark highlights while watching.
 - **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
   automatically?
 
+### 0u. Timelapse parts, own camera, ignored players (raised 2026-11-22)
+
+✅ **Done 2026-11-22.** The ask, after the owner's first timelapse ("it worked so far, although i don't
+understand why it makes 9 timelapses"): "fix it all, and also i want to manually be able to look around in
+the world and show a timelapse as well as an option", then "also add the option to ignore permanently some
+players, as they were not supposed to join ever".
+
+Design (Fable reviewed): parts under 2 s of video are left out and the speed worked out again so it still
+fits 3 minutes; a join step (ffmpeg concat, copy when the parts match, else re-encode; music replaces the
+sound, loops, fades out); the Timelapse button opens a 3D view of the build (terrain + real blocks from the
+backup after the build, the editor's MAP3D moved to a shared `map3d.js`) with a preview (player boxes at
+timelapse speed) and three cameras: automatic, own views (one = fixed; more = linear glide spread over the
+whole timelapse, across parts), or none ("I'll set it in Flashback"). Ignored players: one list for all
+servers (name + UUID + other names), applied right after loading (players, events, sessions, recordings they
+made, other recordings' player lists, positions in the history viewer).
+
+Open: Flashback's FOV isn't set (the preview uses 70, Minecraft's default); whether Flashback exports a
+moving camera smoothly with LINEAR keyframes in a timelapse is untested in the real game.
+
 ### 0t. Quiet but busy: building, map art, searching (raised 2026-11-22)
 
 ✅ **Steps 1-3 done 2026-11-22** (owner: "Yes, build it"): movement stretches (`mcsm/activity.py`) as moments in
@@ -884,6 +905,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Known gaps and unverified assumptions
 
+- **Timelapse view and join not yet tried by the owner.** Camera views assume the owner's Flashback FOV is
+  near 70. The editor (`videoeditor.py`) still has its own copy of the tile/block code that `world3d.py` now
+  also has (to merge later). The video editor's player boxes don't leave out ignored players.
+
 - **Library link mode shares data with the original folder.** Running a server from the
   original afterwards would change the library's copy too (documented). Explorer shows every
   backup at full size although shared files are stored once.
@@ -945,6 +970,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-22:** Timelapse follow-up (owner: "why it makes 9 timelapses", "fix it all", "look around in the world
+  and show a timelapse", "ignore permanently some players"): parts under 2 s left out and the length shared out
+  again; the timelapse view in the history viewer (real world in 3D, look around, preview, camera automatic /
+  own views gliding / set in Flashback); `mcsm timelapse-join` + Videos tab "Join timelapse parts…" (ffmpeg, with
+  music); ignored players (`mcsm ignore`, "Ignored players…", `--show-ignored`). The editor's 3D map moved to
+  `assets/web/map3d.js`, shared by both pages. Fable reviewed the design.
 
 - **2026-11-22:** Moved the owner's 11 timelapse copies (1.21.11; two builds) and their timelines out of the 26.1.2
   Flashback into `F:\Game Backup\mcsm-library\Main_world\Flashback for Minecraft 1.21.11` (owner: "Yes, move them").

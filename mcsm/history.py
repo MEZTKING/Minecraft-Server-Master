@@ -233,8 +233,11 @@ class HistoryMap(TerrainServer):
                 self._loaded[f] = paths_mod.read_tracks([f])
         aliases = self._payload["aliases"]
         merged: dict[str, list[list]] = {}
+        ignored = set(self.data.ignored or [])
         for f in files:
             for name, pts in self._loaded[f].items():
+                if name.lower() in ignored or aliases.get(name, name).lower() in ignored:
+                    continue                      # never supposed to be there (mcsm.ignore)
                 merged.setdefault(aliases.get(name, name), []).extend(pts)
         own = {n: prefer_own(sorted(p, key=lambda q: q[0])) for n, p in merged.items()}
         self._tracks = (len(files), own)                  # full detail, for finding building/exploring
@@ -252,12 +255,64 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path.startswith("/api/tl3d/"):            # the build's world in 3D: /api/tl3d/<id>/tiles|blocks
+            parts = path[len("/api/tl3d/"):].split("/")
+            if len(parts) == 2 and parts[1] in ("tiles", "blocks"):
+                try:
+                    bw = self.build_world(parts[0])
+                    return bw.tiles() if parts[1] == "tiles" else bw.blocks(f"/tl3d/{parts[0]}/")
+                except (ValueError, OSError) as exc:     # shown on the page; the view works without it
+                    return {"tiles": [], "faces": 0, "message": str(exc)}
         if path == "/api/timelapse/job":
             job = getattr(self, "_tl_job", None) or {"running": False, "log": [], "result": None, "error": None}
             return {**job, "log": job["log"][-5:]}
         return None
 
-    def timelapse(self, moment_id: str, export: bool = False) -> dict:
+    def build_world(self, moment_id: str):
+        """The real world around a build moment (terrain + blocks) from the backup saved right after it."""
+        from . import timelapse as tl, world3d, worldpick as wp
+        cache = self.__dict__.setdefault("_build_worlds", {})
+        if moment_id in cache:
+            return cache[moment_id]
+        mom = next((x for x in (getattr(self, "_moments", None) or []) if x["id"] == moment_id), None)
+        if mom is None or not mom.get("area"):
+            raise ValueError("that isn't a building moment (reload the page)")
+        found, label = None, ""
+        if self.data.library_world:
+            found = wp.backup_for(self.data.library_world, tl.from_ms(mom["end"]))
+            label = os.path.basename(found[0]) if found else ""
+        if not found and self.root and self.world:
+            found, label = (self.root, self.world), "the loaded backup"
+        if not found:
+            raise ValueError("no backup of this world to show the build from")
+        a = tl.moment_area(mom)
+        bw = world3d.BuildWorld(found[0], found[1], [a.x1, a.z1, a.x2, a.z2], mom.get("mc"), label)
+        cache[moment_id] = bw
+        return bw
+
+    def file_for(self, path: str) -> str | None:
+        """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks.bin, tex/<name>.png."""
+        if not path.startswith("/tl3d/"):
+            return None
+        mid, _, rest = path[len("/tl3d/"):].partition("/")
+        try:
+            bw = self.build_world(mid)
+        except ValueError:
+            return None
+        if rest.startswith("tile/"):
+            try:
+                rx, rz, step = (int(v) for v in rest[len("tile/"):].split("/"))
+            except ValueError:
+                return None
+            return bw.tile_file(rx, rz, step)
+        if rest == "blocks.bin":
+            f = bw.blocks_file()
+            return f if os.path.isfile(f) else None
+        if rest.startswith("tex/") and rest.endswith(".png"):
+            return bw.texture(rest[len("tex/"):-4])
+        return None
+
+    def timelapse(self, moment_id: str, export: bool = False, camera: dict | None = None) -> dict:
         """A timelapse of a build moment: the plan (nothing is read or written), or start making the
         Flashback copies in the background (progress: GET /api/timelapse/job)."""
         import shutil
@@ -291,8 +346,12 @@ class HistoryMap(TerrainServer):
             free_total += free
             if size > free * 0.9:
                 short.append(f"{folder}: {free / 1e9:.1f} GB free, needs {size / 1e9:.1f} GB")
+        cx, cy, cz, cyaw, cpitch = pm["camera"]
         summary = {"pov": pm["pov"], "speed": pm["speed"], "seconds": pm["seconds"], "bytes": pm["bytes"],
                    "free": free_total or None, "folders": sorted(need), "short": short,
+                   "skipped": pm.get("skipped") or [], "timeline": tl.timeline(pm),
+                   "area": [pm["area"].x1, pm["area"].z1, pm["area"].x2, pm["area"].z2], "y": mom.get("y"),
+                   "auto_view": {"eye": [cx, cy + tl.EYE_HEIGHT, cz], "yaw": cyaw, "pitch": cpitch},
                    "parts": [{"n": p["n"], "file": p["replay"].path.split("/")[-1], "seconds": p["seconds"]}
                              for p in pm["parts"]], "flashback_dir": self.flashback_dir}
         if not export:
@@ -306,7 +365,8 @@ class HistoryMap(TerrainServer):
         def work():
             try:
                 r = tl.export_moment(self.data, mom, tracks, self.replay_file, self.flashback_dir, out_dir,
-                                     pick_dir=self.flashback_pick, progress=self._tl_job["log"].append)
+                                     pick_dir=self.flashback_pick, progress=self._tl_job["log"].append,
+                                     camera=camera)
                 self._tl_job["result"] = {**summary, **{k: v for k, v in r.items() if k in ("parts", "order", "folder")}}
             except Exception as exc:                     # noqa: BLE001 -- shown on the page
                 self._tl_job["error"] = f"{type(exc).__name__}: {exc}"
@@ -362,7 +422,8 @@ class HistoryMap(TerrainServer):
             self.highlights.put(body, players)
             return self.highlights_info()
         if path in ("/api/timelapse/plan", "/api/timelapse/export"):
-            return self.timelapse(str(body.get("id", "")), export=path.endswith("export"))
+            return self.timelapse(str(body.get("id", "")), export=path.endswith("export"),
+                                  camera=body.get("camera") if isinstance(body.get("camera"), dict) else None)
         if path == "/api/highlights/delete":
             self.highlights.delete(str(body.get("id", "")))
             return self.highlights_info()

@@ -3685,3 +3685,219 @@ class TestExportByVersion(unittest.TestCase):
             self.assertEqual(fbm.find_flashback_dir(None, "26.1.2", exact=True), "C:/fb26")
         finally:
             fbm.flashback_folders = old
+
+
+class TestTimelapseCamera(unittest.TestCase):
+    """Tiny parts are left out; the camera: automatic, the owner's own views (gliding), or none."""
+
+    def _setup(self, tiny_minutes=0.6):
+        import math
+        t0 = datetime(2026, 4, 10, 16, 0, tzinfo=timezone.utc)
+        ms0 = int(t0.timestamp() * 1000)
+        at = lambda minutes: datetime.fromtimestamp((ms0 + minutes * 60_000) / 1000, timezone.utc)   # noqa: E731
+        d = m.ServerData(root="x")
+        d.replays = [m.Replay("b1.zip", t0, 60 * 60_000, format="flashback", recorded_player="Builder"),
+                     m.Replay("b2.zip", at(60), 5 * 60_000, format="flashback", recorded_player="Builder"),
+                     m.Replay("b3.zip", at(65), 60 * 60_000, format="flashback", recorded_player="Builder")]
+        # busy in b1 and b3; in b2 only for a little while (a short part)
+        pts = [[ms0 + s * 1000, 100 + 10 * math.sin(s / 9), 70, 200 + 10 * math.cos(s / 7), "minecraft:overworld"]
+               for s in range(0, 125 * 60, 2) if s < 60 * 60 or s >= 65 * 60 or s < 60 * 60 + tiny_minutes * 60]
+        moment = {"id": "x", "title": "Builder: building", "mode": "building", "start": ms0, "end": ms0 + 125 * 60_000,
+                  "area": [88, 188, 112, 212], "dim": "minecraft:overworld", "y": 70, "players": ["Builder"],
+                  "recordings": [{"path": p} for p in ("b1.zip", "b2.zip", "b3.zip")]}
+        return d, moment, {"Builder": pts}
+
+    def test_tiny_part_left_out(self):
+        from mcsm import timelapse as tl
+        d, moment, tracks = self._setup()
+        pm = tl.plan_moment(d, moment, tracks)
+        self.assertEqual([p["replay"].path for p in pm["parts"]], ["b1.zip", "b3.zip"])
+        self.assertEqual([p["n"] for p in pm["parts"]], [1, 2])
+        self.assertEqual([s["file"] for s in pm["skipped"]], ["b2.zip"])
+        self.assertAlmostEqual(pm["seconds"], 180, delta=3)                      # the length is shared out again
+        self.assertTrue(all(p["seconds"] >= tl.MIN_PART_S for p in pm["parts"]))
+        line = tl.timeline(pm)
+        self.assertEqual(line[0][2], 0)
+        self.assertAlmostEqual(line[-1][3], pm["seconds"], delta=0.01)
+
+    def test_cameras(self):
+        from mcsm import flashback as fbm, timelapse as tl
+        d, moment, tracks = self._setup()
+        pm = tl.plan_moment(d, moment, tracks)
+        p1, p2 = pm["parts"]
+        fixed, moving = tl.part_camera(pm, p1, None)                             # automatic
+        self.assertEqual(fixed["position"], [float(v) for v in pm["camera"][:3]])
+        self.assertIsNone(moving)
+        self.assertEqual(tl.part_camera(pm, p1, {"mode": "free"}), (None, None))
+        st = fbm.editor_state("s", None, [(0, 0), (100, 10)])
+        self.assertEqual([t["keyframeType"] for t in st["scenes"][0]["keyframeTracks"]], ["TIMELAPSE"])
+        one = {"eye": [10.0, 81.62, 20.0], "yaw": 200.0, "pitch": 30.0}
+        fixed, moving = tl.part_camera(pm, p1, {"mode": "views", "views": [one]})
+        self.assertEqual(fixed["interpolation_type"], "HOLD")
+        self.assertAlmostEqual(fixed["position"][1], 80.0, places=6)              # the eye 1.62 above the keyframe
+        self.assertAlmostEqual(fixed["yaw"], -160.0, places=6)
+        a = {"eye": [0.0, 101.62, 0.0], "yaw": 170.0, "pitch": 10.0}
+        b = {"eye": [100.0, 101.62, 0.0], "yaw": -170.0, "pitch": 50.0}
+        cam = {"mode": "views", "views": [a, b]}
+        _f, k1 = tl.part_camera(pm, p1, cam)
+        _f, k2 = tl.part_camera(pm, p2, cam)
+        first, last = k1[min(k1)], k2[max(k2)]
+        self.assertAlmostEqual(first["position"][0], 0.0, places=6)
+        self.assertAlmostEqual(last["position"][0], 100.0, places=3)
+        self.assertEqual(first["interpolation_type"], "LINEAR")
+        # the glide carries on across parts: part 2 starts where part 1 ended
+        self.assertAlmostEqual(k1[max(k1)]["position"][0], k2[min(k2)]["position"][0], delta=0.6)
+        frac = p1["seconds"] / pm["seconds"]
+        self.assertAlmostEqual(k1[max(k1)]["position"][0], 100 * frac, delta=0.6)
+        self.assertAlmostEqual(k1[max(k1)]["yaw"] % 360, (170 + 20 * frac) % 360, delta=0.5)   # the short way round
+        keys = tl.timelapse_keyframes(p1["plan"], p1["replay"].start)
+        self.assertTrue(keys[0][0] <= min(k1) and max(k1) <= keys[-1][0])
+        st = fbm.editor_state("s", None, keys, camera_keys=k1)
+        self.assertEqual(len(st["scenes"][0]["keyframeTracks"][0]["keyframesByTick"]), len(k1))
+
+    def test_export_free_camera(self):
+        from mcsm import timelapse as tl
+        d, moment, tracks = self._setup()
+        tmp = tempfile.mkdtemp()
+        try:
+            files = {}
+            for r in d.replays:
+                path = os.path.join(tmp, r.path)
+                ticks = r.duration_ms // 50
+                with zipfile.ZipFile(path, "w") as zf:
+                    zf.writestr("metadata.json", json.dumps({"uuid": r.path, "protocol_version": 775, "total_ticks": ticks,
+                                                             "chunks": {"c0.flashback": {"duration": ticks}}}))
+                    zf.writestr("c0.flashback", TestWorldTextTiming._chunk(ticks))
+                files[r.path] = path
+            r = tl.export_moment(d, moment, tracks, lambda rp: files[rp.path], os.path.join(tmp, "fb"),
+                                 os.path.join(tmp, "out"), camera={"mode": "free"})
+            self.assertEqual(len(r["parts"]), 2)
+            with open(r["parts"][0]["editor_state"], encoding="utf-8") as fh:
+                st = json.load(fh)
+            self.assertNotIn("CAMERA", [t["keyframeType"] for t in st["scenes"][0]["keyframeTracks"]])
+            with open(r["order"], encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("No camera was set", text)
+            self.assertIn("Left out", text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestIgnorePlayers(unittest.TestCase):
+    """Players who were never supposed to join are left out everywhere."""
+
+    def test_list_and_apply(self):
+        from mcsm import ignore
+        tmp = tempfile.mkdtemp()
+        try:
+            f = os.path.join(tmp, "ignored.json")
+            t = datetime(2026, 4, 1, tzinfo=timezone.utc)
+            d = m.ServerData(root="x")
+            d.players = {"steve": m.PlayerProfile("u-1", "Steve"),
+                         "griefer": m.PlayerProfile("aaaa-bbbb", "Griefer", names_seen=["OldName"])}
+            d.events = [m.Event(t, m.EV_JOIN, "Steve"), m.Event(t, m.EV_JOIN, "Griefer"), m.Event(t, m.EV_CHAT, "oldname")]
+            d.sessions = [m.Session("Steve", t, t), m.Session("Griefer", t, t)]
+            d.replays = [m.Replay("a.zip", t, 1000, players=["u-1", "aaaabbbb"], player_names=["Steve", "Griefer"]),
+                         m.Replay("b.zip", t, 1000, recorded_player="Griefer")]
+            items = ignore.add(["griefer"], d, path=f)
+            self.assertEqual(items[0]["name"], "Griefer")
+            self.assertEqual(items[0]["uuid"], "aaaa-bbbb")
+            self.assertIn("OldName", items[0]["names"])
+            self.assertEqual(ignore.apply(d, ignore.load(f)), ["Griefer"])
+            self.assertEqual(list(d.players), ["steve"])
+            self.assertEqual([e.player for e in d.events], ["Steve"])
+            self.assertEqual([s.player for s in d.sessions], ["Steve"])
+            self.assertEqual([r.path for r in d.replays], ["a.zip"])
+            self.assertEqual((d.replays[0].players, d.replays[0].player_names), (["u-1"], ["Steve"]))
+            self.assertTrue(ignore.is_ignored(d, "OLDNAME"))
+            self.assertFalse(ignore.is_ignored(d, "Steve"))
+            self.assertEqual(ignore.remove(["oldname"], path=f), [])                # any of their names takes them off
+            self.assertEqual(ignore.apply(d, ignore.load(f)), [])
+            old = os.environ.get("LOCALAPPDATA")
+            os.environ["LOCALAPPDATA"] = tmp                                      # the command line
+            try:
+                self.assertEqual(cli.main(["ignore", "add", "Alex"]), 0)
+                self.assertEqual([i["name"] for i in ignore.load()], ["Alex"])
+                self.assertEqual(cli.main(["ignore", "remove", "Alex"]), 0)
+                self.assertEqual(ignore.load(), [])
+            finally:
+                if old is None:
+                    os.environ.pop("LOCALAPPDATA", None)
+                else:
+                    os.environ["LOCALAPPDATA"] = old
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestJoinTimelapse(unittest.TestCase):
+    """The exported parts of a timelapse joined into one video, in order, with music."""
+
+    def test_order(self):
+        from mcsm import videojoin as vj
+        self.assertEqual(vj.ordered(["x (timelapse 10 of 10).mp4", "x (timelapse 2 of 10).mp4", "x (timelapse 1 of 10).mp4"]),
+                         ["x (timelapse 1 of 10).mp4", "x (timelapse 2 of 10).mp4", "x (timelapse 10 of 10).mp4"])
+        self.assertEqual(vj.ordered(["b.mp4", "a.mp4"]), ["b.mp4", "a.mp4"])            # no numbers: as given
+
+    def test_join(self):
+        from mcsm import videojoin as vj
+        from mcsm.videotext import find_tool, video_duration, video_size
+        ff = find_tool("ffmpeg")
+        if not ff or not find_tool("ffprobe"):
+            self.skipTest("ffmpeg not installed")
+        tmp = tempfile.mkdtemp()
+        try:
+            def clip(name, secs, size="320x180"):
+                out = os.path.join(tmp, name)
+                subprocess.run([ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc=size={size}:rate=30",
+                                "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(secs), "-c:v", "libx264",
+                                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", out], check=True)
+                return out
+            a, b = clip("B (timelapse 2 of 2).mp4", 1), clip("B (timelapse 1 of 2).mp4", 2)
+            song = os.path.join(tmp, "song.wav")
+            subprocess.run([ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220", "-t", "1", song], check=True)
+            out = os.path.join(tmp, "joined.mp4")
+            p = vj.join([a, b], out, music=song, say=lambda _m: None)
+            self.assertTrue(p["copy"])
+            self.assertEqual(p["order"], [b, a])
+            self.assertAlmostEqual(video_duration(out), 3.0, delta=0.25)           # the 1 s song loops to the end
+            c = clip("other.mp4", 1, size="640x360")                                 # another size: re-encoded
+            out2 = os.path.join(tmp, "joined2.mp4")
+            p2 = vj.join([b, c], out2, say=lambda _m: None)
+            self.assertFalse(p2["copy"])
+            self.assertEqual(video_size(out2), (320, 180))
+            self.assertAlmostEqual(video_duration(out2), 3.0, delta=0.25)
+            with self.assertRaises(ValueError):
+                vj.join([a, b], a, say=lambda _m: None)                              # never over a part
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestBuildWorld3D(unittest.TestCase):
+    """The world around a build for the timelapse view: terrain tiles and real blocks from a backup."""
+
+    def test_tiles_and_blocks(self):
+        from mcsm import blockmesh as bm, terrain, world3d
+        tmp = tempfile.mkdtemp()
+        try:
+            world = os.path.join(tmp, "srv", "world")
+            terrain.write_region(os.path.join(world, "region", "r.0.0.mca"),
+                                 {(0, 0): terrain.make_chunk(0, 0, lambda x, z: 64, lambda x, y, z: "minecraft:stone")})
+            jar = os.path.join(tmp, "client.jar")
+            TestRealBlocks._jar(jar)
+            bw = world3d.BuildWorld(os.path.join(tmp, "srv"), world, [0, 0, 15, 15], cache=os.path.join(tmp, "cache"))
+            self.assertEqual(bw.tiles()["tiles"], [{"rx": 0, "rz": 0, "step": 2}])
+            self.assertTrue(os.path.isfile(bw.tile_file(0, 0, 2)))
+            self.assertIsNone(bw.tile_file(5, 5, 2))
+            old = bm.find_client_jar
+            bm.find_client_jar = lambda _v: jar
+            try:
+                info = bw.blocks("/tl3d/x/")
+            finally:
+                bm.find_client_jar = old
+            self.assertGreater(info["faces"], 0)
+            self.assertEqual(info["url"], "/tl3d/x/blocks.bin")
+            self.assertTrue(os.path.isfile(bw.blocks_file()))
+            self.assertTrue(os.path.isfile(bw.texture("block/stone")))
+            self.assertIsNone(bw.texture("../evil"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

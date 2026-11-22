@@ -277,15 +277,19 @@ def camera_keyframe(x: float, y: float, z: float, yaw: float, pitch: float) -> d
 
 
 def editor_state(scene_name: str, camera: dict | None, timelapse: list[tuple[int, int]],
-                 export_range: tuple[int, int] | None = None) -> dict:
+                 export_range: tuple[int, int] | None = None, camera_keys: dict[int, dict] | None = None) -> dict:
     """Build an editor-state document.
 
     *timelapse*: ``[(replay_tick, output_tick), ...]`` with both strictly increasing.
-    *camera*: from :func:`camera_keyframe`, placed at the first timelapse tick (or 0).
+    *camera*: from :func:`camera_keyframe`, placed at the first timelapse tick (or 0); or *camera_keys*
+    ``{replay_tick: keyframe}`` for a moving camera. Neither: no camera track (set it in Flashback).
     """
     tracks = []
     start = timelapse[0][0] if timelapse else 0
-    if camera:
+    if camera_keys:
+        tracks.append({"keyframeType": "CAMERA", "enabled": True,
+                       "keyframesByTick": {str(t): k for t, k in sorted(camera_keys.items())}})
+    elif camera:
         tracks.append({"keyframeType": "CAMERA", "enabled": True, "keyframesByTick": {str(start): camera}})
     if timelapse:
         last_out = -1

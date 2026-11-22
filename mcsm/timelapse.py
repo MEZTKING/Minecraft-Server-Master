@@ -271,6 +271,7 @@ def _fmt(sec: float) -> str:
 
 MAX_CAMERA_SIZE = 160          # huge map-art areas: keep the camera within render distance
 MIN_ACTIVE_S = 20              # a file with less activity than this inside the area is skipped
+MIN_PART_S = 2.0               # a part shorter than this in the video isn't worth its own copy (owner: "why 9")
 
 
 def samples_from_tracks(tracks: dict[str, list[list]], players: list[str], start_ms: int, end_ms: int,
@@ -387,21 +388,114 @@ def plan_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
             files.append((r, ws))
     if not files:
         raise ValueError("the recordings show too little of the build")
-    active = sum(w.seconds for _r, ws in files for w in ws)
-    gaps = sum(len(ws) - 1 for _r, ws in files)            # breaks inside a file (the files are cut apart)
-    budget = target_seconds - gaps * gap_seconds
-    if budget < target_seconds / 3:                    # many breaks: make it longer rather than fail
-        budget = target_seconds / 3
-    speed = max(1.0, active / budget)
+    skipped: list[dict] = []
+    for _round in range(4):
+        active = sum(w.seconds for _r, ws in files for w in ws)
+        gaps = sum(len(ws) - 1 for _r, ws in files)        # breaks inside a file (the files are cut apart)
+        budget = target_seconds - gaps * gap_seconds
+        if budget < target_seconds / 3:                # many breaks: make it longer rather than fail
+            budget = target_seconds / 3
+        speed = max(1.0, active / budget)
+        parts = []
+        for r, ws in files:
+            pl = plan(ws, speed=speed, gap_seconds=gap_seconds)
+            parts.append({"replay": r, "plan": pl, "seconds": round(pl.total_seconds, 1), "windows": ws})
+        # a part of a second or two only makes work (one more copy to open and export): leave it out, and
+        # share the length among the others (the speed is worked out again, so it still fits the target)
+        tiny = [q for q in parts if q["seconds"] < MIN_PART_S]
+        if not tiny or len(tiny) == len(parts):
+            break
+        skipped += [{"file": q["replay"].path.split("/")[-1], "seconds": q["seconds"]} for q in tiny]
+        files = [(q["replay"], q["windows"]) for q in parts if q["seconds"] >= MIN_PART_S]
     cam = moment_camera(moment, area)
-    parts = []
-    for i, (r, ws) in enumerate(files, 1):
-        pl = plan(ws, speed=speed, gap_seconds=gap_seconds)
-        parts.append({"replay": r, "plan": pl, "n": i, "seconds": round(pl.total_seconds, 1)})
+    for i, q in enumerate(parts, 1):
+        q["n"] = i
+        del q["windows"]
     return {"pov": pov, "area": area, "camera": cam, "speed": round(speed, 1), "parts": parts,
+            "skipped": skipped,
             "bytes": sum(p["replay"].size_bytes or 0 for p in parts),
             "seconds": round(sum(p["seconds"] for p in parts), 1), "active_seconds": round(active),
             "windows": len(windows)}
+
+
+EYE_HEIGHT = 1.62             # Flashback's camera keyframe is where the feet would be; you see from 1.62 above
+
+
+def _lerp_angle(a: float, b: float, f: float) -> float:
+    return a + ((b - a + 180.0) % 360.0 - 180.0) * f
+
+
+def view_keyframe(v: dict, interpolation: str = "HOLD") -> dict:
+    """A view picked in the app (``{"eye": [x, y, z], "yaw", "pitch"}``, eye position) as a camera keyframe."""
+    from . import flashback as fbm
+    x, y, z = (float(c) for c in v["eye"])
+    yaw = (float(v["yaw"]) + 180.0) % 360.0 - 180.0
+    k = fbm.camera_keyframe(x, y - EYE_HEIGHT, z, yaw, max(-90.0, min(90.0, float(v["pitch"]))))
+    k["interpolation_type"] = interpolation
+    return k
+
+
+def _view_at(views: list[dict], g: float, total: float) -> dict:
+    """Views spread evenly over the whole timelapse (*g* seconds into *total*); linear in between."""
+    if len(views) == 1 or total <= 0:
+        return views[0]
+    pos = max(0.0, min(1.0, g / total)) * (len(views) - 1)
+    i = min(int(pos), len(views) - 2)
+    f = pos - i
+    a, b = views[i], views[i + 1]
+    return {"eye": [a["eye"][k] + (b["eye"][k] - a["eye"][k]) * f for k in range(3)],
+            "yaw": _lerp_angle(float(a["yaw"]), float(b["yaw"]), f),
+            "pitch": float(a["pitch"]) + (float(b["pitch"]) - float(a["pitch"])) * f}
+
+
+def _real_at(pl: Plan, t: float) -> datetime:
+    """The recording's real time shown *t* seconds into one part's video."""
+    for s_ in pl.segments:
+        if t <= s_.out_end or s_ is pl.segments[-1]:
+            span = s_.out_end - s_.out_start
+            f = 0.0 if span <= 0 else max(0.0, min(1.0, (t - s_.out_start) / span))
+            return s_.real_start + (s_.real_end - s_.real_start) * f
+    return pl.segments[-1].real_end
+
+
+def part_camera(pm: dict, part: dict, camera: dict | None) -> tuple[dict | None, dict[int, dict] | None]:
+    """The camera of one part: ``(fixed keyframe, None)``, ``(None, {replay_tick: keyframe})`` for views
+    that move across the whole timelapse, or ``(None, None)`` (the owner sets it in Flashback).
+
+    *camera*: ``None``/``{"mode": "auto"}`` (over the build), ``{"mode": "free"}``, or ``{"mode": "views",
+    "views": [...]}`` (one view: fixed; more: the camera glides from one to the next, evenly over the
+    whole timelapse, all parts together)."""
+    from . import flashback as fbm
+    mode = (camera or {}).get("mode") or "auto"
+    if mode == "free":
+        return None, None
+    views = [v for v in (camera or {}).get("views") or [] if v and len(v.get("eye") or []) == 3]
+    if mode != "views" or not views:
+        return fbm.camera_keyframe(*pm["camera"]), None
+    if len(views) == 1:
+        return view_keyframe(views[0]), None
+    r, pl = part["replay"], part["plan"]
+    offset = sum(q["seconds"] for q in pm["parts"] if q["n"] < part["n"])
+    total = sum(q["seconds"] for q in pm["parts"])
+    step = total / (len(views) - 1)
+    local = [0.0, pl.total_seconds] + [i * step - offset for i in range(len(views))
+                                       if 0 < i * step - offset < pl.total_seconds]
+    keys: dict[int, dict] = {}
+    for t in sorted(local):
+        tick = int(round((_real_at(pl, t) - r.start).total_seconds() * 20))
+        keys.setdefault(tick, view_keyframe(_view_at(views, offset + t, total), "LINEAR"))
+    return None, keys
+
+
+def timeline(pm: dict) -> list[list]:
+    """For the app's preview: ``[real_start_ms, real_end_ms, out_start, out_end, part]`` over all parts."""
+    out, offset = [], 0.0
+    for q in pm["parts"]:
+        for s_ in q["plan"].segments:
+            out.append([int(s_.real_start.timestamp() * 1000), int(s_.real_end.timestamp() * 1000),
+                        round(offset + s_.out_start, 3), round(offset + s_.out_end, 3), q["n"]])
+        offset += q["seconds"]
+    return out
 
 
 def from_ms(ms: int) -> datetime:
@@ -411,9 +505,9 @@ def from_ms(ms: int) -> datetime:
 
 def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]],
                   replay_file, flashback_dir: str | None, out_dir: str, pick_dir=None,
-                  target_seconds: float = 180.0, progress=None) -> dict:
+                  target_seconds: float = 180.0, progress=None, camera: dict | None = None) -> dict:
     """Write the timelapse of a build moment: one Flashback copy per recording of the chosen point of
-    view, each with the fixed camera, the timelapse and one scene, plus an order list."""
+    view, each with the camera (see :func:`part_camera`), the timelapse and one scene, plus an order list."""
     from . import flashback as fbm
     say = progress or (lambda _m: None)
     pm = plan_moment(data, moment, tracks, target_seconds)
@@ -421,7 +515,8 @@ def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]
     total = len(pm["parts"])
     written, folders, made = [], set(), []
     try:
-        _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made)
+        _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made,
+                     camera)
     except BaseException:
         for f in made:                                   # leave nothing half-made behind
             try:
@@ -430,7 +525,7 @@ def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]
                 pass
         raise
     os.makedirs(out_dir, exist_ok=True)
-    return _write_order(pm, title, written, out_dir, folders)
+    return _write_order(pm, title, written, out_dir, folders, camera)
 
 
 def target_folder(r, flashback_dir, out_dir, pick_dir=None) -> str:
@@ -438,7 +533,8 @@ def target_folder(r, flashback_dir, out_dir, pick_dir=None) -> str:
     return os.path.join(fbm.export_target(r, pick_dir, flashback_dir, out_dir)[0], "replays")
 
 
-def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made):
+def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir, say, written, folders, made,
+                 camera=None):
     from . import flashback as fbm
     for part in pm["parts"]:
         r, pl = part["replay"], part["plan"]
@@ -462,20 +558,25 @@ def _write_parts(pm, title, total, replay_file, flashback_dir, out_dir, pick_dir
         say(f"Copying part {part['n']} of {total}: {r.path}…")
         made.append(dst)
         meta = fbm.write_replay_copy(replay_file(r), dst, markers, suffix)
-        state = fbm.editor_state(f"Timelapse {part['n']}/{total}: {title}"[:60], fbm.camera_keyframe(*pm["camera"]),
-                                 keys, (keys[0][0], keys[-1][0]))
+        fixed, moving = part_camera(pm, part, camera)
+        state = fbm.editor_state(f"Timelapse {part['n']}/{total}: {title}"[:60], fixed,
+                                 keys, (keys[0][0], keys[-1][0]), camera_keys=moving)
         state_file = fbm.install_editor_state(fb, meta["uuid"], state)
         made.append(state_file)
         written.append({"n": part["n"], "file": dst, "editor_state": state_file, "seconds": part["seconds"],
                         "recorded_by": r.recorded_player})
 
 
-def _write_order(pm, title, written, out_dir, folders) -> dict:
+def _write_order(pm, title, written, out_dir, folders, camera=None) -> dict:
     order = os.path.join(out_dir, f"timelapse order - {''.join(c for c in title if c.isalnum() or c in ' -_')[:60].strip()}.txt")
     with open(order, "w", encoding="utf-8") as fh:
         fh.write(f"Timelapse: {title}\nFilmed from {pm['pov']}'s recordings, {pm['speed']:g}x while building, "
                  f"about {_fmt(pm['seconds'])} in all.\n\nIn Flashback, open each copy in this order and Export "
-                 "its scene; then put the videos one after another.\n\n")
+                 "its scene; then put the videos one after another (the app's Videos tab: Join timelapse parts).\n\n")
+        if (camera or {}).get("mode") == "free":
+            fh.write("No camera was set: in Flashback, place your own camera keyframes in each copy before exporting.\n\n")
+        for sk in pm.get("skipped") or []:
+            fh.write(f"Left out (under {MIN_PART_S:g} s of video): {sk['file']}\n")
         for w in written:
             fh.write(f"{w['n']}. {os.path.basename(w['file'])}  ({_fmt(w['seconds'])})\n")
         fh.write("\nJoining the exported videos with ffmpeg: list them in a text file as lines  file 'part1.mp4'  "

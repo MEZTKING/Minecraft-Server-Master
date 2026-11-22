@@ -94,14 +94,42 @@ the area (south of it looking down; straight down for map art) that plays the ho
 minutes and skips the time nobody was there. It is filmed from the builder's own recordings (the camera
 needs the chunks around the build, which only a recording made there has), all at one speed so the parts
 join seamlessly. It is filmed from the recordings of whoever was actually near the build, and minutes when the
-builders were AFK are fast-forwarded like time with nobody there. First a summary shows who filmed it,
-the speed, the length, each part, where the copies go and how much space they take (and how much is
-free); then it makes the copies in the background (progress under the list): one Flashback copy per
-recording, named
-"… (timelapse 1 of 9)", each with the camera, the timelapse and one scene, and an order list next to the
-highlights file. In Flashback open each copy in order and Export its scene, then put the videos one after
-another (the order list shows the ffmpeg command for that). Your recordings are not changed. The players'
-positions must have been read first (the status line says when).
+builders were AFK are fast-forwarded like time with nobody there.
+
+The button opens the **timelapse view**: the real world around the build in 3D (terrain, and real blocks
+with Minecraft's own textures from the game installed on this PC, from the backup saved right after the
+build), with a summary of who filmed it, the speed, the length, each part, where the copies go and how
+much space they take. In the view you can:
+
+- **look around**: drag to turn, right-drag to move, scroll to zoom;
+- **▶ Preview** the timelapse: the players move as boxes at the timelapse's speed (the clock shows the
+  part and the real time); the slider jumps anywhere in it;
+- choose the **camera**:
+  - **Automatic**: a fixed camera over the build (south of it looking down; straight down for map art);
+  - **My views**: press **Save this view** where you want the camera. One view = a fixed camera there;
+    two or more = the camera glides from one to the next, evenly over the whole timelapse (all parts
+    together), and the preview shows that glide. **Remove last** forgets the last view;
+  - **I'll set it in Flashback**: the copies get no camera; place your own camera keyframes in each copy
+    before exporting.
+
+**Make the timelapse** then makes the copies in the background (progress under the button): one
+Flashback copy per recording file, named "… (timelapse 1 of 4)", each with the camera, the timelapse and one
+scene, and an order list next to the highlights file. **Why several parts?** A build that took several
+play sessions is spread over several recording files (Flashback starts a new file each time someone joins
+again), and a Flashback edit can only use one file. All parts run at one speed so they join seamlessly. A
+part that would be shorter than 2 seconds of video is left out (its few seconds aren't worth a copy to open
+and export), and the others share its time, so the total stays about 3 minutes; the order list names
+what was left out.
+
+In Flashback open each copy in order and Export its scene; then **join** the exported videos: the app's
+**Videos** tab → **Join timelapse parts…** (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4
+[--music SONG.mp3] [--music-start SECONDS]`). Pick the exported videos: they are put in "(timelapse n of N)"
+order when their names have it (otherwise by name), joined without re-encoding when they have the same size
+and frame rate (else re-encoded to the first one's), and a song, if you choose one, replaces the sound,
+loops if it's shorter than the video and fades out over the last 2 seconds. It needs ffmpeg on this PC.
+
+Your recordings are not changed. The players' positions must have been read first (the status line says
+when).
 
 **Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. Each
 moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
