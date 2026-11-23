@@ -456,6 +456,7 @@ class TestGUI(ServerTestCase):
         from fake_rcon import FakeRconServer
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
+        gui.appwindow.open_page = lambda url: "test"
         srv = FakeRconServer(password="pw")
         root = _new_tk()
         try:
@@ -488,6 +489,7 @@ class TestGUI(ServerTestCase):
         import urllib.request
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
+        gui.appwindow.open_page = lambda url: "test"
         tmp = tempfile.mkdtemp()
         root = _new_tk()
         try:
@@ -4350,3 +4352,32 @@ class TestSongSound(unittest.TestCase):
             self.assertNotEqual(baked, vm.song_copy(song, 1.0, tmp, {"start": 0, "until": 3, "fade_out": 1, "bass": 3}))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestAppWindow(unittest.TestCase):
+    """The app's pages open in an Edge/Chrome app window with their own profile, else in the browser."""
+
+    def test_open(self):
+        from mcsm import appwindow
+        cmd = appwindow.command("http://127.0.0.1:8790/", "edge.exe")
+        self.assertEqual(cmd[:2], ["edge.exe", "--app=http://127.0.0.1:8790/"])
+        self.assertIn("--disable-extensions", cmd)
+        self.assertTrue(any(c.startswith("--user-data-dir=") and c.endswith("app-window") for c in cmd))
+        opened, launched = [], []
+        old = (appwindow.find_browser, appwindow.webbrowser.open, appwindow.subprocess.Popen, appwindow.enabled)
+        try:
+            appwindow.webbrowser.open = opened.append
+            appwindow.subprocess.Popen = lambda c, **kw: launched.append(c)
+            appwindow.enabled = lambda: True
+            appwindow.find_browser = lambda: None
+            old_ff = appwindow.find_firefox
+            appwindow.find_firefox = lambda: None
+            self.assertEqual(appwindow.open_page("http://x/"), "browser")                 # no Edge/Chrome/Firefox
+            appwindow.find_firefox = old_ff
+            appwindow.find_browser = lambda: "chrome"
+            self.assertEqual(appwindow.open_page("http://y/"), "window")
+            appwindow.enabled = lambda: False
+            self.assertEqual(appwindow.open_page("http://z/"), "browser")                 # switched off
+            self.assertEqual((opened, [c[1] for c in launched]), (["http://x/", "http://z/"], ["--app=http://y/"]))
+        finally:
+            appwindow.find_browser, appwindow.webbrowser.open, appwindow.subprocess.Popen, appwindow.enabled = old

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (texts on camera keyframes, timeline zoom, song sound settings).
+`CLAUDE.md`). Last updated: 2026-11-23 (pages in their own window; texts on camera keyframes, timeline zoom, song sound).
 
 ## What this project is
 
@@ -1057,6 +1057,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Pages in their own window (owner: "or is it better as a stand alone app"; answer: keep the web
+  pages, open them in an app window): `mcsm/appwindow.py` uses Edge/Chrome `--app` with a separate profile, or
+  Firefox (the owner's browser; no Edge on their PC) with a separate profile whose userChrome.css hides tabs and
+  toolbars; setting `app_window` (Videos tab checkbox); falls back to the default browser. Tried on the owner's PC:
+  the window opens without tabs or toolbars; Firefox shows its terms-of-use screen once for the new profile
+  (left to the owner to accept; the app doesn't bypass it).
 
 - **2026-11-23:** Owner (after trying the title animations in Flashback: "its working"): "automatically line up
   texts with keyframes", "a zoom in for the keyframes tab", "no option for music such as volume adjuster,

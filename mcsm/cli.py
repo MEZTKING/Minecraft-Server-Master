@@ -35,6 +35,7 @@ import zipfile
 from datetime import date, datetime, timedelta  # noqa: F401
 
 from . import __version__, models as m, version_string
+from . import appwindow
 from .analyzer import analyze
 from .players import play_time_ticks
 from .source import open_server
@@ -435,7 +436,7 @@ def cmd_live(args) -> int:
         if args.record:
             print(f"Recording positions to {os.path.abspath(args.record)}")
         if not args.no_browser:
-            webbrowser.open(url)
+            appwindow.open_page(url)
         try:
             while True:
                 _time.sleep(1)
@@ -512,7 +513,7 @@ def cmd_history(args) -> int:
         url += "?story=1"
         print(f"Server story: {url}  (press Play; the important moments play in order)", flush=True)
     if not args.no_browser:
-        webbrowser.open(url)
+        appwindow.open_page(url)
     _print_warnings(data)
     last = None
     try:
@@ -1008,7 +1009,7 @@ def cmd_video_editor(args) -> int:
     url = ed.start(args.http_port)
     print(f"Live editor running at {url}  (Ctrl+C to stop)", flush=True)
     if not args.no_browser:
-        webbrowser.open(url)
+        appwindow.open_page(url)
     try:
         while True:
             _time.sleep(1)

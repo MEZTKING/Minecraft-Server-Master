@@ -62,6 +62,11 @@ data**, **Flashback** and **Live map**.
   whole library world, imports, exports) shows a bar at the bottom with what it's doing (e.g. "Reading
   recordings: 1,200 of 3,177") and a **Cancel** button. Cancel stops after the file it's on, so nothing
   is left half-written; loading something else keeps the server you had loaded.
+- **Own window.** The video editor, history viewer and live map open in a window of their own (no tabs, no
+  address bar, none of your browser's extensions): an app window of Edge or Chrome, or with Firefox a separate
+  profile in `%LOCALAPPDATA%\mcsm\app-window` that hides its tab bar and toolbars. Untick *Open the editor,
+  history viewer and live map in their own window* (Videos tab) to use a tab in your browser instead. The first
+  time, Firefox shows its own welcome / terms screen for that profile once.
 - **Remembered between runs.** The result of loading is saved, so loading the same server or library
   world again takes a second instead of a minute, unless something changed in its backups or recordings
   (then it's read again; world map files don't count). With **Open it again next time** ticked (next to

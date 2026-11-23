@@ -31,6 +31,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import progress as jobs
 from . import __version__, cli, models as m, version_string
+from . import appwindow
 from .analyzer import analyze
 from .source import open_server
 from .sync import DEFAULT_SYNC_TYPES
@@ -1092,7 +1093,7 @@ class App(ttk.Frame):
         self.live_start_btn.pack(side="left")
         self.live_demo_btn = ttk.Button(btns, text="Try demo", command=lambda: self._live_start(demo=True))
         self.live_demo_btn.pack(side="left", padx=6)
-        self.live_open_btn = ttk.Button(btns, text="Open map", command=lambda: self.live_url and webbrowser.open(self.live_url),
+        self.live_open_btn = ttk.Button(btns, text="Open map", command=lambda: self.live_url and appwindow.open_page(self.live_url),
                                         state="disabled")
         self.live_open_btn.pack(side="left")
         self.live_stop_btn = ttk.Button(btns, text="Stop", command=self._live_stop, state="disabled")
@@ -1154,7 +1155,7 @@ class App(ttk.Frame):
             self.live_stop_btn.configure(state="normal")
             self.live_open_btn.configure(state="normal")
             self.log(f"Live map running at {url}\n")
-            webbrowser.open(url)
+            appwindow.open_page(url)
 
         self._run("Live map", work, after)
 
@@ -1198,6 +1199,12 @@ class App(ttk.Frame):
                           "then shows what the game draws.", wraplength=680, justify="left").grid(
             row=6, column=0, columnspan=3, sticky="w", pady=(14, 3))
         ttk.Button(f, text="Install the Flashback link…", command=self._vid_install_link).grid(row=7, column=0, sticky="w")
+        self.app_window_var = tk.BooleanVar(value=appwindow.enabled())
+        ttk.Checkbutton(f, text="Open the editor, history viewer and live map in their own window (Edge or Chrome app "
+                                "window: no tabs, no browser extensions); off = a tab in your browser",
+                        variable=self.app_window_var,
+                        command=lambda: appwindow.set_enabled(self.app_window_var.get())).grid(
+            row=10, column=0, columnspan=3, sticky="w", pady=(14, 0))
         ttk.Label(f, text="A timelapse in several parts, or clips you exported? Join them here into one video, in "
                           "order, with a transition at each cut (cross-fade, dip to black, whip, block wipe…) and a "
                           "song if you like.",
@@ -1337,7 +1344,7 @@ class App(ttk.Frame):
         self.vid_editor = VideoEditor(self.vid_info["video"], world_dir=self._vid_world_dir(), info=self.vid_info)
         url = self.vid_editor.start()
         self.vid_status_var.set(f"Live editor open in your browser: {url}")
-        webbrowser.open(url)
+        appwindow.open_page(url)
 
     def _vid_edit(self) -> None:
         """Choose a Flashback edit by its scene name and recording, then open the live editor on it."""
@@ -1443,7 +1450,7 @@ class App(ttk.Frame):
             self.vid_editor = ed
             m = ed.vinfo["matches"][0]
             self.vid_status_var.set(f"Live editor for '{m['name']}' ({ed.vinfo['duration']:.1f} s) open in your browser: {url}")
-            webbrowser.open(url)
+            appwindow.open_page(url)
 
         self._run("Opening the Flashback edit", work, after)
 
@@ -1561,7 +1568,7 @@ class App(ttk.Frame):
         self.hist_start_btn = self._button(btns, "Open history viewer", self._history_start)
         self.hist_start_btn.pack(side="left")
         self.hist_open_btn = ttk.Button(btns, text="Open page", state="disabled",
-                                        command=lambda: self.history_url and webbrowser.open(self.history_url))
+                                        command=lambda: self.history_url and appwindow.open_page(self.history_url))
         self.hist_open_btn.pack(side="left", padx=6)
         self.hist_stop_btn = ttk.Button(btns, text="Stop", command=self._history_stop, state="disabled")
         self.hist_stop_btn.pack(side="left")
@@ -1572,7 +1579,7 @@ class App(ttk.Frame):
 
     def _history_start(self, story: bool = False) -> None:
         if self.history is not None and self.history_url:
-            webbrowser.open(self.history_url + ("?story=1" if story else ""))      # already running
+            appwindow.open_page(self.history_url + ("?story=1" if story else ""))      # already running
             return
         if self.data is None:
             messagebox.showinfo(APP_NAME, "Load your server or a library world first (Library tab: select the world, "
@@ -1612,7 +1619,7 @@ class App(ttk.Frame):
             self.hist_stop_btn.configure(state="normal")
             self.hist_open_btn.configure(state="normal")
             self.log(f"History viewer running at {url}\n")
-            webbrowser.open(url + ("?story=1" if story else ""))
+            appwindow.open_page(url + ("?story=1" if story else ""))
 
         self._run("History viewer", work, after)
 
