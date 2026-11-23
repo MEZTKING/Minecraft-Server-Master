@@ -1049,6 +1049,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten) in the
+  editor and the history viewer (owner: "make it work with the scroll if you hold control … fine tuning them is a
+  pain").
+
 - **2026-11-23:** Transitions when joining videos (0v step 1, owner: "Join transitions first"): 13 transitions per
   cut with ffmpeg `xfade` (sound cross-fades, lengths capped to the clips), the app's **Join videos…** window
   (order Up/Down, every cut or each cut, length, song from any second), CLI `--transition`, `--transitions`,

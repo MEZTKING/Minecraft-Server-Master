@@ -131,6 +131,9 @@ Flashback saves exported videos to (the one you last chose on its export screen)
 - **Keys:** <kbd>Space</kbd> play/pause, <kbd>←</kbd>/<kbd>→</kbd> one frame (with Shift: one second),
   <kbd>I</kbd>/<kbd>O</kbd> start/end of the selected text at the playhead, <kbd>Ctrl+Z</kbd> /
   <kbd>Ctrl+Y</kbd> undo/redo, <kbd>Ctrl+D</kbd> duplicate, <kbd>Delete</kbd>.
+- **Fine-tuning:** hold <kbd>Ctrl</kbd> and turn the mouse wheel over any slider or number box (size,
+  distance, opacity, 3D depth…) to move it one step at a time; <kbd>Ctrl</kbd>+<kbd>Shift</kbd> moves ten steps. The plain
+  wheel still scrolls the page. The same works in the history viewer.
 - **Saved automatically** for each video (in `%LOCALAPPDATA%\mcsm\video-text`, pictures in its
   `images` folder; never next to your video), so you can close the page and continue later.
 

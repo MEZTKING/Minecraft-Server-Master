@@ -220,6 +220,19 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 </div>
 <script>
 "use strict";
+// Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
+// the plain wheel still scrolls the page.
+addEventListener("wheel", e => {
+  const el = e.target.closest && e.target.closest('input[type=range], input[type=number]');
+  if (!el || !e.ctrlKey || el.disabled) return;
+  e.preventDefault();                                // and no browser zoom
+  const step = parseFloat(el.step) || 1, n = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 10 : 1);
+  const lo = el.min !== "" ? parseFloat(el.min) : -Infinity, hi = el.max !== "" ? parseFloat(el.max) : Infinity;
+  const cur = parseFloat(el.value) || 0, dec = (String(step).split(".")[1] || "").length;
+  el.value = Math.min(hi, Math.max(lo, +(cur + n * step).toFixed(dec)));
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}, { passive: false });
 const $ = s => document.querySelector(s);
 let vid = $("#vid");
 const over = $("#over"), ctx = over.getContext("2d"), tl = $("#tl"), tctx = tl.getContext("2d");
