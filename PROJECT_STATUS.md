@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (default looks for new texts; transitions requested).
+`CLAUDE.md`). Last updated: 2026-11-23 (transitions when joining videos, 0v step 1; year in review in the backlog).
 
 ## What this project is
 
@@ -690,6 +690,29 @@ event (0r), mark highlights while watching.
 - **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
   automatically?
 
+### 0w. End-of-year review for everyone and for each player (raised 2026-11-23, for the future)
+
+**The ask:** "for future plans, i want to add a end of year progress for everyone, one that shows everyones
+stuff and one for each individual player for more personal details. add this for the future."
+
+**Proposed design (not started; to review with Fable before building):** a "year in review" made from data
+the app already has, for a chosen year (default: the last 12 months), as a page in the browser that can be
+saved or shared (and maybe a short video later):
+- **Everyone (the server's year):** days the server ran, players and new players by month, total play time,
+  busiest days and hours, the top moments of the year (from the moments finder: fights, advancements, first
+  joins, builds, map art, explorations), builds and changes seen between backups on the map (before/after),
+  deaths and their causes, chat highlights, Minecraft versions and mods over the year, records (longest
+  session, most deaths, furthest travelled, most blocks placed), a timeline of the year by month.
+- **Each player (personal):** their play time by month and favourite hours, sessions, firsts (first join,
+  first advancement, first death), their advancements, deaths and killers, distance by foot/elytra/boat, blocks
+  placed and mined and favourite blocks, their builds and map art (with the area on the map and a timelapse
+  link), places they explored, who they played with most, their best moments, and a "compared with everyone"
+  line for a few stats.
+- **Pages:** one overview page plus one page per player (a list to pick from), styled like "Spotify Wrapped"
+  cards that can be stepped through or scrolled; a "share this card" picture per card.
+- **Open questions:** calendar year or a custom range? only players who played that year? anything to keep
+  private (chat, deaths)? a video version (cards + music) for the server's channel?
+
 ### 0v. YouTube-style transitions and title animations (raised 2026-11-23)
 
 **The ask:** "can we add animation for this just like on popular youtube videos etc.
@@ -726,8 +749,11 @@ B = an ffmpeg effect where exported clips are joined, C = guidance only.
   SMOOTH keys overshoot at abrupt moves (use LINEAR/guard keys for whips); under a timelapse a 5-tick whip
   can be one frame (work in video time); backup blocks may be stale (check in the real view); per-letter x
   3D layers x halo multiplies entities (cap it).
-- **Open question for the owner:** which first (the design's order starts with join transitions, then the
-  title look).
+- ✅ **Step 1 done 2026-11-23** (owner: "Join transitions first"): `videojoin.TRANSITIONS` (13: cut,
+  cross-fade, dip to black/white, whip blur, block wipe, wipes, slides, zoom, circle, dissolve) per cut,
+  ffmpeg `xfade` chain with the sound cross-fading, lengths capped to the clips; the app's **Join videos…**
+  window (order, every cut / each cut, length, song); `--transition(s)`, `--transition-length`. Next: step 2,
+  the title animations.
 
 ### 0u. Timelapse parts, own camera, ignored players (raised 2026-11-22)
 
@@ -1022,6 +1048,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Transitions when joining videos (0v step 1, owner: "Join transitions first"): 13 transitions per
+  cut with ffmpeg `xfade` (sound cross-fades, lengths capped to the clips), the app's **Join videos…** window
+  (order Up/Down, every cut or each cut, length, song from any second), CLI `--transition`, `--transitions`,
+  `--transition-length`. Backlog 0w: end-of-year review for everyone and for each player (owner's future plan).
 
 - **2026-11-23:** Default looks for new texts (owner: "make some settings the default so im not changing the text
   style constantly, maybe with the option per video"): per kind of text (the four + buttons), for this video

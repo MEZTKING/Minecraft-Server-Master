@@ -46,8 +46,11 @@ BUTTON_TIPS = {
     "Folder…": "Choose an unpacked server folder (or a library world folder) and load it.",
     "+ Add backup…": "Add more backups to the ones already chosen; they are merged into one history.",
     "Load server": "Read the chosen server/backups: logs, players, stats and recordings. Needed by most tabs.",
-    "Join timelapse parts…": "Pick the videos you exported from a timelapse's parts: they are joined in order "
-                             "into one video, with a song if you like (needs ffmpeg).",
+    "Join videos…": "Pick the videos (a timelapse's parts, exported clips): they are joined in order into one video, "
+                    "with a transition at each cut and a song if you like (needs ffmpeg).",
+    "Join…": "Choose where to save the joined video and make it.",
+    "Up": "Move the selected video earlier.",
+    "Down": "Move the selected video later.",
     "Cancel": "Stop the job that is running (it stops after the file it's on; nothing is left half-written).",
     "Ignored players…": "Players who were never supposed to join: leave them out everywhere (reports, moments, "
                         "story, timelapses, maps). Nothing in your backups is changed.",
@@ -1195,10 +1198,11 @@ class App(ttk.Frame):
                           "then shows what the game draws.", wraplength=680, justify="left").grid(
             row=6, column=0, columnspan=3, sticky="w", pady=(14, 3))
         ttk.Button(f, text="Install the Flashback link…", command=self._vid_install_link).grid(row=7, column=0, sticky="w")
-        ttk.Label(f, text="A timelapse in several parts (one per recording file)? After exporting each part from "
-                          "Flashback, join them here into one video, in order, with a song if you like.",
+        ttk.Label(f, text="A timelapse in several parts, or clips you exported? Join them here into one video, in "
+                          "order, with a transition at each cut (cross-fade, dip to black, whip, block wipe…) and a "
+                          "song if you like.",
                   wraplength=680, justify="left").grid(row=8, column=0, columnspan=3, sticky="w", pady=(14, 3))
-        ttk.Button(f, text="Join timelapse parts…", command=self._vid_join).grid(row=9, column=0, sticky="w")
+        ttk.Button(f, text="Join videos…", command=self._vid_join).grid(row=9, column=0, sticky="w")
         self.vid_status_var = tk.StringVar(value="Choose a video.")
         ttk.Label(f, textvariable=self.vid_status_var, foreground="gray", wraplength=680, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
@@ -1206,37 +1210,121 @@ class App(ttk.Frame):
         return f
 
     def _vid_join(self) -> None:
-        """Join exported timelapse parts into one video (mcsm timelapse-join)."""
+        """Join videos (a timelapse's parts, highlight clips) into one, with a transition at each cut and a song
+        (mcsm timelapse-join)."""
         from . import videojoin
         from . import flashback as fbm
         outs = fbm.export_folders()                      # where Flashback saves exported videos (newest first)
         start = outs[0]["path"] if outs else os.path.join(os.path.expanduser("~"), "Videos")
-        vids = filedialog.askopenfilenames(title="The exported videos of the timelapse parts (Flashback names them by "
-                                                 "date and time: export the parts in order)",
+        vids = filedialog.askopenfilenames(title="The videos to join (Flashback names exports by date and time: "
+                                                 "export them in order)",
                                            initialdir=start if os.path.isdir(start) else _documents_dir(),
                                            filetypes=[("Videos", "*.mp4 *.mov *.mkv *.webm"), ("All files", "*.*")])
         if not vids:
             return
         order = videojoin.ordered(sorted(vids, key=lambda p: os.path.basename(p).lower()))
-        music = None
-        if messagebox.askyesno(APP_NAME, "Joining in this order:\n\n" + "\n".join(
-                f"{i}. {os.path.basename(v)}" for i, v in enumerate(order, 1))
-                + "\n\nAdd a song as the sound? (It replaces the videos' own sound and fades out at the end.)"):
-            music = filedialog.askopenfilename(title="Song", filetypes=[("Music", "*.mp3 *.ogg *.wav *.m4a *.flac"),
-                                                                        ("All files", "*.*")]) or None
-        first = os.path.basename(order[0])
-        name = videojoin._PART.sub("", os.path.splitext(first)[0]).strip() or "timelapse"
-        out = filedialog.asksaveasfilename(title="Save the joined video as", defaultextension=".mp4",
-                                           initialdir=os.path.dirname(order[0]), initialfile=f"{name} timelapse.mp4",
-                                           filetypes=[("MP4 video", "*.mp4")])
-        if not out:
-            return
-        argv = ["timelapse-join", *order, "-o", out] + (["--music", music] if music else [])
-        args = self._parse(argv)
-        if args is not None:
-            self.vid_status_var.set("Joining the timelapse parts… (see the log)")
-            self._run("Join timelapse parts", lambda _d: cli.cmd_timelapse_join(args),
+        labels = dict(videojoin.transition_names())
+        names_by_label = {v: k for k, v in labels.items()}
+        win = tk.Toplevel(self.root)
+        win.title("Join videos")
+        win.transient(self.root)
+        ttk.Label(win, text="The videos are joined in this order (Up / Down to change it), with a transition at "
+                            "each cut. A transition overlaps the two clips a little, so the video gets that much "
+                            "shorter.", wraplength=560, justify="left").pack(padx=10, pady=(10, 6), anchor="w")
+        top = ttk.Frame(win)
+        top.pack(fill="x", padx=10)
+        lb = tk.Listbox(top, height=min(10, max(3, len(order))), width=70, exportselection=False)
+        lb.pack(side="left", fill="x", expand=True)
+        updown = ttk.Frame(top)
+        updown.pack(side="left", padx=6)
+        every = ttk.Frame(win)
+        every.pack(fill="x", padx=10, pady=(8, 0))
+        ttk.Label(every, text="Every cut:").pack(side="left")
+        all_var = tk.StringVar(value=labels["cut"])
+        all_box = ttk.Combobox(every, textvariable=all_var, values=list(labels.values()), state="readonly", width=32)
+        all_box.pack(side="left", padx=4)
+        ttk.Label(every, text="Length (s):").pack(side="left", padx=(10, 0))
+        len_var = tk.StringVar(value=str(videojoin.DEFAULT_LENGTH))
+        ttk.Spinbox(every, from_=0.1, to=3.0, increment=0.1, textvariable=len_var, width=5).pack(side="left", padx=4)
+        cuts_frame = ttk.Frame(win)
+        cuts_frame.pack(fill="x", padx=10, pady=(6, 0))
+        cut_vars: list[tk.StringVar] = []
+
+        def show():
+            sel = lb.curselection()
+            lb.delete(0, "end")
+            for i, v in enumerate(order, 1):
+                lb.insert("end", f"{i}. {os.path.basename(v)}")
+            if sel:
+                lb.selection_set(sel[0])
+            for w in cuts_frame.winfo_children():
+                w.destroy()
+            old = [v.get() for v in cut_vars]
+            cut_vars.clear()
+            for i in range(len(order) - 1):
+                var = tk.StringVar(value=old[i] if i < len(old) else all_var.get())
+                cut_vars.append(var)
+                row_ = ttk.Frame(cuts_frame)
+                row_.pack(fill="x", pady=1)
+                ttk.Label(row_, text=f"Between {i + 1} and {i + 2}:", width=16).pack(side="left")
+                ttk.Combobox(row_, textvariable=var, values=list(labels.values()), state="readonly", width=32).pack(side="left")
+
+        def move(d):
+            sel = lb.curselection()
+            if not sel:
+                return
+            i, j = sel[0], sel[0] + d
+            if 0 <= j < len(order):
+                order[i], order[j] = order[j], order[i]
+                lb.selection_clear(0, "end")
+                lb.selection_set(j)
+                show()
+                lb.selection_set(j)
+        ttk.Button(updown, text="Up", command=lambda: move(-1)).pack(fill="x")
+        ttk.Button(updown, text="Down", command=lambda: move(1)).pack(fill="x", pady=2)
+
+        def set_all(_e=None):
+            for v in cut_vars:
+                v.set(all_var.get())
+        all_box.bind("<<ComboboxSelected>>", set_all)
+        show()
+        mus = ttk.Frame(win)
+        mus.pack(fill="x", padx=10, pady=(10, 0))
+        ttk.Label(mus, text="Song (optional):").pack(side="left")
+        music_var = tk.StringVar()
+        ttk.Entry(mus, textvariable=music_var, width=40).pack(side="left", padx=4, fill="x", expand=True)
+        ttk.Button(mus, text="Choose…", command=lambda: music_var.set(filedialog.askopenfilename(
+            parent=win, title="Song", filetypes=[("Music", "*.mp3 *.ogg *.wav *.m4a *.flac"), ("All files", "*.*")])
+            or music_var.get())).pack(side="left")
+        ttk.Label(mus, text="from (s):").pack(side="left", padx=(8, 0))
+        mstart_var = tk.StringVar(value="0")
+        ttk.Entry(mus, textvariable=mstart_var, width=5).pack(side="left", padx=4)
+        ttk.Label(win, text="A song replaces the videos' own sound, loops if it's shorter and fades out at the end.",
+                  foreground="gray").pack(padx=10, anchor="w")
+
+        def go():
+            first = os.path.basename(order[0])
+            name = videojoin._PART.sub("", os.path.splitext(first)[0]).strip() or "joined"
+            out = filedialog.asksaveasfilename(parent=win, title="Save the joined video as", defaultextension=".mp4",
+                                               initialdir=os.path.dirname(order[0]), initialfile=f"{name} joined.mp4",
+                                               filetypes=[("MP4 video", "*.mp4")])
+            if not out:
+                return
+            trans = ",".join(names_by_label.get(v.get(), "cut") for v in cut_vars) or "cut"
+            argv = ["timelapse-join", *order, "-o", out, "--transitions", trans, "--transition-length", len_var.get() or "0.6"]
+            if music_var.get().strip():
+                argv += ["--music", music_var.get().strip(), "--music-start", mstart_var.get().strip() or "0"]
+            args = self._parse(argv)
+            if args is None:
+                return
+            win.destroy()
+            self.vid_status_var.set("Joining the videos… (see the log)")
+            self._run("Join videos", lambda _d: cli.cmd_timelapse_join(args),
                       after=lambda rc: self.vid_status_var.set(f"Joined: {out}" if rc == 0 else "Joining failed (see the log)."))
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=10, pady=10)
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right")
+        ttk.Button(btns, text="Join…", command=go).pack(side="right", padx=6)
 
     def _vid_live(self) -> None:
         """The live editor page: the video plays with the text drawn on it while you change it."""

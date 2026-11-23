@@ -9,7 +9,12 @@ this PC, never downloaded):
 - videos with the same size, frame rate and codec are joined without re-encoding (fast, no quality
   loss); otherwise they are re-encoded to the first video's size and frame rate;
 - music (optional) replaces the sound: it starts at *music_start* seconds into the song, loops if the
-  song is shorter than the video, and fades out over the last 2 seconds.
+  song is shorter than the video, and fades out over the last 2 seconds;
+- a **transition** at each cut (:data:`TRANSITIONS`): a hard cut, or one of ffmpeg's ``xfade`` effects
+  (cross-fade, dip to black/white, whip blur, block wipe, wipes, slides, zoom, circle). A transition
+  overlaps the two clips by its length, so the joined video is that much shorter; the videos' own sound
+  cross-fades too. Any transition means re-encoding (all clips are brought to the first one's size and
+  frame rate).
 """
 
 from __future__ import annotations
@@ -23,6 +28,45 @@ import tempfile
 from .videotext import find_tool, video_duration
 
 FADE_S = 2.0
+DEFAULT_LENGTH = 0.6            # seconds a transition takes
+# name -> (label, ffmpeg xfade transition or None for a hard cut, its own length or None for the chosen one)
+TRANSITIONS = {
+    "cut": ("Cut (no transition)", None, 0.0),
+    "fade": ("Cross-fade", "fade", None),
+    "dip_black": ("Dip to black", "fadeblack", None),
+    "dip_white": ("Dip to white", "fadewhite", None),
+    "whip": ("Whip blur (fast, sideways blur)", "hblur", 0.3),
+    "blocks": ("Block wipe (pixels)", "pixelize", None),
+    "wipe_left": ("Wipe to the left", "wipeleft", None),
+    "wipe_right": ("Wipe to the right", "wiperight", None),
+    "slide_left": ("Slide to the left", "slideleft", None),
+    "slide_up": ("Slide up", "slideup", None),
+    "zoom": ("Zoom in", "zoomin", None),
+    "circle": ("Circle open", "circleopen", None),
+    "dissolve": ("Dissolve", "dissolve", None),
+}
+
+
+def transition_names() -> list[tuple[str, str]]:
+    """``[(name, label)]`` for menus."""
+    return [(k, v[0]) for k, v in TRANSITIONS.items()]
+
+
+def _cuts(n: int, transitions, length: float) -> list[tuple[str, str | None, float]]:
+    """One ``(name, xfade, seconds)`` per cut between *n* clips: *transitions* is one name for all, or a
+    list (one per cut; missing ones are cuts)."""
+    if n < 2:
+        return []
+    names = [transitions] * (n - 1) if isinstance(transitions, str) or transitions is None else list(transitions)
+    names = (names + ["cut"] * (n - 1))[:n - 1]
+    out = []
+    for name in names:
+        name = name or "cut"
+        if name not in TRANSITIONS:
+            raise ValueError(f"unknown transition '{name}' (choose from {', '.join(TRANSITIONS)})")
+        _label, xf, own = TRANSITIONS[name]
+        out.append((name, xf, 0.0 if xf is None else float(own if own is not None else length)))
+    return out
 _PART = re.compile(r"\(timelapse (\d+) of (\d+)\)", re.IGNORECASE)
 
 
@@ -46,8 +90,8 @@ def _streams(probe: str, path: str) -> dict:
     return info
 
 
-def plan(paths: list[str]) -> dict:
-    """What :func:`join` would do: ``{"order", "copy", "seconds", "audio"}`` (needs ffprobe)."""
+def plan(paths: list[str], transitions=None, length: float = DEFAULT_LENGTH) -> dict:
+    """What :func:`join` would do: ``{"order", "copy", "seconds", "audio", "cuts", ...}`` (needs ffprobe)."""
     probe = find_tool("ffprobe")
     if not probe:
         raise ValueError("ffprobe (part of ffmpeg) was not found on this PC: install ffmpeg first")
@@ -59,7 +103,13 @@ def plan(paths: list[str]) -> dict:
         bad = [os.path.basename(p) for p, i in zip(order, infos) if "video" not in i]
         raise ValueError(f"not a video: {', '.join(bad)}")
     durations = [video_duration(p) or 0.0 for p in order]
-    return {"order": order, "copy": len({i["video"] for i in infos}) == 1, "seconds": sum(durations),
+    cuts = _cuts(len(order), transitions, length)
+    for i, (name, xf, d) in enumerate(cuts):               # a transition can't be longer than the clips it joins
+        if xf and d > 0.9 * min(durations[i], durations[i + 1]):
+            cuts[i] = (name, xf, round(0.9 * min(durations[i], durations[i + 1]), 3))
+    smooth = any(xf for _n, xf, _d in cuts)
+    return {"order": order, "copy": len({i["video"] for i in infos}) == 1 and not smooth,
+            "seconds": sum(durations) - sum(d for _n, _x, d in cuts), "durations": durations, "cuts": cuts,
             "audio": all(i["audio"] for i in infos), "size": infos[0]["video"][1:3], "fps": infos[0]["video"][3]}
 
 
@@ -82,33 +132,62 @@ def command(p: dict, out: str, music: str | None = None, music_start: float = 0.
     else:
         w, h = p["size"]
         fps = p["fps"] or "30"
-        chains = "".join(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
-                         f"fps={fps},setsar=1[v{i}];" for i in range(n))
-        cmd += ["-filter_complex", chains + "".join(f"[v{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[v]", "-map", "[v]"]
+        graph = "".join(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+                        f"fps={fps},setsar=1,format=yuv420p,settb=AVTB[v{i}];" for i in range(n))
+        # the clips one after another: a hard cut joins them, a transition overlaps them by its length
+        cur, length = "[v0]", p["durations"][0]
+        audio_chain = not music and p["audio"]
+        if audio_chain:                                    # the same sound format, so the sounds can join
+            graph += "".join(f"[{i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}];"
+                             for i in range(n))
+        acur = "[a0]"
+        for i in range(1, n):
+            _name, xf, d = p["cuts"][i - 1]
+            nxt = f"[j{i}]"
+            if xf:
+                graph += f"{cur}[v{i}]xfade=transition={xf}:duration={d:.3f}:offset={max(0.0, length - d):.3f}{nxt};"
+                length += p["durations"][i] - d
+            else:
+                graph += f"{cur}[v{i}]concat=n=2:v=1:a=0{nxt};"
+                length += p["durations"][i]
+            cur = nxt
+            if audio_chain:
+                anext = f"[ja{i}]"
+                graph += (f"{acur}[a{i}]acrossfade=d={d:.3f}{anext};" if xf
+                          else f"{acur}[a{i}]concat=n=2:v=0:a=1{anext};")
+                acur = anext
+        cmd += ["-filter_complex", graph.rstrip(";"), "-map", cur]
+        if audio_chain:
+            cmd += ["-map", acur, "-c:a", "aac", "-b:a", "192k"]
         vcodec = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"]
     if music:
         fade = max(0.0, total - FADE_S)
         cmd += ["-map", f"{n}:a", "-af", f"afade=t=out:st={fade:.3f}:d={FADE_S:g}", "-c:a", "aac", "-b:a", "192k"]
     elif p["copy"] and p["audio"]:
         cmd += ["-map", "0:a", "-c:a", "copy"]
-    else:
+    elif not (not p["copy"] and p["audio"]):
         cmd += ["-an"]
     if total:
         cmd += ["-t", f"{total:.3f}"]
     return cmd + vcodec + ["-movflags", "+faststart", out]
 
 
-def join(paths: list[str], out: str, music: str | None = None, music_start: float = 0.0, say=print) -> dict:
-    """Join *paths* into *out*; returns the plan."""
-    p = plan(paths)
+def join(paths: list[str], out: str, music: str | None = None, music_start: float = 0.0, say=print,
+         transitions=None, length: float = DEFAULT_LENGTH) -> dict:
+    """Join *paths* into *out* (with *transitions* at the cuts: one name or one per cut); returns the plan."""
+    p = plan(paths, transitions, length)
     if not find_tool("ffmpeg"):
         raise ValueError("ffmpeg was not found on this PC: install ffmpeg first")
     if os.path.abspath(out) in {os.path.abspath(v) for v in p["order"]}:
         raise ValueError("the joined video would overwrite one of the parts: choose another name")
-    say(f"Joining {len(p['order'])} videos ({'without re-encoding' if p['copy'] else 're-encoding: they differ in size or frame rate'})"
+    why = "with transitions" if any(x for _n, x, _d in p["cuts"]) else "they differ in size or frame rate"
+    say(f"Joining {len(p['order'])} videos ({'without re-encoding' if p['copy'] else 're-encoding: ' + why})"
         + (f" with music from {os.path.basename(music)}" if music else "") + "…")
     for i, v in enumerate(p["order"], 1):
         say(f"  {i}. {os.path.basename(v)}")
+        if i < len(p["order"]) and p["cuts"][i - 1][1]:
+            name, _x, d = p["cuts"][i - 1]
+            say(f"     {TRANSITIONS[name][0].lower()}, {d:g} s")
     fd, lst = tempfile.mkstemp(suffix=".txt", prefix="mcsm-join-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:

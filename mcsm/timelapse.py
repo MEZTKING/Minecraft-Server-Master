@@ -575,7 +575,7 @@ def _write_order(pm, title, written, out_dir, folders, camera=None) -> dict:
     with open(order, "w", encoding="utf-8") as fh:
         fh.write(f"Timelapse: {title}\nFilmed from {pm['pov']}'s recordings, {pm['speed']:g}x while building, "
                  f"about {_fmt(pm['seconds'])} in all.\n\nIn Flashback, open each copy in this order and Export "
-                 "its scene; then put the videos one after another (the app's Videos tab: Join timelapse parts).\n\n")
+                 "its scene; then put the videos one after another (the app's Videos tab: Join videos…).\n\n")
         if (camera or {}).get("mode") == "free":
             fh.write("No camera was set: in Flashback, place your own camera keyframes in each copy before exporting.\n\n")
         for sk in pm.get("skipped") or []:

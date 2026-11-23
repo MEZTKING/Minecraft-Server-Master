@@ -4176,3 +4176,46 @@ class TestDefaultTextLooks(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestJoinTransitions(unittest.TestCase):
+    """A transition at each cut when joining clips (ffmpeg xfade): lengths, per-cut choice, the sound."""
+
+    def test_cuts(self):
+        from mcsm import videojoin as vj
+        self.assertEqual(vj._cuts(3, None, 0.6), [("cut", None, 0.0), ("cut", None, 0.0)])
+        self.assertEqual(vj._cuts(3, "fade", 0.8), [("fade", "fade", 0.8), ("fade", "fade", 0.8)])
+        self.assertEqual(vj._cuts(3, ["blocks"], 0.5), [("blocks", "pixelize", 0.5), ("cut", None, 0.0)])
+        self.assertEqual(vj._cuts(2, "whip", 1.0), [("whip", "hblur", 0.3)])            # a whip is always quick
+        with self.assertRaises(ValueError):
+            vj._cuts(2, "explode", 0.5)
+        args = cli.parse_args(["timelapse-join", "a.mp4", "b.mp4", "-o", "c.mp4", "--transitions", "fade,cut"])
+        self.assertEqual((args.transitions, args.transition), ("fade,cut", None))
+
+    def test_join_with_transitions(self):
+        from mcsm import videojoin as vj
+        from mcsm.videotext import find_tool, video_duration, has_audio
+        ff = find_tool("ffmpeg")
+        if not ff or not find_tool("ffprobe"):
+            self.skipTest("ffmpeg not installed")
+        tmp = tempfile.mkdtemp()
+        try:
+            def clip(name, secs, size="320x180"):
+                out = os.path.join(tmp, name)
+                subprocess.run([ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc=size={size}:rate=30",
+                                "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(secs), "-c:v", "libx264",
+                                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", out], check=True)
+                return out
+            a, b, c = clip("a.mp4", 2), clip("b.mp4", 2), clip("c.mp4", 1, size="640x360")
+            out = os.path.join(tmp, "joined.mp4")
+            p = vj.join([a, b, c], out, transitions=["dip_black", "cut"], length=0.5, say=lambda _m: None)
+            self.assertFalse(p["copy"])
+            self.assertAlmostEqual(p["seconds"], 4.5, places=2)                         # 2 + 2 + 1 - 0.5 overlap
+            self.assertAlmostEqual(video_duration(out), 4.5, delta=0.15)
+            self.assertTrue(has_audio(out))                                              # their sounds join too
+            short = os.path.join(tmp, "short.mp4")                                       # longer than a clip: shortened
+            p2 = vj.join([a, c], short, transitions="fade", length=3.0, say=lambda _m: None)
+            self.assertLess(p2["cuts"][0][2], 1.0)
+            self.assertAlmostEqual(video_duration(short), p2["seconds"], delta=0.15)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

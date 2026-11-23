@@ -1128,7 +1128,7 @@ $("#tlvMake").onclick = async () => {
         + (away ? `in ${r.folder} (no Flashback for Minecraft ${m.mc || "?"} on this PC: add one, start it once, and move these into its flashback folder). `
                 : `in Flashback (${r.folder}). `)
         + (mode === "free" ? "Place your camera keyframes in each copy, then " : "")
-        + `Open each in order and Export its scene; then join the videos in the app's Videos tab (Join timelapse parts). Order list: ${r.order}`;
+        + `Open each in order and Export its scene; then join the videos in the app's Videos tab (Join videos…). Order list: ${r.order}`;
       break;
     }
   } catch (e) { $("#tlvStatus").textContent = `Timelapse: ${e.message}`; }

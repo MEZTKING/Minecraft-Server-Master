@@ -1023,7 +1023,9 @@ def cmd_timelapse_join(args) -> int:
     """Join the videos exported from a timelapse's Flashback copies, in order, optionally with music."""
     from . import videojoin
     try:
-        videojoin.join(args.videos, args.output, args.music, args.music_start or 0.0)
+        trans = args.transitions.split(",") if args.transitions else (args.transition or "cut")
+        videojoin.join(args.videos, args.output, args.music, args.music_start or 0.0, transitions=trans,
+                       length=args.transition_length or videojoin.DEFAULT_LENGTH)
     except ValueError as exc:
         print(f"Can't join: {exc}", file=sys.stderr)
         return 1
@@ -1352,6 +1354,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", required=True, help="the joined video (.mp4)")
     p.add_argument("--music", help="a song for the sound (replaces the videos' sound; loops; fades out at the end)")
     p.add_argument("--music-start", type=float, help="start this many seconds into the song")
+    p.add_argument("--transition", help="the same transition at every cut: cut, fade, dip_black, dip_white, whip, "
+                                        "blocks, wipe_left, wipe_right, slide_left, slide_up, zoom, circle, dissolve")
+    p.add_argument("--transitions", help="one transition per cut, comma-separated (e.g. fade,cut,blocks)")
+    p.add_argument("--transition-length", type=float, help="seconds a transition takes (default 0.6; whip 0.3)")
     p.set_defaults(func=cmd_timelapse_join)
 
     p = sub.add_parser("ignore", help="players to leave out everywhere (never supposed to join): list, add, remove")

@@ -123,12 +123,26 @@ shorter than … s of video** in the view sets how short (2 s at first; 0 keeps 
 plan, the part count and the preview update at once, and the app remembers your choice.
 
 In Flashback open each copy in order and Export its scene; then **join** the exported videos: the app's
-**Videos** tab → **Join timelapse parts…** (it opens in the folder your Flashback saves videos to; Flashback
-names them by date and time, so export the parts in order and they sort right) (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4
-[--music SONG.mp3] [--music-start SECONDS]`). Pick the exported videos: they are put in "(timelapse n of N)"
-order when their names have it (otherwise by name), joined without re-encoding when they have the same size
-and frame rate (else re-encoded to the first one's), and a song, if you choose one, replaces the sound,
-loops if it's shorter than the video and fades out over the last 2 seconds. It needs ffmpeg on this PC.
+**Videos** tab → **Join videos…** (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4`). It opens in
+the folder your Flashback saves videos to; Flashback names them by date and time, so export the parts in
+order and they sort right (they're put in "(timelapse n of N)" order when their names have it, and **Up** /
+**Down** change the order). Choose a **transition** for every cut at once or for each cut:
+
+| Transition | What you see |
+|---|---|
+| Cut | straight from one clip to the next (no re-encoding when the clips match: fast, no quality loss) |
+| Cross-fade, Dissolve | the clips blend into each other |
+| Dip to black / white | the picture fades to black (or white) and back |
+| Whip blur | a quick sideways blur, like a fast camera turn (always 0.3 s) |
+| Block wipe | the picture breaks into big Minecraft-style pixels and comes back as the next clip |
+| Wipe / Slide (left, right, up), Zoom in, Circle open | the next clip wipes, slides, zooms or opens in |
+
+**Length** sets how long a transition takes (0.6 s at first). A transition overlaps the two clips by its
+length, so the joined video is that much shorter; the clips' own sound cross-fades with it. With any
+transition the video is re-encoded, at the first clip's size and frame rate. A **song** (optional, from any
+second of it) replaces the sound, loops if it's shorter than the video and fades out over the last 2
+seconds. On the command line: `--transition fade` (every cut), `--transitions fade,cut,blocks` (one per cut),
+`--transition-length 0.8`, `--music SONG --music-start 12`. It needs ffmpeg on this PC.
 
 Your recordings are not changed. The players' positions must have been read first (the status line says
 when).
