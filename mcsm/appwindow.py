@@ -81,7 +81,7 @@ def command(url: str, browser: str) -> list[str]:
 
 # Firefox: the profile's look (no tabs or toolbars) and quiet settings
 _USER_CHROME = """/* written by Minecraft Server Master: this profile only shows the app's pages */
-#TabsToolbar, #nav-bar, #toolbar-menubar, #PersonalToolbar, #titlebar { visibility: collapse !important; }
+#TabsToolbar, #nav-bar, #toolbar-menubar, #PersonalToolbar { visibility: collapse !important; }
 #sidebar-box, #sidebar-main, #sidebar-splitter { display: none !important; }
 """
 _USER_JS = """// written by Minecraft Server Master: this profile only shows the app's pages
@@ -101,6 +101,7 @@ user_pref("app.update.auto", false);
 user_pref("extensions.autoDisableScopes", 15);
 user_pref("browser.translations.automaticallyPopup", false);
 user_pref("sidebar.revamp", false);
+user_pref("browser.tabs.inTitlebar", 0);              // the normal Windows title bar: move, minimise, close
 """
 
 

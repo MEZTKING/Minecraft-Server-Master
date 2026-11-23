@@ -456,6 +456,7 @@ class TestGUI(ServerTestCase):
         from fake_rcon import FakeRconServer
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
+        self.addCleanup(setattr, gui.appwindow, "open_page", gui.appwindow.open_page)
         gui.appwindow.open_page = lambda url: "test"
         srv = FakeRconServer(password="pw")
         root = _new_tk()
@@ -489,6 +490,7 @@ class TestGUI(ServerTestCase):
         import urllib.request
         from mcsm import gui
         gui.webbrowser.open = lambda url: None
+        self.addCleanup(setattr, gui.appwindow, "open_page", gui.appwindow.open_page)
         gui.appwindow.open_page = lambda url: "test"
         tmp = tempfile.mkdtemp()
         root = _new_tk()
