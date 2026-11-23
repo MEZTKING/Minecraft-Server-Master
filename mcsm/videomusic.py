@@ -33,18 +33,77 @@ BAR_COLOUR, BEAT_COLOUR = 0xFFAA00, 0x55AAFF
 MARK = "♪ "                                # descriptions of the app's beat markers start with this
 
 
-def song_copy(song: str, offset: float, music_dir: str) -> str:
+# How the song sounds (the editor's music panel): applied in the editor's preview, baked into the copy Flashback
+# plays (Flashback has no volume or effects for a clip) and used when the song is mixed into a made video.
+SOUND_DEFAULTS = {"volume": 1.0, "fade_in": 0.0, "fade_out": 0.0, "until": None, "bass": 0.0, "mid": 0.0,
+                  "treble": 0.0, "even": False}
+
+
+def sound_of(music: dict) -> dict:
+    out = dict(SOUND_DEFAULTS)
+    for k, v in SOUND_DEFAULTS.items():
+        x = music.get(k, v)
+        if k == "until":
+            out[k] = None if x in (None, "") else float(x)
+        elif k == "even":
+            out[k] = bool(x)
+        else:
+            try:
+                out[k] = float(x)
+            except (TypeError, ValueError):
+                out[k] = v
+    out["volume"] = max(0.0, min(3.0, out["volume"]))
+    for k in ("bass", "mid", "treble"):
+        out[k] = max(-15.0, min(15.0, out[k]))
+    return out
+
+
+def play_length(music: dict) -> float | None:
+    """Seconds the song plays (it stops at ``until``, a second of the video), or None: to its end."""
+    snd = sound_of(music)
+    if snd["until"] is None:
+        return None
+    return max(0.1, snd["until"] - max(0.0, float(music.get("start") or 0.0)))
+
+
+def song_filters(music: dict) -> list[str]:
+    """ffmpeg audio filters for the song from where it starts playing (time 0): equaliser (bass ~110 Hz,
+    mid ~1 kHz, treble ~4 kHz, in dB), even loudness, volume, fade in, and the stop with its fade out."""
+    snd, out = sound_of(music), []
+    if snd["bass"]:
+        out.append(f"bass=g={snd['bass']:g}:f=110")
+    if snd["mid"]:
+        out.append(f"equalizer=f=1000:t=q:w=1:g={snd['mid']:g}")
+    if snd["treble"]:
+        out.append(f"treble=g={snd['treble']:g}:f=4000")
+    if snd["even"]:
+        out.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+    if abs(snd["volume"] - 1.0) > 1e-6:
+        out.append(f"volume={snd['volume']:.3f}")
+    if snd["fade_in"] > 0:
+        out.append(f"afade=t=in:st=0:d={snd['fade_in']:.3f}")
+    length = play_length(music)
+    if length is not None:
+        out.append(f"atrim=end={length:.3f}")
+        if snd["fade_out"] > 0:
+            out.append(f"afade=t=out:st={max(0.0, length - snd['fade_out']):.3f}:d={snd['fade_out']:.3f}")
+    return out
+
+
+def song_copy(song: str, offset: float, music_dir: str, music: dict | None = None) -> str:
     """The file Flashback plays: a copy of *song* in *music_dir* (so moving or deleting the
-    original doesn't break the edit), cut to start *offset* seconds into the song. Converted to
-    .ogg with ffmpeg when Flashback can't play the format or it has to be cut."""
+    original doesn't break the edit), cut to start *offset* seconds into the song, with the sound
+    settings of *music* baked in. Converted to .ogg with ffmpeg when Flashback can't play the format
+    or it has to be cut or changed."""
     from .videotext import find_tool
     if not os.path.isfile(song):
         raise ValueError(f"the song isn't there any more: {song}")
     ext = os.path.splitext(song)[1].lower()
     st = os.stat(song)
-    key = hashlib.sha1(f"{os.path.abspath(song)}|{st.st_size}|{st.st_mtime}|{offset:.3f}".encode()).hexdigest()[:16]
+    filters = song_filters(music or {})
+    key = hashlib.sha1(f"{os.path.abspath(song)}|{st.st_size}|{st.st_mtime}|{offset:.3f}|{filters}".encode()).hexdigest()[:16]
     os.makedirs(music_dir, exist_ok=True)
-    if offset <= 0 and ext in FLASHBACK_AUDIO:
+    if offset <= 0 and ext in FLASHBACK_AUDIO and not filters:
         dst = os.path.join(music_dir, f"flashback-{key}{ext}")
         if not os.path.exists(dst):
             shutil.copyfile(song, dst + ".part")
@@ -57,6 +116,7 @@ def song_copy(song: str, offset: float, music_dir: str) -> str:
     if not os.path.exists(dst):
         part = dst + ".part.ogg"
         r = subprocess.run([ff, "-v", "error", "-y", "-ss", f"{max(0.0, offset):.3f}", "-i", song, "-vn",
+                            *(["-af", ",".join(filters)] if filters else []),
                             "-c:a", "libvorbis", "-q:a", "6", part], capture_output=True, text=True)
         if r.returncode != 0:
             if os.path.exists(part):
@@ -87,7 +147,7 @@ def plan(match: dict, music: dict, music_dir: str) -> dict:
         raise ValueError("this edit has no export range to line the song up with")
     start = max(0.0, float(music.get("start") or 0.0))
     offset = max(0.0, float(music.get("offset") or 0.0))
-    path = song_copy(music["file"], offset, music_dir)
+    path = song_copy(music["file"], offset, music_dir, music)
     tick = int(round(clock.replay_tick(min(start, clock.duration))))
     markers: dict[str, dict] = {}
     mode = music.get("markers", "beats")
@@ -141,15 +201,18 @@ def set_audio_track(edit_path: str, song_path: str | None, tick: int = 0) -> Non
 def audio_args(music: dict, first_input: int, has_audio: bool) -> tuple[list[str], list[str], str]:
     """ffmpeg pieces to add the song to a made video: extra inputs, filter chains and the label of
     the sound to map. The song starts at ``start`` seconds of the video, ``offset`` seconds into
-    the song, at ``volume`` (1 = as is), mixed with the video's own sound (or alone)."""
+    the song, with its sound settings (:func:`song_filters`), mixed with the video's own sound at
+    ``game_volume`` (or alone)."""
     start = max(0.0, float(music.get("start") or 0.0))
     offset = max(0.0, float(music.get("offset") or 0.0))
-    vol = max(0.0, float(music.get("volume", 1.0)))
     ms = int(round(start * 1000))
     k = first_input
-    chain = (f"[{k}:a]atrim=start={offset:.3f},asetpts=PTS-STARTPTS,adelay={ms}|{ms},volume={vol:.3f}[song]")
+    sound = "".join("," + f for f in song_filters(music))
+    chain = f"[{k}:a]atrim=start={offset:.3f},asetpts=PTS-STARTPTS{sound},adelay={ms}|{ms}[song]"
     chains = [chain]
     if has_audio:
-        chains.append("[0:a][song]amix=inputs=2:duration=first:normalize=0[mix]")
+        game = max(0.0, min(2.0, float(music.get("game_volume", 1.0) if music.get("game_volume") is not None else 1.0)))
+        chains.append(f"[0:a]volume={game:.3f}[game]")
+        chains.append("[game][song]amix=inputs=2:duration=first:normalize=0[mix]")
         return ["-i", os.path.abspath(music["file"])], chains, "mix"
     return ["-i", os.path.abspath(music["file"])], chains, "song"

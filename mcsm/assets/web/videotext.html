@@ -62,6 +62,8 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
     <button id="fwd" type="button" class="small" title="Forward 1 s (Shift+→)">+1 s</button>
     <button id="toSel" type="button" title="Play from 2 s before the selected text appears">Play selected</button>
     <span id="time">0:00.0</span>
+    <span class="seg" title="Timeline zoom: or scroll over the timeline (Shift+scroll moves along it)"><button id="zOut" type="button" class="small">−</button><button id="zFit" type="button" class="small">Fit</button><button id="zIn" type="button" class="small">+</button></span>
+    <label class="small" style="margin:0" title="Texts you drag on the timeline land on camera keyframes, beats, the playhead and other texts' edges; a text on a keyframe moves with it"><input id="snapTexts" type="checkbox" checked> snap texts</label>
     <span class="seg" id="viewSeg" hidden><button id="vCam" type="button" class="on" title="See the app's map through your edit's camera, with your texts">Camera view</button><button id="vMap" type="button" title="Look at the map from above: your camera's path, where it is now, and the players (drag to turn, scroll to zoom)">Map view</button><button id="vReal" type="button" title="The real picture from Flashback: Minecraft with the companion mod must be running with this edit's replay open. The editor moves Flashback's camera and time and shows what the game draws">Flashback (real)</button></span>
     <span class="hint" style="margin-left:auto">Drag a text on the video to move it · drag bars below to change when · <kbd>I</kbd>/<kbd>O</kbd> start/end at the playhead · <kbd>Ctrl+Z</kbd> undo</span>
   </div>
@@ -129,6 +131,8 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
 
     <h2>When</h2>
     <label><span>Appears at</span><input id="start" type="number" step="0.1" placeholder="camera stops"><button type="button" class="small" id="startNow" title="The playhead (I)">now</button><button type="button" class="small" id="startStill" title="When the camera stops at the end">camera stops</button></label>
+    <div class="row" id="fitRow"><button type="button" class="small" id="fitShot" title="Appear on the camera keyframe at (or before) the playhead and go at the next one; the text then moves with those keyframes">Fit to this camera move</button>
+      <span class="hint" id="keyLink"></span></div>
     <label><span>Until</span><input id="until" type="number" step="0.1" placeholder="end"><button type="button" class="small" id="untilNow" title="The playhead (O)">now</button><button type="button" class="small" id="untilEnd">end</button></label>
     <label><span>Or lasts (s)</span><input id="length" type="number" step="0.1" min="0.1" placeholder="—"><span class="hint">seconds, instead of Until</span></label>
     <label><span>Follows</span><select id="afterId" title="Make it appear after another text or picture (a chain)"></select></label>
@@ -213,11 +217,19 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
     <div class="hint" id="songName" style="margin-top:4px"></div>
     <label><span>Starts at (s)</span><input id="mStart" type="number" step="0.1" min="0" title="Second of the video where the song starts"><button type="button" class="small" id="mStartNow" title="The playhead">now</button></label>
     <label><span>From song (s)</span><input id="mOffset" type="number" step="0.1" min="0" title="Seconds into the song to start from (e.g. skip its intro)"></label>
+    <label><span>Stops at (s)</span><input id="mUntil" type="number" step="0.1" min="0" placeholder="song end" title="Second of the video where the song stops (empty: it plays to its end)"><button type="button" class="small" id="mUntilNow" title="The playhead">now</button><button type="button" class="small" id="mUntilEnd" title="Play to its end">end</button></label>
+    <label><span>Volume</span><input id="mVolume" type="range" min="0" max="2" step="0.05"><span class="val" id="mVolumeV"></span></label>
+    <label><span>Fade in (s)</span><input id="mFadeIn" type="number" step="0.1" min="0" title="Seconds the song takes to come up from silence"></label>
+    <label><span>Fade out (s)</span><input id="mFadeOut" type="number" step="0.1" min="0" title="Seconds the song takes to go quiet before it stops (needs Stops at)"></label>
+    <label><span>Bass</span><input id="mBass" type="range" min="-12" max="12" step="1" title="Low sounds (about 110 Hz), in dB"><span class="val" id="mBassV"></span></label>
+    <label><span>Middle</span><input id="mMid" type="range" min="-12" max="12" step="1" title="Voices and most instruments (about 1 kHz), in dB"><span class="val" id="mMidV"></span></label>
+    <label><span>Treble</span><input id="mTreble" type="range" min="-12" max="12" step="1" title="High sounds (about 4 kHz), in dB"><span class="val" id="mTrebleV"></span></label>
+    <label><span>Even loudness</span><input id="mEven" type="checkbox" title="Make quiet and loud parts more even (like streaming sites); in Flashback and the made video, not in this preview"><span class="hint">in Flashback &amp; the made video</span></label>
     <label><span>Tempo (BPM)</span><input id="mBpm" type="number" step="0.01" min="30" max="300" title="Beats per minute"><button type="button" class="small" id="mDetect" title="Listen to the song and find its tempo and first beat">detect</button></label>
     <label><span>First beat (s)</span><input id="mFirst" type="number" step="0.01" min="0" title="Seconds into the song of the first strong beat (bar start)"><span class="hint" id="mConf"></span></label>
     <label><span>Beat markers</span><select id="mMarkers" title="Dots on Flashback's timeline to line camera moves up with the music"><option value="beats">every beat</option><option value="bars">every bar</option><option value="none">none</option></select></label>
     <label><span>Play along</span><input id="mHear" type="checkbox" checked><span class="hint">hear it here while you edit</span></label>
-    <label><span>In made video</span><input id="mOnVideo" type="checkbox" title="Mix the song into 'Make the video'"><span style="color:var(--muted);margin-left:8px">volume</span><input id="mVolume" type="range" min="0" max="1.5" step="0.05"><span class="val" id="mVolumeV"></span></label>
+    <label><span>In made video</span><input id="mOnVideo" type="checkbox" title="Mix the song into 'Make the video'"><span style="color:var(--muted);margin-left:8px">game sound</span><input id="mGame" type="range" min="0" max="1.5" step="0.05" title="The video's own sound under the song (0 = song only)"><span class="val" id="mGameV"></span></label>
     <div class="hint">Orange ticks on the timeline are bars, blue ones beats. <b>Put … in Flashback</b> puts the song on Flashback's own audio track of the copy (it comes out in the export) and a marker on every beat, so you can put camera moves on the beat in Flashback.</div>
   </div>
 
@@ -566,12 +578,40 @@ function draw() {
   drawTimeline();
   syncSong();
 }
+// the song's sound in the preview: equaliser (bass ~110 Hz, middle ~1 kHz, treble ~4 kHz), volume and fades
+// (the same settings are baked into Flashback's copy and the made video; "even loudness" only there)
+let AC = null, EQ = null;
+function soundChain() {
+  if (AC || !window.AudioContext) return;
+  try {
+    AC = new AudioContext();
+    const src = AC.createMediaElementSource(song), bass = AC.createBiquadFilter(), mid = AC.createBiquadFilter(), treble = AC.createBiquadFilter(), gain = AC.createGain();
+    bass.type = "lowshelf"; bass.frequency.value = 110; mid.type = "peaking"; mid.frequency.value = 1000; mid.Q.value = 1;
+    treble.type = "highshelf"; treble.frequency.value = 4000;
+    src.connect(bass); bass.connect(mid); mid.connect(treble); treble.connect(gain); gain.connect(AC.destination);
+    EQ = { bass, mid, treble, gain };
+  } catch (e) { AC = null; EQ = null; }
+}
+function songLevel(v) {                              // volume x fade in x fade out at video second v
+  const st = +MUSIC.start || 0, fi = +MUSIC.fade_in || 0, fo = +MUSIC.fade_out || 0, u = MUSIC.until;
+  let k = +(MUSIC.volume ?? 1);
+  if (fi > 0) k *= Math.max(0, Math.min(1, (v - st) / fi));
+  if (u != null && fo > 0) k *= Math.max(0, Math.min(1, (u - v) / fo));
+  return k;
+}
 function syncSong() {                // the song plays along with the video, at the right place
   if (!MUSIC || !$("#mHear").checked) { if (!song.paused) song.pause(); return; }
   const at = vid.currentTime - (+MUSIC.start || 0) + (+MUSIC.offset || 0);
-  if (vid.paused || at < 0 || (MUSIC.duration && at > MUSIC.duration)) { if (!song.paused) song.pause(); return; }
+  const stopped = MUSIC.until != null && vid.currentTime >= MUSIC.until;
+  if (vid.paused || at < 0 || stopped || (MUSIC.duration && at > MUSIC.duration)) { if (!song.paused) song.pause(); return; }
   if (Math.abs(song.currentTime - at) > 0.15) song.currentTime = at;
-  song.volume = Math.min(1, +MUSIC.volume || 1);
+  soundChain();
+  const level = songLevel(vid.currentTime);
+  if (EQ) {
+    if (AC.state === "suspended") AC.resume().catch(() => {});
+    EQ.bass.gain.value = +MUSIC.bass || 0; EQ.mid.gain.value = +MUSIC.mid || 0; EQ.treble.gain.value = +MUSIC.treble || 0;
+    EQ.gain.gain.value = level; song.volume = 1;
+  } else song.volume = Math.max(0, Math.min(1, level));
   if (song.paused) song.play().catch(() => {});
 }
 function fillMusic() {
@@ -582,7 +622,12 @@ function fillMusic() {
   $("#mStart").value = MUSIC.start ?? 0; $("#mOffset").value = MUSIC.offset ?? 0;
   $("#mBpm").value = MUSIC.bpm ?? ""; $("#mFirst").value = MUSIC.first_beat ?? 0;
   $("#mMarkers").value = MUSIC.markers || "beats"; $("#mOnVideo").checked = !!MUSIC.on_video;
-  $("#mVolume").value = MUSIC.volume ?? 0.8; $("#mVolumeV").textContent = (+(MUSIC.volume ?? 0.8)).toFixed(2);
+  $("#mVolume").value = MUSIC.volume ?? 1; $("#mVolumeV").textContent = (+(MUSIC.volume ?? 1)).toFixed(2);
+  $("#mUntil").value = MUSIC.until ?? ""; $("#mFadeIn").value = MUSIC.fade_in ?? 0; $("#mFadeOut").value = MUSIC.fade_out ?? 0;
+  for (const [id, k] of [["#mBass", "bass"], ["#mMid", "mid"], ["#mTreble", "treble"]]) {
+    $(id).value = MUSIC[k] ?? 0; $(id + "V").textContent = `${(+(MUSIC[k] ?? 0)) > 0 ? "+" : ""}${+(MUSIC[k] ?? 0)} dB`; }
+  $("#mEven").checked = !!MUSIC.even;
+  $("#mGame").value = MUSIC.game_volume ?? 1; $("#mGameV").textContent = (+(MUSIC.game_volume ?? 1)).toFixed(2);
 }
 async function detectBeats() {
   if (!MUSIC) return;
@@ -604,34 +649,63 @@ $("#songPick").onclick = () => {
     $("#log").textContent = "";
     MUSIC = { file: j.file, name: file.name, duration: j.duration, start: MUSIC ? MUSIC.start : Math.round(vid.currentTime * 10) / 10,
               offset: 0, bpm: null, first_beat: 0, markers: MUSIC ? MUSIC.markers : "beats", on_video: MUSIC ? MUSIC.on_video : false,
-              volume: MUSIC ? MUSIC.volume : 0.8 };
+              volume: MUSIC ? MUSIC.volume : 1, fade_in: MUSIC ? MUSIC.fade_in : 0, fade_out: MUSIC ? MUSIC.fade_out : 0,
+              until: MUSIC ? MUSIC.until : null, bass: MUSIC ? MUSIC.bass : 0, mid: MUSIC ? MUSIC.mid : 0,
+              treble: MUSIC ? MUSIC.treble : 0, even: MUSIC ? MUSIC.even : false, game_volume: MUSIC ? MUSIC.game_volume : 1 };
     song.src = "/music/" + encodeURIComponent(j.file);
     fillMusic(); changed(true); detectBeats();
   };
   f.click();
 };
+$("#mUntilNow").onclick = () => { if (MUSIC) { MUSIC.until = Math.round(vid.currentTime * 10) / 10; fillMusic(); changed(true); } };
+$("#mUntilEnd").onclick = () => { if (MUSIC) { MUSIC.until = null; fillMusic(); changed(true); } };
 $("#songRemove").onclick = () => { MUSIC = null; song.pause(); song.removeAttribute("src"); fillMusic(); changed(true); };
 $("#mStartNow").onclick = () => { if (MUSIC) { MUSIC.start = Math.round(vid.currentTime * 10) / 10; fillMusic(); changed(true); } };
 $("#mDetect").onclick = detectBeats;
 for (const [id, key, num] of [["#mStart", "start", 1], ["#mOffset", "offset", 1], ["#mBpm", "bpm", 1], ["#mFirst", "first_beat", 1],
-                              ["#mMarkers", "markers", 0], ["#mOnVideo", "on_video", 0], ["#mVolume", "volume", 1]]) {
+                              ["#mMarkers", "markers", 0], ["#mOnVideo", "on_video", 0], ["#mVolume", "volume", 1],
+                              ["#mUntil", "until", 1], ["#mFadeIn", "fade_in", 1], ["#mFadeOut", "fade_out", 1],
+                              ["#mBass", "bass", 2], ["#mMid", "mid", 2], ["#mTreble", "treble", 2], ["#mEven", "even", 0],
+                              ["#mGame", "game_volume", 1]]) {
   $(id).addEventListener($(id).type === "range" ? "input" : "change", () => {
     if (!MUSIC) return; const el = $(id);
-    MUSIC[key] = el.type === "checkbox" ? el.checked : (num ? (el.value === "" ? null : Math.max(0, +el.value)) : el.value);
+    MUSIC[key] = el.type === "checkbox" ? el.checked
+      : num === 2 ? +el.value                          // the equaliser goes both ways (dB)
+      : (num ? (el.value === "" ? null : Math.max(0, +el.value)) : el.value);
     if (key === "bpm" && MUSIC.bpm != null && MUSIC.bpm < 30) MUSIC.bpm = null;
     fillMusic(); changed(el.type !== "range");
   });
 }
 
 // --- timeline --------------------------------------------------------------------------------
-const TL = { pad: 10, rowH: 22, top: 22 };
-function tlX(t) { return TL.pad + (t / INFO.duration) * (tl.width - 2 * TL.pad); }
-function tlT(x) { return Math.max(0, Math.min(INFO.duration, (x - TL.pad) / (tl.width - 2 * TL.pad) * INFO.duration)); }
+const TL = { pad: 10, rowH: 22, top: 22, v0: 0, v1: null };        // v0..v1: the seconds shown (zoom)
+const tlSpan = () => { const v1 = TL.v1 ?? INFO.duration; return [TL.v0, Math.max(TL.v0 + 0.5, v1)]; };
+function tlX(t) { const [a, b] = tlSpan(); return TL.pad + ((t - a) / (b - a)) * (tl.width - 2 * TL.pad); }
+function tlT(x) { const [a, b] = tlSpan(); return Math.max(0, Math.min(INFO.duration, a + (x - TL.pad) / (tl.width - 2 * TL.pad) * (b - a))); }
+function tlZoom(f, at) {                             // f < 1 zooms in around second *at*
+  const [a, b] = tlSpan(), D = INFO.duration, span = Math.max(1, Math.min(D, (b - a) * f));
+  const k = (at - a) / (b - a), v0 = Math.max(0, Math.min(D - span, at - k * span));
+  TL.v0 = v0; TL.v1 = span >= D ? null : v0 + span; if (TL.v1 == null) TL.v0 = 0;
+  drawTimeline();
+}
+function tlPan(d) { const [a, b] = tlSpan(), span = b - a; TL.v0 = Math.max(0, Math.min(INFO.duration - span, a + d)); if (TL.v1 != null) TL.v1 = TL.v0 + span; drawTimeline(); }
+tl.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = tl.getBoundingClientRect(), at = tlT((e.clientX - r.left) * devicePixelRatio), [a, b] = tlSpan();
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) tlPan(((e.deltaX || e.deltaY) > 0 ? 1 : -1) * (b - a) * 0.15);
+  else tlZoom(e.deltaY < 0 ? 0.8 : 1.25, at);
+}, { passive: false });
+$("#zIn").onclick = () => tlZoom(0.6, vid.currentTime);
+$("#zOut").onclick = () => tlZoom(1.6, vid.currentTime);
+$("#zFit").onclick = () => { TL.v0 = 0; TL.v1 = null; drawTimeline(); };
 function drawTimeline() {
   const W = tl.width, H = tl.height, dpr = devicePixelRatio; tctx.clearRect(0, 0, W, H);
   tctx.fillStyle = "#9aa0a6"; tctx.font = `${11 * dpr}px system-ui`;
-  const step = INFO.duration > 600 ? 60 : INFO.duration > 120 ? 10 : 5;
-  for (let s = 0; s <= INFO.duration; s += step) { const x = tlX(s); tctx.fillRect(x, 0, dpr, 6 * dpr); tctx.fillText(fmt(s).replace(".0", ""), x + 3 * dpr, 12 * dpr); }
+  const [va, vb] = tlSpan(), shown = vb - va;
+  if (TL.v1 != null && !vid.paused && (vid.currentTime > vb || vid.currentTime < va)) tlPan(vid.currentTime - va - shown * 0.1);   // follow the playhead
+  const step = [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300].find(s => shown / s <= 14) || 600;
+  for (let s = Math.ceil(va / step) * step; s <= vb + 1e-9; s += step) { const x = tlX(s); tctx.fillRect(x, 0, dpr, 6 * dpr);
+    tctx.fillText(step < 1 ? fmt(s) : fmt(s).replace(".0", ""), x + 3 * dpr, 12 * dpr); }
   const st = stillFrom(); if (st != null) { tctx.fillStyle = "rgba(95,184,95,0.25)"; tctx.fillRect(tlX(st), TL.top * dpr, tlX(INFO.duration) - tlX(st), H); }
   if (NOVIDEO && CLOCK) {                         // camera keyframes: the row under the ruler
     const y0 = 22 * dpr, y1 = 44 * dpr, ym = (y0 + y1) / 2;
@@ -671,6 +745,44 @@ function drawTimeline() {
   const px = tlX(vid.currentTime); tctx.fillStyle = "#f04040"; tctx.fillRect(px - dpr, 0, 2 * dpr, H);
 }
 let tlDrag = null;
+// where a dragged text's start or end lands: camera keyframes, beats, the playhead, other texts' edges (8 px)
+function snapTargets(except) {
+  const out = [];
+  if (NOVIDEO && CLOCK) for (const k of KEYS) { const v = videoTime(k.tick); if (v != null) out.push({ v, tick: k.tick }); }
+  for (const v of beatTimes()) out.push({ v });
+  out.push({ v: vid.currentTime });
+  const st = stillFrom(); if (st != null) out.push({ v: st });
+  for (const o of ITEMS) if (o !== except) { out.push({ v: startOf(o) }); out.push({ v: endOf(o) }); }
+  return out;
+}
+function snapTime(v, except) {
+  if (!$("#snapTexts").checked) return { v };
+  const lim = (tlT(8 * devicePixelRatio) - tlT(0)), best = snapTargets(except).reduce((a, c) => Math.abs(c.v - v) < Math.abs(a.v - v) ? c : a, { v: Infinity });
+  return Math.abs(best.v - v) <= lim ? best : { v };
+}
+// a text whose start (or end) sits on a camera keyframe moves with that keyframe
+function keysMoved(oldTick, newTick) {
+  for (const it of ITEMS) {
+    if (it.start_key === oldTick) { it.start_key = newTick; const v = videoTime(newTick); if (v != null && !it.after) it.start = Math.round(v * 100) / 100; }
+    if (it.end_key === oldTick) { it.end_key = newTick; const v = videoTime(newTick); if (v != null && it.length == null) it.until = Math.round(v * 100) / 100; }
+  }
+}
+function showKeyLink() {
+  if (!SEL) return;
+  $("#fitRow").hidden = !(NOVIDEO && CLOCK && KEYS.length > 1) || SEL.after;
+  $("#keyLink").textContent = SEL.start_key != null || SEL.end_key != null ? "on the camera's keyframes: moves with them" : "";
+}
+$("#fitShot").onclick = () => {
+  if (!SEL || !(NOVIDEO && CLOCK)) return;
+  const ks = KEYS.map(k => ({ tick: k.tick, v: videoTime(k.tick) })).filter(k => k.v != null).sort((a, b) => a.v - b.v);
+  if (ks.length < 2) return;
+  const t = vid.currentTime; let i = ks.findIndex((k, j) => k.v <= t + 1e-6 && (j === ks.length - 1 || ks[j + 1].v > t + 1e-6));
+  if (i < 0) i = 0; if (i === ks.length - 1) i = ks.length - 2;
+  snapshot();
+  SEL.start = Math.round(ks[i].v * 100) / 100; SEL.start_key = ks[i].tick; SEL.length = null;
+  SEL.until = Math.round(ks[i + 1].v * 100) / 100; SEL.end_key = ks[i + 1].tick;
+  fillEditor(); changed(true);
+};
 tl.addEventListener("pointerdown", e => {
   const dpr = devicePixelRatio, r = tl.getBoundingClientRect(), x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) / 1;
   if (NOVIDEO && CLOCK && y >= 22 && y < 44) {                   // the camera row
@@ -701,13 +813,21 @@ tl.addEventListener("pointermove", e => {
     let v = Math.max(0, Math.min(INFO.duration, tlDrag.v0 + d));
     if ($("#snapBeats").checked) v = nearestBeat(v);
     const tick = Math.round(replayTick(v));
-    if (!KEYS.some(k => k !== tlDrag.key && k.tick === tick)) { tlDrag.key.tick = tick; KSEL = tick; fillKey(); }
+    if (!KEYS.some(k => k !== tlDrag.key && k.tick === tick)) { const old = tlDrag.key.tick; tlDrag.key.tick = tick; KSEL = tick; keysMoved(old, tick); fillKey(); }
     return;
   }
-  if (tlDrag.mode === "end") { if (it.length != null) it.length = Math.max(0.2, Math.round((t - startOf(it)) * 10) / 10);
-                              else it.until = Math.max(startOf(it) + 0.2, Math.round(t * 10) / 10); }
+  if (tlDrag.mode === "end") {
+    const sn = snapTime(t, it);
+    if (it.length != null) it.length = Math.max(0.2, Math.round((sn.v - startOf(it)) * 100) / 100);
+    else it.until = Math.max(startOf(it) + 0.2, Math.round(sn.v * 100) / 100);
+    it.end_key = sn.tick ?? null;
+  }
   else if (tlDrag.g != null) it.after.gap = Math.round((tlDrag.g + d) * 10) / 10;          // a follow-up: its gap
-  else { it.start = Math.max(0, Math.round((tlDrag.s + d) * 10) / 10); if (tlDrag.u != null) it.until = Math.round((tlDrag.u + d) * 10) / 10; }
+  else {
+    const sn = snapTime(tlDrag.s + d, it), dv = sn.v - tlDrag.s;
+    it.start = Math.max(0, Math.round(sn.v * 100) / 100); it.start_key = sn.tick ?? null;
+    if (tlDrag.u != null) { it.until = Math.round((tlDrag.u + dv) * 100) / 100; it.end_key = null; }
+  }
   fillEditor(); changed(false);
 });
 tl.addEventListener("pointerup", () => {
@@ -786,7 +906,7 @@ function showParts() {
     "Stays put like a sign, facing where the camera looks when it appears; Turn spins it, Tilt -90 lays it on the ground." : "";
 }
 function fillEditor() {
-  setTimeout(showStyleKind, 0);
+  setTimeout(showStyleKind, 0); setTimeout(showKeyLink, 0);
   if (!SEL) return;
   $("#name").value = SEL.name || "";
   $("#kWorld").classList.toggle("on", SEL.kind === "world"); $("#kScreen").classList.toggle("on", SEL.kind === "screen");
@@ -851,6 +971,7 @@ $("#startNow").onclick = () => setTime("start", vid.currentTime); $("#untilNow")
 $("#startStill").onclick = () => setTime("start", null); $("#untilEnd").onclick = () => setTime("until", null);
 function setTime(key, v) {
   if (!SEL) return; snapshot();
+  if (key === "start") SEL.start_key = null; else SEL.end_key = null;      // typed or set: no longer on a keyframe
   const r = v == null ? null : Math.round(v * 10) / 10;
   if (key === "start" && SEL.after) { if (r != null) SEL.after.gap = Math.round(((+SEL.after.gap || 0) + r - startOf(SEL)) * 10) / 10; }
   else if (key === "until" && SEL.length != null && r != null) SEL.length = Math.max(0.1, Math.round((r - startOf(SEL)) * 10) / 10);
@@ -1084,7 +1205,7 @@ $("#keySnapAll").onclick = () => {
   snapshot();
   const used = new Set();
   for (const k of KEYS) { const v = videoTime(k.tick); if (v == null) continue;
-    const tick = Math.round(replayTick(nearestBeat(v))); if (!used.has(tick)) { k.tick = tick; used.add(tick); } }
+    const tick = Math.round(replayTick(nearestBeat(v))); if (!used.has(tick)) { keysMoved(k.tick, tick); k.tick = tick; used.add(tick); } }
   KEYS.sort((a, b) => a.tick - b.tick); camChanged();
 };
 $("#camReset").onclick = () => { snapshot(); resetCamera(); };
@@ -1096,7 +1217,7 @@ for (const id of ["#kT", "#kX", "#kY", "#kZ", "#kYaw", "#kPitch", "#kRoll", "#kI
   const k = KEYS.find(k => k.tick === KSEL); if (!k) return;
   snapshot();
   if (id === "#kT") { const tick = Math.round(replayTick(Math.max(0, +$("#kT").value || 0)));
-    if (!KEYS.some(o => o !== k && o.tick === tick)) { k.tick = tick; KSEL = tick; } KEYS.sort((a, b) => a.tick - b.tick); }
+    if (!KEYS.some(o => o !== k && o.tick === tick)) { keysMoved(k.tick, tick); k.tick = tick; KSEL = tick; } KEYS.sort((a, b) => a.tick - b.tick); }
   else if (id === "#kInterp") k.interpolation_type = $("#kInterp").value;
   else if (["#kX", "#kY", "#kZ"].includes(id)) k.position[["#kX", "#kY", "#kZ"].indexOf(id)] = +$(id).value || 0;
   else k[{ "#kYaw": "yaw", "#kPitch": "pitch", "#kRoll": "roll" }[id]] = +$(id).value || 0;

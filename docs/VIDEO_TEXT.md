@@ -131,6 +131,13 @@ Flashback saves exported videos to (the one you last chose on its export screen)
 
 ### Working with it
 
+- **Zoom the timeline**: scroll over it (around the mouse), Shift+scroll moves along it, or **−** / **Fit**
+  / **+** next to *Play*; while playing, it follows the playhead.
+- **Snap texts** (next to the zoom): a text you drag on the timeline lands on camera keyframes, the song's
+  beats, the playhead and other texts' start and end (within a few pixels). A text whose start or end sits
+  on a **camera keyframe moves with that keyframe** when you drag the keyframe (or snap keyframes to the
+  beat), so you don't have to line it up again. **Fit to this camera move** (under *Appears at*) makes the
+  selected text appear on the keyframe at (or before) the playhead and go at the next one.
 - **Timeline** under the video: one bar per text (blue = in the world, purple = on the video, green =
   picture, light green = where the camera stands still; ↳ = a follow-up). Drag a bar to move it (a
   follow-up's drag changes its gap), drag its right edge to change how long it stays, click elsewhere to
@@ -152,7 +159,13 @@ Flashback saves exported videos to (the one you last chose on its export screen)
 The song **plays along** in the page while you edit (untick *Play along* to edit in silence).
 
 - **Starts at**: the second of the video where the song starts (*now* = the playhead). **From song**:
-  seconds into the song to start from, e.g. to skip its intro.
+  seconds into the song to start from, e.g. to skip its intro. **Stops at**: the second of the video where
+  it stops (*now*; *end* or empty = it plays to its end).
+- **How it sounds:** **Volume** (up to 2× louder), **Fade in** and **Fade out** (seconds; the fade out ends
+  at *Stops at*), an equaliser (**Bass** about 110 Hz, **Middle** about 1 kHz, **Treble** about 4 kHz, each
+  -12 to +12 dB) and **Even loudness** (quiet and loud parts made more even, like streaming sites). You hear
+  all of it while you edit (except even loudness); the same settings are baked into the copy of the song
+  Flashback plays (Flashback has no volume or effects for a clip) and used in the made video.
 - **Tempo**: detected when you choose the song (or press *detect*); type the BPM and the **first beat**
   (seconds into the song of the first strong beat) yourself if the detection is off. The timeline shows
   the song as an orange band with **orange ticks on every bar and blue ticks on every beat**, so you can
@@ -165,8 +178,8 @@ The song **plays along** in the page while you edit (untick *Play along* to edit
   tracks and the recording's own markers are kept. Flashback plays audio at the replay's speed, so in a
   sped-up (timelapse) part the song plays fast: the app warns you, and for such videos use the song on
   the made video instead.
-- **In made video**: tick it to mix the song into *Make the video…* (with the video's own sound, at the
-  **volume** you set; the video doesn't get longer).
+- **In made video**: tick it to mix the song into *Make the video…*, over the video's own sound at the
+  **game sound** level (0 = the song only); the video doesn't get longer.
 
 ### Making it
 

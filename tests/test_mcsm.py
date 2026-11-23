@@ -4313,3 +4313,40 @@ class TestTitleAnimations(unittest.TestCase):
         items = vt.resolve_times([vt._item({"kind": "screen", "lines": [["Hello there", 2]], "start": 0,
                                             "animation": "letters", "word_gap": 0.1, "anim": 0.2})], 10, lambda it: 0)
         self.assertAlmostEqual(vt.appear_time(items[0]), 9 * 0.1 + 0.2)
+
+
+class TestSongSound(unittest.TestCase):
+    """The song's sound settings: equaliser, volume, fades and where it stops, for Flashback and the made video."""
+
+    def test_filters(self):
+        from mcsm import videomusic as vm
+        self.assertEqual(vm.song_filters({"file": "s.mp3"}), [])                       # as it is
+        f = vm.song_filters({"start": 10, "until": 40, "volume": 1.5, "fade_in": 2, "fade_out": 3,
+                             "bass": 4, "mid": -2, "treble": 99, "even": True})
+        self.assertEqual(f, ["bass=g=4:f=110", "equalizer=f=1000:t=q:w=1:g=-2", "treble=g=15:f=4000",
+                             "loudnorm=I=-16:TP=-1.5:LRA=11", "volume=1.500", "afade=t=in:st=0:d=2.000",
+                             "atrim=end=30.000", "afade=t=out:st=27.000:d=3.000"])
+        self.assertIsNone(vm.play_length({"start": 5}))
+        _ins, chains, label = vm.audio_args({"file": "s.mp3", "start": 2, "volume": 0.5, "game_volume": 0.3}, 1, True)
+        self.assertEqual(label, "mix")
+        self.assertIn("volume=0.500", chains[0])
+        self.assertIn("[0:a]volume=0.300[game]", chains)
+
+    def test_baked_copy(self):
+        from mcsm import videomusic as vm
+        from mcsm.videotext import find_tool, video_duration
+        ff = find_tool("ffmpeg")
+        if not ff or not find_tool("ffprobe"):
+            self.skipTest("ffmpeg not installed")
+        tmp = tempfile.mkdtemp()
+        try:
+            song = os.path.join(tmp, "song.wav")
+            subprocess.run([ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330", "-t", "6", song], check=True)
+            plain = vm.song_copy(song, 0, tmp)
+            self.assertTrue(plain.endswith(".wav"))                                     # nothing to change: a plain copy
+            baked = vm.song_copy(song, 1.0, tmp, {"start": 0, "until": 3, "fade_out": 1, "bass": 6})
+            self.assertTrue(baked.endswith(".ogg"))
+            self.assertAlmostEqual(video_duration(baked), 3.0, delta=0.15)              # stops where it should
+            self.assertNotEqual(baked, vm.song_copy(song, 1.0, tmp, {"start": 0, "until": 3, "fade_out": 1, "bass": 3}))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

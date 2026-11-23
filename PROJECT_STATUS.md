@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (title animations: letters, bounce, flip, shake, leaving, gradient, glow halo; 0v step 2).
+`CLAUDE.md`). Last updated: 2026-11-23 (texts on camera keyframes, timeline zoom, song sound settings).
 
 ## What this project is
 
@@ -1057,6 +1057,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Owner (after trying the title animations in Flashback: "its working"): "automatically line up
+  texts with keyframes", "a zoom in for the keyframes tab", "no option for music such as volume adjuster,
+  equaliser". Editor: texts snap to keyframes/beats/playhead/other texts and move with the keyframe they sit on
+  (`start_key`/`end_key`), "Fit to this camera move"; timeline zoom (scroll, Shift+scroll, − Fit +, follows the
+  playhead); song: stops at, volume to 2x, fade in/out, bass/middle/treble, even loudness (loudnorm), game sound
+  level in the made video; previewed with Web Audio, baked into Flashback's song copy (`videomusic.song_filters`).
 
 - **2026-11-23:** Title animations (0v step 2): letters one by one (typewriter, fading, popping, dropping in), bounce,
   flip up, shake, ways of leaving (fade, shrink, fall, rise), colour gradient, glow halo; in the world, the editor
