@@ -319,6 +319,8 @@ it's a lot. **Start** runs it in the background with progress; **Cancel** stops 
 - **Players**, their **Names** and their **Colour rings**
 - **Trails** (the line behind each player)
 - **Mobs and pets**
+- **Chat**: what players said (from the server log) in a bubble over their head, for 4 to 12 seconds depending
+  on the length, the last two messages at most. Not over your own head when watching through a player's eyes.
 - the smooth **Map** and the **Grid**
 
 **Real blocks**, **All paths** and **Event pins** keep their own switches.

@@ -82,6 +82,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 .label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
   background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
 .label.stale { opacity: .55; font-style: italic; }
+.bubble { position: absolute; transform: translate(-50%, -100%); max-width: 260px; padding: 4px 8px; border-radius: 6px;
+  font-size: 12px; line-height: 1.3; background: rgba(255,255,255,.92); color: #111; white-space: normal; overflow-wrap: anywhere;
+  box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: none; }
+.bubble div + div { margin-top: 2px; border-top: 1px solid rgba(0,0,0,.12); padding-top: 2px; }
 #timeline { position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 8px 10px 10px; }
 #clock { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 190px; }
 #canvasWrap { position: relative; margin-top: 8px; height: 92px; cursor: crosshair; touch-action: none; }
@@ -169,6 +173,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <label><input type="checkbox" id="shRings" checked> Colour rings</label>
       <label><input type="checkbox" id="shTrails" checked> Trails</label>
       <label><input type="checkbox" id="shMobs" checked> Mobs and pets</label>
+      <label title="What players said in chat (from the server log), over their heads for a few seconds"><input type="checkbox" id="shChat" checked> Chat</label>
       <label title="The smooth overview map (further away, and where real blocks haven't loaded)"><input type="checkbox" id="shMap" checked> Map</label>
       <label><input type="checkbox" id="shGrid" checked> Grid</label>
     </div>
@@ -478,7 +483,7 @@ for (const k of ["time", "bright", "torch", "exposure", "sun", "ao"]) {
 $("#lReset").onclick = () => { Object.assign(LIGHTS, LIGHT_DEFAULTS); applyLight(); };
 applyLight(false);
 // ---------- what to show (remembered) ----------
-const SHOW = { players: true, names: true, rings: true, trails: true, mobs: true, map: true, grid: true };
+const SHOW = { players: true, names: true, rings: true, trails: true, mobs: true, chat: true, map: true, grid: true };
 try { Object.assign(SHOW, JSON.parse(store.get("mcsm-show") || "{}")); } catch (e) {}
 function applyShow() {
   for (const k of Object.keys(SHOW)) { const el = $("#sh" + k[0].toUpperCase() + k.slice(1)); if (el) el.checked = SHOW[k]; }
@@ -488,7 +493,7 @@ function applyShow() {
   for (const [dim, g] of Object.entries(terrainGroups)) g.visible = SHOW.map && dim === d;
   for (const m of Object.values(typeof markers !== "undefined" ? markers : {})) {
     m.F.ring.visible = SHOW.rings;
-    if (!SHOW.players) { m.group.visible = false; m.trail.visible = false; m.label.style.display = "none"; }
+    if (!SHOW.players) { m.group.visible = false; m.trail.visible = false; m.label.style.display = "none"; m.bubble.style.display = "none"; }
   }
   if (typeof H !== "undefined" && H) update(performance.now(), true);
 }
@@ -1264,6 +1269,24 @@ function lastKnown(name, session, t) {
   return best;
 }
 const joinsBy = {};
+// chat bubbles: what a player said (server log), over their head for a while (longer for longer messages)
+const chatBy = {};
+const chatShown = e => Math.min(12_000, 4_000 + 60 * e.text.length);
+function chatBubble(m) {
+  const list = chatBy[m.name], b = m.bubble;
+  let say = [];
+  if (SHOW.chat && list && list.length) {
+    for (let i = lower(list, T, e => e.t) - 1; i >= 0 && say.length < 2; i--) {
+      if (T - list[i].t > 12_000) break;
+      if (T - list[i].t <= chatShown(list[i])) say.unshift(list[i].text);
+    }
+  }
+  const key = say.join("\n");
+  if (key !== b.dataset.key) {
+    b.dataset.key = key; b.replaceChildren(...say.map(t => { const d = document.createElement("div"); d.textContent = t; return d; }));
+  }
+  return say.length > 0;
+}
 
 // ---------- player markers ----------
 const markers = {};
@@ -1517,7 +1540,10 @@ function marker(name) {
   const label = document.createElement("div");
   label.className = "label"; label.textContent = name; label.style.borderBottom = `2px solid ${playerColour(name)}`;
   $("#labels").appendChild(label);
-  return (markers[name] = { name, group, mat, F, trail, label, cur: null });
+  const bubble = document.createElement("div");
+  bubble.className = "bubble"; bubble.style.display = "none";
+  $("#labels").appendChild(bubble);
+  return (markers[name] = { name, group, mat, F, trail, label, bubble, cur: null });
 }
 
 // All paths, faint (one LineSegments per player; segments only across short gaps).
@@ -2718,12 +2744,19 @@ function frame(now) {
       if ($("#chgOn").checked) drawChanges();                 // the outlines follow the backup shown
     }
     for (const [name, m] of Object.entries(markers)) {
-      if (!m.group.visible) { m.label.style.display = "none"; continue; }
+      if (!m.group.visible) { m.label.style.display = "none"; m.bubble.style.display = "none"; continue; }
       m.group.scale.setScalar(FREE.on ? 1 : Math.max(1, camera.position.distanceTo(m.group.position) / 70));
       animateFigure(m, now);
-      if (!SHOW.names) { m.label.style.display = "none"; continue; }
       tmp.copy(m.group.position); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
       const on = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+      const eyes = name === SPEC.name && $("#specMode").value === "first";
+      const talking = on && !eyes && chatBubble(m);             // not over your own head when watching through their eyes
+      m.bubble.style.display = talking ? "" : "none";
+      if (talking) {
+        m.bubble.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`;
+        m.bubble.style.top = `${(1 - tmp.y) / 2 * innerHeight - (SHOW.names ? 22 : 4)}px`;
+      }
+      if (!SHOW.names) { m.label.style.display = "none"; continue; }
       m.label.style.display = on ? "" : "none";
       m.label.classList.toggle("stale", !!m.cur?.stale);
       if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
@@ -2828,6 +2861,7 @@ async function init() {
   for (const ss of Object.values(sessionsBy)) ss.sort((a, b) => a.start - b.start);
   starts = H.sessions.map(s => s.start).sort((a, b) => a - b);
   for (const e of H.events) if (e.type === "join" && e.pos && e.player) (joinsBy[canon(e.player)] ||= []).push(e);
+  for (const e of H.events) if (e.type === "chat" && e.player && e.text) (chatBy[canon(e.player)] ||= []).push(e);
   if (H.spawn) controls.target.set(H.spawn[0], H.spawn[1], H.spawn[2]);
   const saved = +store.get("mcsm-history-t"), storyLink = new URLSearchParams(location.search).has("story");
   T = storyLink ? (starts.length ? starts[0] : H.range[0])          // the whole story: from the very beginning

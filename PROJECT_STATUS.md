@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -978,7 +978,9 @@ Fable's order, most visible per effort first:
      instead of 16 s later. `EXACT_SUFFIX` `.exact6`.
    - The page draws an icon (`itemTexture`), turning and bobbing.
    - In the owner's 10 April recording: 572 items, mostly wheat, seeds, glow ink sacs and eggs.
-8. **Chat bubbles** from the server log.
+8. ✅ **Chat bubbles** from the server log. Built 2026-11-23: the history's chat events per player
+   (`chatBy`), an HTML bubble above the name tag; shown 4 s + 60 ms a character (at most 12 s), two messages at
+   most; switch **Chat** in Show. The log's times are whole seconds.
 
 **Not worth it:** particles, sounds, explosions beyond a flash, item-frame contents and maps, the block-break
 crack animation.
@@ -1368,6 +1370,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Chat bubbles over players in the history viewer (parity step 8), switch **Chat** in Show.
 
 - **2026-11-23:** Dropped items in exact playback (parity step 7): item icons from the recordings' entity
   data; entities vanish when removed (`"gone"`).
