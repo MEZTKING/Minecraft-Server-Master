@@ -108,17 +108,37 @@ def _protocol(z: zipfile.ZipFile) -> int | None:
 CLOCK_PROBE_TICKS = 600     # the world clock's packet is found in the first 30 s
 
 
+# entities not worth following (things that fly past, decorations that never move, effects)
+SKIP_ENTITIES = {"item", "experience_orb", "arrow", "spectral_arrow", "trident", "snowball", "egg", "ender_pearl",
+                 "experience_bottle", "potion", "splash_potion", "lingering_potion", "fishing_bobber", "falling_block",
+                 "tnt", "area_effect_cloud", "marker", "interaction", "lightning_bolt", "firework_rocket",
+                 "eye_of_ender", "fireball", "small_fireball", "dragon_fireball", "wither_skull", "shulker_bullet",
+                 "llama_spit", "evoker_fangs", "wind_charge", "breeze_wind_charge", "leash_knot", "painting",
+                 "item_frame", "glow_item_frame", "armor_stand", "ominous_item_spawner", "end_crystal"}
+MOB_EVERY = 10                # mobs: at most 2 positions a second (players: every one)...
+MOB_RADIUS = 48               # ...within this many blocks of the recorded player
+MOB_MIN_MOVE = 0.3            # ...and only when they moved this much
+
+
+def _followed(kind: str) -> bool:
+    return bool(kind) and kind not in SKIP_ENTITIES and not kind.endswith(("_display", "_arrow", "_potion"))
+
+
 def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, every: int = SAMPLE_TICKS,
-                    min_move: float = MIN_MOVE, clock: list | None = None, full: bool = False
-                    ) -> Iterator[tuple]:
+                    min_move: float = MIN_MOVE, clock: list | None = None, full: bool = False,
+                    extras: dict | None = None) -> Iterator[tuple]:
     """Yield ``(tick, who, dimension, x, y, z, yaw, pitch)``, sampled about once a second (every *every* ticks,
     when moved at least *min_move* blocks; *full*: also ``head yaw, on ground``).
 
     ``who`` is None for the recorded player, else the name of another player in view (from
     *players*: ``{16-byte UUID: name}``). With *clock* (a list), the recording's world-clock breakpoints
-    ``[tick, gameTime]`` are added to it (see the module docstring). Raises ``ValueError`` for files that
-    aren't Flashback replays.
+    ``[tick, gameTime]`` are added to it (see the module docstring). With *extras* (a dict), mobs and pets in view
+    are followed too (``who`` = ``"#<type>#<entity id>"``), and ``extras["events"]`` gets ``[tick, who, kind,
+    value]``: ``"f"`` a player's flags (0x02 sneaking, 0x08 sprinting, 0x10 swimming, 0x80 elytra flight) and ``"s"``
+    an arm swing. Packet ids come from :mod:`mcsm.protocol`. Raises ``ValueError`` for files that aren't
+    Flashback replays.
     """
+    from . import protocol as proto_mod
     players = players or {}
     probe: dict[int, list] = {}          # packet id -> [(tick, first i64)] while looking for the world clock
     time_pid: int | None = None
@@ -130,8 +150,21 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
     clock_last: list = []
     with zipfile.ZipFile(zip_path) as z:
         proto = _protocol(z)
-        add_id = ADD_ENTITY.get(proto, DEFAULT_ADD_ENTITY)
-        remove_id = REMOVE_ENTITIES.get(proto)
+        try:
+            version = json.loads(z.read("metadata.json")).get("version_string")
+        except (KeyError, ValueError):
+            version = None
+        tbl = proto_mod.table(proto, version) if (extras is not None or proto not in ADD_ENTITY) else None
+        pk = (tbl or {}).get("packets") or {}
+        types = (tbl or {}).get("entity_types") or []
+        add_id = pk.get("add_entity", ADD_ENTITY.get(proto, DEFAULT_ADD_ENTITY))
+        remove_id = pk.get("remove_entities", REMOVE_ENTITIES.get(proto))
+        data_id = pk.get("set_entity_data") if extras is not None else None
+        anim_id = pk.get("animate") if extras is not None else None
+        watch = {x for x in (add_id, remove_id, data_id, anim_id) if x is not None}
+        if extras is not None:
+            extras.setdefault("events", [])
+            extras.setdefault("mobs", {})
         tick = 0
         me: int | None = None
         local: tuple[float, float, float] | None = None
@@ -179,18 +212,36 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             time_pid = _find_clock(probe, clock_point)
                         if tick % every == 0:
                             yield from _sample(tick, cur, last_out, last_move, others, remove_id, min_move, full)
-                    elif aid == gp and size > 2 and players and (b[i] == add_id or b[i] == remove_id):
+                    elif aid == gp and size > 2 and (players or extras is not None) and b[i] in watch:
                         # (ids below 128 are one byte; this skips the ~40 other packets per tick cheaply)
                         pid, k = _varint(b, i)
                         if pid == add_id and size >= 43:     # id, entity id, UUID, type, x, y, z
                             eid, k = _varint(b, k)
                             name = players.get(bytes(b[k:k + 16]))
+                            if not name and extras is not None and eid != me:
+                                t_id, _k = _varint(b, k + 16)
+                                kind = types[t_id] if 0 <= t_id < len(types) else ""
+                                if kind != "player" and _followed(kind):
+                                    name = f"#{kind}#{eid}"
+                                    extras["mobs"][name] = kind
                             if name and eid != me:
-                                _t, k2 = _varint(b, k + 16)          # entity type: not needed
+                                _t, k2 = _varint(b, k + 16)
                                 x, y, zz = _XYZ.unpack_from(b, k2)
                                 others[eid] = name
                                 cur[eid] = {"dim": dim_now, "x": x, "y": y, "z": zz, "yaw": 0.0, "pitch": 0.0, "name": name}
                                 last_move[eid] = tick
+                        elif pid == data_id and size > 4:     # entity id, then (index, serializer, value)...; index 0 = flags
+                            eid, k = _varint(b, k)
+                            if b[k] == 0 and (eid == me or eid in others):
+                                ser, k = _varint(b, k + 1)
+                                if ser == 0:
+                                    who = None if eid == me else others[eid]
+                                    if who is None or not who.startswith("#"):
+                                        extras["events"].append([tick, who, "f", b[k]])
+                        elif pid == anim_id and size >= 3:    # entity id, action (0 main hand, 3 off hand swing)
+                            eid, k = _varint(b, k)
+                            if b[k] in (0, 3) and (eid == me or (eid in others and not others[eid].startswith("#"))):
+                                extras["events"].append([tick, None if eid == me else others[eid], "s", b[k]])
                         elif pid == remove_id and others:
                             n, k = _varint(b, k)
                             for _ in range(min(n, 10_000)):
@@ -263,6 +314,13 @@ def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE
         if key is not None:
             if key not in others:
                 continue
+            if others[key].startswith("#"):          # mobs: near the player, a couple of times a second
+                me_c = cur.get(None)
+                if tick % MOB_EVERY or me_c is None or me_c["dim"] != c["dim"]                         or abs(me_c["x"] - c["x"]) > MOB_RADIUS or abs(me_c["z"] - c["z"]) > MOB_RADIUS:
+                    continue
+                lo = last_out.get(key)
+                if lo is not None and abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) < MOB_MIN_MOVE                         and tick - lo[0] < KEEPALIVE_TICKS:
+                    continue
             if remove_id is None and tick - last_move.get(key, tick) > OTHER_TIMEOUT_TICKS:
                 continue                     # unknown protocol: can't tell when they left view
         lo = last_out.get(key)
@@ -379,11 +437,12 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None) -> dict:
     """Every recorded position of a recording, for exact playback: whenever someone moved or turned (up to 20 a
-    second; at least every 15 s): ``{"who": [names, None = the recorded player], "dims": [...], "rows": [[tick,
-    who index, dim index, x, y, z, yaw, pitch, head yaw], ...]}``. Worked out once, kept as ``<key>.exact.json.gz``."""
+    second; at least every 15 s): ``{"who": [names, None = the recorded player, "#type#id" = a mob], "dims": [...],
+    "rows": [[tick, who index, dim index, x, y, z, yaw, pitch, head yaw], ...], "events": [[tick, who, "f" flags |
+    "s" swing, value]], "mobs": {"#type#id": type}}``. Worked out once, kept as ``<key>.exact2.json.gz``."""
     import gzip
     cache_dir = cache_dir or default_cache_dir()
-    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact.json.gz")
+    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact2.json.gz")
     try:
         with gzip.open(out, "rt", encoding="utf-8") as fh:
             return json.load(fh)
@@ -392,15 +451,16 @@ def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] |
     who: list = []
     dims: list = []
     rows = []
+    extras: dict = {}
     for tick, w, dim, x, y, z, yaw, pitch, head, _ground in decode_entities(zip_path, players, every=1, min_move=0.01,
-                                                                           full=True):
+                                                                           full=True, extras=extras):
         if w not in who:
             who.append(w)
         if dim not in dims:
             dims.append(dim)
         rows.append([tick, who.index(w), dims.index(dim), round(x, 3), round(y, 3), round(z, 3),
                      round(yaw, 1), round(pitch, 1), round(head if head is not None else yaw, 1)])
-    data = {"who": who, "dims": dims, "rows": rows}
+    data = {"who": who, "dims": dims, "rows": rows, "events": extras.get("events", []), "mobs": extras.get("mobs", {})}
     os.makedirs(cache_dir, exist_ok=True)
     with gzip.open(out + ".part", "wt", encoding="utf-8") as fh:
         json.dump(data, fh, separators=(",", ":"))

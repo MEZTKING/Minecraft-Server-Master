@@ -645,7 +645,7 @@ function onlineAt(name, t) {
 // Interpolated position at t, or the last point if it is recent; {pos, dim, fresh}.
 // Exact playback: close to the players at 1x or 10x (or paused), every recorded movement and turn (up to 20 a second)
 // for the time around you, on the world clock; elsewhere the lighter overview paths.
-const EXACT = { lo: 0, hi: 0, rows: {}, busy: false, last: 0, on: false };
+const EXACT = { lo: 0, hi: 0, rows: {}, flags: {}, swings: {}, mobs: {}, busy: false, last: 0, on: false };
 function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
   return !!H && +$("#speed").value <= 10 && camera.position.distanceTo(controls.target) < 600;
 }
@@ -656,9 +656,12 @@ async function exactStep(now) {
   if (T >= EXACT.lo + 5_000 && T <= EXACT.hi - ahead / 3) return;          // still covered
   EXACT.busy = true; EXACT.last = now;
   const from = Math.round(T - 10_000), to = Math.round(T + ahead);
+  const slow = setTimeout(() => toastStatus("Reading the recordings of this moment in full detail (the first time can take a minute)…"), 1500);
   try {
     const r = await (await fetch(`api/exact/${from}/${to}`)).json();
+    clearTimeout(slow); if ($("#status").textContent.startsWith("Reading the recordings")) toastStatus("");
     EXACT.rows = r.players || {}; EXACT.lo = from; EXACT.hi = to;
+    EXACT.flags = r.flags || {}; EXACT.swings = r.swings || {}; EXACT.mobs = r.mobs || {};
     EXACT.busy = false;
     update(performance.now(), true);                   // show them where they really were (also when paused)
   } catch (e) { /* the overview paths stay */ }
@@ -677,6 +680,68 @@ function exactAt(name, t) {
     yaw = turn(a[5], b[5]); pitch = a[6] + (b[6] - a[6]) * f; head = turn(a[7], b[7]);
   }
   return { pos, dim: a[4], fresh: true, exact: true, yaw, pitch, head };
+}
+// A player's flags at t (0x02 sneaking, 0x08 sprinting, 0x10 swimming, 0x80 elytra) and their last arm swing.
+function flagsAt(name, t) {
+  const f = EXACT.on && EXACT.flags[name];
+  if (!f || !f.length) return 0;
+  const i = lower(f, t, r => r[0]);
+  return i ? f[i - 1][1] : 0;
+}
+function swingAt(name, t) {
+  const sw = EXACT.on && EXACT.swings[name];
+  if (!sw || !sw.length) return null;
+  const i = lower(sw, t, v => v);
+  return i ? t - sw[i - 1] : null;
+}
+// ---------- mobs and pets (exact playback only): boxes sized and coloured by kind ----------
+const MOB_SIZE = { zombie: [0.6, 1.95], husk: [0.6, 1.95], drowned: [0.6, 1.95], skeleton: [0.6, 1.99], stray: [0.6, 1.99],
+  wither_skeleton: [0.7, 2.4], creeper: [0.6, 1.7], spider: [1.4, 0.9], cave_spider: [0.7, 0.5], enderman: [0.6, 2.9],
+  villager: [0.6, 1.95], wandering_trader: [0.6, 1.95], pillager: [0.6, 1.95], vindicator: [0.6, 1.95], witch: [0.6, 1.95],
+  iron_golem: [1.4, 2.7], cow: [0.9, 1.4], mooshroom: [0.9, 1.4], pig: [0.9, 0.9], sheep: [0.9, 1.3], chicken: [0.4, 0.7],
+  horse: [1.4, 1.6], donkey: [1.4, 1.5], mule: [1.4, 1.6], llama: [0.9, 1.87], wolf: [0.6, 0.85], cat: [0.6, 0.7],
+  ocelot: [0.6, 0.7], fox: [0.6, 0.7], rabbit: [0.4, 0.5], bat: [0.5, 0.9], bee: [0.7, 0.6], parrot: [0.5, 0.9],
+  squid: [0.8, 0.8], glow_squid: [0.8, 0.8], dolphin: [0.9, 0.6], turtle: [1.2, 0.4], axolotl: [0.75, 0.42],
+  slime: [1.0, 1.0], magma_cube: [1.0, 1.0], ghast: [4, 4], blaze: [0.6, 1.8], piglin: [0.6, 1.95], zombified_piglin: [0.6, 1.95],
+  hoglin: [1.4, 1.4], strider: [0.9, 1.7], phantom: [0.9, 0.5], warden: [0.9, 2.9], ender_dragon: [16, 8], wither: [0.9, 3.5],
+  boat: [1.375, 0.56], minecart: [0.98, 0.7], camel: [1.7, 2.375], goat: [0.9, 1.3], frog: [0.5, 0.5], sniffer: [1.9, 1.75],
+  allay: [0.35, 0.6], armadillo: [0.7, 0.65], breeze: [0.6, 1.77], creaking: [0.9, 2.7], happy_ghast: [4, 4] };
+const MOB_COLOUR = { zombie: 0x4a8f3c, creeper: 0x3fbf3f, skeleton: 0xd8d8d8, spider: 0x3a3028, enderman: 0x161616,
+  cow: 0x5a3d2a, pig: 0xf0a0a0, sheep: 0xeeeeee, chicken: 0xf8f8f8, wolf: 0xd8d0c8, cat: 0xe8a050, villager: 0xa07850,
+  iron_golem: 0xc8c0b8, bat: 0x40342a, squid: 0x3a5a78, glow_squid: 0x30c0b0, horse: 0x8a5a30, bee: 0xf0c020,
+  slime: 0x70c050, blaze: 0xf0b020, witch: 0x503070, drowned: 0x3a8a8a, husk: 0xb09060, piglin: 0xe0a080 };
+const mobGroup = new THREE.Group(); scene.add(mobGroup);
+const mobMeshes = new Map();
+function mobMesh(label, kind) {
+  let o = mobMeshes.get(label);
+  if (!o) {
+    let base = kind; for (const k of Object.keys(MOB_SIZE)) if (kind.endsWith(k) && k.length > (MOB_SIZE[base] ? base.length : 0)) base = k;
+    const [w, h] = MOB_SIZE[kind] || MOB_SIZE[base] || [0.6, 0.9];
+    let col = MOB_COLOUR[kind] || MOB_COLOUR[base];
+    if (col === undefined) { let x = 0; for (const ch of kind) x = (x * 31 + ch.charCodeAt(0)) | 0; col = new THREE.Color().setHSL((Math.abs(x) % 360) / 360, 0.45, 0.5).getHex(); }
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshLambertMaterial({ color: col }));
+    m.geometry.translate(0, h / 2, 0);
+    o = { mesh: m, kind }; mobGroup.add(m); mobMeshes.set(label, o);
+  }
+  return o;
+}
+function updateMobs() {
+  const d = $("#dim").value, shown = new Set();
+  if (EXACT.on && T >= EXACT.lo && T <= EXACT.hi) {
+    for (const [label, mob] of Object.entries(EXACT.mobs)) {
+      const rows = mob.rows; if (!rows.length || T < rows[0][0] - 1000) continue;
+      const i = lower(rows, T, r => r[0]), a = rows[i - 1] || rows[0], b = rows[i];
+      if (T - a[0] > 16_000 || a[4] !== d) continue;           // left view (or not here)
+      const o = mobMesh(label, mob.type);
+      let x = a[1], y = a[2], z = a[3];
+      if (b && b[0] - a[0] <= 700 && b[4] === a[4]) { const f = (T - a[0]) / Math.max(1, b[0] - a[0]); x += (b[1] - a[1]) * f; y += (b[2] - a[2]) * f; z += (b[3] - a[3]) * f; }
+      o.mesh.position.set(x, y, z); o.mesh.rotation.y = -a[5] * Math.PI / 180; o.mesh.visible = true; shown.add(label);
+    }
+  }
+  for (const [label, o] of mobMeshes) if (!shown.has(label)) {
+    if (mobMeshes.size > 600) { mobGroup.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); mobMeshes.delete(label); }
+    else o.mesh.visible = false;
+  }
 }
 function positionAt(name, t) {
   const ex = exactAt(name, t);
@@ -779,6 +844,15 @@ function animateFigure(m, now) {
   const p = m.group.position, last = m.last || p.clone(), dt = Math.max(1, now - (m.lastT || now)) / 1000;
   const dx = p.x - last.x, dz = p.z - last.z, sp = Math.hypot(dx, dz) / dt;
   const c = m.cur, P0 = m.F.parts;
+  // poses from the recording: sneaking, swimming / elytra flight (lying forward), sprinting, arm swings
+  const fl = c && c.exact ? flagsAt(m.name, T) : 0, flat = (fl & 0x10) || (fl & 0x80), sneak = !flat && (fl & 0x02);
+  m.F.fig.rotation.order = "YXZ";
+  m.F.fig.rotation.x += ((flat ? Math.PI / 2 : 0) - m.F.fig.rotation.x) * Math.min(1, dt * 10);
+  m.F.fig.position.y = flat ? 0.3 : sneak ? -0.12 : 0;
+  P0.body.rotation.x = sneak ? 0.45 : 0;
+  m.sprint = !!(fl & 0x08);
+  const sw = c && c.exact ? swingAt(m.name, T) : null;
+  m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
   if (c && c.exact && c.yaw !== undefined) {
     const r = d => d * Math.PI / 180;
     m.F.fig.rotation.y = -r(c.yaw); m.yaw = undefined;
@@ -793,8 +867,10 @@ function animateFigure(m, now) {
   }
   m.speed = (m.speed || 0) * 0.85 + Math.min(1, sp / 4.3) * 0.15;
   m.phase = (m.phase || 0) + dt * 9 * Math.min(1, sp / 2);
-  const s = Math.sin(m.phase) * 0.9 * m.speed, P = m.F.parts;
-  P.rleg.rotation.x = s; P.lleg.rotation.x = -s; P.rarm.rotation.x = -s * 0.8; P.larm.rotation.x = s * 0.8;
+  const s = Math.sin(m.phase) * 0.9 * m.speed * (m.sprint ? 1.35 : 1), P = m.F.parts;
+  const lean = P.body.rotation.x * 0.8;                 // sneaking: arms forward with the body
+  P.rleg.rotation.x = s; P.lleg.rotation.x = -s;
+  P.rarm.rotation.x = -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
   m.last = p.clone(); m.lastT = now;
 }
 // A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
@@ -803,7 +879,7 @@ function setFigure(name, real) {
   if (!m) return;
   const old = m.F, F = playerFigure(name, new THREE.Color(playerColour(name)), real);
   F.fig.rotation.y = old.fig.rotation.y;
-  m.group.remove(old.fig); m.group.add(F.fig);
+  m.group.remove(old.fig); m.group.remove(old.ring); m.group.add(F.fig); m.group.add(F.ring);
   F.mat.opacity = old.mat.opacity; F.ring.material.opacity = old.ring.material.opacity;
   m.F = F; m.mat = F.mat;
 }
@@ -854,7 +930,7 @@ function marker(name) {
   const c = new THREE.Color(playerColour(name));
   const group = new THREE.Group();
   const F = playerFigure(name, c), mat = F.mat;
-  group.add(F.fig);
+  group.add(F.fig); group.add(F.ring);                 // the ring stays flat on the ground whatever the pose
   scene.add(group);
   if (SKINLINE && !(SKINLINE[name] || []).length) setTimeout(() => realSkin(name), 0);
   const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
@@ -862,7 +938,7 @@ function marker(name) {
   const label = document.createElement("div");
   label.className = "label"; label.textContent = name; label.style.borderBottom = `2px solid ${playerColour(name)}`;
   $("#labels").appendChild(label);
-  return (markers[name] = { group, mat, F, trail, label, cur: null });
+  return (markers[name] = { name, group, mat, F, trail, label, cur: null });
 }
 
 // All paths, faint (one LineSegments per player; segments only across short gaps).
@@ -1685,6 +1761,7 @@ function frame(now) {
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   realStep(now);                                       // real blocks around where you look
   exactStep(now);                                      // every recorded movement, close up at 1x / 10x
+  updateMobs();
   if (H && H.range) {
     if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
       storyStep(now, dt);

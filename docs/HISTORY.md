@@ -221,8 +221,14 @@ recordings of them fill the times it doesn't cover. Faster speeds and the zoomed
 overview paths, about one point a second. The detail for a recording is worked out the first time you watch it
 (a few seconds) and then kept.
 
-Not shown yet: sneaking, swimming, elytra flight, sleeping, arm swings, held items and armour, mobs, pets and
-dropped items. The blocks are the backup saved after that time, not the world at that very moment.
+In that view the players also sneak, sprint, swim and fly with elytra (lying forward) and swing their arms
+when they did. Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player show as boxes,
+sized and coloured by kind, a couple of times a second. Dropped items, arrows and other things that fly past
+aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
+that can take up to a minute, and later views are quick.
+
+Not shown yet: sleeping, held items and armour, and the mobs' own textures and animations. The blocks are the
+backup saved after that time, not the world at that very moment.
 
 **Players** are shown as Minecraft figures with their own skins, including the skin's outer layer (hat, jacket,
 sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,

@@ -1131,6 +1131,64 @@ class TestWorldClock(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class TestPosesAndMobs(unittest.TestCase):
+    """Per-version packet ids from the game's reports; sneaking/swinging players and mobs from a recording."""
+
+    def test_protocol_tables(self):
+        from mcsm import protocol
+        t = protocol.table(777)
+        self.assertEqual(t["version"], "26.3")
+        self.assertEqual((t["packets"]["add_entity"], t["packets"]["set_entity_data"], t["packets"]["remove_entities"],
+                          t["packets"]["set_time"]), (1, 101, 78, 115))
+        self.assertEqual(t["entity_types"][159], "player")
+        self.assertEqual(protocol.table(773)["packets"]["set_time"], 111)                 # 1.21.10
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "reports"))
+            with open(os.path.join(tmp, "reports", "packets.json"), "w") as fh:
+                json.dump({"play": {"clientbound": {"minecraft:add_entity": {"protocol_id": 1},
+                                                    "minecraft:animate": {"protocol_id": 2}}}}, fh)
+            with open(os.path.join(tmp, "reports", "registries.json"), "w") as fh:
+                json.dump({"minecraft:entity_type": {"entries": {"minecraft:cow": {"protocol_id": 1},
+                                                                 "minecraft:bat": {"protocol_id": 0}}}}, fh)
+            r = protocol.from_reports(tmp, "9.9", 999)
+            self.assertEqual((r["packets"], r["entity_types"]), ({"add_entity": 1, "animate": 2}, ["bat", "cow"]))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_flags_swings_mobs(self):
+        import struct
+        from mcsm import paths, protocol
+        zombie = protocol.table(777)["entity_types"].index("zombie")
+        recs = [("create_local_player", struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 0.0, 64.0, 0.0) + b"\0" * 40)]
+        for t in range(60):
+            ents = [(7, t / 20, 64.0, 0.0)] + ([(20, 5.0 + t / 20, 64.0, 5.0)] if t > 5 else [])
+            recs.append(("move_entities", _fb_move(ents)))
+            if t == 5:                                    # a zombie comes into view
+                recs.append(("game_packet", _fb_add_player(20, "00000000-0000-4000-8000-000000000020", 5.0, 64.0, 5.0, zombie)))
+                recs.append(("game_packet", _fb_add_player(21, "00000000-0000-4000-8000-000000000021", 0, 0, 0,
+                                                           protocol.table(777)["entity_types"].index("item"))))
+            if t == 10:                                   # the player starts sneaking (flags 0x02) and swings
+                recs.append(("game_packet", _vi(101) + _vi(7) + bytes([0]) + _vi(0) + bytes([2]) + b"\xff"))
+                recs.append(("game_packet", _vi(2) + _vi(7) + bytes([0])))
+            recs.append(("next_tick", b""))
+        tmp = tempfile.mkdtemp()
+        try:
+            z = os.path.join(tmp, "r.zip")
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3"}))
+                zf.writestr("c0.flashback", _fb_chunk(recs))
+            ex = paths.exact_rows(z, os.path.join(tmp, "cache"))
+            self.assertIn([10, None, "f", 2], ex["events"])          # sneaking, from tick 10
+            self.assertIn([10, None, "s", 0], ex["events"])          # a main-hand swing
+            self.assertEqual(ex["mobs"], {"#zombie#20": "zombie"})   # the dropped item isn't followed
+            self.assertIn("#zombie#20", ex["who"])
+            zrows = [r for r in ex["rows"] if ex["who"][r[1]] == "#zombie#20"]
+            self.assertTrue(zrows and all(r[0] % paths.MOB_EVERY == 0 for r in zrows))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestHistory(unittest.TestCase):
     """Player paths from Flashback recordings, and the history viewer's data and web server."""
 

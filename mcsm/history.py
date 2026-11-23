@@ -497,6 +497,9 @@ class HistoryMap(TerrainServer):
         ignored = set(self.data.ignored or [])
         own: dict[str, list] = {}
         seen: dict[str, list] = {}
+        mobs: dict[str, dict] = {}
+        flags: dict[str, list] = {}
+        swings: dict[str, list] = {}
         for r in self.data.replays:
             if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note"):
                 continue
@@ -513,12 +516,26 @@ class HistoryMap(TerrainServer):
             off = self._offsets.get(track)
             meta = self._metas.get(track) or {}
             clock = meta.get("clock")
+            def when(tick):
+                return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
+            for tick, w, kind, value in data.get("events", []):
+                t = when(tick)
+                if t0 - 60_000 <= t <= t1:                # flags: from a minute before, to know the state at t0
+                    name = aliases.get(w or r.recorded_player, w or r.recorded_player)
+                    if kind == "f":
+                        flags.setdefault(name, []).append([t, value])
+                    elif t >= t0:
+                        swings.setdefault(name, []).append(t)
             for row in data["rows"]:
                 tick = row[0]
-                t = off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
+                t = when(tick)
                 if t < t0 or t > t1:
                     continue
                 w = data["who"][row[1]]
+                if w and w.startswith("#"):              # a mob or pet: by its entity id (shared by all recordings)
+                    mob = mobs.setdefault(w, {"type": data.get("mobs", {}).get(w, w.split("#")[1]), "rows": {}})
+                    mob["rows"][t] = [t, row[3], row[4], row[5], data["dims"][row[2]], row[6]]
+                    continue
                 name = aliases.get(w or r.recorded_player, w or r.recorded_player)
                 if not name or name.lower() in ignored:
                     continue
@@ -539,7 +556,9 @@ class HistoryMap(TerrainServer):
                         keep.append(p)
                 others = keep
             out[name] = sorted(mine + others)
-        return {"players": out, "from": t0, "to": t1}
+        return {"players": out, "from": t0, "to": t1,
+                "flags": {n: sorted(v) for n, v in flags.items()}, "swings": {n: sorted(set(v)) for n, v in swings.items()},
+                "mobs": {k: {"type": v["type"], "rows": [v["rows"][t] for t in sorted(v["rows"])]} for k, v in mobs.items()}}
 
     def skin_timeline(self) -> dict:
         """``{name: [[start_ms, hash, slim], ...]}``: each player's skin from their recordings (worked out once)."""

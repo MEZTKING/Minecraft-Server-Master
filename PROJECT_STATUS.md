@@ -784,9 +784,14 @@ Design by Fable, 2026-11-23:
 2. ✅ **Exact playback.** `paths.exact_rows` holds every movement and turn of a recording (`.exact.json.gz`, built
    on first view) and `/api/exact/<from>/<to>` serves it. The page uses it zoomed in at 1x or 10x: position,
    body yaw, head yaw and pitch, with each player's own recording first.
-3. **Next.** Sneaking, swimming and elytra from entity-data index 0 (a flags byte stable across versions), arm
-   swing from `animate`, mobs and pets as boxes from add-entity types. Per-version packet ids would come from
-   the server jar's `--reports`.
+3. ✅ **Built 2026-11-23** (owner: "Yes, build it").
+   - `mcsm/protocol.py`: per-version packet ids and entity types from the game's own `--reports`, run from the
+     client jar and Prism's libraries and Java on this PC. Bundled as `assets/protocols.json` for 773-777; other
+     versions are generated on first use.
+   - Player flags (sneaking, sprinting, swimming, elytra) from set-entity-data index 0, and arm swings from
+     `animate`.
+   - Mobs from add-entity types: within 48 blocks of the recorded player, every 10 ticks, when moved 0.3 blocks.
+   - Shown in exact playback (`exact2` cache).
 4. **Deferred.** Held items and armour (the item codec changes every version), mob metadata, and block changes from
    recordings (the terrain stays the backup).
 
@@ -1179,6 +1184,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Poses, arm swings and mobs in exact playback (0z step 3).
+  - `mcsm/protocol.py` and `assets/protocols.json`, generated from the game's reports on the owner's PC.
+  - `paths.decode_entities(extras=...)`.
+  - `/api/exact` returns flags, swings and mobs.
+  - The page shows poses, swings and mob boxes; the player ring stays on the ground.
 
 - **2026-11-23:** Exact playback (0z steps 1-2, Fable's design).
   - The world clock in every recording (`paths` `CACHE_VERSION` 3: rows keep their tick and the file ends with
