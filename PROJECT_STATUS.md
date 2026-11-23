@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (loading bar + Cancel, loaded world remembered between runs, find your files).
+`CLAUDE.md`). Last updated: 2026-11-23 (default looks for new texts; transitions requested).
 
 ## What this project is
 
@@ -690,6 +690,45 @@ event (0r), mark highlights while watching.
 - **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
   automatically?
 
+### 0v. YouTube-style transitions and title animations (raised 2026-11-23)
+
+**The ask:** "can we add animation for this just like on popular youtube videos etc.
+https://www.youtube.com/watch?v=SAOm9_hY39I . Such as the foreground sweep, match cut, perspective shift,
+momentum cut, and more" (video: "No One Will Teach You These Minecraft Transitions"; the screenshots show
+big blocky 3D titles in the world, glowing, one colour each).
+
+**Design (Fable, 2026-11-23).** A = camera keyframes the app writes into the Flashback edit (real in-game),
+B = an ffmpeg effect where exported clips are joined, C = guidance only.
+
+| Transition | How | Needs |
+|---|---|---|
+| Foreground sweep | A (+B) | a solid block 1-3 blocks from the camera path (real blocks from the backup): shot 1 ends with it filling the frame, shot 2 starts behind another; cut on the covered frame. No block: a wipe |
+| Match cut | C + A | two shots with the same composition: onion-skin of shot 1's last frame over shot 2's first in the 3D view, "align camera" button; hard cut |
+| Perspective shift | A | one shot: orbit/crane around a player or text (SMOOTH keys, maybe FOV) |
+| Momentum cut | A (+B) | shot 1 ends and shot 2 starts moving the same way at the same speed (no stop at the cut) |
+| Whip pan | A + B | fast turn over 4-6 ticks at the cut, optional directional blur |
+| Zoom-through | A | push into a doorway/block/text, cut on the dark frame, pull out |
+| Fade, dip to black/white, wipes, pixel "block wipe" | B | ffmpeg `xfade` |
+| Speed ramp | A | TIMELAPSE keys around the cut |
+
+- **Shots:** one shot = one scene's export range; a small "sequence" file beside the edit lists shots
+  (edit, scene, range) and a transition per cut; "Split here" makes two scenes with adjacent ranges; the
+  owner exports each scene; the join step joins them in order with the transitions.
+- **Title animations missing:** per-letter animation (drop-in, wave, typewriter), swing/flip-in (rotation),
+  bounce/overshoot and shake, exit animations, colour gradients/pulse, a glow halo (text displays have no
+  bloom: bigger faint copies behind, or a bloom pass on the clip), later truly blocky letters from
+  block_display entities.
+- **Build order:** 1. transitions at the join (fade/dip/wipe/block wipe/whip blur, chosen per cut) ->
+  2. per-letter animations + rotation + gradient + glow halo -> 3. sequence/shots with "Split here" ->
+  4. camera recipes (whip, momentum, orbit, speed ramp, then foreground sweep and zoom-through) ->
+  5. match-cut onion-skin -> 6. block letters.
+- **Pitfalls:** `xfade` re-encodes and overlaps clips (shorter total, music beats shift; hard cuts don't);
+  SMOOTH keys overshoot at abrupt moves (use LINEAR/guard keys for whips); under a timelapse a 5-tick whip
+  can be one frame (work in video time); backup blocks may be stale (check in the real view); per-letter x
+  3D layers x halo multiplies entities (cap it).
+- **Open question for the owner:** which first (the design's order starts with join transitions, then the
+  title look).
+
 ### 0u. Timelapse parts, own camera, ignored players (raised 2026-11-22)
 
 ✅ **Done 2026-11-22.** The ask, after the owner's first timelapse ("it worked so far, although i don't
@@ -983,6 +1022,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Default looks for new texts (owner: "make some settings the default so im not changing the text
+  style constantly, maybe with the option per video"): per kind of text (the four + buttons), for this video
+  (in its project file) or all videos (`%LOCALAPPDATA%/mcsm/text-styles.json`); "Use on all like it"; GET/POST
+  `/api/styles`. Docs say where the editor saves things.
 
 - **2026-11-23:** Owner: "a proper loading bar so i know its working", "a cancel job option", "save state of the
   app between opening and closing unless something has changed", "right click … show the source in folders",

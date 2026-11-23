@@ -274,3 +274,26 @@ mcsm world-text --replay "2026-05-24--18-49-45.zip" --text "Thank you for playin
 - Tried in the owner's Flashback (26.1.2, 2026-11-22): the text is in the world (a player walking
   past hides it). Seen from other directions the black border looks different (it is built for the
   camera's direction at the moment it appears).
+
+## Default looks for new texts, and where things are saved
+
+A text's **look** is its animation and timings, colour, border, shadow, glow, box, letters and font, size,
+opacity, 3D depth, italic, underline and turn (not its words, place or timing). Under **Look** in the
+selected text:
+
+- **Default for this video**: new texts of the same kind in this video start with this look.
+- **Default for all videos**: new texts of the same kind in every video start with it (a video's own
+  default wins).
+- **Use on all like it**: every text of the same kind in this video gets this look now.
+- **Forget default**: back to the app's look (this video's default first, then the one for all videos).
+
+The kinds are the four **+** buttons: titles in the world, titles on the video, subtitles and corner
+labels; each has its own default. The line under the buttons says which default a kind uses.
+
+**Where it's saved:** your texts, song and camera changes are saved as you edit, one file per video or
+Flashback scene, in `%LOCALAPPDATA%\mcsm\video-text\` (with this video's default looks); the defaults for
+all videos are in `%LOCALAPPDATA%\mcsm\text-styles.json`. **Put world texts & song in Flashback** makes a
+copy of the recording named "… (text)" in that Flashback's `replays` folder (right-click the edit in **Open a
+Flashback edit…** to find it); **Make the video with on-screen texts & pictures** writes a new video next to
+the original.
+

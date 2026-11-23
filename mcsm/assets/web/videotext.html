@@ -154,6 +154,15 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
     <label class="textOnly"><span>Italic</span><input id="italic" type="checkbox"><span style="color:var(--muted);margin-left:14px">Underline</span><input id="underline" type="checkbox"></label>
     <label class="worldOnly"><span>Always bright</span><input id="glow" type="checkbox"><span class="hint">off = lit by the world</span></label>
     <label class="screenOnly textOnly"><span>Letters</span><select id="style"><option value="outline">with border</option><option value="plain">plain</option></select></label>
+    <div class="row textOnly" style="margin:6px 0 2px">
+      <span class="hint" id="styleKind" style="flex:1"></span>
+    </div>
+    <div class="row textOnly">
+      <button type="button" class="small" id="styleVideo" title="New texts of this kind in this video start with this look (animation, colours, border, 3D, font, size…)">Default for this video</button>
+      <button type="button" class="small" id="styleAll" title="New texts of this kind in every video start with this look (a video's own default wins)">Default for all videos</button>
+      <button type="button" class="small" id="styleSame" title="Give every text of this kind in this video this look (their words, place and timing stay)">Use on all like it</button>
+      <button type="button" class="small" id="styleReset" title="Forget this video's default look for this kind (and, if it has none, the one for all videos)">Forget default</button>
+    </div>
     <label class="screenOnly textOnly"><span>Font</span><select id="font"><option value="">Minecraft (if installed)</option><option>Arial Black</option><option>Impact</option><option>Segoe UI Black</option><option>Verdana</option><option>Georgia</option></select></label>
 
     <h2>Turn</h2>
@@ -707,6 +716,7 @@ function showParts() {
     "Stays put like a sign, facing where the camera looks when it appears; Turn spins it, Tilt -90 lays it on the ground." : "";
 }
 function fillEditor() {
+  setTimeout(showStyleKind, 0);
   if (!SEL) return;
   $("#name").value = SEL.name || "";
   $("#kWorld").classList.toggle("on", SEL.kind === "world"); $("#kScreen").classList.toggle("on", SEL.kind === "screen");
@@ -811,17 +821,52 @@ $("#kWorld").onclick = () => { if (SEL && INFO.matches.length) { snapshot(); SEL
 $("#kScreen").onclick = () => { if (SEL) { snapshot(); SEL.kind = "screen"; fillEditor(); changed(true); } };
 $("#addLine").onclick = () => { if (!SEL) return; snapshot(); SEL.lines.push(["New line", 3]); fillEditor(); changed(true); };
 let nextId = 1;
+// default looks for new texts, per kind of text: this video's first, then all videos' (GET /api/styles)
+let STYLES = { all: {}, video: {} };
+const STYLE_KEYS = ["animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "glow", "box",
+  "style", "font", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "tilt", "turn"];
+const PRESET_NAME = { title: "titles in the world", screen: "titles on the video", subtitle: "subtitles", corner: "corner labels" };
+function presetOf(it) {                            // which "+ …" button a text is like
+  if (it.preset) return it.preset;
+  if (it.kind === "world") return "title";
+  if (it.box) return "subtitle";
+  return it.x < 0.4 && it.y > 0.6 ? "corner" : "screen";
+}
+const lookOf = it => Object.fromEntries(STYLE_KEYS.filter(k => k in it).map(k => [k, it[k]]));
+async function setStyle(scope, preset, style) {
+  try { STYLES = await (await post("/api/styles", { scope, preset, style })).json(); } catch (e) { /* kept as it was */ }
+  showStyleKind();
+}
+function showStyleKind() {
+  if (!SEL || SEL.kind === "image") return;
+  const p = presetOf(SEL), mine = STYLES.video[p], every = STYLES.all[p];
+  $("#styleKind").textContent = `This is one of the ${PRESET_NAME[p]}. New ones start with `
+    + (mine ? "this video's default look." : every ? "your default look for all videos." : "the app's look.");
+}
+$("#styleVideo").onclick = () => SEL && setStyle("video", presetOf(SEL), lookOf(SEL));
+$("#styleAll").onclick = () => SEL && setStyle("all", presetOf(SEL), lookOf(SEL));
+$("#styleReset").onclick = () => { if (!SEL) return; const p = presetOf(SEL); setStyle(STYLES.video[p] ? "video" : "all", p, null); };
+$("#styleSame").onclick = () => {
+  if (!SEL) return;
+  const p = presetOf(SEL), look = lookOf(SEL);
+  snapshot();
+  for (const it of ITEMS) if (it !== SEL && it.kind !== "image" && presetOf(it) === p) Object.assign(it, structuredClone(look));
+  fillEditor(); changed(true);
+};
 function add(props) {
   snapshot();
-  const it = { ...structuredClone(DEFAULTS), ...props, id: nextId++ };
+  const preset = props.preset || (props.kind === "image" ? null : presetOf({ ...DEFAULTS, ...props }));
+  const look = preset ? { ...(STYLES.all[preset] || {}), ...(STYLES.video[preset] || {}) } : {};
+  const it = { ...structuredClone(DEFAULTS), ...props, ...structuredClone(look), id: nextId++ };
+  if (preset) it.preset = preset;
   if (it.kind === "world" && !INFO.matches.length) it.kind = "screen";
   ITEMS.push(it); select(it); changed(true);
 }
 const now = () => Math.round(vid.currentTime * 10) / 10;
-$("#addTitle").onclick = () => add({ kind: "world", lines: [["New title", 5.5]], start: now(), until: null });
-$("#addScreen").onclick = () => add({ kind: "screen", lines: [["New title", 5.5]], start: now(), until: Math.min(INFO.duration, now() + 4), animation: "fade" });
-$("#addSub").onclick = () => add({ kind: "screen", lines: [["Subtitle", 2.2]], start: now(), until: Math.min(INFO.duration, now() + 4), y: 0.86, animation: "fade", anim: 0.25, fade_out: 0.3, box: true, border: false, font: "Segoe UI Black" });
-$("#addCorner").onclick = () => add({ kind: "screen", lines: [["Place name", 2.6]], start: now(), until: Math.min(INFO.duration, now() + 5), x: 0.18, y: 0.82, animation: "words-fade", anim: 0.3, word_gap: 0.15, fade_out: 0.5 });
+$("#addTitle").onclick = () => add({ preset: "title", kind: "world", lines: [["New title", 5.5]], start: now(), until: null });
+$("#addScreen").onclick = () => add({ preset: "screen", kind: "screen", lines: [["New title", 5.5]], start: now(), until: Math.min(INFO.duration, now() + 4), animation: "fade" });
+$("#addSub").onclick = () => add({ preset: "subtitle", kind: "screen", lines: [["Subtitle", 2.2]], start: now(), until: Math.min(INFO.duration, now() + 4), y: 0.86, animation: "fade", anim: 0.25, fade_out: 0.3, box: true, border: false, font: "Segoe UI Black" });
+$("#addCorner").onclick = () => add({ preset: "corner", kind: "screen", lines: [["Place name", 2.6]], start: now(), until: Math.min(INFO.duration, now() + 5), x: 0.18, y: 0.82, animation: "words-fade", anim: 0.3, word_gap: 0.15, fade_out: 0.5 });
 $("#followUp").onclick = () => {
   if (!SEL) return; const p = SEL;
   if (p.until == null && p.length == null) { snapshot(); p.length = 3; }        // the first one has to end for the next to follow
@@ -1023,6 +1068,7 @@ window.addEventListener("resize", fit);
 (async () => {
   INFO = await (await fetch("/api/info")).json(); CAM = INFO.camera;
   const proj = await (await fetch("/api/project")).json();
+  try { STYLES = await (await fetch("/api/styles")).json(); } catch (e) { /* the app's looks */ }
   MATCH = Math.min(proj.match || 0, Math.max(0, INFO.matches.length - 1));
   ITEMS = (proj.items || []).map(it => ({ ...structuredClone(DEFAULTS), ...it }));
   MUSIC = proj.music && proj.music.file ? proj.music : null;

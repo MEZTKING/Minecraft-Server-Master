@@ -13,6 +13,9 @@ Routes (this computer only, see :func:`mcsm.live.serve`):
   POST /api/camera          {"match": i}  camera path of another edit
   GET  /api/project         the saved texts of this video (or a first title)
   POST /api/project         {"items": [...], "match": i}  save them (done by the page as you edit)
+  GET  /api/styles          the default looks for new texts: {"all": {...}, "video": {...}} per kind of text
+  POST /api/styles          {"scope": "all"|"video", "preset": "title"|"screen"|"subtitle"|"corner",
+                            "style": {...} or null}  set (or forget) one default look
   POST /api/make            {"target": "world"|"video", "items": [...], "match": i}  make all of them
   POST /api/image           {"name": "logo.png", "data": base64}  keep a picture for the project
   GET  /image/<file>        a picture kept for the projects
@@ -451,6 +454,8 @@ class VideoEditor:
     def api_get(self, path: str):
         if path == "/api/project":
             return self.load_project()
+        if path == "/api/styles":
+            return self.styles()
         if path == "/api/tiles":
             return self.tiles()
         if path == "/api/link":
@@ -586,13 +591,69 @@ class VideoEditor:
     def save_project(self, body: dict) -> dict:
         data = {"video": self.copy_key(), "match": int(body.get("match", 0)), "items": list(body.get("items") or []),
                 "music": body.get("music") if isinstance(body.get("music"), dict) else None,
-                "camera": self._clean_keys(body["camera"]) if isinstance(body.get("camera"), list) else None}
+                "camera": self._clean_keys(body["camera"]) if isinstance(body.get("camera"), list) else None,
+                "styles": self.load_project().get("styles") or {}}      # this video's default looks stay
         p = self.project_file()
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p + ".tmp", "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=1)
         os.replace(p + ".tmp", p)
         return {"saved": True}
+
+    # --- default looks for new texts (all videos, or just this one) ------------------------------------
+    STYLE_KEYS = ("animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "glow",
+                  "box", "style", "font", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "tilt",
+                  "turn")
+    PRESETS = ("title", "screen", "subtitle", "corner")
+
+    @staticmethod
+    def styles_file() -> str:
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+        return os.path.join(base, "mcsm", "text-styles.json")
+
+    def _clean_style(self, style) -> dict | None:
+        if not isinstance(style, dict):
+            return None
+        return {k: style[k] for k in self.STYLE_KEYS if k in style and isinstance(style[k], (str, int, float, bool))}
+
+    def styles(self) -> dict:
+        try:
+            with open(self.styles_file(), encoding="utf-8") as fh:
+                every = json.load(fh)
+        except (OSError, ValueError):
+            every = {}
+        return {"all": every if isinstance(every, dict) else {}, "video": self.load_project().get("styles") or {}}
+
+    def set_style(self, body: dict) -> dict:
+        preset, scope = str(body.get("preset", "")), body.get("scope")
+        if preset not in self.PRESETS or scope not in ("all", "video"):
+            raise ValueError("unknown kind of text or scope")
+        style = self._clean_style(body.get("style"))
+        if scope == "all":
+            every = self.styles()["all"]
+            if style:
+                every[preset] = style
+            else:
+                every.pop(preset, None)
+            p = self.styles_file()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump(every, fh, indent=1)
+            os.replace(p + ".tmp", p)
+        else:
+            data = self.load_project()
+            mine = data.get("styles") or {}
+            if style:
+                mine[preset] = style
+            else:
+                mine.pop(preset, None)
+            data["styles"] = mine
+            p = self.project_file()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=1)
+            os.replace(p + ".tmp", p)
+        return self.styles()
 
     def api_post(self, path: str, body: dict):
         if path == "/api/camera":
@@ -606,6 +667,8 @@ class VideoEditor:
             return out
         if path == "/api/project":
             return self.save_project(body)
+        if path == "/api/styles":
+            return self.set_style(body)
         if path == "/api/players":
             return self.players_at(int(body.get("match", 0)), float(body.get("t", 0)))
         if path == "/api/track":

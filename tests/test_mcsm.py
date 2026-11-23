@@ -4141,3 +4141,38 @@ class TestExportFolder(unittest.TestCase):
             self.assertIsNone(fbm.export_folder(fb))                                  # gone: not offered
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestDefaultTextLooks(unittest.TestCase):
+    """New texts start with the owner's default look: for all videos, or this video's own."""
+
+    def test_styles(self):
+        from mcsm.videoeditor import VideoEditor
+        tmp = tempfile.mkdtemp()
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            def editor(video):
+                ed = VideoEditor.__new__(VideoEditor)
+                ed.video, ed.vinfo = video, {"matches": []}
+                return ed
+            a, b = editor(os.path.join(tmp, "a.mp4")), editor(os.path.join(tmp, "b.mp4"))
+            self.assertEqual(a.styles(), {"all": {}, "video": {}})
+            look = {"colour": "gold", "depth": 0.3, "animation": "fade", "start": 5, "lines": [["x", 1]]}
+            a.set_style({"scope": "all", "preset": "title", "style": look})
+            self.assertEqual(b.styles()["all"]["title"], {"colour": "gold", "depth": 0.3, "animation": "fade"})   # only the look
+            a.set_style({"scope": "video", "preset": "title", "style": {"colour": "aqua"}})
+            self.assertEqual(a.styles()["video"], {"title": {"colour": "aqua"}})
+            self.assertEqual(b.styles()["video"], {})                                    # another video: its own
+            a.save_project({"items": [{"id": 1}], "match": 0})                           # saving texts keeps the look
+            self.assertEqual(a.styles()["video"], {"title": {"colour": "aqua"}})
+            a.set_style({"scope": "video", "preset": "title", "style": None})
+            self.assertEqual(a.styles()["video"], {})
+            with self.assertRaises(ValueError):
+                a.set_style({"scope": "all", "preset": "nope", "style": look})
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old
+            shutil.rmtree(tmp, ignore_errors=True)
