@@ -29,6 +29,9 @@ internet, nothing is uploaded.
 
 ---
 
+**New here?** [docs/WORKFLOW.md](docs/WORKFLOW.md) is a short guide to the quickest way from a year of recordings
+to finished videos, and how to keep the waiting and disk use down.
+
 ## Contents
 
 - [Install on Windows (installer)](#install-on-windows)

@@ -129,7 +129,7 @@ def history_payload(data: m.ServerData, title: str = "") -> dict:
     }
 
 
-APP_COPIES = ("(highlights)", "(text)", "(timelapse", "(mcsm)")
+APP_COPIES = ("(highlights)", "(text)", "(timelapse", "(mcsm)", "(shot)")
 
 
 def version_segments(data: m.ServerData, end_ms: int | None = None) -> list[dict]:
@@ -185,6 +185,7 @@ class HistoryMap(TerrainServer):
         self._exact_jobs: set[str] = set()
         self._exact_slots = threading.Semaphore(3)
         self._exact_mem: dict[str, dict] = {}
+        self._prep = {"running": False, "cancel": False, "done": 0, "total": 0, "phase": "", "errors": 0}
         self._skins, self._skin_lock = None, threading.Lock()
         if not highlights_file and data.library_world:      # a library world keeps its own highlights
             highlights_file = os.path.join(data.library_world, "highlights.json")
@@ -406,6 +407,8 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return {"players": {}}
             return self.exact(a, b)
+        if path == "/api/prepare":
+            return self._prep_view()
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
@@ -604,6 +607,176 @@ class HistoryMap(TerrainServer):
                 self._exact_jobs.discard(zp)
         threading.Thread(target=work, daemon=True).start()
 
+    # ---- preparing ahead (owner: "give a warning or make it adjustable") ----
+    PREP_MBPS = 30            # recordings read in full, per second (measured ~45 MB/s on one thread; disk-bound)
+    PREP_TILE_S = 1.2         # one 128 x 128 piece of real blocks (measured on the owner's world)
+
+    def _prep_view(self) -> dict:
+        return {k: v for k, v in self._prep.items() if k != "items"}
+
+    def _prep_items(self, body: dict) -> tuple[list, list, dict]:
+        """What preparing *body* would do: (recordings to read in full, block pieces to build, estimate)."""
+        import glob
+        import statistics
+        t0 = float(body.get("from") or 0) or -float("inf")
+        t1 = float(body.get("to") or 0) or float("inf")
+        who = body.get("player") or ""
+        what = set(body.get("what") or ["exact", "blocks"])
+        self.paths()
+        players = paths_mod.player_uuids(self.data)
+        cache = self.cache_dir or paths_mod.default_cache_dir()
+        recs, size = [], 0
+        if "exact" in what and self.replay_file is not None:
+            for r in self.data.replays:
+                if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note") \
+                        or any(c in r.path for c in APP_COPIES):
+                    continue
+                a = r.start.timestamp() * 1000
+                if a > t1 or a + r.duration_ms < t0:
+                    continue
+                if who and self._payload["aliases"].get(r.recorded_player, r.recorded_player) != who:
+                    continue
+                try:
+                    zp = self.replay_file(r)
+                    if os.path.isfile(os.path.join(cache, paths_mod._cache_key(zp, players) + ".exact3.json.gz")):
+                        continue
+                    size += os.path.getsize(zp)
+                except (OSError, ValueError):
+                    continue
+                recs.append(zp)
+        tiles = []
+        if "blocks" in what:
+            layers = sorted((L for L in self.terrain_layers if L.get("t") is not None), key=lambda L: L["t"])
+            stamps = [L["t"] for L in layers]
+            import bisect
+            _n, tracks = getattr(self, "_tracks", (0, {}))
+            seen = set()
+            for name, pts in tracks.items():
+                if who and name != who:
+                    continue
+                for q in pts:
+                    if not t0 <= q[0] <= t1:
+                        continue
+                    i = bisect.bisect_left(stamps, q[0])            # the first backup saved at or after then
+                    layer = (layers[i] if i < len(layers) else layers[-1])["id"] if layers else 0
+                    key = (layer, q[4], int(q[1] // 128), int(q[3] // 128))
+                    if key not in seen:
+                        seen.add(key)
+                        bw = self.layer_world(layer)
+                        if bw is not None and not bw.tile_ready(key[2], key[3], key[1]):
+                            tiles.append(key)
+        # disk: as much as what's prepared already takes, per MB of recording / per piece
+        ex = glob.glob(os.path.join(cache, "*.exact3.json.gz"))
+        ratio = 0.025
+        tile_mb = 1.1
+        try:
+            tl = glob.glob(os.path.join(self.layer_world(0).cache, "tiles-blocks", "*.bin")) if self.layer_world(0) else []
+            if tl:
+                tile_mb = statistics.median(os.path.getsize(f) for f in tl[:200]) / 1e6 * 1.4
+        except (OSError, AttributeError):
+            pass
+        est = {"recordings": len(recs), "recordings_mb": round(size / 1e6), "pieces": len(tiles),
+               "minutes": round((size / 1e6 / self.PREP_MBPS + len(tiles) * self.PREP_TILE_S) / 60, 1),
+               "disk_mb": round(size / 1e6 * ratio + len(tiles) * tile_mb), "already_prepared": len(ex)}
+        return recs, tiles, est
+
+    def prepare(self, body: dict, start: bool = False) -> dict:
+        """Estimate (time, disk) what preparing ahead would do; with *start*, do it in the background."""
+        if self._prep["running"]:
+            return {**self._prep_view(), "message": "already preparing"}
+        recs, tiles, est = self._prep_items(body)
+        if not start:
+            return {"estimate": est}
+        players = paths_mod.player_uuids(self.data)
+        self._prep.update({"running": True, "cancel": False, "done": 0, "total": len(recs) + len(tiles),
+                           "phase": "recordings", "errors": 0, "estimate": est})
+
+        def work():
+            from concurrent.futures import ThreadPoolExecutor
+            try:
+                def one(zp):
+                    if self._prep["cancel"]:
+                        return
+                    try:
+                        paths_mod.exact_rows(zp, self.cache_dir, players)
+                    except Exception:                    # noqa: BLE001 -- one bad file mustn't stop the rest
+                        self._prep["errors"] += 1
+                    self._prep["done"] += 1
+                with ThreadPoolExecutor(3) as pool:
+                    list(pool.map(one, recs))
+                self._prep["phase"] = "real blocks"
+                for layer, dim, tx, tz in tiles:
+                    if self._prep["cancel"]:
+                        break
+                    try:
+                        bw = self.layer_world(layer)
+                        if bw is not None:
+                            bw.block_tile(tx, tz, dim, f"/blocktile/{layer}/")
+                    except Exception:                    # noqa: BLE001
+                        self._prep["errors"] += 1
+                    self._prep["done"] += 1
+            finally:
+                self._prep["running"] = False
+                self._prep["phase"] = "cancelled" if self._prep["cancel"] else "done"
+        threading.Thread(target=work, daemon=True).start()
+        return self._prep_view()
+
+    def shot(self, body: dict, send: bool = False) -> dict:
+        """The recordings a shot can be filmed from (best first); with *send*, copy the chosen one (``recording``,
+        else the best) into Flashback with the shot's camera keyframes (see :mod:`mcsm.shot`)."""
+        import bisect
+        from . import shot as shot_mod
+        keys = []
+        for k in body.get("keys") or []:
+            try:
+                keys.append({"t": float(k["t"]), "eye": [float(v) for v in k["eye"]][:3], "yaw": float(k["yaw"]),
+                             "pitch": float(k["pitch"])})
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("a keyframe needs t, eye [x, y, z], yaw and pitch")
+        if len(keys) < 1:
+            raise ValueError("add at least one camera keyframe")
+        if self.replay_file is None:
+            raise ValueError("recordings are not available in this session")
+        self.paths()                                   # the world-clock offsets and positions
+        players = paths_mod.player_uuids(self.data)
+        _n, tracks = getattr(self, "_tracks", (0, {}))
+
+        def near(player, t):
+            pts = tracks.get(player) or []
+            i = bisect.bisect_left([q[0] for q in pts], t)
+            best = min((pts[j] for j in (i - 1, i) if 0 <= j < len(pts)), key=lambda q: abs(q[0] - t), default=None)
+            return best[1:4] if best and abs(best[0] - t) < 60_000 else None
+        recs = []
+        for r in self.data.replays:
+            if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note")                     or any(c in r.path for c in APP_COPIES):
+                continue
+            try:
+                zp = self.replay_file(r)
+                track = os.path.join(self.cache_dir or paths_mod.default_cache_dir(), paths_mod._cache_key(zp, players) + ".jsonl")
+            except (OSError, ValueError):
+                continue
+            recs.append({"replay": r, "meta": self._metas.get(track), "offset": self._offsets.get(track),
+                         "start_ms": int(r.start.timestamp() * 1000), "duration_ms": r.duration_ms,
+                         "player": self._payload["aliases"].get(r.recorded_player, r.recorded_player)})
+        cands = shot_mod.candidates(recs, keys, near)
+        view = [{"recording": c["replay"].path, "player": c["player"], "mc": c["replay"].mc_version,
+                 "distance": None if c["distance"] == float("inf") else round(c["distance"]),
+                 "from": c["from_ms"], "to": c["to_ms"]} for c in cands[:12]]
+        if not send:
+            return {"candidates": view}
+        if not cands:
+            raise ValueError("no recording covers the whole shot: shorten it, or move it to when someone was recording")
+        pick = next((c for c in cands if c["replay"].path == body.get("recording")), cands[0])
+        if not self._export_lock.acquire(blocking=False):
+            raise ValueError("an export is already running")
+        try:
+            out = os.path.dirname(os.path.abspath(self.highlights.path))
+            res = shot_mod.send(pick, keys, str(body.get("title") or "Shot")[:80], self.replay_file,
+                                self.flashback_dir, out, self.flashback_pick, str(body.get("interpolation") or "SMOOTH"))
+        finally:
+            self._export_lock.release()
+        return {**res, "candidates": view}
+
     def skin_timeline(self) -> dict:
         """``{name: [[start_ms, hash, slim], ...]}``: each player's skin from their recordings (worked out once)."""
         with self._skin_lock:
@@ -796,6 +969,13 @@ class HistoryMap(TerrainServer):
             return self.timelapse(str(body.get("id", "")), export=path.endswith("export"),
                                   camera=body.get("camera") if isinstance(body.get("camera"), dict) else None,
                                   min_part_s=float(cut) if isinstance(cut, (int, float)) else None)
+        if path in ("/api/prepare/estimate", "/api/prepare/start"):   # preparing ahead, after an estimate
+            return self.prepare(body, start=path.endswith("start"))
+        if path == "/api/prepare/cancel":
+            self._prep["cancel"] = True
+            return self._prep_view()
+        if path in ("/api/shot/check", "/api/shot/send"):   # a shot planned here, rendered in Flashback
+            return self.shot(body, send=path.endswith("send"))
         if path == "/api/highlights/delete":
             self.highlights.delete(str(body.get("id", "")))
             return self.highlights_info()

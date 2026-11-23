@@ -252,6 +252,27 @@ still being read.
 Not shown yet: riding, held items and armour, and the mobs' own textures and animations. The blocks are the
 backup saved after that time, not the world at that very moment.
 
+**Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:
+
+1. Put the camera where you want it (**Free cam**, **Spectate**, or orbiting) at the right moment, and press
+   **Add keyframe** (key **K**). Add more at later moments. Each keyframe stores the time, where the camera is
+   and where it looks. **Go** looks from a keyframe again; **×** removes it.
+2. **Preview** flies the shot in the viewer (**Smooth**, like Flashback's camera, or **Linear**). **Esc**
+   stops it.
+3. The list below suggests the recordings that cover the whole shot. The best is first: the one whose player
+   was nearest the camera. Pick another if you like.
+4. **Send to Flashback** copies that recording into the Flashback of its Minecraft version (never the original)
+   as "… (shot) title". The copy has your camera keyframes, the export range and a marker. Each keyframe's time
+   becomes that recording's tick through the world clock, pauses included. Open it in Flashback and Export.
+
+The keyframes are kept in the browser per world.
+
+**Prepare ahead.** Close-up viewing reads recordings in full and builds real blocks the first time. **Prepare
+ahead** does that in advance for the day, week or month shown, or everything, optionally for one player only.
+**Estimate** shows how many recordings and block pieces, the time and the disk space first, with a warning when
+it's a lot. **Start** runs it in the background with progress; **Cancel** stops it and keeps what's done. See
+[WORKFLOW.md](WORKFLOW.md) for how much each takes.
+
 **Show.** Open **Show** (under *Terrain*) to turn things on or off. Your choice is remembered:
 
 - **Players**, their **Names** and their **Colour rings**

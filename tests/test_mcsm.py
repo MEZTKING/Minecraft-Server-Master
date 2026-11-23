@@ -1131,6 +1131,66 @@ class TestWorldClock(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class TestShot(unittest.TestCase):
+    """A shot planned in the viewer, written as camera keyframes into a Flashback copy of the best recording."""
+
+    def test_shot(self):
+        from datetime import timedelta
+        from mcsm import shot, paths
+        tmp = tempfile.mkdtemp()
+        try:
+            a = os.path.join(tmp, "2026-05-24--18-00-00.zip")
+            TestWorldClock._rec(a, 50_000, 1000, pause_at=500, pause=200)
+            with zipfile.ZipFile(a, "a") as zf:
+                zf.writestr("arcade_replay_meta.json", "{}")
+            with zipfile.ZipFile(a) as zf:
+                body = {n: zf.read(n) for n in zf.namelist()}
+            body["metadata.json"] = json.dumps({"protocol_version": 777, "uuid": "11111111-2222-3333-4444-555555555555",
+                                                "name": "Unnamed", "total_ticks": 1000, "chunks": {}}).encode()
+            with zipfile.ZipFile(a, "w") as zf:
+                for n, b in body.items():
+                    zf.writestr(n, b)
+            clock = []
+            list(paths.decode_entities(a, clock=clock))
+            meta = {"clock": clock, "ticks": 999}
+            off = 1_000_000
+            t_of = lambda tick: off + paths.game_time(clock, tick) * 50                   # noqa: E731
+            self.assertEqual(shot.tick_at(meta, off, 0, t_of(100)), 100)
+            self.assertEqual(shot.tick_at(meta, off, 0, t_of(700)), 700)                    # after the pause
+            self.assertEqual(shot.tick_at(None, None, 1000, 1000 + 2000), 40)                # no clock: from the start
+            start = datetime(2026, 5, 24, 18, tzinfo=timezone.utc)
+            rep = m.Replay(a, start, 50_000, format="flashback", recorded_player="Steve", mc_version="26.3")
+            rec = {"replay": rep, "meta": meta, "offset": off, "start_ms": 0, "duration_ms": 50_000, "player": "Steve"}
+            other = {**rec, "player": "Alex"}
+            keys = [{"t": t_of(100), "eye": [10.0, 70.0, 5.0], "yaw": 90.0, "pitch": 10.0},
+                    {"t": t_of(300), "eye": [20.0, 72.0, 5.0], "yaw": 45.0, "pitch": 0.0}]
+            near = lambda p, t: [11.0, 69.0, 5.0] if p == "Steve" else [500.0, 64.0, 500.0]   # noqa: E731
+            c = shot.candidates([other, rec], keys, near)
+            self.assertEqual([x["player"] for x in c], ["Steve", "Alex"])                   # nearest first
+            far = [{**keys[0], "t": t_of(0) - 600_000}] + keys[1:]                           # starts before the recording
+            self.assertEqual(shot.candidates([rec], far, near), [])
+            fb = os.path.join(tmp, "flashback")
+            os.makedirs(os.path.join(fb, "replays"))
+            res = shot.send(c[0], keys, "Thunderstorm", lambda r: r.path, fb, tmp)
+            self.assertEqual((res["ticks"], res["keyframes"], res["installed"]), ([100, 300], 2, True))
+            with open(res["editor_state"], encoding="utf-8") as fh:
+                st = json.load(fh)
+            sc = st["scenes"][0]
+            cam = next(t for t in sc["keyframeTracks"] if t["keyframeType"] == "CAMERA")["keyframesByTick"]
+            self.assertEqual(sorted(cam), ["100", "300"])
+            self.assertEqual(cam["100"]["position"], [10.0, 70.0 - shot.EYE_HEIGHT, 5.0])    # Flashback adds the eye
+            self.assertEqual((cam["100"]["yaw"], cam["100"]["interpolation_type"]), (90.0, "SMOOTH"))
+            self.assertEqual((sc["exportStartTicks"], sc["exportEndTicks"]), (100, 300))
+            with zipfile.ZipFile(res["file"]) as zf:
+                copy = json.loads(zf.read("metadata.json"))
+            self.assertNotEqual(copy["uuid"], "11111111-2222-3333-4444-555555555555")       # a copy, original untouched
+            self.assertIn("(shot)", copy["name"])
+            self.assertTrue(any("Shot: Thunderstorm" in mk.get("description", "") for mk in copy["markers"].values()))
+            self.assertTrue(os.path.isfile(a))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestPosesAndMobs(unittest.TestCase):
     """Per-version packet ids from the game's reports; sneaking/swinging players and mobs from a recording."""
 

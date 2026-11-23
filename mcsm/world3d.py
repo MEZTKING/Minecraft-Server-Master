@@ -120,12 +120,20 @@ class BuildWorld:
     TILE = 128                                       # blocks per side of a block tile (the history viewer's pieces)
     TILE_VERSION = 1
 
+    def _tile_key(self, tx: int, tz: int, dim: str) -> str:
+        return hashlib.sha1(f"{self.TILE_VERSION}|{bm.VERSION}|{os.path.abspath(self.root)}|{self.world}|{dim}|{tx}|{tz}|"
+                            f"{self.TILE}|{self.mc}".encode()).hexdigest()[:20]
+
+    def tile_ready(self, tx: int, tz: int, dim: str) -> bool:
+        """Whether that piece of real blocks has been built already (kept on disk)."""
+        return os.path.isfile(os.path.join(self.cache, "tiles-blocks", self._tile_key(tx, tz, dim) + ".json"))
+
     def block_tile(self, tx: int, tz: int, dim: str, url_prefix: str) -> dict:
         """Real blocks of one 128 x 128 piece of the world (tile *tx*, *tz*), for the history viewer: built once
         and kept on disk (``blocktile-<key>.bin`` + ``.json``). ``faces`` 0: nothing there (not explored)."""
         import json
         n = self.TILE // 16
-        key = hashlib.sha1(f"{self.TILE_VERSION}|{bm.VERSION}|{os.path.abspath(self.root)}|{self.world}|{dim}|{tx}|{tz}|{self.TILE}|{self.mc}".encode()).hexdigest()[:20]
+        key = self._tile_key(tx, tz, dim)
         base = os.path.join(self.cache, "tiles-blocks", key)
         try:
             with open(base + ".json", encoding="utf-8") as fh:

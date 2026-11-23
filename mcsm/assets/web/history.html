@@ -233,6 +233,33 @@ ul { list-style: none; margin: 0; padding: 0; }
   </div>
   <ul id="moments"></ul>
   <div class="row"><button id="mMore" type="button" title="Show 20 more">Show more</button><span class="meta" id="mCount"></span></div>
+  <h2>Shot for Flashback</h2>
+  <div class="meta">Place the camera (Free cam, Spectate or orbit) and add keyframes at moments; Flashback films it at
+    full game quality from a copy of the best recording.</div>
+  <div class="row" style="flex-wrap:wrap;gap:4px">
+    <button id="shAdd" type="button" title="A camera keyframe here, now (key K)">Add keyframe (K)</button>
+    <button id="shPrev" type="button" title="Fly the shot in the viewer">Preview</button>
+    <select id="shInterp" title="How the camera moves between keyframes"><option value="SMOOTH">Smooth</option><option value="LINEAR">Linear</option></select>
+    <button id="shClear" type="button">Clear</button>
+  </div>
+  <ul id="shKeys"></ul>
+  <div class="row"><input id="shTitle" type="text" placeholder="Title, e.g. Thunderstorm at spawn" maxlength="80"></div>
+  <div class="row"><select id="shRec" title="The recording Flashback films from (best first: covers the whole shot, its player nearest the camera)" style="flex:1"><option value="">add two keyframes first</option></select></div>
+  <div class="row"><button id="shSend" class="primary" type="button" disabled>Send to Flashback</button></div>
+  <div class="note" id="shStatus"></div>
+  <h2>Prepare ahead</h2>
+  <div class="meta">Read recordings in full and build real blocks now, so later viewing is instant. Estimate first.</div>
+  <div class="row" style="flex-wrap:wrap;gap:4px 12px">
+    <label><input type="checkbox" id="prExact" checked> Full detail of recordings</label>
+    <label><input type="checkbox" id="prBlocks" checked> Real blocks where players went</label>
+  </div>
+  <div class="row"><select id="prRange" title="How much">
+      <option value="day">The day shown</option><option value="week">The week shown</option>
+      <option value="month">The month shown</option><option value="all">Everything</option></select>
+    <select id="prPlayer" title="Only one player's recordings and paths"><option value="">everyone</option></select></div>
+  <div class="row"><button id="prEst" type="button">Estimate</button><button id="prGo" type="button" disabled>Start</button>
+    <button id="prStop" type="button" hidden>Cancel</button></div>
+  <div class="note" id="prStatus"></div>
   <h2>Highlights for videos</h2>
   <div class="row" style="margin-top:2px">
     <button id="hlIn" type="button" title="Use the current time as the start (key I)">Start (I)</button>
@@ -618,7 +645,7 @@ function realClip() {                               // cut the smooth map away u
 function realWanted() {
   // where you look (more pieces when zoomed out), then around every player shown, nearest first
   if (!$("#realOn").checked) return [];
-  const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name), focus = free ? camera.position : controls.target;
+  const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name || SHOT.preview), focus = free ? camera.position : controls.target;
   const d = free ? 60 : camera.position.distanceTo(controls.target), out = [], seen = new Set();
   const add = (x, z, w) => { const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); out.push([x, z, w]); } };
   if (d <= 900) {
@@ -702,7 +729,7 @@ function onlineAt(name, t) {
 // for the time around you, on the world clock; elsewhere the lighter overview paths.
 const EXACT = { lo: 0, hi: 0, rows: {}, ev: {}, world: {}, mobs: {}, busy: false, last: 0, on: false };
 function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
-  return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || camera.position.distanceTo(controls.target) < 600);
+  return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || SHOT.preview || camera.position.distanceTo(controls.target) < 600);
 }
 async function exactStep(now) {
   EXACT.on = exactWanted();
@@ -1403,6 +1430,124 @@ function anyoneOnline(t) { return H.players.some(n => onlineAt(n, t)) || H.playe
 
 // ---------- highlights ----------
 let HL = { highlights: [] }, hlIn = null, hlOut = null, hlEditing = null, playUntil = null;
+// ---------- a shot planned here, filmed by Flashback ----------
+const SHOT = { keys: [], preview: false };
+const shotStore = () => `mcsm-shot-${H ? H.title : ""}`;
+try { SHOT.keys = JSON.parse(store.get(shotStore()) || "[]"); } catch (e) {}
+function camNow() {
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  return { t: Math.round(T), eye: camera.position.toArray().map(v => Math.round(v * 100) / 100),
+    yaw: Math.round(Math.atan2(-d.x, d.z) * 1800 / Math.PI) / 10, pitch: Math.round(-Math.asin(Math.max(-1, Math.min(1, d.y))) * 1800 / Math.PI) / 10 };
+}
+function saveShot() { store.set(shotStore(), JSON.stringify(SHOT.keys)); renderShot(); checkShot(); }
+function renderShot() {
+  const ul = $("#shKeys"); ul.replaceChildren();
+  SHOT.keys.forEach((k, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<b>${i + 1}</b> ${fmtShort(k.t)} · ${k.eye.map(Math.round).join(", ")} `;
+    const go = document.createElement("button"); go.type = "button"; go.textContent = "Go"; go.title = "Look from this keyframe";
+    go.onclick = () => { seek(k.t, false); setFree(true); camera.position.set(...k.eye); FREE.yaw = Math.PI - k.yaw * Math.PI / 180; FREE.pitch = -k.pitch * Math.PI / 180; };
+    const del = document.createElement("button"); del.type = "button"; del.textContent = "×"; del.title = "Remove";
+    del.onclick = () => { SHOT.keys.splice(i, 1); saveShot(); };
+    li.append(go, del); ul.appendChild(li);
+  });
+  $("#shSend").disabled = SHOT.keys.length < 1;
+  if (SHOT.keys.length > 1) $("#shStatus").textContent = `${SHOT.keys.length} keyframes · ${hms(SHOT.keys[SHOT.keys.length - 1].t - SHOT.keys[0].t)} long`;
+}
+let shotTimer = null;
+function checkShot() {
+  clearTimeout(shotTimer);
+  shotTimer = setTimeout(async () => {
+    if (!SHOT.keys.length) { $("#shRec").replaceChildren(new Option("add keyframes first", "")); return; }
+    try {
+      const r = await post("api/shot/check", { keys: SHOT.keys });
+      const sel = $("#shRec"); sel.replaceChildren();
+      for (const c of r.candidates) sel.appendChild(new Option(`${c.player} · ${c.recording.split("/").pop()} · Minecraft ${c.mc}${c.distance != null ? ` · ${c.distance} blocks from the camera` : ""}`, c.recording));
+      if (!r.candidates.length) sel.appendChild(new Option("no recording covers the whole shot", ""));
+      $("#shSend").disabled = !r.candidates.length;
+    } catch (e) { $("#shStatus").textContent = `Couldn't check: ${e.message}`; }
+  }, 400);
+}
+function addKey() {
+  const k = camNow(), i = SHOT.keys.findIndex(x => x.t === k.t);
+  if (i >= 0) SHOT.keys[i] = k; else SHOT.keys.push(k);
+  SHOT.keys.sort((a, b) => a.t - b.t); saveShot();
+  toastStatus(`Keyframe ${SHOT.keys.indexOf(k) + 1} at ${fmtShort(k.t)}`);
+}
+// the camera along the shot at time t (smooth: Catmull-Rom like Flashback's, linear: straight)
+function shotCam(t) {
+  const K = SHOT.keys; if (!K.length) return null;
+  if (t <= K[0].t) return K[0]; if (t >= K[K.length - 1].t) return K[K.length - 1];
+  let i = 0; while (K[i + 1].t < t) i++;
+  const a = K[i], b = K[i + 1], f = (t - a.t) / Math.max(1, b.t - a.t), smooth = $("#shInterp").value === "SMOOTH";
+  const p0 = K[Math.max(0, i - 1)], p3 = K[Math.min(K.length - 1, i + 2)];
+  const cr = (q0, q1, q2, q3) => smooth ? 0.5 * ((2 * q1) + (-q0 + q2) * f + (2 * q0 - 5 * q1 + 4 * q2 - q3) * f * f + (-q0 + 3 * q1 - 3 * q2 + q3) * f * f * f) : q1 + (q2 - q1) * f;
+  const turn = (x, y) => x + ((((y - x) % 360) + 540) % 360 - 180) * f;
+  return { eye: [0, 1, 2].map(j => cr(p0.eye[j], a.eye[j], b.eye[j], p3.eye[j])), yaw: turn(a.yaw, b.yaw), pitch: a.pitch + (b.pitch - a.pitch) * f };
+}
+function shotStep() {
+  if (!SHOT.preview) return false;
+  const c = shotCam(T);
+  if (!c || T >= SHOT.keys[SHOT.keys.length - 1].t) { SHOT.preview = false; setPlaying(false); controls.enabled = true; toastStatus("Preview finished."); return false; }
+  const r = d => d * Math.PI / 180;
+  camera.position.set(...c.eye);
+  camera.lookAt(c.eye[0] - Math.sin(r(c.yaw)) * Math.cos(r(c.pitch)), c.eye[1] - Math.sin(r(c.pitch)), c.eye[2] + Math.cos(r(c.yaw)) * Math.cos(r(c.pitch)));
+  return true;
+}
+$("#shAdd").onclick = addKey;
+$("#shClear").onclick = () => { if (SHOT.keys.length && !confirm("Remove all keyframes of this shot?")) return; SHOT.keys = []; saveShot(); };
+$("#shPrev").onclick = () => {
+  if (SHOT.keys.length < 2) { $("#shStatus").textContent = "Add at least two keyframes to preview."; return; }
+  if (SPEC.name) setSpec(""); if (FREE.on) setFree(false);
+  $("#speed").value = "1"; seek(SHOT.keys[0].t, false); SHOT.preview = true; controls.enabled = false; setPlaying(true);
+};
+$("#shInterp").onchange = () => store.set("mcsm-shot-interp", $("#shInterp").value);
+$("#shInterp").value = store.get("mcsm-shot-interp") || "SMOOTH";
+$("#shSend").onclick = async () => {
+  const title = $("#shTitle").value.trim() || "Shot";
+  $("#shSend").disabled = true; $("#shStatus").textContent = "Copying the recording for Flashback…";
+  try {
+    const r = await post("api/shot/send", { keys: SHOT.keys, title, interpolation: $("#shInterp").value, recording: $("#shRec").value });
+    $("#shStatus").textContent = `Done: "${r.file.split(/[\\/]/).pop()}" (${r.seconds} s, ${r.keyframes} keyframes, filmed from ${r.recorded_by}'s recording)`
+      + (r.installed ? ` is in ${r.flashback.split(/[\\/]/).slice(-3, -1).join("/")}. Open it in Flashback and Export.` : ` was saved in ${r.flashback}: this PC has no Flashback for Minecraft ${r.mc}.`);
+  } catch (e) { $("#shStatus").textContent = `Couldn't send: ${e.message}`; }
+  finally { $("#shSend").disabled = false; }
+};
+// ---------- prepare ahead: estimate first, then in the background ----------
+function prepBody() {
+  const range = $("#prRange").value, d = new Date(T);
+  let from = 0, to = 0;
+  if (range !== "all") {
+    const a = new Date(d.getFullYear(), d.getMonth(), range === "month" ? 1 : d.getDate() - (range === "week" ? (d.getDay() + 6) % 7 : 0));
+    const b = range === "day" ? new Date(a.getTime() + 864e5) : range === "week" ? new Date(a.getTime() + 7 * 864e5) : new Date(a.getFullYear(), a.getMonth() + 1, 1);
+    from = a.getTime(); to = b.getTime();
+  }
+  return { what: [...($("#prExact").checked ? ["exact"] : []), ...($("#prBlocks").checked ? ["blocks"] : [])], from, to, player: $("#prPlayer").value };
+}
+$("#prEst").onclick = async () => {
+  $("#prStatus").textContent = "Working out what it would take…"; $("#prGo").disabled = true;
+  try {
+    const e = (await post("api/prepare/estimate", prepBody())).estimate;
+    const gb = e.disk_mb >= 1000 ? `${(e.disk_mb / 1000).toFixed(1)} GB` : `${e.disk_mb} MB`;
+    if (!e.recordings && !e.pieces) { $("#prStatus").textContent = "Nothing to do: all of it is prepared already."; return; }
+    $("#prStatus").textContent = `${e.recordings} recordings (${(e.recordings_mb / 1000).toFixed(1)} GB to read) and ${e.pieces} block pieces: `
+      + `about ${e.minutes < 1 ? "under a minute" : `${Math.round(e.minutes)} minutes`} and ${gb} of disk.`
+      + (e.minutes > 20 || e.disk_mb > 2000 ? " ⚠ That's a lot: consider a smaller range or one player. The viewer stays usable meanwhile." : "");
+    $("#prGo").disabled = false;
+  } catch (err) { $("#prStatus").textContent = `Couldn't estimate: ${err.message}`; }
+};
+async function prepPoll() {
+  try {
+    const s0 = await (await fetch("api/prepare")).json();
+    const pct = s0.total ? Math.round(s0.done * 100 / s0.total) : 0;
+    $("#prStop").hidden = !s0.running; $("#prGo").disabled = s0.running; $("#prEst").disabled = s0.running;
+    if (s0.running) { $("#prStatus").textContent = `Preparing ${s0.phase}: ${s0.done} of ${s0.total} (${pct}%)${s0.errors ? ` · ${s0.errors} couldn't be read` : ""}`; setTimeout(prepPoll, 2000); }
+    else if (s0.phase) $("#prStatus").textContent = s0.phase === "cancelled" ? `Stopped after ${s0.done} of ${s0.total}; what's done is kept.` : `Done: ${s0.done} prepared${s0.errors ? `, ${s0.errors} couldn't be read` : ""}.`;
+  } catch (e) { setTimeout(prepPoll, 5000); }
+}
+$("#prGo").onclick = async () => { $("#prGo").disabled = true; await post("api/prepare/start", prepBody()); prepPoll(); };
+$("#prStop").onclick = async () => { await post("api/prepare/cancel", {}); };
+
 async function post(path, body) {
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-MCSM": "1" }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
@@ -2078,12 +2223,14 @@ addEventListener("blur", () => FREE.keys.clear());
 addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
   if (e.code === "Backquote") { setDev(!DEV.on); return; }
+  if (e.code === "Escape" && SHOT.preview) { SHOT.preview = false; setPlaying(false); controls.enabled = true; toastStatus("Preview stopped."); return; }
   if (e.code === "Escape" && SPEC.name) { setSpec(""); for (const m of Object.values(markers)) m.F.fig.visible = true; return; }
   if (e.code === "KeyF" || (e.code === "Escape" && FREE.on)) { setFree(!FREE.on && e.code === "KeyF"); return; }
   if (FREE.on && ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "ControlLeft"].includes(e.code)) {
     e.preventDefault(); FREE.keys.add(e.code); return;                       // flying, not playing
   }
   if (e.code === "KeyP") setPlaying(!playing);
+  if (e.code === "KeyK") { addKey(); return; }
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
   if (e.code === "KeyI") $("#hlIn").click();
   if (e.code === "KeyO") $("#hlOut").click();
@@ -2129,7 +2276,7 @@ function frame(now) {
       if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
     }
   }
-  if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
+  if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
   devUpdate(now);
   worldStep(now, dt);
   renderer.render(scene, camera);
@@ -2215,6 +2362,9 @@ async function init() {
   H = await (await fetch("api/history")).json();
   loadSkinLine();                                      // skins from the recordings (read once, then kept)
   applyShow(); fillSpec();
+  $("#prPlayer").replaceChildren(new Option("everyone", ""), ...H.players.map(n => new Option(n, n)));
+  try { SHOT.keys = JSON.parse(store.get(shotStore()) || "[]"); } catch (e) {}
+  renderShot(); checkShot(); prepPoll();
   setTimeout(applyViewLink, 0);                        // opened from a view link: go there
   $("#title").textContent = H.title; document.title = `${H.title} – History`;
   if (!H.range) { toastStatus("No events, sessions or recordings found in this backup."); return; }

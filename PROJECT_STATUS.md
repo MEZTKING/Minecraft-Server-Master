@@ -817,7 +817,17 @@ spectate/first person mode view", "add a dev mode that makes your life easier to
   - Show panel.
 - **Manual moments** already exist as *Highlights for videos*: Start (I), End (O), a title and Save, then Export
   to Flashback. Open question: also list them among the moments?
-- **Proposed design for recording:**
+- ✅ **Decided 2026-11-23:** plan in the viewer, render in Flashback (owner: "Yes, that plan").
+  - Flashback is the real game: every block change, item, particle, resource pack and shader. The viewer is a
+    reconstruction.
+  - Built: `mcsm/shot.py` with the Shot panel (keyframes, preview, best recording by player distance, Send to
+    Flashback through the world clock) and *Prepare ahead*, which estimates time and disk first; the owner
+    asked for "give a warning or make it adjustable".
+  - The estimates on the owner's library: a day is about 3 min and 120 MB; everything is about 3.6 h and
+    8.3 GB.
+  - `docs/WORKFLOW.md` written: the owner asked for "a short guide on how to approach everything the most
+    optimal way and find ways to reduce it".
+- **The earlier proposal for recording in the viewer itself** (kept for quick overview clips):
   - camera keyframes on a timeline in the viewer: position, look and FOV at a time, smooth or linear between
     them, as Flashback does; free-camera views or spectate can be saved as keyframes;
   - a preview of the path;
@@ -827,6 +837,23 @@ spectate/first person mode view", "add a dev mode that makes your life easier to
 
   Open questions: resolution and frame rate (1080p60?), and whether to add text and music from the video
   editor.
+
+### 0zc. Shader-like looks in the history viewer (raised 2026-11-23)
+
+Owner: "would it be possible to have shader support or anything for the history viewing".
+
+Real shader packs (Iris and OptiFine) are written for the game's own renderer and can't run in a browser.
+**Proposal:** a *Graphics* setting with effects that give much of that look:
+
+- sun shadows (shadow maps over the real blocks);
+- soft ambient occlusion on top of the game's corner shading;
+- bloom on torches and lava;
+- distance fog and an atmospheric sky with a sun and moon;
+- water with reflections and moving waves;
+- filmic colour.
+
+Quality levels: Off, Fancy and Ultra (slower). For final videos, Flashback runs inside the real game, so a
+shader mod in that instance applies (to check: Iris with Flashback).
 
 ### 0zb. Viewer parity with the recordings (Fable's plan, 2026-11-23)
 
@@ -1247,6 +1274,16 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Plan in the viewer, render in Flashback.
+  - `mcsm/shot.py`: picks the recording, converts real time to ticks through the world clock (pauses included),
+    and writes a copy with camera keyframes (eye minus 1.62), the export range and a marker.
+  - `/api/shot/check` and `/api/shot/send`, and the Shot panel (K, preview, recording choice).
+  - Prepare ahead: `/api/prepare/estimate`, `start` and `cancel`; recordings read in full, three at a time,
+    then real blocks along player paths; estimates measured on the owner's library.
+  - `BuildWorld.tile_ready`.
+  - `docs/WORKFLOW.md`.
+  - Backlog 0zc (shader-like looks).
 
 - **2026-11-23:** Viewer parity, steps 1 and 2 (Fable's plan).
   - Pose, hand use, hurt, death and burning for players and mobs.
