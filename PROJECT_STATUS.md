@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -770,6 +770,67 @@ no in-world-text support (only 26.1–26.3). One timeline (one world, one story)
 Still to check: decoding positions per protocol and terrain/changes across the 1.21 → 26 boundary (block renames
 could look like changes).
 
+### 0zd. Use the Ledger database (raised 2026-11-23)
+
+**The ask:** "if you can use ledger to your advantage too and let me know when to test something".
+
+**What there is.** The server runs the Ledger mod (`mods/ledger-*.jar`, `config/ledger.toml`). Every backup
+since 2025-11-24 has `Main_world/ledger.sqlite`; the newest is 525 MB with 2,110,010 actions from
+2025-11-14 to 2026-11-20. Its times appear to be UTC: the last action is at 02:03:13 on 20 November, when the
+logs end.
+- **Actions:** block-break 847k, block-place 564k, item-pick-up 326k, block-change 225k, entity-kill 62k,
+  item-insert/remove 55k, item-drop 14k, entity-change 6k, mount/dismount 10k.
+- **Each action has:** time, x/y/z, world, object (block/item/entity) and old object, block states, source
+  (player, creeper, fire, gravity, decay...), player and extra data.
+- **Per player:** Vakirath 406k, D_HumanCrafter 267k, Crow_Shroom 90k, FirstMirror7097 78k, Estproguy 62k,
+  MEZTKING 57k, vegitogod22 39k, XDistroyelx 33k.
+
+**What it unlocks.**
+1. **Blocks at any moment, everywhere.** The backup after T, with Ledger's changes between T and that backup
+   undone (old block states), gives the world at T even where no recording had the chunks. This works for
+   every hour since November 2025, not only recorded stretches. It fills the gaps of `mcsm/moment.py`.
+2. **Who built what, exactly.** Builds and map art come from each player's placed blocks (no more "near
+   where you played"), for timelapse orders, the year in review (v3 card 9) and moments ("X finished the
+   castle").
+3. **Year in review, exact.** Blocks placed and broken per player per day (not only between backups), mobs
+   killed with times, chests opened, and "played with" from building side by side.
+4. **Griefing and accident finder.** Explosions (creeper), fire and lava damage near builds, with the blocks
+   that went: moments and a "what happened here" panel in the viewer.
+5. **A live heatmap.** Where activity happened on the map, by day.
+
+**Design notes.**
+- Read-only (`mode=ro&immutable=1`), never in place.
+- The newest backup's database holds everything (it's cumulative); older ones only matter if it was ever
+  reset.
+- Index on time and position (a compact per-chunk change list in the cache) so "chunk X at time T" is fast.
+- `rolled_back` rows (undone with /ledger rollback) must be honoured.
+
+**Open:** which use first (proposed: 1, then 2).
+
+### 0ze. One combined recording of everyone (raised 2026-11-23)
+
+**The ask:** "is it not possible to just combine all the recordings as one and play that".
+
+**Answer.** In the history viewer, that is what exact playback already does: every recording running at a
+moment, on one world clock, everyone at once. A combined **Flashback** replay (so the game itself films
+anywhere) is possible in principle:
+- All recordings come from the same server, so entity ids, chunk data and block changes agree.
+- With the world clock they line up.
+- A merged replay would take one recording as the base and add the others' chunk loads, entities, block
+  changes and players.
+- Each recorded player is the "local player" in their own file, so in the merged one they become ordinary
+  player entities.
+
+**Hard parts:**
+- rewriting packets per protocol version;
+- duplicates (the same entity or chunk from two recordings);
+- size (several recordings' chunk caches);
+- the base player's inventory and HUD;
+- Flashback's own render distance.
+
+About one to two weeks with research into the replay format. Until then, Shot for Flashback picks the best
+recording for a shot automatically.
+
 ### 0z. Recordings played back exactly, all at once (raised 2026-11-23)
 
 Owner: "are player movements accurate?" then "make sure everything is exactly like the recordings, so everything can
@@ -1366,6 +1427,17 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-23 | Mob models are read from the installed client jar's model code by a bytecode interpreter, not hand-made or bundled | Exact for every mob and version, no Mojang code or assets shipped; 26.1+ jars aren't obfuscated |
 | 2026-11-23 | Blocks at a moment come from each recording part's own snapshot plus its stream, merged across recordings by world clock; backup elsewhere | Flashback re-snapshots every 5-minute part, so no year-long tracking is needed; an old snapshot is worse than the backup |
 
+## Ready for the owner to test
+
+Things built and checked here that need a look in the real game or by eye (newest first):
+- **Water in Fancy and Ultra** (fixed 2026-11-23): it should look like the game's water, not pale.
+- **Year in review**: the **Year in review** button; your player page; **Picture** on a card; **Export…**
+  then open the file.
+- **Blocks as at that moment and live changes**: play a recording near a build (e.g. D_HumanCrafter, 10 April
+  2026, 17:18 UTC at 379, -2296) and watch blocks appear.
+- **Shot for Flashback**: plan a shot in the viewer, send it, render it in Flashback.
+- **Title animations in the world** (backlog 0v step 2): not yet seen in the real game.
+
 ## Known gaps and unverified assumptions
 
 - **New in-world title animations not yet seen in Minecraft**: the gradient's text component (``extra`` list),
@@ -1460,6 +1532,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Water in Fancy/Ultra no longer washed out (it took the lit blocks' brightness match and too
+  much sky). Backlog: 0zd Ledger (2.1 million logged actions found in the backups), 0ze one combined
+  recording; a "Ready for the owner to test" list.
 
 - **2026-11-23:** Fixed a flaky library test on CI: test archives were stamped with the time they
   were built, so two test servers built a moment apart differed. They now use a fixed time.
