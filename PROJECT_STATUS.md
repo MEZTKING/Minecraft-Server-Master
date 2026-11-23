@@ -627,6 +627,42 @@ score breakdown on hover); ticking turns a moment into a highlight → existing 
 
 ### 0q. A native Flashback add-on instead of the bridge (raised 2026-11-22)
 
+**Raised again 2026-11-23** after the owner tried *Flashback (real)*: "it just doesnt look great, its got some
+syncing issue anyways, so lets just modify the flashback mod so we get everything we want, of course also add
+backups for my original files / or dont work on the orignals just make a copy".
+
+**Licence (checked 2026-11-23):** Flashback is "All rights reserved. Do not redistribute" (custom licence, no
+API, no outside contributions). So **no fork or changed Flashback**: only our own separate mod, our code only,
+working with Flashback while the game runs (as mcsm-link does now). Fine for the owner's own use; sharing such an
+add-on publicly would be a grey area (not legal advice).
+
+**Design (Fable, 2026-11-23)** (Flashback's class/method names to be checked against its jar first):
+- **One mod**: mcsm-link grows into the add-on. One fail-safe hook (a Mixin at the end of Flashback's per-frame
+  editor-UI drawing, `require=0`, errors disable the panel) draws an **"MCSM" ImGui panel inside Flashback's
+  editor**; everything else by reflection, checked once at start into a capability list shown in the panel
+  ("texts: ok, markers: unavailable"). Built against the owner's Flashback jar, never bundling it.
+- **Data**: files are the truth: the app writes `flashback/mcsm/<replay-uuid>.json` (texts, music, beats, events,
+  camera recipes); the add-on watches it and writes back atomically. The local HTTP stays for status/nudges; the
+  picture stream is retired as the main view.
+- **Live texts**: client-only text displays in the replay's world, placed every frame from the replay tick (seeks
+  wipe entities), all our animations ported from `worldtext.py` (tested against shared example values); they show
+  in the real picture and (to be checked) in Flashback's export. Baking into a copy stays as the way without the
+  add-on.
+- **Safety: never the originals.** "Edit a copy" makes "<name> (mcsm)" (new id, copied edit); a registry
+  (`flashback/mcsm/registry.json`) lists the app's copies and the add-on only writes to those (read-only banner
+  otherwise); versioned backups of every edit (`editor_states`) before any write (last 30 + one a day), with
+  restore when the replay is closed; recordings are never changed in place, and the library copy is checked
+  before making a working copy. Flashback rewrites an open edit from memory: never write an edit while it's open.
+- **Order**: 1. events/moments list in the panel, click to jump, beat/event marks; 2. live texts with all
+  animations; 3. snapping to beats/keyframes; 4. music (the app still writes the audio track and baked sound);
+  5. camera recipes for transitions (orbit, whip, momentum, then foreground sweep), written into the copy's edit
+  while the replay is closed.
+- **Pitfalls**: Flashback updates (pin tested versions; unknown version = self-test, read-only), performance (no
+  reflection lookups or file I/O per frame, cap text entities), testing without the game (animation/schedule
+  code free of Minecraft classes, unit-tested; a self-test command logs which hooks work).
+- **Recommended first stage**: app: copy registry, versioned edit backups + restore, the per-recording file; add-on:
+  the fail-safe panel with the events/beats list, click to jump, and the read-only banner.
+
 **The ask (after trying the real view):** "tried it its not great, lets just make a mod for flashback so"
 … "instead of using a bridge for flashback is it possible to make it all native or what do you think."
 
@@ -1057,6 +1093,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Checked the owner's report "Thank you for playing … its in both meeting room recordings": the text
+  is not in either original (library or Flashback copy, searched byte for byte); only in the app's "(text)" copy,
+  made 22 Nov 08:57 and not remade since (so it doesn't have the new letter-drop title yet). Backlog 0q: native
+  add-on design by Fable, with the licence finding (Flashback is All Rights Reserved: no fork).
 
 - **2026-11-23:** "Open a Flashback edit": recordings not in that Flashback's replays folder are marked "not in
   Flashback" (by recording id, `flashback.replay_ids`), and right-click → "Put the recording back in Flashback" copies
