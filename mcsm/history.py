@@ -18,6 +18,7 @@ track recordings (``mcsm live --record``), and join positions from the logs.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import struct
@@ -449,6 +450,9 @@ class HistoryMap(TerrainServer):
                     self._moment_why = None
             except ValueError:
                 return {"recordings": []}
+        if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers
+            lg = self.ledger()
+            return {"available": bool(lg), "from": lg.first if lg else None, "to": lg.last if lg else None}
         if path.startswith("/api/momentchanges/"):   # block changes the recordings saw: /api/momentchanges/<dim>/<from>/<to>
             try:
                 dim, a, b = path[len("/api/momentchanges/"):].split("/")
@@ -717,8 +721,23 @@ class HistoryMap(TerrainServer):
                 t = rec["when"](tick)
                 if d == dim and t0 <= t <= t1:
                     out.append([int(t), x, y, z])
+        lg = self.ledger()                             # and every change the Ledger log has (anyone, anywhere)
+        if lg:
+            far = 30_000_000
+            out += [[ms, x, y, z] for ms, x, y, z, _new, _old in lg.changes(dim, -far, -far, far, far, t0, t1)]
         out.sort()
         return {"changes": out}
+
+    def ledger(self):
+        """The Ledger mod's block log of the newest backup (mcsm.ledger), or None."""
+        from . import ledger as ledger_mod
+        return ledger_mod.open_ledger(ledger_mod.find(self.root, self.world))
+
+    def layer_time(self, layer: int) -> int | None:
+        """When terrain layer *layer*'s backup was saved (ms)."""
+        if layer == 0:
+            return self.terrain_time
+        return (self._terrain_backups[layer - 1].get("t") if 1 <= layer <= len(self._terrain_backups) else None)
 
     def moment_tile(self, layer: int, dim: str, tx: int, tz: int, t: int, chunk: bool = False) -> dict:
         """One piece of real blocks (or, with *chunk*, one chunk) as the recordings saw it at *t*: built in the
@@ -733,7 +752,7 @@ class HistoryMap(TerrainServer):
         lock = self.__dict__.setdefault("_moment_lock", threading.Lock())
         slots = self.__dict__.setdefault("_moment_slots", threading.Semaphore(2))
         with lock:
-            if key in jobs:
+            if key in jobs or len(jobs) >= 8:              # (a slider dragged fast: ask again later)
                 return {"pending": True}
             jobs.add(key)
 
@@ -748,23 +767,30 @@ class HistoryMap(TerrainServer):
                         n = 1 if chunk else bw.TILE // 16
                         wanted = {(tx * n + i, tz * n + j) for i in range(-1, n + 1) for j in range(-1, n + 1)}
                         cache = os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "moment")
+                        # 1. chunks a recording had loaded then (exact, growth and all)
                         over = moment.world_at(self.recordings_at(t), wanted, dim, cache)
-                        inside = [k for k in over if tx * n <= k[0] < tx * n + n and tz * n <= k[1] < tz * n + n]
-                        if not inside and chunk:
-                            info = {"faces": 0, "moment": False, "message": "no recording had that chunk"}
-                        elif not inside:
-                            info = {**bw.block_tile(tx, tz, dim, f"/blocktile/{layer}/"), "moment": False}
-                        elif chunk:
-                            sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
-                                           for k, c in sorted(over.items()))
-                            info = {**bw.moment_chunk(tx, tz, dim, f"/blocktile/{layer}/", over, sig), "moment": True,
-                                    "edits": len(over[(tx, tz)].edits)}
+                        # 2. elsewhere: the backup with the Ledger log's changes undone back to t (or replayed to it)
+                        lg, base_t = self.ledger(), self.layer_time(layer)
+                        logged = bool(lg and base_t is not None and lg.first is not None and t >= lg.first)
+                        patches = lg.patches(dim, wanted - set(over), t, base_t) if logged else {}
+                        mine = lambda k: tx * n <= k[0] < tx * n + n and tz * n <= k[1] < tz * n + n
+                        inside = [k for k in over if mine(k)]
+                        patched = [k for k in patches if mine(k)]
+                        sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
+                                       for k, c in sorted(over.items()))
+                        if patches:
+                            sig += "|ledger:" + hashlib.sha1(repr(sorted((k, sorted(v.items())) for k, v in
+                                                                      patches.items())).encode()).hexdigest()[:16]
+                        url = f"/blocktile/{layer}/"
+                        as_at = {"moment": bool(inside or patched or logged), "recorded_chunks": len(inside),
+                                 "ledger": logged, "ledger_chunks": len(patched),
+                                 "edits": sum(len(over[k].edits) for k in inside) + sum(len(patches[k]) for k in patched)}
+                        if chunk:
+                            info = {**bw.moment_chunk(tx, tz, dim, url, over, sig or "backup", patches), **as_at}
+                        elif not inside and not patched:     # nothing differs from the backup's piece
+                            info = {**bw.block_tile(tx, tz, dim, url), **as_at}
                         else:
-                            sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
-                                           for k, c in sorted(over.items()))
-                            info = {**bw.moment_tile(tx, tz, dim, f"/blocktile/{layer}/", over, sig), "moment": True,
-                                    "recorded_chunks": len(inside),
-                                    "edits": sum(len(over[k].edits) for k in inside)}
+                            info = {**bw.moment_tile(tx, tz, dim, url, over, sig, patches), **as_at}
                 except (OSError, ValueError, zipfile.BadZipFile, struct.error, IndexError, KeyError) as exc:
                     info = {"faces": 0, "message": f"blocks at that moment: {exc}"}
             with lock:

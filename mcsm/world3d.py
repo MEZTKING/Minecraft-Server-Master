@@ -135,11 +135,12 @@ class BuildWorld:
 
     MOMENT_KEEP = 400                                    # moment tiles kept on disk (the oldest go first)
 
-    def moment_tile(self, tx: int, tz: int, dim: str, url_prefix: str, overrides: dict, sig: str) -> dict:
+    def moment_tile(self, tx: int, tz: int, dim: str, url_prefix: str, overrides: dict, sig: str,
+                    patches: dict | None = None) -> dict:
         """Real blocks of one piece with *overrides* (chunks as recordings saw them at a moment, see
         :mod:`mcsm.moment`) in place of the backup's; *sig* identifies that state. Kept in a bounded cache."""
         key = hashlib.sha1(f"{self._tile_key(tx, tz, dim)}|moment|{sig}".encode()).hexdigest()[:20]
-        info = self._tile(tx, tz, dim, url_prefix, key, "tiles-moment", overrides)
+        info = self._tile(tx, tz, dim, url_prefix, key, "tiles-moment", overrides, patches=patches)
         folder = os.path.join(self.cache, "tiles-moment")
         try:
             files = sorted((e for e in os.scandir(folder) if e.name.endswith(".json")), key=lambda e: e.stat().st_mtime)
@@ -153,13 +154,14 @@ class BuildWorld:
             pass
         return info
 
-    def moment_chunk(self, cx: int, cz: int, dim: str, url_prefix: str, overrides: dict, sig: str) -> dict:
+    def moment_chunk(self, cx: int, cz: int, dim: str, url_prefix: str, overrides: dict, sig: str,
+                     patches: dict | None = None) -> dict:
         """One chunk's real blocks with *overrides* (as at a moment): live block changes during playback."""
         key = hashlib.sha1(f"{self._tile_key(cx, cz, dim)}|chunk|{sig}".encode()).hexdigest()[:20]
-        return self._tile(cx, cz, dim, url_prefix, key, "tiles-moment", overrides, only={(cx, cz)})
+        return self._tile(cx, cz, dim, url_prefix, key, "tiles-moment", overrides, only={(cx, cz)}, patches=patches)
 
     def _tile(self, tx: int, tz: int, dim: str, url_prefix: str, key: str, folder: str, overrides,
-              only: set | None = None) -> dict:
+              only: set | None = None, patches: dict | None = None) -> dict:
         import json
         n = self.TILE // 16
         base = os.path.join(self.cache, folder, key)
@@ -175,7 +177,7 @@ class BuildWorld:
             return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
         if only is None:
             only = {(tx * n + i, tz * n + j) for i in range(n) for j in range(n)}
-        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides)
+        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides, patches=patches)
         os.makedirs(os.path.dirname(base), exist_ok=True)
         if r["faces"]:
             with open(base + ".bin.part", "wb") as fh:

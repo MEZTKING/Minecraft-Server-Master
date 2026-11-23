@@ -5233,6 +5233,85 @@ def _chunk_packet(cx: int, cz: int, ids: dict, two_counts: bool = True, mask_byt
     return p
 
 
+class TestLedger(unittest.TestCase):
+    """The Ledger mod's block log: the world at a moment from a backup with the changes undone or replayed."""
+
+    def _db(self, path):
+        con = sqlite3.connect(path)
+        con.executescript("""
+            create table ActionIdentifiers (id integer primary key, action_identifier text);
+            create table worlds (id integer primary key, identifier text);
+            create table ObjectIdentifiers (id integer primary key, identifier text);
+            create table actions (id integer primary key, action_id int, time text, x int, y int, z int, world_id int,
+              object_id int, old_object_id int, block_state text, old_block_state text, source int, player_id int,
+              extra_data text, rolled_back boolean);
+            insert into ActionIdentifiers values (1, 'block-break'), (2, 'block-place'), (3, 'block-change'), (8, 'entity-kill');
+            insert into worlds values (1, 'minecraft:overworld');
+            insert into ObjectIdentifiers values (1, 'minecraft:air'), (2, 'minecraft:oak_stairs'), (3, 'minecraft:stone');
+        """)
+        rows = [   # (action, time, x, y, z, object, old object, state, old state, rolled back)
+            (2, "2026-03-01 10:00:00.000", 5, 70, 5, 2, 1, '{facing:"east",half:"bottom"}', None, 0),   # stairs placed
+            (1, "2026-03-01 11:00:00.000", 5, 70, 5, 1, 2, None, '{facing:"east",half:"bottom"}', 0),   # broken again
+            (2, "2026-03-01 10:30:00.000", 6, 64, 6, 3, 1, None, None, 0),                              # stone placed
+            (2, "2026-03-01 10:40:00.000", 7, 64, 7, 3, 1, None, None, 1),                              # rolled back
+            (8, "2026-03-01 10:45:00.000", 8, 64, 8, 3, 1, None, None, 0),                              # not a block
+        ]
+        con.executemany("insert into actions (action_id, time, x, y, z, world_id, object_id, old_object_id, block_state,"
+                        " old_block_state, source, rolled_back) values (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 1, ?)", rows)
+        con.commit()
+        con.close()
+
+    def test_moment(self):
+        from datetime import datetime, timezone
+        from mcsm import ledger
+        ms = lambda *a: int(datetime(*a, tzinfo=timezone.utc).timestamp() * 1000)
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "world"))
+            p = os.path.join(tmp, "world", "ledger.sqlite")
+            self._db(p)
+            self.assertEqual(ledger.find(tmp, "world"), p)
+            lg = ledger.Ledger(p)
+            self.assertEqual((lg.first, lg.last), (ms(2026, 3, 1, 10), ms(2026, 3, 1, 11)))
+            rows = lg.changes("minecraft:overworld", 0, 0, 15, 15, ms(2026, 3, 1), ms(2026, 3, 2))
+            self.assertEqual([r[1:4] for r in rows], [(5, 70, 5), (6, 64, 6), (5, 70, 5)])   # in time order, no rollback
+            self.assertEqual(rows[0][4], "minecraft:oak_stairs[facing=east,half=bottom]")
+            backup = ms(2026, 3, 2)                       # a backup after it all: stairs gone, stone there
+            at_1015 = lg.patches("minecraft:overworld", {(0, 0)}, ms(2026, 3, 1, 10, 15), backup)
+            self.assertEqual(at_1015, {(0, 0): {(5, 70, 5): "minecraft:oak_stairs[facing=east,half=bottom]",
+                                                (6, 64, 6): "minecraft:air"}})
+            at_0900 = lg.patches("minecraft:overworld", {(0, 0)}, ms(2026, 3, 1, 9), backup)
+            self.assertEqual(at_0900[(0, 0)][(5, 70, 5)], "minecraft:air")   # before the stairs were placed
+            old_backup = ms(2026, 2, 1)                   # a backup before it all: replayed forward
+            fwd = lg.patches("minecraft:overworld", {(0, 0)}, ms(2026, 3, 1, 10, 15), old_backup)
+            self.assertEqual(fwd[(0, 0)][(5, 70, 5)], "minecraft:oak_stairs[facing=east,half=bottom]")
+            self.assertNotIn((6, 64, 6), fwd[(0, 0)])     # placed later
+            self.assertEqual(lg.patches("minecraft:overworld", {(9, 9)}, ms(2026, 3, 1, 10, 15), backup), {})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_patched_chunk(self):
+        from mcsm import blockmesh as bm
+
+        class Base:
+            min_y, lit = -64, False
+            tops = [63] * 256
+
+            def state(self, x, y, z):
+                return "minecraft:stone" if y <= 63 else "minecraft:air"
+
+            def biome(self, x, y, z):
+                return "minecraft:plains"
+
+            def light(self, x, y, z):
+                return (15, 0) if y > 63 else (0, 0)
+        c = bm.PatchedChunk(Base(), {(1, 70, 1): "minecraft:oak_log", (2, 63, 2): "minecraft:air"})
+        self.assertEqual((c.state(1, 70, 1), c.state(1, 69, 1)), ("minecraft:oak_log", "minecraft:air"))
+        self.assertEqual(c.tops[1 * 16 + 1], 70)          # a block above the ground: the column's top goes up
+        self.assertEqual(c.tops[2 * 16 + 2], 62)          # a hole dug in the top: it goes down
+        self.assertEqual(c.light(2, 63, 2)[0], 15)        # open to the sky now
+
+
 class TestReview(unittest.TestCase):
     """The year in review: hours from sessions, statistics between backups, deaths, advancements."""
 

@@ -283,8 +283,15 @@ come from the server's resource pack, which isn't on this PC). The recorded play
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
 
 **Blocks as at that moment.** With **As at that moment** ticked (next to *Real blocks*, on at first), the blocks
-near you during exact playback are the world as the recordings saw it at that time, not as the next backup has
-it: a build half done, a hole just dug, a house not yet there. Every recording keeps the chunks its player's game
+near you are the world as it was at that time, not as the next backup has it: a build half done, a hole just
+dug, a house not yet there. Two sources are used:
+- **The recordings,** during exact playback, wherever a recording had the chunks loaded: exact, including crops
+  growing and doors opening.
+- **The server's Ledger log** everywhere else, at any time it covers, with or without recordings. Ledger is the
+  mod that logs every block placed or broken; your server has it since 14 November 2025. The app reads its
+  database from the newest backup (`ledger.sqlite`), never changing it. It takes the backup saved after that
+  moment and puts back what was there before each change Ledger logged since. Ledger logs what players,
+  explosions, fire and the like do, not crops or redstone. Every recording keeps the chunks its player's game
 received and every block placed or broken after that; the app puts together what all the recordings running at
 that moment saw (the latest change wins). The nine pieces nearest you are rebuilt every 30 seconds of playback
 and when you jump; the label next to the switch says which moment they show. In between, blocks placed or

@@ -164,7 +164,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     </select></label>
     <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
     <label title="Close up, show the real blocks with Minecraft's textures from the backup shown (loaded around where you look as you move; further away the map stays smooth)"><input type="checkbox" id="realOn" checked> Real blocks</label>
-    <label title="During exact playback, show the blocks near you as the recordings saw them at that moment (built as they were, not as the next backup has them); updated every 30 seconds of playback and when you jump"><input type="checkbox" id="momentOn" checked> As at that moment<span id="momentAt" style="opacity:.7"></span></label>
+    <label title="Show the blocks near you as they were at that moment (built as they were, not as the next backup has them): from the recordings during exact playback, and from the server's Ledger log at any time it covers; updated every 30 seconds of playback and when you jump"><input type="checkbox" id="momentOn" checked> As at that moment<span id="momentAt" style="opacity:.7"></span></label>
   </div>
   <details id="showBox" title="What to show on the map">
     <summary>Show</summary>
@@ -710,8 +710,14 @@ const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map
 // blocks at the moment (exact playback): the nearest pieces come from the recordings' chunk data at a time rounded
 // to MOMENT_STEP, so a piece is rebuilt every 30 s of playback (and when you jump)
 const MOMENT_STEP = 30_000, MOMENT_TILES = 9;
+// the Ledger mod's block log (if the server has one): blocks at any moment it covers, not only during exact playback
+let LEDGER = { available: false, from: 0, to: 0 };
+fetch("api/ledger").then(r => r.json()).then(d => { LEDGER = d; }).catch(() => {});
 function momentTime() {
-  if (!$("#momentOn").checked || !EXACT.on || !(T >= EXACT.lo && T <= EXACT.hi)) return null;
+  if (!$("#momentOn").checked) return null;
+  const exact = EXACT.on && T >= EXACT.lo && T <= EXACT.hi;
+  const logged = LEDGER.available && T >= LEDGER.from && T <= LEDGER.to + 86_400_000;
+  if (!exact && !logged) return null;
   return Math.floor(T / MOMENT_STEP) * MOMENT_STEP;
 }
 const REAL_TILE = 128;

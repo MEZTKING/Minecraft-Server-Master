@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -807,6 +807,23 @@ logs end.
 
 **Open:** which use first (proposed: 1, then 2).
 
+✅ **Use 1 built 2026-11-23** (owner: "Blocks at any moment"). `mcsm/ledger.py`:
+- `Ledger.changes()` (by world, box and time; block actions only; rolled-back rows left out).
+- `Ledger.patches(dim, chunks, at, base)`: undo back to *at* from a backup saved at *base* (the first change
+  after *at* gives the old block), or replay forward when the backup is older.
+- `state()` turns Ledger's `{facing:"east"}` into `[facing=east]`.
+- Ledger's times are UTC: checked where a recording and Ledger saw the same change (within a second).
+- `blockmesh.PatchedChunk` puts the blocks over a backup chunk (tops follow; light estimated).
+  `build(patches=...)`.
+- Moment tiles and chunks: recordings first, Ledger for the other chunks, the backup's piece when nothing
+  differs; the signature includes a hash of the patches.
+- `/api/momentchanges` adds Ledger's changes (live updates for anyone's building); `/api/ledger` tells the
+  page its span. The page uses moment tiles whenever Ledger covers the time, not only in exact playback.
+- At most 8 moment builds queue (a dragged slider asks again).
+- A whole-window query takes about 0.6 s, and a piece's patches about 0.6 s.
+- Checked: Vakirath's ship at 3,886, 266 on 7 November 21:00 UTC (no recording near), with 2,806 blocks set
+  back. Only the bottom of the hull shows, against the finished ship in the 20 November backup.
+
 ### 0ze. One combined recording of everyone (raised 2026-11-23)
 
 **The ask:** "is it not possible to just combine all the recordings as one and play that".
@@ -1430,6 +1447,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Blocks at any moment (Ledger)**: drag the time slider back to any day since 14 November 2025 and zoom in on a
+  build; it should look as it was then (e.g. Vakirath's ship at 3886, 266 on 7 November 2026, 21:00 UTC: only
+  the bottom of the hull).
 - **Water in Fancy and Ultra** (fixed 2026-11-23): it should look like the game's water, not pale.
 - **Year in review**: the **Year in review** button; your player page; **Picture** on a card; **Export…**
   then open the file.
@@ -1532,6 +1552,9 @@ Things built and checked here that need a look in the real game or by eye (newes
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Blocks at any moment from the server's Ledger log (`mcsm/ledger.py`): the backup with the
+  logged changes undone or replayed, wherever no recording had the chunks; live changes include Ledger's.
 
 - **2026-11-23:** Water in Fancy/Ultra no longer washed out (it took the lit blocks' brightness match and too
   much sky). Backlog: 0zd Ledger (2.1 million logged actions found in the backups), 0ze one combined

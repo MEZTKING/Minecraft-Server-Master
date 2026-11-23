@@ -774,6 +774,45 @@ class Chunk:
         return sky, blk
 
 
+class PatchedChunk:
+    """A backup chunk with some blocks changed (``{(x, y, z): state}``, chunk-local x and z), e.g. by the Ledger log
+    (blocks as they were at another moment). Column tops follow the changes; light where a block changed is
+    worked out from the spaces around it."""
+
+    def __init__(self, base: "Chunk", edits: dict):
+        self.base, self.edits = base, edits
+        self.min_y, self.lit = base.min_y, base.lit
+        self.tops = list(base.tops)
+        for (x, y, z), st in sorted(edits.items(), key=lambda kv: kv[0][1]):
+            i = z * 16 + x
+            if st.partition("[")[0] not in AIR:
+                self.tops[i] = max(self.tops[i], y)
+            elif y >= self.tops[i]:
+                t = y
+                while t >= self.min_y and ((self.state(x, t, z) or "minecraft:air").partition("[")[0] in AIR):
+                    t -= 1
+                self.tops[i] = t
+
+    def state(self, x: int, y: int, z: int) -> str | None:
+        e = self.edits.get((x, y, z))
+        return e if e is not None else self.base.state(x, y, z)
+
+    def biome(self, x: int, y: int, z: int) -> str | None:
+        return self.base.biome(x, y, z)
+
+    def light(self, x: int, y: int, z: int) -> tuple[int, int]:
+        sky, blk = self.base.light(x, y, z)
+        if (x, y, z) in self.edits:
+            if y > self.tops[z * 16 + x]:
+                sky = 15
+            else:
+                around = [self.base.light(x + dx, y + dy, z + dz) for dx, dy, dz in DIRS
+                          if 0 <= x + dx < 16 and 0 <= z + dz < 16]
+                sky = max([sky] + [a[0] - 1 for a in around])
+                blk = max([blk] + [a[1] - 1 for a in around])
+        return max(0, sky), max(0, blk)
+
+
 def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[int, int]]:
     out = set()
     r = int(math.ceil(radius / 16)) + 1
@@ -788,11 +827,13 @@ def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[
 
 def build(root: str, world: str, points: list[tuple[float, float]], look: Look, radius: float = 80.0,
           max_chunks: int = 900, dimension: str = "minecraft:overworld",
-          only: set[tuple[int, int]] | None = None, overrides: dict | None = None) -> dict:
+          only: set[tuple[int, int]] | None = None, overrides: dict | None = None,
+          patches: dict | None = None) -> dict:
     """The visible block faces within *radius* of the (x, z) *points* (the camera path). With *only* (a set of
     chunk coordinates), exactly the blocks of those chunks; the chunks around them are read too, so faces at the
     edge are hidden or shown correctly (pieces built side by side fit together). *overrides*: chunks to use
-    instead of the backup's ((cx, cz) -> a chunk with the same interface, e.g. :class:`mcsm.moment.RecChunk`)."""
+    instead of the backup's ((cx, cz) -> a chunk with the same interface, e.g. :class:`mcsm.moment.RecChunk`).
+    *patches*: blocks to change in the backup's chunks ((cx, cz) -> {(x, y, z): state}, see :class:`PatchedChunk`)."""
     if only is not None:
         core = set(only)
         want = {(cx + dx, cz + dz) for cx, cz in only for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
@@ -826,6 +867,9 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 chunks[(rx * 32 + lx, rz * 32 + lz)] = Chunk(raw)
             except (ValueError, IndexError, struct.error, KeyError, TypeError):
                 continue
+    for key, edits in (patches or {}).items():       # blocks changed since (or before) the backup
+        if key in want and key in chunks and edits and key not in (overrides or {}):
+            chunks[key] = PatchedChunk(chunks[key], edits)
     for key, c in (overrides or {}).items():         # blocks as a recording saw them
         if key in want:
             chunks[key] = c
