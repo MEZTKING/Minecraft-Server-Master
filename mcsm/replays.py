@@ -67,6 +67,7 @@ import zipfile
 from datetime import datetime, timedelta
 from typing import IO, Any, Callable
 
+from . import progress as jobs
 from . import models as m
 from .timeutil import UTC, from_epoch_ms
 
@@ -112,6 +113,7 @@ def find_replay_sources(root: str) -> list[tuple[str, str]]:
     path mentions recordings/replays/flashback, so world backups aren't scanned.
     """
     found = []
+    checked = 0
     for current, dirs, files in os.walk(root):
         keep = []
         for d in dirs:
@@ -126,6 +128,9 @@ def find_replay_sources(root: str) -> list[tuple[str, str]]:
         replay_area = re.search(r"record|replay|flashback", current.replace("\\", "/"), re.IGNORECASE)
         for f in files:
             full = os.path.join(current, f)
+            checked += 1
+            if checked % 25 == 0:
+                jobs.report(None, None, f"Looking for recordings: {checked:,} files checked")
             low = f.lower()
             if low.endswith(".mcpr"):
                 found.append(("replaymod", full))
@@ -432,7 +437,8 @@ def read_replays(root: str, uuid_to_name: dict[str, str] | None = None, extra_pa
     replays, warnings = [], []
     sources = find_replay_sources(root) + [(None, os.path.abspath(p)) for p in (extra_paths or [])]
     seen = set()
-    for kind, p in sources:
+    for i, (kind, p) in enumerate(sources):
+        jobs.report(i, len(sources), f"Reading recordings: {i:,} of {len(sources):,}")
         if p in seen:
             continue
         seen.add(p)

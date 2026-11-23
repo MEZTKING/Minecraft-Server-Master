@@ -29,6 +29,7 @@ from datetime import date
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from . import progress as jobs
 from . import __version__, cli, models as m, version_string
 from .analyzer import analyze
 from .source import open_server
@@ -47,6 +48,7 @@ BUTTON_TIPS = {
     "Load server": "Read the chosen server/backups: logs, players, stats and recordings. Needed by most tabs.",
     "Join timelapse parts…": "Pick the videos you exported from a timelapse's parts: they are joined in order "
                              "into one video, with a song if you like (needs ffmpeg).",
+    "Cancel": "Stop the job that is running (it stops after the file it's on; nothing is left half-written).",
     "Ignored players…": "Players who were never supposed to join: leave them out everywhere (reports, moments, "
                         "story, timelapses, maps). Nothing in your backups is changed.",
     "Browse…": "Pick a folder or file for this field.",
@@ -183,6 +185,7 @@ class _QueueWriter(io.TextIOBase):
     def write(self, s: str) -> int:
         if s:
             self.q.put(("log", s))
+            jobs.check()              # a cancelled job stops at its next printed line
         return len(s)
 
 
@@ -194,6 +197,17 @@ def open_path(path: str) -> None:
         subprocess.Popen(["open", path])
     else:
         subprocess.Popen(["xdg-open", path])
+
+
+def show_in_folder(path: str) -> None:
+    """Open the folder holding *path* with the file selected (Explorer); a folder is opened itself."""
+    path = os.path.normpath(path)
+    if sys.platform.startswith("win") and os.path.isfile(path):
+        subprocess.Popen(["explorer", "/select,", path])
+    elif os.path.isdir(path):
+        open_path(path)
+    elif os.path.isdir(os.path.dirname(path)):
+        open_path(os.path.dirname(path))
 
 
 def _documents_dir() -> str:
@@ -259,9 +273,33 @@ class App(ttk.Frame):
         self.load_btn = ttk.Button(opts, text="Load server", command=self._load)
         self.load_btn.pack(side="right")
         ttk.Button(opts, text="Ignored players…", command=self._ignored_players).pack(side="right", padx=4)
+        from . import updater
+        self.reopen_var = tk.BooleanVar(value=updater.load_settings().get("reopen_last", True))
+        ttk.Checkbutton(opts, text="Open it again next time", variable=self.reopen_var,
+                        command=self._save_reopen).pack(side="right", padx=4)
         self.status_var = tk.StringVar(value="No server loaded")
         ttk.Label(box, textvariable=self.status_var, foreground="gray", wraplength=820).grid(row=2, column=0, columnspan=5, sticky="w", pady=(6, 0))
         self._build_updates(box)
+
+    def _save_reopen(self) -> None:
+        from . import updater
+        s = updater.load_settings()
+        s["reopen_last"] = bool(self.reopen_var.get())
+        updater.save_settings(s)
+
+    def _reopen_last(self) -> None:
+        """At start: load the server or world loaded last time (quick when nothing changed)."""
+        from . import updater
+        last = updater.load_settings().get("last_loaded") or {}
+        path = last.get("path") or ""
+        parts = [p.strip() for p in path.split(SEP.strip()) if p.strip()]
+        if not self.reopen_var.get() or not parts or not all(os.path.exists(p) for p in parts) or self.server_var.get():
+            return
+        self.server_var.set(path)
+        self.tz_var.set(last.get("tz") or "")
+        self.latest_var.set(last.get("latest") or "")
+        self.log(f"Opening the last server again: {path}\n")
+        self._load()
 
     def _ignored_players(self) -> None:
         """Players left out everywhere: people who were never supposed to join (mcsm.ignore)."""
@@ -502,7 +540,7 @@ class App(ttk.Frame):
         ttk.Button(bottom, text="Refresh", command=self._lib_refresh).pack(side="left", padx=4)
         ttk.Button(bottom, text="Tidy the original folder…", command=self._lib_tidy).pack(side="left", padx=(16, 0))
         ttk.Button(bottom, text="Undo tidy…", command=self._lib_tidy_undo).pack(side="left", padx=4)
-        self._lib_refresh()
+        self.after(50, self._lib_refresh)               # after the window is up
         return f
 
     def _lib_selected_world(self) -> str | None:
@@ -516,13 +554,30 @@ class App(ttk.Frame):
         return worlds[0]["path"] if len(worlds) == 1 else None
 
     def _lib_refresh(self) -> None:
+        """Read the library in the background (with the loading bar) and fill the list."""
         from . import library as lib
+        folder = self.lib_dir_var.get()
+        self.lib_loading = True
         tree = self.lib_tree
         tree.delete(*tree.get_children())
-        try:
-            worlds = lib.list_worlds(self.lib_dir_var.get())
-        except OSError:
-            worlds = []
+        tree.insert("", "end", iid="__loading", text="(reading your library…)")
+
+        def work(_d):
+            try:
+                return lib.list_worlds(folder)
+            except OSError:
+                return []
+        self._run("Reading your library", work, self._lib_fill, quiet=True, exclusive=False,
+                  cancelled=lambda: self._lib_fill(None))
+
+    def _lib_fill(self, worlds) -> None:
+        from . import library as lib
+        self.lib_loading = False
+        tree = self.lib_tree
+        tree.delete(*tree.get_children())
+        if worlds is None:
+            tree.insert("", "end", iid="__cancelled", text="(not read: press Refresh)")
+            return
         for w in worlds:
             bs = w["backups"]
             tree.insert("", "end", iid=w["path"], open=True,
@@ -580,8 +635,10 @@ class App(ttk.Frame):
                                                "(e.g. '2026-06-09 June09_2026_PostEXP2') so they sort by date?",
                                      default="no")
 
+        library = self.lib_dir_var.get()
+
         def scan(_):
-            plan = lib.scan(top, self.lib_dir_var.get())
+            plan = lib.scan(top, library)
             moves = lib.tidy_plan(plan, rename=rename)
             print(lib.describe_tidy(plan, moves))
             return plan, moves
@@ -1151,7 +1208,12 @@ class App(ttk.Frame):
     def _vid_join(self) -> None:
         """Join exported timelapse parts into one video (mcsm timelapse-join)."""
         from . import videojoin
-        vids = filedialog.askopenfilenames(title="The exported videos of the timelapse parts",
+        from . import flashback as fbm
+        outs = fbm.export_folders()                      # where Flashback saves exported videos (newest first)
+        start = outs[0]["path"] if outs else os.path.join(os.path.expanduser("~"), "Videos")
+        vids = filedialog.askopenfilenames(title="The exported videos of the timelapse parts (Flashback names them by "
+                                                 "date and time: export the parts in order)",
+                                           initialdir=start if os.path.isdir(start) else _documents_dir(),
                                            filetypes=[("Videos", "*.mp4 *.mov *.mkv *.webm"), ("All files", "*.*")])
         if not vids:
             return
@@ -1250,6 +1312,30 @@ class App(ttk.Frame):
             win.destroy()
             self._vid_edit_open(e["state"], e["scene"])
         tree.bind("<Double-1>", go)
+
+        def menu(event):
+            """Right-click: where this edit's files are (Flashback has no "show in folder")."""
+            from . import flashback as fbm
+            iid = tree.identify_row(event.y)
+            if not iid:
+                return
+            tree.selection_set(iid)
+            e = rows[iid]
+            fb = os.path.dirname(os.path.dirname(e["state"]))          # .../flashback/editor_states/x.json
+            m = tk.Menu(win, tearoff=0)
+            rec = e.get("recording")
+            m.add_command(label="Show the recording in its folder", state="normal" if rec and os.path.exists(rec) else "disabled",
+                          command=lambda: show_in_folder(rec))
+            m.add_command(label="Show the edit's timeline file (editor state)", command=lambda: show_in_folder(e["state"]))
+            m.add_command(label="Open this Flashback's replays folder",
+                          command=lambda: show_in_folder(os.path.join(fb, "replays")))
+            out = fbm.export_folder(fb)
+            m.add_command(label=f"Open the folder Flashback saves videos to{'' if out else ' (none set yet)'}",
+                          state="normal" if out else "disabled", command=lambda: show_in_folder(out))
+            m.tk_popup(event.x_root, event.y_root)
+        tree.bind("<Button-3>", menu)
+        ttk.Label(win, text="Right-click an edit to find its recording, its timeline file or the exported videos.",
+                  foreground="gray").pack(padx=10, anchor="w")
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
         ttk.Button(row, text="Open", command=go).pack(side="right", padx=6)
 
@@ -1463,6 +1549,18 @@ class App(ttk.Frame):
         return f
 
     def _build_log(self) -> None:
+        # The loading bar: shown while a job runs, with what it's doing and a Cancel button.
+        self.job_frame = ttk.Frame(self)
+        self.job_frame.grid(row=4, column=0, sticky="ew", pady=(6, 0))
+        self.job_frame.columnconfigure(1, weight=1)
+        self.job_text = tk.StringVar()
+        ttk.Label(self.job_frame, textvariable=self.job_text, width=46, anchor="w").grid(row=0, column=0, sticky="w")
+        self.job_bar = ttk.Progressbar(self.job_frame, mode="indeterminate")
+        self.job_bar.grid(row=0, column=1, sticky="ew", padx=6)
+        self.job_cancel = ttk.Button(self.job_frame, text="Cancel", command=self._cancel_job)
+        self.job_cancel.grid(row=0, column=2)
+        self.job_frame.grid_remove()
+        self.job: jobs.Job | None = None
         ttk.Label(self, text="Output").grid(row=2, column=0, sticky="w")
         frame = ttk.Frame(self)
         frame.grid(row=3, column=0, sticky="nsew")
@@ -1490,40 +1588,104 @@ class App(ttk.Frame):
             b.configure(state="disabled" if busy or (needs_data and self.data is None) else "normal")
         self.root.configure(cursor="watch" if busy else "")
 
+    def _show_job(self, title: str | None) -> None:
+        """Show the loading bar for a job (*title*), or hide it (None)."""
+        if title is None:
+            self.job_bar.stop()
+            self.job_frame.grid_remove()
+            return
+        self.job_text.set(title + "…")
+        self.job_bar.configure(mode="indeterminate", value=0)
+        self.job_bar.start(12)
+        self.job_cancel.configure(state="normal", text="Cancel")
+        self.job_frame.grid()
+
+    def _job_progress(self, done, total, text) -> None:
+        if text:
+            self.job_text.set(text)
+        if total:
+            if str(self.job_bar.cget("mode")) != "determinate":
+                self.job_bar.stop()
+                self.job_bar.configure(mode="determinate")
+            self.job_bar.configure(maximum=total, value=min(done or 0, total))
+        elif str(self.job_bar.cget("mode")) != "indeterminate":
+            self.job_bar.configure(mode="indeterminate", value=0)
+            self.job_bar.start(12)
+
+    def _cancel_job(self) -> None:
+        if self.job is not None:
+            self.job.cancel()
+            self.job_text.set("Cancelling… (stops after the file it's on)")
+            self.job_cancel.configure(state="disabled")
+
     def _poll(self) -> None:
         try:
             while True:
-                kind, payload = self.q.get_nowait()
+                item = self.q.get_nowait()
+                kind, payload = item[0], item[1]
                 if kind == "log":
                     self.log(payload)
+                elif kind == "progress":
+                    job, args = payload
+                    if job is self.job:
+                        self._job_progress(*args)
                 elif kind == "done":
-                    self._set_busy(False)
-                    if callable(payload):
-                        payload()
+                    job, exclusive, then = payload if isinstance(payload, tuple) else (None, True, payload)
+                    if job is None or job is self.job:
+                        self.job = None
+                        self._show_job(None)
+                    if exclusive:
+                        self._set_busy(False)
+                    if callable(then):
+                        then()
         except queue.Empty:
             pass
         self.after(100, self._poll)
 
-    def _run(self, title: str, work, after=None) -> None:
-        """Run ``work(data)`` on a thread, streaming its printed output to the log."""
-        if self.busy:
+    def _run(self, title: str, work, after=None, cancelled=None, quiet: bool = False,
+             exclusive: bool = True) -> None:
+        """Run ``work(data)`` on a thread, streaming its printed output to the log, with the loading bar
+        (progress from :mod:`mcsm.progress`) and its Cancel button. *cancelled*: called after a cancel.
+
+        *exclusive* jobs are one at a time (the buttons wait); a non-exclusive one (reading the library
+        list) runs beside them, doesn't print, and gives the bar up to any exclusive job that starts."""
+        if exclusive and self.busy:
             return
-        self._set_busy(True)
-        self.log(f"\n--- {title} ---\n")
+        if exclusive:
+            self._set_busy(True)
+        if not quiet:
+            self.log(f"\n--- {title} ---\n")
         writer = _QueueWriter(self.q)
+        job = jobs.Job(lambda d, t, txt: self.q.put(("progress", (job, (d, t, txt)))))
+        if exclusive or self.job is None:
+            self.job = job
+            self._show_job(title)
+
+        def done(then):
+            self.q.put(("done", (job, exclusive, then)))
 
         def target():
+            jobs.set_job(job)
             try:
-                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                if exclusive:
+                    with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                        result = work(self.data)
+                else:
                     result = work(self.data)
-                self.q.put(("done", (lambda: after(result)) if after else None))
+                done((lambda: after(result)) if after else None)
+            except jobs.Cancelled:
+                self.q.put(("log", f"{title}: cancelled.\n"))
+                done(cancelled)
             except SystemExit as exc:  # cli helpers use SystemExit for user errors
                 self.q.put(("log", f"Error: {exc}\n"))
-                self.q.put(("done", None))
+                done(None)
             except Exception as exc:  # noqa: BLE001 - show anything to the user
-                self.q.put(("log", f"Error: {exc}\n"))
+                msg = str(exc)
+                self.q.put(("log", f"Error: {msg}\n"))
                 self.q.put(("log", traceback.format_exc()))
-                self.q.put(("done", lambda: messagebox.showerror(APP_NAME, str(exc))))
+                done(lambda: messagebox.showerror(APP_NAME, msg))
+            finally:
+                jobs.set_job(None)
 
         threading.Thread(target=target, daemon=True).start()
 
@@ -1622,23 +1784,14 @@ class App(ttk.Frame):
 
         paths = [p.strip() for p in path.split(SEP.strip()) if p.strip()]
         stack = contextlib.ExitStack()
+        tz_spec = self.tz_var.get().strip()             # read here: tkinter values only on the main thread
 
         def work(_):
             # Backups stay (selectively) extracted while loaded: Flashback copies and
             # timelapses read full replays from them later. Closed on the next load / exit.
             try:
-                from .library import expand_sources
-                servers, recs, world = expand_sources(paths)      # a library world = all its backups
-                if len(servers) == 1 and not recs:
-                    root = stack.enter_context(open_server(servers[0]))
-                    print(f"Reading {servers[0]}")
-                    data = analyze(root, tz=tz, latest_log_date=latest)
-                    data.library_world = world
-                else:
-                    from .archive import analyze_many
-                    data = analyze_many(servers, stack, tz=tz, latest_log_date=latest, progress=print,
-                                        recordings=recs)
-                    data.library_world = world
+                from . import loadcache                       # the saved result when nothing changed
+                data = loadcache.load(paths, stack, tz=tz, tz_spec=tz_spec, latest=latest)
                 from . import ignore
                 left_out = ignore.apply(data)             # players who were never supposed to join
                 if left_out:
@@ -1658,9 +1811,15 @@ class App(ttk.Frame):
                 self.live_port_var.set(str(live_cfg["port"]))
             if live_cfg.get("password") and not self.live_pw_var.get():
                 self.live_pw_var.set(live_cfg["password"])
+            from . import updater
+            s = updater.load_settings()                  # opened again when the app starts
+            s["last_loaded"] = {"path": path, "tz": self.tz_var.get().strip(), "latest": self.latest_var.get().strip()}
+            updater.save_settings(s)
             merged = f"{len(data.backups)} backups merged, " if data.backups else ""
             self.status_var.set(f"Loaded: {merged}{len(data.players)} players, {len(data.events):,} events, "
-                                f"{len(data.replays)} replays.  Time zone: {data.timezone_info}")
+                                f"{len(data.replays)} replays.  Time zone: {data.timezone_info}"
+                                + ("  (saved result: nothing changed since last time)"
+                                   if getattr(data, "loaded_from_cache", False) else ""))
             self._fill_replays()
             self._set_busy(False)
             buf = io.StringIO()
@@ -1670,7 +1829,9 @@ class App(ttk.Frame):
             if then:
                 then()
 
-        self._run("Loading server", work, after)
+        self._run("Loading server", work, after,
+                  cancelled=lambda: self.status_var.set("Loading cancelled." if self.data is None else
+                                                        "Loading cancelled: the server loaded before is still loaded."))
 
     def _report(self):
         name = (self.data.world.get("level_name") or "server") if self.data else "server"
@@ -1787,6 +1948,8 @@ def main() -> int:
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):  # "Open with…" / drag onto the icon
         app.server_var.set(sys.argv[1])
         app.after(200, app._load)
+    else:
+        app.after(300, app._reopen_last)                 # the last server, as it was
     root.mainloop()
     return 0
 

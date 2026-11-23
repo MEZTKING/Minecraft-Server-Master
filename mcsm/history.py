@@ -291,6 +291,10 @@ class HistoryMap(TerrainServer):
                 "terrain_pending": len(self._terrain_backups) + 1 - len(self.terrain_layers),
                 "paths": {"done": self.decode_progress[0], "total": self.decode_progress[1],
                           "enabled": self.decode_replays},
+                "changes": {"done": list(getattr(self, "changes_progress", [0, 0]))[0],
+                            "total": list(getattr(self, "changes_progress", [0, 0]))[1],
+                            "finished": bool(getattr(self, "_changes_done", False))},
+                "moments": {"finished": getattr(self, "_work_state", "") == "done"},
                 "warnings": self.warnings[-20:]}
 
     def paths(self) -> dict:

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-22 (changes between backups on the map and as moments, 0t step 3).
+`CLAUDE.md`). Last updated: 2026-11-23 (loading bar + Cancel, loaded world remembered between runs, find your files).
 
 ## What this project is
 
@@ -86,6 +86,7 @@ More features "like these" are planned, listed under **Backlog** below.
 | In-app updater: test builds (public `latest-build` pre-release) or stable releases; startup check once a day; SHA-256-verified download; silent install that reopens the app | ✅ Done; first end-to-end update not yet tried | `mcsm/updater.py`, `gui.py`, `.github/workflows/build-installer.yml`, `installer/mcsm.iss` | `docs/INSTALLER.md` |
 | Build timelapse view: the build's real world in 3D, look around, preview, camera automatic / own views (gliding) / set in Flashback; parts under 2 s left out; join exported parts with music | ✅ Done, the view and join not yet tried by the owner | `mcsm/world3d.py`, `mcsm/assets/web/map3d.js`, `mcsm/timelapse.py`, `mcsm/videojoin.py`, history viewer, `mcsm timelapse-join`, Videos tab | `docs/HISTORY.md` |
 | Changes between backups: builds, map art, digging found by comparing each backup's ground with the one before; Changes toggle on the history map, change moments, building moments confirmed | ✅ Done, checked on the owner's 15 backups (26 change moments, 86 builds confirmed) | `mcsm/changes.py`, history viewer | `docs/HISTORY.md` |
+| Loading bar with Cancel; loaded server/world remembered between runs and reopened at start; history page loading card | ✅ Done | `mcsm/progress.py`, `mcsm/loadcache.py`, app, history page | README |
 | Ignored players (never supposed to join), left out everywhere | ✅ Done | `mcsm/ignore.py`, `mcsm ignore`, Ignored players… | README |
 | Timelapse Phase B (block-by-block from world snapshots) / Phase C (from replay packets) | 📝 Designed | n/a | Backlog #1 |
 
@@ -908,6 +909,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Known gaps and unverified assumptions
 
+- **Saved load results are pickles** of the app's own data in `%LOCALAPPDATA%\mcsm\loaded` (only ever read
+  by the app that wrote them; a new app version reads everything again). Zips aren't remembered (they're
+  unpacked to a temporary folder each time). The history viewer's own steps (positions, terrain, changes)
+  have their own caches; building/exploring moments are still worked out each time (about a minute).
+
 - **Changes between backups are estimates** from the map's top-down surface sampled every 4 blocks: work under
   a roof or underground is invisible, builds on newly explored land are guessed from man-made block colours
   (game villages look the same), and the "confirmed" note counts every changed cell in a building moment's
@@ -977,6 +983,18 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Owner: "a proper loading bar so i know its working", "a cancel job option", "save state of the
+  app between opening and closing unless something has changed", "right click … show the source in folders",
+  "i cant find where i kept my timelapses". `mcsm/progress.py` (jobs report progress; Cancel raises
+  `Cancelled`, a BaseException, at the next report or printed line, between files); the app's loading bar with
+  Cancel; the library list is read in the background at start (it opened all 2,446 recordings before the
+  window showed); `mcsm/loadcache.py` saves the loaded data (pickle, keyed by a fingerprint of the files loading
+  reads, the options and the app version; folders only) and the app reopens the last server at start
+  (owner's world: 15 s first time, 1.1 s after); the history page's loading card; right-click in "Open a
+  Flashback edit" shows the recording, timeline file, replays folder and Flashback's export folder
+  (`flashback.export_folder` from its own settings); Join timelapse parts opens in that export folder. Fixed:
+  a worker thread read tkinter values (crashed loading), and error message boxes lost their text.
 
 - **2026-11-22:** Changes between backups (0t step 3, owner: "Backup changes on map"; Fable reviewed):
   `mcsm/changes.py` compares each pair of consecutive backups (coarse map tiles first, then every 4 blocks; natural

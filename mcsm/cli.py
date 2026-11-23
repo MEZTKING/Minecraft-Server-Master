@@ -62,7 +62,12 @@ def _load(args) -> m.ServerData:
     from .library import expand_sources
     servers, recordings, world = expand_sources(args.server if isinstance(args.server, list) else [args.server])
     from . import ignore
-    if len(servers) == 1 and not recordings:
+    if not extra and not getattr(args, "no_cache", False):    # the saved result when nothing changed
+        from . import loadcache
+        paths = args.server if isinstance(args.server, list) else [args.server]
+        data = loadcache.load(paths, _OPEN, tz=tz, tz_spec=getattr(args, "tz", None) or "", latest=latest,
+                              say=lambda msg: print(msg, file=sys.stderr))
+    elif len(servers) == 1 and not recordings:
         root = _OPEN.enter_context(open_server(servers[0]))
         data = analyze(root, tz=tz, latest_log_date=latest, extra_replays=extra)
     else:
@@ -105,6 +110,8 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                    help="date of the last line in logs/latest.log (default: file modification date)")
     p.add_argument("--show-ignored", action="store_true",
                    help="also show the players on the ignore list (mcsm ignore)")
+    p.add_argument("--no-cache", action="store_true",
+                   help="read everything again instead of the result saved last time (used when nothing changed)")
 
 
 # ---------------------------------------------------------------------------

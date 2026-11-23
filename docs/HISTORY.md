@@ -123,7 +123,8 @@ shorter than … s of video** in the view sets how short (2 s at first; 0 keeps 
 plan, the part count and the preview update at once, and the app remembers your choice.
 
 In Flashback open each copy in order and Export its scene; then **join** the exported videos: the app's
-**Videos** tab → **Join timelapse parts…** (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4
+**Videos** tab → **Join timelapse parts…** (it opens in the folder your Flashback saves videos to; Flashback
+names them by date and time, so export the parts in order and they sort right) (or `mcsm timelapse-join PART1.mp4 PART2.mp4 … -o timelapse.mp4
 [--music SONG.mp3] [--music-start SECONDS]`). Pick the exported videos: they are put in "(timelapse n of N)"
 order when their names have it (otherwise by name), joined without re-encoding when they have the same size
 and frame rate (else re-encoded to the first one's), and a song, if you choose one, replaces the sound,
@@ -131,6 +132,11 @@ loops if it's shorter than the video and fades out over the last 2 seconds. It n
 
 Your recordings are not changed. The players' positions must have been read first (the status line says
 when).
+
+**Loading.** While the page is still reading things in the background, a card at the top shows each
+part with a bar: the newest backup's map, the older backups' maps, player positions from the recordings,
+changes between backups, and the building/exploring moments. You can look around meanwhile; **Hide**
+puts the card away.
 
 **Changes between backups.** With two or more backups, the viewer compares each backup's ground with the
 one before (in the background, a few minutes the first time for a big library, then saved). Tick

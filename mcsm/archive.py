@@ -27,6 +27,7 @@ from contextlib import ExitStack
 from datetime import date, datetime, tzinfo
 from typing import Callable
 
+from . import progress as jobs
 from . import logs, models as m, players as players_mod, replays as replay_mod, world as world_mod
 from .analyzer import analyze
 from .players import play_time_ticks
@@ -73,7 +74,8 @@ def analyze_many(paths: list[str], stack: ExitStack, tz: tzinfo | None = None,
     say = progress or (lambda msg: None)
     used: set[str] = set()
     opened = []
-    for p in paths:
+    for i, p in enumerate(paths):
+        jobs.report(i, len(paths), f"Opening backup {i + 1} of {len(paths)}")
         say(f"Opening {p} ...")
         root = stack.enter_context(open_server(p))
         opened.append((_label(p, used), p, root))
@@ -85,7 +87,8 @@ def analyze_many(paths: list[str], stack: ExitStack, tz: tzinfo | None = None,
 
     # 2. analyse each
     parts = []
-    for label, p, root in opened:
+    for i, (label, p, root) in enumerate(opened):
+        jobs.report(i, len(opened), f"Reading backup {i + 1} of {len(opened)}: {label}")
         say(f"Analysing {label} ...")
         d = analyze(root, tz=tz, latest_log_date=latest_log_date, extra_offset_samples=samples)
         parts.append((label, p, root, d))

@@ -56,7 +56,18 @@ internet, nothing is uploaded.
    server download.
 
 The window has five tabs: **Statistics report**, **Video & music sync**, **Export
-data**, **Flashback** and **Live map**. The full guide, including building the installer yourself, is in
+data**, **Flashback** and **Live map**.
+
+- **Loading bar.** Anything that takes a while (reading your library at start, loading a server or a
+  whole library world, imports, exports) shows a bar at the bottom with what it's doing (e.g. "Reading
+  recordings: 1,200 of 3,177") and a **Cancel** button. Cancel stops after the file it's on, so nothing
+  is left half-written; loading something else keeps the server you had loaded.
+- **Remembered between runs.** The result of loading is saved, so loading the same server or library
+  world again takes a second instead of a minute, unless something changed in its backups or recordings
+  (then it's read again; world map files don't count). With **Open it again next time** ticked (next to
+  **Load server**), the app opens the last server or world by itself when it starts. Saved results are
+  kept in `%LOCALAPPDATA%\mcsm\loaded` (the four most recent). On the command line `--no-cache` reads
+  everything again. The full guide, including building the installer yourself, is in
 **[docs/INSTALLER.md](docs/INSTALLER.md)**.
 
 ---

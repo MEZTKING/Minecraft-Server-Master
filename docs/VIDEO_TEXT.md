@@ -14,7 +14,10 @@ You don't need an exported video. In the Videos tab press **Open a Flashback edi
 Flashback edits, newest first, one row per scene with its name, the recording it belongs to (its name
 and file), the export length, the number of camera keyframes, when it was saved and which Flashback it's
 in (*copy* = a copy the app made, with text; empty edits are hidden unless you tick *Show empty edits*).
-Choose a scene and press **Open** (or double-click). From the command line:
+Choose a scene and press **Open** (or double-click). **Right-click** a row to find its files: show the
+recording in its folder (the app's timelapse and highlight copies are in that Flashback's `replays`
+folder), show the edit's timeline file, open that Flashback's replays folder, or open the folder that
+Flashback saves exported videos to (the one you last chose on its export screen). From the command line:
 `mcsm video-editor --list-edits` lists them with the `--edit STATE.json --scene N` to open each, then
 `mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
 

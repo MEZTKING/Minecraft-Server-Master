@@ -106,6 +106,30 @@ def _instance_version(inst: str, name: str) -> str | None:
     return m.group(1) if m else None
 
 
+def export_folder(flashback_dir: str) -> str | None:
+    """The folder this Flashback saves exported videos to (its export screen remembers the last one, in
+    ``config/flashback/flashback.json``), if set and present."""
+    cfg = os.path.join(os.path.dirname(os.path.abspath(flashback_dir)), "config", "flashback", "flashback.json")
+    try:
+        with open(cfg, encoding="utf-8") as fh:
+            path = (json.load(fh).get("internalExport") or {}).get("defaultExportPath")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return path if isinstance(path, str) and os.path.isdir(path) else None
+
+
+def export_folders() -> list[dict]:
+    """Every Flashback's export folder: ``[{"path", "name", "mc"}]``, the most recently changed first."""
+    out, seen = [], set()
+    for f in flashback_folders():
+        p = export_folder(f["path"])
+        if p and os.path.normcase(p) not in seen:
+            seen.add(os.path.normcase(p))
+            out.append({"path": p, "name": f["name"], "mc": f["mc"]})
+    out.sort(key=lambda e: -os.path.getmtime(e["path"]))
+    return out
+
+
 def flashback_folders() -> list[dict]:
     """Every Flashback data folder on this computer: the default ``.minecraft`` one and those in
     launcher instances (PrismLauncher, MultiMC, Modrinth App, CurseForge).

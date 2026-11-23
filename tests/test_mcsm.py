@@ -1598,7 +1598,7 @@ class TestLibrary(unittest.TestCase):
             self.addCleanup(setattr, gui.filedialog, "askdirectory", orig)
             app._lib_import(folder=True)
             deadline = time.time() + 30
-            while app.busy and time.time() < deadline:
+            while (app.busy or getattr(app, "lib_loading", False)) and time.time() < deadline:
                 root.update()
                 time.sleep(0.05)
             worlds = app.lib_tree.get_children()
@@ -3999,3 +3999,145 @@ class TestBackupChanges(unittest.TestCase):
         lonely = ch.change_moments([{**pairs[0], "areas": [far]}], {}, [])
         self.assertTrue(lonely[0]["title"].startswith("Unknown builder"))
         self.assertEqual(lonely[0]["start"], t1)
+
+
+class TestProgressAndCancel(unittest.TestCase):
+    """The loading bar's progress, and Cancel stopping a job between files."""
+
+    def test_job(self):
+        from mcsm import progress as jobs
+        jobs.report(1, 2, "nobody listening")                                   # no job: nothing happens
+        seen = []
+        job = jobs.Job(lambda d, t, txt: seen.append((d, t, txt)), min_interval=0)
+        jobs.set_job(job)
+        try:
+            jobs.report(1, 4, "reading")
+            self.assertEqual(seen, [(1, 4, "reading")])
+            job.cancel()
+            with self.assertRaises(jobs.Cancelled):
+                jobs.report(2, 4)
+            with self.assertRaises(jobs.Cancelled):
+                jobs.check()
+            try:                                                                # "skip a bad file" handlers don't swallow it
+                try:
+                    jobs.check()
+                except Exception:                                               # noqa: BLE001
+                    self.fail("Cancelled was caught as an Exception")
+            except jobs.Cancelled:
+                pass
+        finally:
+            jobs.set_job(None)
+
+    def test_reading_recordings_reports(self):
+        from mcsm import progress as jobs, replays
+        tmp = tempfile.mkdtemp()
+        try:
+            rec = os.path.join(tmp, "recordings")
+            os.makedirs(rec)
+            for i in range(3):
+                with zipfile.ZipFile(os.path.join(rec, f"r{i}.zip"), "w") as zf:
+                    zf.writestr("metadata.json", json.dumps({"uuid": str(i), "total_ticks": 20, "chunks": {"c0.flashback": {"duration": 20}}}))
+                    zf.writestr("c0.flashback", b"")
+            seen = []
+            jobs.set_job(jobs.Job(lambda d, t, txt: seen.append((d, t)), min_interval=0))
+            try:
+                replays.read_replays(rec)
+            finally:
+                jobs.set_job(None)
+            self.assertIn((0, 3), seen)
+            self.assertIn((2, 3), seen)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_gui_cancel(self):
+        if not _have_display():
+            self.skipTest("no display")
+        from mcsm import gui
+        root = _new_tk()
+        try:
+            app = gui.App(root)
+            state = {}
+
+            def work(_d):
+                for i in range(1000):
+                    print(f"step {i}")                                           # each line: a chance to stop
+                    time.sleep(0.01)
+                state["finished"] = True
+            app._run("A long job", work, after=lambda _r: state.setdefault("after", True),
+                     cancelled=lambda: state.setdefault("cancelled", True))
+            deadline = time.time() + 5
+            while time.time() < deadline and "step 3" not in app.log_text.get("1.0", "end"):
+                root.update()
+                time.sleep(0.02)
+            self.assertTrue(app.job_frame.winfo_ismapped() or app.job_frame.grid_info())   # the bar shows
+            app._cancel_job()
+            deadline = time.time() + 5
+            while app.busy and time.time() < deadline:
+                root.update()
+                time.sleep(0.02)
+            self.assertFalse(app.busy)
+            self.assertEqual(state, {"cancelled": True})
+            self.assertIn("A long job: cancelled.", app.log_text.get("1.0", "end"))
+            self.assertFalse(app.job_frame.grid_info())                          # the bar is gone
+        finally:
+            root.destroy()
+
+
+class TestLoadCache(unittest.TestCase):
+    """A loaded server is remembered between runs, unless something changed."""
+
+    def test_saved_result(self):
+        from contextlib import ExitStack
+        from mcsm import loadcache
+        tmp = tempfile.mkdtemp()
+        try:
+            srv = build_server(os.path.join(tmp, "srv"))
+            cache = os.path.join(tmp, "cache")
+            with ExitStack() as st:
+                d1 = loadcache.load([srv], st, say=lambda _m: None, cache=cache)
+            self.assertFalse(d1.loaded_from_cache)
+            with ExitStack() as st:
+                d2 = loadcache.load([srv], st, say=lambda _m: None, cache=cache)
+            self.assertTrue(d2.loaded_from_cache)
+            self.assertEqual((len(d2.events), sorted(d2.players)), (len(d1.events), sorted(d1.players)))
+            with ExitStack() as st:                                              # other options: read again
+                self.assertFalse(loadcache.load([srv], st, tz_spec="+02:00", say=lambda _m: None, cache=cache).loaded_from_cache)
+            log = os.path.join(srv, "logs", "latest.log")                       # a new log line: read again
+            with open(log, "a", encoding="utf-8") as fh:
+                fh.write("[23:59:59] [Server thread/INFO]: Done\\n")
+            os.utime(log, (time.time() + 5, time.time() + 5))
+            with ExitStack() as st:
+                self.assertFalse(loadcache.load([srv], st, say=lambda _m: None, cache=cache).loaded_from_cache)
+            region = os.path.join(srv, "world", "region")                        # world map files don't count
+            if os.path.isdir(region):
+                with open(os.path.join(region, "r.9.9.mca"), "wb") as fh:
+                    fh.write(b"\\0" * 16)
+            with ExitStack() as st:
+                self.assertTrue(loadcache.load([srv], st, say=lambda _m: None, cache=cache).loaded_from_cache)
+            z = _zip_dir(srv, os.path.join(tmp, "srv.zip"))                       # a zip is never remembered
+            self.assertIsNone(loadcache.fingerprint([z]))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestExportFolder(unittest.TestCase):
+    """Where a Flashback saves exported videos (its own setting), for the join step and the right-click menu."""
+
+    def test_export_folder(self):
+        from mcsm import flashback as fbm
+        tmp = tempfile.mkdtemp()
+        try:
+            game = os.path.join(tmp, "minecraft")
+            fb = os.path.join(game, "flashback")
+            os.makedirs(os.path.join(game, "config", "flashback"))
+            os.makedirs(fb)
+            self.assertIsNone(fbm.export_folder(fb))                                  # no setting yet
+            videos = os.path.join(tmp, "Cinematics")
+            os.makedirs(videos)
+            with open(os.path.join(game, "config", "flashback", "flashback.json"), "w", encoding="utf-8") as fh:
+                json.dump({"internalExport": {"defaultExportPath": videos}}, fh)
+            self.assertEqual(fbm.export_folder(fb), videos)
+            shutil.rmtree(videos)
+            self.assertIsNone(fbm.export_folder(fb))                                  # gone: not offered
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
