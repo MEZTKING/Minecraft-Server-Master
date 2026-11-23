@@ -5385,7 +5385,7 @@ class TestLedger(unittest.TestCase):
             cells = {(c[0], c[1]): c[2] for c in ledger.heat(lg, "minecraft:overworld", *day, "all")}
             self.assertEqual(cells, {(0, 0): 4})            # five actions in square 0, 0, one of them rolled back
             build = ledger.heat(lg, "minecraft:overworld", *day, "building")
-            self.assertEqual(build, [[0, 0, 2, 64]])        # two placements left (one was rolled back)
+            self.assertEqual(build, [[0, 0, 2, 67]])        # two placements left (one rolled back), at y 70 and 64
             self.assertEqual(ledger.heat(lg, "minecraft:overworld", *day, "fighting"), [[0, 0, 1, 64]])
             self.assertEqual(ledger.heat(lg, "minecraft:overworld", ms(2026, 4, 1), ms(2026, 4, 2)), [])
         finally:
