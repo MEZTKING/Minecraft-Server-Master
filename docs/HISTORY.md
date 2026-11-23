@@ -201,7 +201,11 @@ backup in **Terrain**) to see another interval.
 - The map's colours and heights are sampled every few blocks, so sizes are estimates.
 
 **Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. The
-History tab's status line and the *Export to Flashback* button list where each version's copies go (e.g.
+History tab's status line and the *Export to Flashback* button list where each version's copies go. On the timeline,
+a **version band** above the players shows which Minecraft version the server ran when (from the backups and the
+recordings; a change is placed at the first backup or recording in the new version), striped where this PC has no
+Flashback of that version. Hover it for the dates and the Flashback; click a version to list only its moments (click
+again for all). Further: (e.g.
 "26.1.2 → Flashback 26.1.2; 1.21.11 → 1.21.11; 1.21.5 → no Flashback of that version on this PC"). Each
 moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
 only into a Flashback of exactly that version. If there is none on this PC, they go into a folder

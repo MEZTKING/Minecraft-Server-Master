@@ -754,6 +754,11 @@ positions and the statistics between backups (`player_history`):
 
 ### 0y. Versions on the history timeline (Fable, 2026-11-23)
 
+✅ **Version band built 2026-11-23** (owner: "Yes, version band"): `history.version_segments` (backups + recordings, the
+app's copies and single stray recordings ignored), a band above the players (striped: no Flashback of that version),
+hover = dates and Flashback, click = moments of that version. On the owner's library: 1.21.5, 1.21.10, 1.21.11, 26.1.2,
+26.2, 26.3. Still open: the editor's warnings for recordings without a Flashback / in-world text support.
+
 A version band on the timeline (1.21.5 | 1.21.10 | 1.21.11 | 26.1.2 | 26.2 | 26.3, from the backups and the
 recordings), each part showing whether a Flashback of that version is on this PC; the version filter extended from
 moments to recordings and highlights; warnings in the video editor when a recording's version has no Flashback or
@@ -1128,6 +1133,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** History timeline: Minecraft version band (0y), click to filter moments by version.
 
 - **2026-11-23:** Celebrations and sad moments (0x): `mcsm/moods.py`, moments' `mood` and `tags`, per-backup statistics
   extended (dragons, withers, diamonds, trades, enchanting, fish, breeding, raids, player kills, sleep, damage, time

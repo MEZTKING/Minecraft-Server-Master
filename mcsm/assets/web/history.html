@@ -278,6 +278,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     <span><i style="background:var(--accent);opacity:.35"></i>online (from logs)</span>
     <span><i style="background:var(--accent)"></i>recording (one row per player, in their colour)</span>
     <span><i style="background:var(--warn)"></i>backup</span>
+    <span title="Above the players: the Minecraft version at the time; striped where this PC has no Flashback of that version. Click a version to see its moments."><i style="background:hsl(200 55% 55%)"></i>Minecraft version (striped: no Flashback of it here)</span>
     <span><i style="background:var(--bad)"></i>death</span>
     <span><i style="background:var(--text-2)"></i>other events</span>
     <span><i style="background:var(--good);opacity:.4"></i>highlight</span>
@@ -844,6 +845,11 @@ function setView() {
   drawTimeline();
 }
 const xOf = t => (t - view[0]) / (view[1] - view[0]) * cv.width;
+const VBAND = [];                                    // where each version was drawn (for hover and click)
+function bandAt(e) {
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * devicePixelRatio, y = (e.clientY - r.top) * devicePixelRatio;
+  return VBAND.find(b => x >= b.x0 && x <= b.x1 && y >= b.y0 - devicePixelRatio && y <= b.y1 + devicePixelRatio);
+}
 function drawTimeline() {
   if (!H || !H.range) return;
   const W = cv.width, Hh = cv.height, dpr = devicePixelRatio;
@@ -853,7 +859,8 @@ function drawTimeline() {
   const activeIn = n => (sessionsBy[n] || []).some(s => s.start <= view[1] && (s.end ?? H.range[1]) >= view[0])
     || H.replays.some(r => canon(r.player) === n && r.start <= view[1] && r.end >= view[0]);
   const players = H.players.filter(activeIn);
-  const top = 14 * dpr, avail = Hh - top - 16 * dpr;
+  const band = (H.versions || []).length ? 11 * dpr : 0;                // the Minecraft version band under the dates
+  const top = 14 * dpr + band, avail = Hh - top - 16 * dpr;
   const rh = Math.max(3 * dpr, Math.min(rowH, (avail - gap * players.length) / Math.max(1, players.length)));
   ctx.fillStyle = css("--track"); ctx.fillRect(0, top, W, Hh - top - 14 * dpr);
   // highlights (saved: green bands; being marked: accent)
@@ -880,6 +887,28 @@ function drawTimeline() {
     }
     ctx.globalAlpha = 1;
   });
+  // the Minecraft version band: one colour per version; striped where there's no Flashback of it on this PC
+  if (band) {
+    const vy = 14 * dpr, vh = band - 2 * dpr;
+    VBAND.length = 0;
+    (H.versions || []).forEach((v, i) => {
+      if (v.end < view[0] || v.start > view[1]) return;
+      const x0 = Math.max(0, xOf(v.start)), x1 = Math.min(W, xOf(v.end)), hue = (i * 67 + 200) % 360;
+      ctx.fillStyle = `hsl(${hue} 55% ${isDark() ? 42 : 62}%)`; ctx.globalAlpha = v.flashback ? 0.9 : 0.45;
+      ctx.fillRect(x0, vy, Math.max(1, x1 - x0 - dpr), vh);
+      if (!v.flashback) {                         // stripes: no Flashback of this version here
+        ctx.save(); ctx.beginPath(); ctx.rect(x0, vy, x1 - x0, vh); ctx.clip();
+        ctx.strokeStyle = css("--text-2"); ctx.globalAlpha = 0.35; ctx.lineWidth = dpr;
+        for (let x = x0 - vh; x < x1; x += 6 * dpr) { ctx.beginPath(); ctx.moveTo(x, vy + vh); ctx.lineTo(x + vh, vy); ctx.stroke(); }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = css("--text"); ctx.font = `${9 * dpr}px system-ui, sans-serif`; ctx.textBaseline = "top";
+      const label = `Minecraft ${v.mc}${v.flashback ? "" : " · no Flashback here"}`, lw = ctx.measureText(label).width;
+      if (x1 - x0 > lw + 8 * dpr) ctx.fillText(label, x0 + 4 * dpr, vy + dpr);
+      else if (x1 - x0 > ctx.measureText(v.mc).width + 6 * dpr) ctx.fillText(v.mc, x0 + 3 * dpr, vy + dpr);
+      VBAND.push({ x0, x1, y0: vy, y1: vy + vh, v });
+    });
+  }
   // events strip
   const ey = Hh - 12 * dpr;
   for (const e of H.events) {
@@ -910,10 +939,22 @@ function positionCursor() {
 function timeAtX(clientX) { const r = cv.getBoundingClientRect(); return view[0] + (clientX - r.left) / r.width * (view[1] - view[0]); }
 let dragging = false;
 const wrap = $("#canvasWrap");
-wrap.addEventListener("pointerdown", e => { dragging = true; wrap.setPointerCapture(e.pointerId); seek(timeAtX(e.clientX), false); });
+wrap.addEventListener("pointerdown", e => {
+  const b = bandAt(e);
+  if (b) {                                           // the version band: show that version's moments
+    const sel = $("#mVersion"), has = [...sel.options].some(o => o.value === b.v.mc);
+    sel.value = has && sel.value !== b.v.mc ? b.v.mc : ""; momShown = 20; renderMoments();
+    $("#hlStatus").textContent = sel.value ? `Moments: only Minecraft ${b.v.mc} (click the band again for all).` : "";
+    return;
+  }
+  dragging = true; wrap.setPointerCapture(e.pointerId); seek(timeAtX(e.clientX), false);
+});
 wrap.addEventListener("pointermove", e => {
-  const t = timeAtX(e.clientX), tip = $("#hoverTip"), r = cv.getBoundingClientRect();
-  tip.hidden = false; tip.textContent = fmtShort(t); tip.style.left = `${e.clientX - r.left}px`;
+  const t = timeAtX(e.clientX), tip = $("#hoverTip"), r = cv.getBoundingClientRect(), b = !dragging && bandAt(e);
+  tip.hidden = false; tip.style.left = `${e.clientX - r.left}px`;
+  tip.textContent = b ? `Minecraft ${b.v.mc}, ${fmtDay(b.v.start)} – ${fmtDay(b.v.end)}: `
+    + (b.v.flashback ? `its recordings open in ${b.v.flashback}` : "no Flashback of this version on this PC (add one to open its recordings)")
+    + " · click: its moments" : fmtShort(t);
   if (dragging) seek(t, false);
 });
 wrap.addEventListener("pointerup", () => { dragging = false; setView(); });

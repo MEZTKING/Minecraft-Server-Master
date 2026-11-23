@@ -126,6 +126,45 @@ def history_payload(data: m.ServerData, title: str = "") -> dict:
     }
 
 
+APP_COPIES = ("(highlights)", "(text)", "(timelapse", "(mcsm)")
+
+
+def version_segments(data: m.ServerData, end_ms: int | None = None) -> list[dict]:
+    """The Minecraft version over time, from the backups (their version when saved) and the recordings (made in
+    a known version): ``[{start, end, mc, sure}]``, oldest first. A change is placed at the first backup or recording
+    in the new version (it happened somewhere before that); ``sure`` is False while only one source says so."""
+    points = []
+    for b in data.backups:
+        if b.get("version") and hasattr(b.get("time"), "timestamp"):
+            points.append((_ms(b["time"]), b["version"]))
+    for r in data.replays:
+        if r.mc_version and r.start is not None and not any(c in r.path for c in APP_COPIES):
+            points.append((_ms(r.start), r.mc_version))
+    points.sort()
+    segs: list[dict] = []
+    for t, v in points:
+        if segs and segs[-1]["mc"] == v:
+            segs[-1]["last"] = t
+            segs[-1]["n"] += 1
+            continue
+        if segs:
+            segs[-1]["end"] = t
+        segs.append({"start": t, "end": None, "mc": v, "last": t, "n": 1})
+    if segs:
+        segs[-1]["end"] = max(end_ms or 0, segs[-1]["last"])
+    # a single stray point (e.g. one recording from a test client) inside another version's stretch: drop it
+    clean = []
+    for s in segs:
+        if s["n"] == 1 and clean and len(segs) > 2 and s is not segs[-1]:
+            clean[-1]["end"] = s["end"]
+            continue
+        if clean and clean[-1]["mc"] == s["mc"]:
+            clean[-1]["end"] = s["end"]
+            continue
+        clean.append(s)
+    return [{"start": s["start"], "end": s["end"], "mc": s["mc"]} for s in clean]
+
+
 class HistoryMap(TerrainServer):
     PAGE = "history.html"
 
@@ -158,6 +197,13 @@ class HistoryMap(TerrainServer):
         self.decode_progress = [0, 0]
         self.warnings: list[str] = []
         self._payload = history_payload(data, title)
+        try:                                       # the version band: which Minecraft, and is its Flashback here
+            from . import flashback as fbm
+            segs = version_segments(data, (self._payload.get("range") or [None, None])[1])
+            names = {t["mc"]: t["name"] for t in fbm.version_targets(s["mc"] for s in segs)}
+            self._payload["versions"] = [{**s, "flashback": names.get(s["mc"])} for s in segs]
+        except Exception:                          # noqa: BLE001 -- the band is a bonus
+            self._payload["versions"] = []
         self._paths_cache: tuple[int, dict] | None = None
         self._loaded: dict[str, dict[str, list[list]]] = {}
         self._httpd = None

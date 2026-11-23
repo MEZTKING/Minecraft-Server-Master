@@ -4637,3 +4637,26 @@ class TestMoods(unittest.TestCase):
         self.assertIn("Steve: first villager trade", titles)
         self.assertTrue(any("most blocks mined ever" in t and "record" in t for t in titles), titles)
         self.assertTrue(all(x["approx"] and not x["recordings"] for x in out))
+
+
+class TestVersionBand(unittest.TestCase):
+    """The Minecraft version over time, from the backups and the recordings (the history's version band)."""
+
+    def test_segments(self):
+        from datetime import timedelta
+        from mcsm import history
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        d = m.ServerData(root="x")
+        d.backups = [{"time": t0, "version": "1.21.5"}, {"time": t0 + timedelta(days=60), "version": "1.21.11"},
+                     {"time": t0 + timedelta(days=120), "version": "26.1.2"}]
+        d.replays = [m.Replay("a.zip", t0 + timedelta(days=30), 1000, mc_version="1.21.5"),
+                     m.Replay("b.zip", t0 + timedelta(days=50), 1000, mc_version="1.21.11"),   # the change: by day 50
+                     m.Replay("c.zip", t0 + timedelta(days=70), 1000, mc_version="26.1.2"),    # a stray test client
+                     m.Replay("d.zip", t0 + timedelta(days=80), 1000, mc_version="1.21.11"),
+                     m.Replay("e (text).zip", t0 + timedelta(days=90), 1000, mc_version="9.9")]  # the app's copy: ignored
+        segs = history.version_segments(d)
+        self.assertEqual([s["mc"] for s in segs], ["1.21.5", "1.21.11", "26.1.2"])
+        ms = lambda days: int((t0 + timedelta(days=days)).timestamp() * 1000)          # noqa: E731
+        self.assertEqual(segs[1]["start"], ms(50))
+        self.assertEqual(segs[1]["end"], ms(120))
+        self.assertEqual(segs[0]["end"], segs[1]["start"])
