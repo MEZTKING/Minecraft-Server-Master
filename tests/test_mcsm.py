@@ -4383,3 +4383,21 @@ class TestAppWindow(unittest.TestCase):
             self.assertEqual((opened, [c[1] for c in launched]), (["http://x/", "http://z/"], ["--app=http://y/"]))
         finally:
             appwindow.find_browser, appwindow.webbrowser.open, appwindow.subprocess.Popen, appwindow.enabled = old
+
+
+class TestLinkInstances(unittest.TestCase):
+    """The link-mod window only offers instances it can run in, and says where it's installed already."""
+
+    def test_supports_and_installed(self):
+        from mcsm import flashlink
+        self.assertIs(flashlink.supports("1.21.11"), False)
+        self.assertIs(flashlink.supports("26.1.2"), True)
+        self.assertIs(flashlink.supports("27.0"), True)
+        self.assertIsNone(flashlink.supports(None))
+        tmp = tempfile.mkdtemp()
+        try:
+            self.assertIsNone(flashlink.installed_version(tmp))
+            open(os.path.join(tmp, "mcsm-link-0.2.0.jar"), "wb").close()
+            self.assertEqual(flashlink.installed_version(tmp), "0.2.0")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

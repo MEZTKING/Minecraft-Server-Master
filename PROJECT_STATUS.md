@@ -1058,6 +1058,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** "Install the Flashback link" window: instances older than Minecraft 26.1 are shown greyed out
+  (the mod needs 26.1+; the owner's list offered 1.21.11 first), and each says if the mod is installed already
+  (and which version); the first one still needing it is chosen.
+
 - **2026-11-23:** Pages in their own window (owner: "or is it better as a stand alone app"; answer: keep the web
   pages, open them in an app window): `mcsm/appwindow.py` uses Edge/Chrome `--app` with a separate profile, or
   Firefox (the owner's browser; no Edge on their PC) with a separate profile whose userChrome.css hides tabs and

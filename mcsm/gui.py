@@ -1472,13 +1472,25 @@ class App(ttk.Frame):
         ttk.Label(win, text="Which Minecraft has Flashback? The mod is copied into its mods folder (nothing else "
                             "is changed). It needs Minecraft 26.1 or newer and Fabric.", wraplength=460,
                   justify="left").pack(padx=12, pady=(12, 6), anchor="w")
-        choice = tk.StringVar(value=insts[0]["name"])
+        bundled = os.path.basename(jar)[len(flashlink.MOD_PREFIX):-4]
+        usable = [i for i in insts if flashlink.supports(i.get("mc")) is not False]
+        first = next((i for i in usable if flashlink.installed_version(i["mods"]) != bundled), usable[0] if usable else None)
+        choice = tk.StringVar(value=first["name"] if first else "")
         for i in insts:
-            ttk.Radiobutton(win, text=f"{i['name']} (Minecraft {i.get('mc') or '?'})", value=i["name"],
-                            variable=choice).pack(padx=18, anchor="w")
+            ok, have = flashlink.supports(i.get("mc")), flashlink.installed_version(i["mods"])
+            note = (" — too old: needs Minecraft 26.1 or newer" if ok is False
+                    else f" — installed ({have})" if have == bundled
+                    else f" — has an older version ({have})" if have else "")
+            rb = ttk.Radiobutton(win, text=f"{i['name']} (Minecraft {i.get('mc') or '?'}){note}", value=i["name"],
+                                 variable=choice)
+            if ok is False:
+                rb.state(["disabled"])
+            rb.pack(padx=18, anchor="w")
 
         def go():
-            inst = next(i for i in insts if i["name"] == choice.get())
+            inst = next((i for i in usable if i["name"] == choice.get()), None)
+            if inst is None:
+                return
             if not messagebox.askyesno(APP_NAME, f"Copy {os.path.basename(jar)} into\n{inst['mods']}?\n\n"
                                                  "Restart Minecraft afterwards.", parent=win):
                 return

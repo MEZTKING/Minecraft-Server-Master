@@ -132,6 +132,26 @@ def bundled_mod() -> str | None:
     return jars[-1] if jars else None
 
 
+MIN_MC = (26, 1)                         # the mod's fabric.mod.json: "minecraft": ">=26.1"
+
+
+def supports(mc: str | None) -> bool | None:
+    """Whether the mod runs in Minecraft *mc* (None: version unknown)."""
+    import re
+    m = re.match(r"(\d+)\.(\d+)", mc or "")
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2))) >= MIN_MC
+
+
+def installed_version(mods_dir: str) -> str | None:
+    """The version of the mod already in *mods_dir* (from its file name), if any."""
+    jars = sorted(glob.glob(os.path.join(mods_dir, MOD_PREFIX + "*.jar")))
+    if not jars:
+        return None
+    return os.path.basename(jars[-1])[len(MOD_PREFIX):-4] or "?"
+
+
 def install_mod(mods_dir: str, jar: str | None = None) -> str:
     """Copy the mod into a Minecraft instance's ``mods`` folder (replacing an older copy of it only)."""
     jar = jar or bundled_mod()
