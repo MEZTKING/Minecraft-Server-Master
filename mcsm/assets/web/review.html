@@ -9,44 +9,61 @@
   --accent: #6cc04a; --a2: #3fa7ff; --a3: #f2b134; --a4: #e2557c; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
-header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+header { position: sticky; top: 0; z-index: 2; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
   padding: 12px 16px; background: rgba(16,16,20,.92); border-bottom: 1px solid var(--line); }
 header h1 { font-size: 18px; margin: 0 8px 0 0; }
-header a, header select { color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
-  padding: 5px 10px; text-decoration: none; font: inherit; }
+header a, header select, header button, header summary { color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 10px; text-decoration: none; font: inherit; cursor: pointer; }
 header .note { color: var(--muted); font-size: 13px; }
+header details { position: relative; }
+header details summary { list-style: none; }
+header details[open] > div { position: absolute; right: 0; top: 38px; width: 300px; padding: 12px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--line); display: grid; gap: 8px; font-size: 13px; }
 main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 18px;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 16px; min-height: 180px;
-  display: flex; flex-direction: column; gap: 8px; }
+.card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 16px;
+  min-height: 180px; display: flex; flex-direction: column; gap: 8px; }
 .card.wide { grid-column: 1 / -1; }
 .card h2 { margin: 0; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.card .pic { position: absolute; top: 12px; right: 12px; opacity: 0; transition: opacity .15s; font: 12px system-ui; color: var(--ink);
+  background: #2a2a34; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.card:hover .pic, .card .pic:focus { opacity: 1; }
 .big { font-size: 40px; font-weight: 800; line-height: 1.05; }
 .big small { font-size: 15px; font-weight: 500; color: var(--muted); }
-.row { display: flex; gap: 18px; flex-wrap: wrap; }
+.row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
 .row > div { min-width: 90px; }
 .label { color: var(--muted); font-size: 13px; }
 .list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .list li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--line); padding: 2px 0; }
-.list li span:last-child { color: var(--muted); white-space: nowrap; }
+.list li span:last-child { color: var(--muted); text-align: right; }
 .foot { margin-top: auto; color: var(--muted); font-size: 12px; }
 .warn { color: var(--a3); }
 .players { display: flex; flex-wrap: wrap; gap: 8px; }
-.players a { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-radius: 10px; background: #24242d;
-  color: var(--ink); text-decoration: none; border: 1px solid var(--line); }
+.players a, .players span.p { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-radius: 10px;
+  background: #24242d; color: var(--ink); text-decoration: none; border: 1px solid var(--line); }
 .players a:hover { border-color: var(--accent); }
 .face { width: 28px; height: 28px; border-radius: 6px; image-rendering: pixelated; background: #333 center/cover; flex: none; }
 .face.big { width: 64px; height: 64px; border-radius: 10px; }
 svg text { fill: var(--muted); font-size: 10px; }
 .empty { color: var(--muted); }
+body.exported .live { display: none !important; }
 </style>
 </head>
 <body>
 <header>
   <h1 id="title">Year in review</h1>
-  <select id="year" title="Which year (calendar year)"></select>
-  <a id="back" href="/review">The server's year</a>
-  <a href="/" title="Back to the history viewer">History viewer</a>
+  <select id="year" class="live" title="Which year (calendar year)"></select>
+  <a id="back" class="live" href="/review">The server's year</a>
+  <a class="live" href="/" title="Back to the history viewer">History viewer</a>
+  <details class="live" id="exportBox">
+    <summary title="Save this page as one file to share (it opens in any browser, no app needed)">Export…</summary>
+    <div>
+      <div>One file with this page's cards, to send or post. Chat isn't quoted, and a player's file has only their own
+        year plus the server's totals.</div>
+      <label><input type="checkbox" id="xDeaths" checked> Include deaths</label>
+      <button type="button" id="xGo">Save the file</button>
+    </div>
+  </details>
   <span class="note" id="note"></span>
 </header>
 <main id="cards"><div class="card wide"><h2>Loading</h2><div class="empty">Putting the year together…</div></div></main>
@@ -54,136 +71,264 @@ svg text { fill: var(--muted); font-size: 10px; }
 const $ = s => document.querySelector(s);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+const COLOURS = ["#6cc04a", "#3fa7ff", "#f2b134", "#e2557c", "#9b7bff", "#35c2b3"];
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const rich = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");          // **bold** in card text
+const plain = s => String(s ?? "").replace(/\*\*/g, "");
 const num = (v, d = 0) => (v ?? 0).toLocaleString(undefined, { maximumFractionDigits: d });
 const day = iso => iso ? new Date(iso.length <= 10 ? iso + "T12:00:00" : iso).toLocaleDateString(undefined, { day: "numeric", month: "long" }) : "";
 const hourText = h => h == null ? "" : `${String(h).padStart(2, "0")}:00–${String((h + 1) % 24).padStart(2, "0")}:00`;
 const ordinal = n => n + (["th", "st", "nd", "rd"][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)] || "th");
-// where we are: /review, /review/<year>, /review/<year>/<player>
-const parts = location.pathname.split("/").filter(Boolean).slice(1).map(decodeURIComponent);
-const YEAR = parts[0] || "", PLAYER = parts[1] || "";
+// an exported file carries its data (and the players' faces) inside; live, it comes from the history server
+const EXPORTED = !!window.REVIEW_DATA;
+const parts = EXPORTED ? [] : location.pathname.split("/").filter(Boolean).slice(1).map(decodeURIComponent);
+const YEAR = parts[0] || "", PLAYER = EXPORTED ? (window.REVIEW_PLAYER || "") : (parts[1] || "");
+let R = null;
+const FACES = {};                                     // uuid -> data URL of the face (8 x 8)
 
-function card(title, body, foot = "", wide = false) {
-  return `<section class="card${wide ? " wide" : ""}"><h2>${esc(title)}</h2>${body}${foot ? `<div class="foot">${foot}</div>` : ""}</section>`;
-}
-function list(rows) {
-  return rows.length ? `<ul class="list">${rows.map(([a, b]) => `<li><span>${esc(a)}</span><span>${esc(b)}</span></li>`).join("")}</ul>` : `<div class="empty">Nothing this year.</div>`;
-}
-function bars(items, key, colour = "var(--accent)") {        // a small column chart (months)
-  const W = 300, H = 90, n = Math.max(1, items.length), max = Math.max(1, ...items.map(i => i[key]));
-  const w = W / n;
-  return `<svg viewBox="0 0 ${W} ${H + 14}" width="100%">${items.map((it, i) => {
-    const h = Math.round((it[key] / max) * H), m = +it.month.slice(5) - 1;
-    return `<rect x="${i * w + 2}" y="${H - h}" width="${w - 4}" height="${h}" rx="2" fill="${colour}"><title>${MONTHS[m]}: ${it[key]}</title></rect>
-      <text x="${i * w + w / 2}" y="${H + 11}" text-anchor="middle">${MONTHS[m][0]}</text>`;
-  }).join("")}</svg>`;
-}
-function heatmap(grid) {                                       // weekday x hour
-  const max = Math.max(0.01, ...grid.flat()), cw = 11, ch = 12;
-  let s = `<svg viewBox="0 0 ${24 * cw + 30} ${7 * ch + 14}" width="100%" style="max-width:520px">`;
-  grid.forEach((row, d) => {
-    s += `<text x="0" y="${d * ch + 9}">${DAYS[d].slice(0, 3)}</text>`;
-    row.forEach((v, h) => { s += `<rect x="${30 + h * cw}" y="${d * ch}" width="${cw - 1}" height="${ch - 1}" rx="2" fill="var(--a2)" opacity="${(0.08 + 0.92 * v / max).toFixed(2)}"><title>${DAYS[d]} ${hourText(h)}: ${v} h</title></rect>`; });
-  });
-  for (const h of [0, 6, 12, 18]) s += `<text x="${30 + h * cw}" y="${7 * ch + 11}">${h}:00</text>`;
-  return s + "</svg>";
-}
-function span(st) {                                           // which backups a statistics card covers
-  if (!st || !st.available) return `<span class="warn">No backups with statistics in this year.</span>`;
+// ---------- cards: each is data ({title, bigs, face, chart, lines, rows, foot, warn, wide}), drawn as HTML or a picture
+function span(st) {                                   // which backups a statistics card covers
+  if (!st || !st.available) return { warn: "No backups with statistics in this year." };
   const a = st.from ? day(st.from) : "joining", b = day(st.to);
-  return `Statistics from the backups: ${a} to ${b}.` + (st.partial ? ` <span class="warn">Partial: no backup before the year started.</span>` : "")
-    + (st.reset ? ` <span class="warn">Some totals went down (a reset): counted as 0.</span>` : "");
+  let w = "";
+  if (st.partial) w += "Partial: no backup before the year started. ";
+  if (st.reset) w += "Some totals went down (a reset): counted as 0.";
+  return { foot: `Statistics from the backups: ${a} to ${b}.`, warn: w.trim() };
 }
-const face = (uuid, cls = "face") => `<span class="${cls}" ${uuid ? `data-uuid="${uuid}"` : ""}></span>`;
-async function faces() {                                       // the face from each player's skin (the 8 x 8 front)
-  for (const el of document.querySelectorAll("[data-uuid]")) {
-    try {
-      const r = await (await fetch(`/api/skin/${el.dataset.uuid.replace(/-/g, "")}`)).json();
-      if (!r.found) continue;
-      const img = new Image(); img.src = r.url; await img.decode();
-      const c = document.createElement("canvas"); c.width = c.height = 8;
-      const g = c.getContext("2d"); g.drawImage(img, 8, 8, 8, 8, 0, 0, 8, 8); g.drawImage(img, 40, 8, 8, 8, 0, 0, 8, 8);
-      el.style.backgroundImage = `url(${c.toDataURL()})`;
-    } catch (e) { /* no skin: the grey square stays */ }
-  }
-}
-
-function serverCards(R) {
+function serverCards() {
   const S = R.server, n = S.numbers, out = [];
-  out.push(card(`${R.title} · ${R.key}`, `<div class="row">
-      <div><div class="big">${num(n.hours)}<small> h</small></div><div class="label">played</div></div>
-      <div><div class="big">${num(n.days)}</div><div class="label">days with someone online</div></div>
-      <div><div class="big">${num(n.players)}</div><div class="label">players</div></div>
-      <div><div class="big">${num(n.deaths)}</div><div class="label">deaths</div></div>
-      <div><div class="big">${num(n.advancements)}</div><div class="label">advancements</div></div>
-      <div><div class="big">${num(n.chat_lines)}</div><div class="label">chat lines</div></div></div>`,
-    "From the server logs: days with no log are missing.", true));
-  out.push(card("Players by month", bars(S.months, "players", "var(--a2)") +
-    list(S.months.filter(mo => mo.new).map(mo => [`${MONTHS[+mo.month.slice(5) - 1]}: new players`, mo.new]))));
-  out.push(card("Hours by month", bars(S.months, "hours")));
-  out.push(card("When the server was busiest", heatmap(S.heatmap) +
-    (S.busiest_day.date ? `<div>Busiest day: <b>${day(S.busiest_day.date)}</b> with ${num(S.busiest_day.hours, 1)} hours played.</div>` : ""),
-    `Times in ${esc(R.tz)}.`, true));
-  out.push(card("How everyone died", list(S.deaths.top.map(([c, k]) => [c, `${k}×`])) +
-    (S.deaths.oddest ? `<div>The oddest: <i>${esc(S.deaths.oddest)}</i></div>` : "")));
+  out.push({ title: `${R.title} · ${R.key}`, wide: true, bigs: [[num(n.hours), "h", "played"], [num(n.days), "", "days with someone online"],
+    [num(n.players), "", "players"], ...(S.deaths ? [[num(n.deaths), "", "deaths"]] : []), [num(n.advancements), "", "advancements"],
+    [num(n.chat_lines), "", "chat lines"]], foot: "From the server logs: days with no log are missing." });
+  out.push({ title: "Players by month", chart: { kind: "bars", items: S.months, key: "players", colour: "#3fa7ff" },
+    rows: S.months.filter(mo => mo.new).map(mo => [`${MONTHS[+mo.month.slice(5) - 1]}: new players`, mo.new]) });
+  out.push({ title: "Hours by month", chart: { kind: "bars", items: S.months, key: "hours", colour: "#6cc04a" } });
+  out.push({ title: "When the server was busiest", wide: true, chart: { kind: "heat", grid: S.heatmap },
+    lines: S.busiest_day.date ? [`Busiest day: **${day(S.busiest_day.date)}** with ${num(S.busiest_day.hours, 1)} hours played.`] : [],
+    foot: `Times in ${R.tz}.` });
+  if (S.deaths) out.push({ title: "How everyone died", rows: S.deaths.top.map(([c, k]) => [c, `${k}×`]),
+    lines: S.deaths.oddest ? [`The oddest: ${S.deaths.oddest}`] : [] });
   const rec = S.records, rr = [];
   if (rec.longest_session) rr.push(["Longest session", `${rec.longest_session.player}, ${num(rec.longest_session.hours, 1)} h on ${day(rec.longest_session.date)}`]);
   if (rec.furthest_km) rr.push(["Furthest travelled", `${rec.furthest_km.player}, ${num(rec.furthest_km.value, 1)} km`]);
   if (rec.most_mined) rr.push(["Most blocks mined", `${rec.most_mined.player}, ${num(rec.most_mined.value)}`]);
   if (rec.most_placed) rr.push(["Most blocks placed", `${rec.most_placed.player}, ${num(rec.most_placed.value)}`]);
   if (rec.most_mobs) rr.push(["Most mobs killed", `${rec.most_mobs.player}, ${num(rec.most_mobs.value)}`]);
-  out.push(card("Records", list(rr), "Travel, mining, placing and mobs come from the backups' statistics."));
-  out.push(card("Rarest advancements", list(S.advancements.rarest.map(a => [a.name, `${a.first}, ${day(a.date)}${a.holders === 1 ? " · the only one" : ` · ${a.holders} have it`}`])),
-    `${num(S.advancements.total)} advancements earned this year.`));
-  out.push(card("Everyone's year", `<div class="players">${R.order.map(nm => `<a href="/review/${R.key}/${encodeURIComponent(nm)}">${face(R.uuids[nm])}${esc(nm)}<span class="label">${num(R.players[nm].headline.hours)} h</span></a>`).join("")}</div>`, "", true));
+  out.push({ title: "Records", rows: rr, foot: "Travel, mining, placing and mobs come from the backups' statistics." });
+  out.push({ title: "Rarest advancements", rows: S.advancements.rarest.map(a => [a.name,
+    `${a.first}, ${day(a.date)}${a.holders === 1 ? " · the only one" : ` · ${a.holders} have it`}`]),
+    foot: `${num(S.advancements.total)} advancements earned this year.` });
+  out.push({ title: "Everyone's year", wide: true, players: true, picture: false });
   return out;
 }
-
-function playerCards(R, name) {
+function playerCards(name) {
   const P = R.players[name];
-  if (!P) return [card("Not found", `<div class="empty">${esc(name)} didn't play in ${esc(R.key)}.</div>`, "", true)];
-  const h = P.headline, out = [], st = P.stats_span;
-  out.push(card(`${name}'s ${R.key}`, `<div class="row" style="align-items:center">${face(R.uuids[name], "face big")}
-      <div><div class="big">${num(h.hours)}<small> h</small></div><div class="label">played, ${ordinal(h.rank)} of ${h.of}</div></div>
-      <div><div class="big">${num(h.days)}</div><div class="label">days online</div></div></div>`,
-    h.logs_incomplete ? `<span class="warn">The logs miss some days: the game's own play time says ${num(h.stats_hours)} h.</span>` : "From the server logs.", true));
-  out.push(card("Hours by month", bars(P.months, "hours") +
-    (P.favourite_hour != null ? `<div>Favourite time: <b>${hourText(P.favourite_hour)}</b>, most on <b>${DAYS[P.favourite_weekday]}</b>.</div>` : ""),
-    `Times in ${esc(R.tz)}.`));
+  if (!P) return [{ title: "Not found", wide: true, lines: [`${name} didn't play in ${R.key}.`], picture: false }];
+  const h = P.headline, st = P.stats_span, out = [];
+  out.push({ title: `${name}'s ${R.key}`, wide: true, face: R.uuids[name],
+    bigs: [[num(h.hours), "h", `played, ${ordinal(h.rank)} of ${h.of}`], [num(h.days), "", "days online"]],
+    ...(h.logs_incomplete ? { warn: `The logs miss some days: the game's own play time says ${num(h.stats_hours)} h.` } : { foot: "From the server logs." }) });
+  out.push({ title: "Hours by month", chart: { kind: "bars", items: P.months, key: "hours", colour: "#6cc04a" },
+    lines: P.favourite_hour != null ? [`Favourite time: **${hourText(P.favourite_hour)}**, most on **${DAYS[P.favourite_weekday]}**.`] : [],
+    foot: `Times in ${R.tz}.` });
   const f = P.firsts, fr = [];
   if (f.join) fr.push([f.new_this_year ? "Joined for the first time" : "First time online this year", day(f.join)]);
   if (f.advancement) fr.push([`First advancement: ${f.advancement.name}`, day(f.advancement.date)]);
   if (f.death) fr.push([`First death: ${f.death.text}`, day(f.death.date)]);
-  out.push(card("Firsts", list(fr)));
-  out.push(card("Travelled", P.travel.available ? `<div class="big">${num(P.travel.km, 1)}<small> km</small></div>` +
-    list(P.travel.by.slice(0, 6).map(([k, v]) => [k, `${num(v, 1)} km`])) : `<div class="empty">No statistics for this year.</div>`, span(st)));
-  out.push(card("Blocks", `<div class="row"><div><div class="big">${num(P.blocks.mined)}</div><div class="label">mined</div></div>
-      <div><div class="big">${num(P.blocks.placed)}</div><div class="label">placed</div></div></div>` +
-    list([...P.blocks.mined_top.map(([k, v]) => [`mined ${k}`, num(v)]), ...P.blocks.placed_top.map(([k, v]) => [`placed ${k}`, num(v)])]), span(st)));
-  out.push(card("Mobs", `<div class="big">${num(P.mobs.killed)}<small> killed</small></div>` +
-    list([...P.mobs.top.map(([k, v]) => [k, num(v)]), ...P.mobs.killed_by.map(([k, v]) => [`killed by ${k}`, `${num(v)}×`])]), span(st)));
+  out.push({ title: "Firsts", rows: fr });
+  out.push({ title: "Travelled", ...(P.travel.available ? { bigs: [[num(P.travel.km, 1), "km", ""]],
+    rows: P.travel.by.slice(0, 6).map(([k, v]) => [k, `${num(v, 1)} km`]) } : { lines: ["No statistics for this year."] }), ...span(st) });
+  out.push({ title: "Blocks", bigs: [[num(P.blocks.mined), "", "mined"], [num(P.blocks.placed), "", "placed"]],
+    rows: [...P.blocks.mined_top.map(([k, v]) => [`mined ${k}`, num(v)]), ...P.blocks.placed_top.map(([k, v]) => [`placed ${k}`, num(v)])], ...span(st) });
+  out.push({ title: "Mobs", bigs: [[num(P.mobs.killed), "", "killed"]],
+    rows: [...P.mobs.top.map(([k, v]) => [k, num(v)]), ...P.mobs.killed_by.map(([k, v]) => [`killed by ${k}`, `${num(v)}×`])], ...span(st) });
   const d = P.deaths;
-  out.push(card("Deaths", `<div class="big">${num(d.count)}</div>` + list([
+  if (d) out.push({ title: "Deaths", bigs: [[num(d.count), "", ""]], rows: [
     ...(d.top_cause.length ? [["Most often", `${d.top_cause[0][0]} (${d.top_cause[0][1]}×)`]] : []),
-    ...(d.worst_day ? [["Worst day", `${day(d.worst_day[0])}: ${d.worst_day[1]} deaths`]] : [])]), "From the server logs."));
-  out.push(card("Advancements", `<div class="big">${num(P.advancements.count)}</div>` +
-    (P.advancements.rarest ? `<div>Rarest: <b>${esc(P.advancements.rarest.name)}</b>${P.advancements.rarest.holders === 1 ? ", and nobody else has it" : `, ${P.advancements.rarest.holders} players have it`}.</div>` : "")));
+    ...(d.worst_day ? [["Worst day", `${day(d.worst_day[0])}: ${d.worst_day[1]} deaths`]] : [])], foot: "From the server logs." });
+  out.push({ title: "Advancements", bigs: [[num(P.advancements.count), "", "earned this year"]],
+    lines: P.advancements.rarest ? [`Rarest: **${P.advancements.rarest.name}**${P.advancements.rarest.holders === 1 ? ", and nobody else has it" : `, ${P.advancements.rarest.holders} players have it`}.`] : [] });
   return out;
 }
 
+// ---------- as HTML
+function barsSVG(items, key, colour) {
+  const W = 300, H = 90, n = Math.max(1, items.length), max = Math.max(1, ...items.map(i => i[key])), w = W / n;
+  return `<svg viewBox="0 0 ${W} ${H + 14}" width="100%">${items.map((it, i) => {
+    const h = Math.round((it[key] / max) * H), m = +it.month.slice(5) - 1;
+    return `<rect x="${i * w + 2}" y="${H - h}" width="${w - 4}" height="${h}" rx="2" fill="${colour}"><title>${MONTHS[m]}: ${it[key]}</title></rect>
+      <text x="${i * w + w / 2}" y="${H + 11}" text-anchor="middle">${MONTHS[m][0]}</text>`;
+  }).join("")}</svg>`;
+}
+function heatSVG(grid) {
+  const max = Math.max(0.01, ...grid.flat()), cw = 11, ch = 12;
+  let s = `<svg viewBox="0 0 ${24 * cw + 30} ${7 * ch + 14}" width="100%" style="max-width:520px">`;
+  grid.forEach((row, d) => {
+    s += `<text x="0" y="${d * ch + 9}">${DAYS[d].slice(0, 3)}</text>`;
+    row.forEach((v, h) => { s += `<rect x="${30 + h * cw}" y="${d * ch}" width="${cw - 1}" height="${ch - 1}" rx="2" fill="#3fa7ff" opacity="${(0.08 + 0.92 * v / max).toFixed(2)}"><title>${DAYS[d]} ${hourText(h)}: ${v} h</title></rect>`; });
+  });
+  for (const h of [0, 6, 12, 18]) s += `<text x="${30 + h * cw}" y="${7 * ch + 11}">${h}:00</text>`;
+  return s + "</svg>";
+}
+const faceEl = (uuid, cls = "face") => `<span class="${cls}" ${uuid ? `data-uuid="${uuid}"` : ""}${uuid && FACES[uuid] ? ` style="background-image:url(${FACES[uuid]})"` : ""}></span>`;
+function cardHTML(c, i) {
+  let b = "";
+  if (c.bigs || c.face) b += `<div class="row">${c.face ? faceEl(c.face, "face big") : ""}${(c.bigs || []).map(([v, u, l]) =>
+    `<div><div class="big">${esc(v)}${u ? `<small> ${esc(u)}</small>` : ""}</div>${l ? `<div class="label">${esc(l)}</div>` : ""}</div>`).join("")}</div>`;
+  if (c.chart) b += c.chart.kind === "bars" ? barsSVG(c.chart.items, c.chart.key, c.chart.colour) : heatSVG(c.chart.grid);
+  for (const l of c.lines || []) b += `<div>${rich(l)}</div>`;
+  if (c.rows) b += c.rows.length ? `<ul class="list">${c.rows.map(([a, v]) => `<li><span>${esc(a)}</span><span>${esc(v)}</span></li>`).join("")}</ul>`
+    : `<div class="empty">Nothing this year.</div>`;
+  if (c.players) b += `<div class="players">${R.order.map(nm => {
+    const inner = `${faceEl(R.uuids[nm])}${esc(nm)}<span class="label">${num(R.players[nm].headline.hours)} h</span>`;
+    return EXPORTED ? `<span class="p">${inner}</span>` : `<a href="/review/${R.key}/${encodeURIComponent(nm)}">${inner}</a>`;
+  }).join("")}</div>`;
+  const foot = [c.warn ? `<span class="warn">${esc(c.warn)}</span>` : "", c.foot ? esc(c.foot) : ""].filter(Boolean).join(" ");
+  return `<section class="card${c.wide ? " wide" : ""}"><h2>${esc(c.title)}</h2>${c.picture === false ? "" :
+    `<button class="pic" type="button" data-i="${i}" title="Save this card as a picture (1080 x 1350) to post">Picture</button>`}${b}${foot ? `<div class="foot">${foot}</div>` : ""}</section>`;
+}
+
+// ---------- as a picture (1080 x 1350, drawn on a canvas: no screenshot of the page)
+function wrap(g, text, x, y, maxW, lh, maxLines = 4) {
+  const words = plain(text).split(/\s+/);
+  let line = "", n = 0;
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; if (++n >= maxLines - 1) break; }
+    else line = t;
+  }
+  if (line) { g.fillText(line, x, y); y += lh; }
+  return y;
+}
+async function picture(c, i) {
+  const W = 1080, H = 1350, P = 80, cv = document.createElement("canvas"), g = cv.getContext("2d");
+  cv.width = W; cv.height = H;
+  const colour = COLOURS[i % COLOURS.length];
+  g.fillStyle = "#101014"; g.fillRect(0, 0, W, H);
+  const grad = g.createLinearGradient(0, 0, W, H); grad.addColorStop(0, colour + "55"); grad.addColorStop(0.6, "#10101400");
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  const F = "system-ui, 'Segoe UI', sans-serif";
+  g.fillStyle = "#a3a3b2"; g.font = `600 30px ${F}`;
+  g.fillText(`${R.title.toUpperCase()} · ${R.key} IN REVIEW`, P, 110);
+  g.fillStyle = "#f2f2f5"; g.font = `800 64px ${F}`;
+  let y = wrap(g, c.title, P, 200, W - 2 * P, 72, 2) + 30;
+  if (c.face && FACES[c.face]) {
+    const img = new Image(); img.src = FACES[c.face]; await img.decode();
+    g.imageSmoothingEnabled = false; g.drawImage(img, P, y, 180, 180); g.imageSmoothingEnabled = true;
+    y += 220;
+  }
+  if (c.bigs && c.bigs.length) {
+    const cols = c.bigs.length > 3 ? 2 : c.bigs.length, cw = (W - 2 * P) / cols;
+    c.bigs.forEach(([v, u, l], k) => {
+      const x = P + (k % cols) * cw, yy = y + Math.floor(k / cols) * 190;
+      g.fillStyle = "#f2f2f5"; g.font = `800 ${cols > 1 ? 104 : 150}px ${F}`; g.fillText(String(v), x, yy + (cols > 1 ? 100 : 140));
+      const vw = g.measureText(String(v)).width;
+      if (u) { g.fillStyle = "#a3a3b2"; g.font = `500 40px ${F}`; g.fillText(u, x + vw + 12, yy + (cols > 1 ? 100 : 140)); }
+      if (l) { g.fillStyle = "#a3a3b2"; g.font = `500 32px ${F}`; wrap(g, l, x, yy + (cols > 1 ? 145 : 190), cw - 30, 38, 2); }
+    });
+    y += Math.ceil(c.bigs.length / cols) * 190 + (cols > 1 ? 10 : 60);
+  }
+  if (c.chart && c.chart.kind === "bars") {
+    const it = c.chart.items, n = Math.max(1, it.length), cw = (W - 2 * P) / n, ch = 300, max = Math.max(1, ...it.map(o => o[c.chart.key]));
+    it.forEach((o, k) => {
+      const h = Math.round(o[c.chart.key] / max * ch);
+      g.fillStyle = c.chart.colour; g.fillRect(P + k * cw + 6, y + ch - h, cw - 12, h);
+      g.fillStyle = "#a3a3b2"; g.font = `500 26px ${F}`; g.textAlign = "center";
+      g.fillText(MONTHS[+o.month.slice(5) - 1][0], P + k * cw + cw / 2, y + ch + 36); g.textAlign = "left";
+    });
+    y += ch + 80;
+  } else if (c.chart && c.chart.kind === "heat") {
+    const grid = c.chart.grid, max = Math.max(0.01, ...grid.flat()), lw = 90, cw = (W - 2 * P - lw) / 24, ch = cw * 1.1;
+    grid.forEach((row, d) => {
+      g.fillStyle = "#a3a3b2"; g.font = `500 26px ${F}`; g.fillText(DAYS[d].slice(0, 3), P, y + d * ch + ch * 0.75);
+      row.forEach((v, h) => { g.globalAlpha = 0.1 + 0.9 * v / max; g.fillStyle = "#3fa7ff";
+        g.fillRect(P + lw + h * cw, y + d * ch, cw - 4, ch - 4); g.globalAlpha = 1; });
+    });
+    g.fillStyle = "#a3a3b2"; g.font = `500 24px ${F}`;
+    for (const h of [0, 6, 12, 18]) g.fillText(`${h}:00`, P + lw + h * cw, y + 7 * ch + 30);
+    y += 7 * ch + 80;
+  }
+  g.fillStyle = "#f2f2f5"; g.font = `500 38px ${F}`;
+  for (const l of c.lines || []) y = wrap(g, l, P, y + 10, W - 2 * P, 48, 3) + 10;
+  for (const [a, v] of (c.rows || []).slice(0, 8)) {
+    if (y > H - 200) break;
+    g.font = `500 36px ${F}`; g.fillStyle = "#f2f2f5";
+    const left = plain(a), right = plain(v);
+    g.textAlign = "right"; g.fillStyle = "#a3a3b2"; g.fillText(right.length > 34 ? right.slice(0, 33) + "…" : right, W - P, y + 40);
+    const rw = Math.min(g.measureText(right).width, 560); g.textAlign = "left"; g.fillStyle = "#f2f2f5";
+    let t = left; while (g.measureText(t).width > W - 2 * P - rw - 30 && t.length > 4) t = t.slice(0, -2);
+    g.fillText(t === left ? t : t + "…", P, y + 40);
+    g.strokeStyle = "#2c2c36"; g.setLineDash([6, 8]); g.beginPath(); g.moveTo(P, y + 60); g.lineTo(W - P, y + 60); g.stroke(); g.setLineDash([]);
+    y += 72;
+  }
+  g.fillStyle = "#a3a3b2"; g.font = `500 26px ${F}`;
+  wrap(g, [c.warn, c.foot].filter(Boolean).join(" "), P, H - 110, W - 2 * P, 32, 3);
+  cv.toBlob(b => {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b);
+    a.download = `${(PLAYER || R.title)} ${R.key} - ${plain(c.title).replace(/[^\w' -]+/g, "").trim() || "card"}.png`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
+}
+
+// ---------- faces (the 8 x 8 front of each player's skin, hat layer on top)
+async function loadFaces() {
+  const want = [...new Set([...document.querySelectorAll("[data-uuid]")].map(el => el.dataset.uuid))];
+  for (const u of want) {
+    if (!FACES[u] && !EXPORTED) {
+      try {
+        const r = await (await fetch(`/api/skin/${u.replace(/-/g, "")}`)).json();
+        if (!r.found) continue;
+        const img = new Image(); img.src = r.url; await img.decode();
+        const cv = document.createElement("canvas"); cv.width = cv.height = 8;
+        const g = cv.getContext("2d"); g.drawImage(img, 8, 8, 8, 8, 0, 0, 8, 8); g.drawImage(img, 40, 8, 8, 8, 0, 0, 8, 8);
+        FACES[u] = cv.toDataURL();
+      } catch (e) { continue; }                          // no skin: the grey square stays
+    }
+    if (FACES[u]) for (const el of document.querySelectorAll(`[data-uuid="${u}"]`)) el.style.backgroundImage = `url(${FACES[u]})`;
+  }
+}
+
+// ---------- export: this page as one file (data and faces inside)
+async function exportPage() {
+  const deaths = $("#xDeaths").checked, D = JSON.parse(JSON.stringify(R));
+  if (PLAYER) {                                         // only this player's year, plus the server's totals
+    D.players = { [PLAYER]: D.players[PLAYER] }; D.order = [PLAYER];
+  } else {                                              // the overview: everyone's hours only
+    for (const n of Object.keys(D.players)) D.players[n] = { headline: { hours: D.players[n].headline.hours } };
+  }
+  if (!deaths) {
+    D.server.deaths = null;
+    for (const p of Object.values(D.players)) { if (p.deaths !== undefined) p.deaths = null; if (p.firsts) p.firsts.death = null; }
+  }
+  D.uuids = Object.fromEntries(Object.entries(D.uuids || {}).filter(([n]) => D.players[n]));
+  D.faces = Object.fromEntries(Object.values(D.uuids).filter(u => FACES[u]).map(u => [u, FACES[u]]));
+  delete D.years;
+  const src = await (await fetch(location.pathname)).text();
+  const data = JSON.stringify(D).replace(/</g, "\\u003c");
+  const html = src.replace("<script>", `<script>window.REVIEW_DATA = ${data}; window.REVIEW_PLAYER = ${JSON.stringify(PLAYER)};</` + `script>\n<script>`);
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  a.download = `${PLAYER || R.title} ${R.key} in review.html`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
 (async () => {
-  let R;
-  try { R = await (await fetch(`/api/review/${encodeURIComponent(YEAR)}`)).json(); }
-  catch (e) { $("#cards").innerHTML = card("Couldn't load", `<div class="empty">${esc(e)}</div>`, "", true); return; }
-  if (R.error) { $("#cards").innerHTML = card("Couldn't load", `<div class="empty">${esc(R.error)}</div>`, "", true); return; }
+  try {
+    R = EXPORTED ? window.REVIEW_DATA : await (await fetch(`/api/review/${encodeURIComponent(YEAR)}`)).json();
+  } catch (e) { $("#cards").innerHTML = cardHTML({ title: "Couldn't load", wide: true, lines: [String(e)], picture: false }, 0); return; }
+  if (R.error) { $("#cards").innerHTML = cardHTML({ title: "Couldn't load", wide: true, lines: [R.error], picture: false }, 0); return; }
+  if (EXPORTED) { document.body.classList.add("exported"); Object.assign(FACES, R.faces || {}); }
   document.title = PLAYER ? `${PLAYER}'s ${R.key}` : `${R.title}: ${R.key} in review`;
-  $("#title").textContent = PLAYER ? `${PLAYER}'s year` : `${R.title}: the year in review`;
-  $("#year").innerHTML = R.years.map(y => `<option${String(y) === R.key ? " selected" : ""}>${y}</option>`).join("");
-  $("#year").onchange = () => { location.href = `/review/${$("#year").value}${PLAYER ? "/" + encodeURIComponent(PLAYER) : ""}`; };
-  $("#back").href = `/review/${R.key}`; $("#back").style.display = PLAYER ? "" : "none";
+  $("#title").textContent = PLAYER ? `${PLAYER}'s ${R.key}` : `${R.title}: ${R.key} in review`;
+  if (!EXPORTED) {
+    $("#year").innerHTML = (R.years || []).map(y => `<option${String(y) === R.key ? " selected" : ""}>${y}</option>`).join("");
+    $("#year").onchange = () => { location.href = `/review/${$("#year").value}${PLAYER ? "/" + encodeURIComponent(PLAYER) : ""}`; };
+    $("#back").href = `/review/${R.key}`; $("#back").style.display = PLAYER ? "" : "none";
+    $("#xGo").onclick = () => { $("#exportBox").open = false; exportPage(); };
+  }
   $("#note").textContent = `Calendar year ${R.key}, ${R.tz}.`;
-  $("#cards").innerHTML = (PLAYER ? playerCards(R, PLAYER) : serverCards(R)).join("");
-  faces();
+  const cards = PLAYER ? playerCards(PLAYER) : serverCards();
+  $("#cards").innerHTML = cards.map(cardHTML).join("");
+  for (const b of document.querySelectorAll(".pic")) b.onclick = () => picture(cards[+b.dataset.i], +b.dataset.i);
+  loadFaces();
 })();
 </script>
 </body>

@@ -313,7 +313,18 @@ Each name opens that player's year (`/review/<year>/<name>`):
 - deaths: how many, the most common cause, the worst day;
 - advancements earned, and the rarest.
 
-Pick another year at the top. Where the numbers come from:
+Pick another year at the top.
+
+**Sharing:**
+- **A card as a picture:** hover a card and press **Picture** to save it as a 1080 x 1350 image (the shape
+  phones and Instagram use), to post in your server's channel.
+- **A page as a file:** **Export…** saves the page as one file that opens in any browser without the app:
+  - the overview's file has the server's cards and everyone's hours;
+  - a player's file has only their own year plus the server's totals;
+  - chat is never quoted;
+  - untick **Include deaths** to leave the deaths out.
+
+Where the numbers come from:
 - **Hours, days, deaths and chat** come from the server logs, so days with no log are missing (a player's card
   says so when the game's own play time disagrees).
 - **Travel, blocks and mobs** come from Minecraft's statistics in the backups: the newest backup before the

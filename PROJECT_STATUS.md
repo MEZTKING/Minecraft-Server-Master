@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1073,7 +1073,14 @@ Each player:
      There's a **Year in review** button in the viewer.
    - Checked on the library: 2026 has 7 players, 1,022 h, 186 days and 276 deaths. D_HumanCrafter's hours
      from the logs (481.2) match the game's own play time (481.2).
-2. Share pictures (canvas) and the filtered export.
+2. ✅ Share pictures (canvas) and the filtered export. **Built 2026-11-23** (owner: "Yes, version 2").
+   - `review.html` describes each card once as data. The same data draws the HTML card and a 1080 x 1350
+     canvas picture (no DOM screenshots); faces are drawn from the skins as 8 x 8 data URLs.
+   - **Export…** fetches the page itself and adds `window.REVIEW_DATA` (filtered) and the faces, then saves one
+     file. A player's file has only that player plus the server's block; the overview's has everyone's hours
+     only. **Include deaths** (on by default) can drop the deaths cards and first deaths.
+   - Checked: Vakirath's file is 28 KB and works offline. Pictures were checked for the headline, travel and
+     blocks cards.
 3. Moments, before/after maps, builds, played-with.
 4. Heatmaps from recordings; a video version.
 
@@ -1453,6 +1460,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Year in review v2: each card saved as a 1080 x 1350 picture; pages exported as one file
+  (only that player's year, no chat quotes, deaths optional).
 
 - **2026-11-23:** Year in review v1: the server's year and each player's as cards (`mcsm/review.py`,
   `/review`), statistics compared between backups, a **Year in review** button in the history viewer.
