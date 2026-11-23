@@ -214,7 +214,8 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
     - haze in the distance;
     - a soft glow around torches, lanterns, glowstone, fire and other light sources (soul ones glow blue),
       strongest at night;
-    - water that reflects the sky, more at a glancing angle, with the sun's glint and small moving waves;
+    - water in its own biome colour (as with graphics Off) that reflects the sky only at a glancing angle, with
+      the sun's glint and small moving waves;
     - film-like colour.
 
     It's about as bright as Off overall.
