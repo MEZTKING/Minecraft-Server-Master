@@ -345,3 +345,27 @@ def find_incidents(lg: Ledger, cache_file: str | None = None) -> list[dict]:
         except OSError:
             pass
     return out
+
+
+# ---------------------------------------------------------------- where things happened (heatmap)
+HEAT_KINDS = {                       # what each heatmap shows (Ledger action names)
+    "all": ("block-place", "block-break", "block-change", "entity-kill", "item-insert", "item-remove"),
+    "building": ("block-place",),
+    "mining": ("block-break",),
+    "fighting": ("entity-kill",),
+    "storage": ("item-insert", "item-remove"),
+}
+
+
+def heat(lg: Ledger, dim: str, t0: int, t1: int, kind: str = "all", cell: int = 16, players_only: bool = True) -> list[list]:
+    """How much happened where from *t0* to *t1* (ms): ``[[cell x, cell z, count, mean y], ...]`` for cells of
+    *cell* blocks; by players only unless *players_only* is False (then fire, decay... too)."""
+    w = lg.worlds.get(dim)
+    ids = [lg.actions[a] for a in HEAT_KINDS.get(kind, HEAT_KINDS["all"]) if a in lg.actions]
+    if w is None or not ids:
+        return []
+    shift = max(0, int(cell).bit_length() - 1)
+    q = (f"select x >> {shift}, z >> {shift}, count(*), avg(y) from actions where world_id = ? and rolled_back = 0 "
+         f"and action_id in ({','.join('?' * len(ids))}) and time between ? and ?"
+         + (" and player_id is not null" if players_only else "") + " group by 1, 2")
+    return [[cx, cz, n, round(y)] for cx, cz, n, y in lg._con().execute(q, (w, *ids, _when(t0), _when(t1)))]

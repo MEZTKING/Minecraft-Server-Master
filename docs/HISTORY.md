@@ -292,6 +292,13 @@ texture. Items from the Hero's Journey datapack show as the plain item they're b
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
 
+**Activity heatmap.** With the server's Ledger log, the **Activity heatmap** box (under *Show*) colours the
+map by how much players did there: pale yellow for a little, red for a lot, in squares of 16 x 16 blocks.
+- **What:** everything, building (blocks placed), mining (broken), fighting (mobs killed), or chests and storage.
+- **When:** the day of the time slider, its week, its month, or the whole log.
+- The note under it says how many squares and where the busiest one is. Only what players did counts (not
+  fire or decay).
+
 **Blocks as at that moment.** With **As at that moment** ticked (next to *Real blocks*, on at first), the blocks
 near you are the world as it was at that time, not as the next backup has it: a build half done, a hole just
 dug, a house not yet there. Two sources are used:

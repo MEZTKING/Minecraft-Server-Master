@@ -450,6 +450,23 @@ class HistoryMap(TerrainServer):
                     self._moment_why = None
             except ValueError:
                 return {"recordings": []}
+        if path.startswith("/api/heatmap/"):         # where things happened (Ledger): /api/heatmap/<dim>/<from>/<to>/<kind>
+            from . import ledger as ledger_mod
+            try:
+                dim, a, b, kind = path[len("/api/heatmap/"):].split("/")
+                a, b = int(a), int(b)
+            except ValueError:
+                return {"cells": []}
+            lg = self.ledger()
+            if lg is None:
+                return {"cells": [], "available": False}
+            cache = self.__dict__.setdefault("_heat", {})
+            key = (dim, a, b, kind)
+            if key not in cache:
+                cache[key] = ledger_mod.heat(lg, "minecraft:" + dim, a, b, kind)
+                while len(cache) > 40:
+                    cache.pop(next(iter(cache)))
+            return {"cells": cache[key], "cell": 16, "available": True}
         if path == "/api/incidents":                  # builds damaged (Ledger): explosions, fire, lava, others
             return {"incidents": self.incidents() or []}
         if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers

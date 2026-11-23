@@ -5367,6 +5367,30 @@ class TestLedger(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_heat(self):
+        """Where things happened: actions counted per 16 x 16 square, by kind and time."""
+        from datetime import datetime, timezone
+        from mcsm import ledger
+        tmp = tempfile.mkdtemp()
+        try:
+            p = os.path.join(tmp, "ledger.sqlite")
+            self._db(p)
+            con = sqlite3.connect(p)
+            con.execute("update actions set player_id = 1")
+            con.commit()
+            con.close()
+            lg = ledger.Ledger(p)
+            ms = lambda *a: int(datetime(*a, tzinfo=timezone.utc).timestamp() * 1000)
+            day = (ms(2026, 3, 1), ms(2026, 3, 2))
+            cells = {(c[0], c[1]): c[2] for c in ledger.heat(lg, "minecraft:overworld", *day, "all")}
+            self.assertEqual(cells, {(0, 0): 4})            # five actions in square 0, 0, one of them rolled back
+            build = ledger.heat(lg, "minecraft:overworld", *day, "building")
+            self.assertEqual(build, [[0, 0, 2, 64]])        # two placements left (one was rolled back)
+            self.assertEqual(ledger.heat(lg, "minecraft:overworld", *day, "fighting"), [[0, 0, 1, 64]])
+            self.assertEqual(ledger.heat(lg, "minecraft:overworld", ms(2026, 4, 1), ms(2026, 4, 2)), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_patched_chunk(self):
         from mcsm import blockmesh as bm
 

@@ -180,6 +180,17 @@ ul { list-style: none; margin: 0; padding: 0; }
     </div>
     <div class="meta">Real blocks, all paths and event pins have their own switches above and below.</div>
   </details>
+  <details id="heatBox" title="Where things happened, from the server's Ledger log (blocks placed and broken, mobs killed, chests used)" style="display:none">
+    <summary>Activity heatmap</summary>
+    <div class="row" style="flex-wrap:wrap;gap:4px 10px">
+      <label><input type="checkbox" id="heatOn"> Show</label>
+      <select id="heatKind" title="What to count"><option value="all">Everything</option><option value="building">Building</option>
+        <option value="mining">Mining</option><option value="fighting">Fighting</option><option value="storage">Chests and storage</option></select>
+      <select id="heatRange" title="Over what time (around the time slider)"><option value="day">That day</option>
+        <option value="week">That week</option><option value="month">That month</option><option value="all">The whole log</option></select>
+    </div>
+    <div class="meta" id="heatNote">Squares of 16 x 16 blocks, pale yellow (a little) to red (a lot); by players only.</div>
+  </details>
   <details id="lightBox" title="How the real blocks are lit: Minecraft's own light levels from the backup">
     <summary>Light</summary>
     <div class="lgrid">
@@ -713,6 +724,57 @@ const MOMENT_STEP = 30_000, MOMENT_TILES = 9;
 // the Ledger mod's block log (if the server has one): blocks at any moment it covers, not only during exact playback
 let LEDGER = { available: false, from: 0, to: 0 };
 fetch("api/ledger").then(r => r.json()).then(d => { LEDGER = d; }).catch(() => {});
+// ---------- activity heatmap (Ledger): how much players did where, over a day, week, month or the whole log ----------
+const HEAT = { key: "", group: new THREE.Group(), busy: false };
+HEAT.group.renderOrder = 5; scene.add(HEAT.group);
+function heatSpan() {
+  const r = $("#heatRange").value, d = new Date(T);
+  if (r === "all") return [LEDGER.from, LEDGER.to];
+  d.setHours(0, 0, 0, 0);
+  if (r === "week") d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  if (r === "month") d.setDate(1);
+  const e = new Date(d);
+  if (r === "day") e.setDate(e.getDate() + 1); else if (r === "week") e.setDate(e.getDate() + 7); else e.setMonth(e.getMonth() + 1);
+  return [d.getTime(), e.getTime() - 1];
+}
+async function heatStep() {
+  $("#heatBox").style.display = LEDGER.available ? "" : "none";
+  const on = LEDGER.available && $("#heatOn").checked;
+  HEAT.group.visible = on;
+  if (!on || HEAT.busy) return;
+  const dim = $("#dim").value, [a, b] = heatSpan(), kind = $("#heatKind").value, key = `${dim}|${a}|${b}|${kind}`;
+  if (key === HEAT.key) return;
+  HEAT.busy = true;
+  try {
+    const r = await (await fetch(`api/heatmap/${dim.replace("minecraft:", "")}/${a}/${b}/${kind}`)).json();
+    for (const m of HEAT.group.children) { m.geometry.dispose(); m.material.dispose(); }
+    HEAT.group.clear();
+    const cells = r.cells || [], size = r.cell || 16;
+    if (cells.length) {
+      const max = Math.log(1 + Math.max(...cells.map(c => c[2])));
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(size * 0.94, size * 0.94).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthTest: false, depthWrite: false, fog: false }), cells.length);
+      const m4 = new THREE.Matrix4(), col = new THREE.Color();
+      cells.forEach(([cx, cz, n, y], i) => {
+        const t = Math.log(1 + n) / max;
+        m4.makeTranslation(cx * size + size / 2, Math.max(y, 62) + 2, cz * size + size / 2);
+        mesh.setMatrixAt(i, m4);
+        mesh.setColorAt(i, col.setHSL(0.16 * (1 - t), 1, 0.55 - 0.15 * t));      // yellow -> red
+      });
+      mesh.renderOrder = 5; HEAT.group.add(mesh);
+      const top = cells.reduce((x, c) => c[2] > x[2] ? c : x);
+      $("#heatNote").textContent = `${cells.length.toLocaleString()} squares of ${size} x ${size} blocks with ${$("#heatKind").selectedOptions[0].text.toLowerCase()}`
+        + `; busiest at ${top[0] * size + size / 2}, ${top[1] * size + size / 2} (${top[2].toLocaleString()}). Pale yellow a little, red a lot; players only.`;
+    } else $("#heatNote").textContent = "Nothing logged here in that time.";
+    HEAT.key = key;
+  } catch (e) { /* try again next time */ }
+  finally { HEAT.busy = false; }
+}
+for (const id of ["heatOn", "heatKind", "heatRange"]) {
+  const el = $("#" + id), k = "mcsm-" + id;
+  const v = store.get(k); if (v != null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
+  el.addEventListener("change", () => { store.set(k, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value); HEAT.key = ""; });
+}
 function momentTime() {
   if (!$("#momentOn").checked) return null;
   const exact = EXACT.on && T >= EXACT.lo && T <= EXACT.hi;
@@ -2729,6 +2791,7 @@ function frame(now) {
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   realStep(now);                                       // real blocks around where you look
   liveStep(now);                                       // and blocks placed or broken since, as they happen
+  if (now - (HEAT.last || 0) > 400) { HEAT.last = now; heatStep(); }   // the activity heatmap (Ledger)
   exactStep(now);                                      // every recorded movement, close up at 1x / 10x
   updateMobs();
   if (H && H.range) {

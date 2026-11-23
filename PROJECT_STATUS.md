@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -854,6 +854,16 @@ logs end.
   Crow_Shroom's oak house at -2,007, 1,838 on 10 April (4 recordings running); creepers repeatedly hit
   Crow_Shroom's hut at -5,499, 3,116.
 
+✅ **Use 5 built 2026-11-23** (owner: "Yes, the heatmap").
+- `ledger.heat(dim, from, to, kind)` counts players' actions per 16 x 16 square (`x >> 4`) with their mean
+  height. Kinds: all, building, mining, fighting, storage. About 0.9 s for the whole log, 0.2 s for a day.
+- `/api/heatmap/<dim>/<from>/<to>/<kind>` (kept for 40 queries).
+- The page's **Activity heatmap** box (shown only with a Ledger log) draws an instanced mesh of flat squares
+  above the ground. Colour goes from yellow to red on a log scale; no depth test, no fog. The span (day, week,
+  month, all) is around the time slider, in this PC's time zone.
+- On the owner's server the busiest square of all is Vakirath's base at 4,744, 376 (20,954 actions); a far mob
+  farm leads fighting.
+
 ### 0ze. One combined recording of everyone (raised 2026-11-23)
 
 **The ask:** "is it not possible to just combine all the recordings as one and play that".
@@ -1477,6 +1487,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Activity heatmap (Ledger)**: open **Activity heatmap** under *Show*, tick it, and try the kinds and spans
+  (zoom out to see a whole base).
 - **Griefing and accidents (Ledger)**: the moments list has the damage moments (e.g. the fire at Crow_Shroom's
   house, 10 April); the year in review has **Disasters**. Are the "took down" ones agreed work or not?
 - **Who built what (Ledger)**: the moments list's building moments now name exact builders and blocks; the
@@ -1586,6 +1598,9 @@ Things built and checked here that need a look in the real game or by eye (newes
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Activity heatmap from the Ledger log (`ledger.heat`, `/api/heatmap`): where players built,
+  mined, fought or used chests, by day, week, month or all.
 
 - **2026-11-23:** Griefing and accident finder from the Ledger log (`ledger.find_incidents`): placed blocks lost to
   explosions, fire, lava or another player, as moments and a year-in-review **Disasters** card.
