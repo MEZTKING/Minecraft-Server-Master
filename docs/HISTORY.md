@@ -245,8 +245,9 @@ speed), zombies hold their arms out, fish swish their tails, squid move their te
 models are read from the newest Minecraft 26.x game installed on this PC (older versions' games can't be read);
 without one, mobs show as boxes sized and coloured by kind. What the recordings don't say is picked once per mob:
 a horse's coat, a cat's or parrot's colours, a tropical fish's colour, and farm animals are their temperate kind.
-Babies show adult-sized. Dropped items, arrows and other things that fly past
-aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
+Babies show adult-sized. Dropped items show as the item's icon, turning and bobbing like in the game (wheat
+and seeds around a farm, a stack thrown to a friend); they disappear when picked up or gone. Mobs disappear the
+moment they're killed or leave the recording's view. Arrows and other things that fly past aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
 that can take up to a minute, and later views are quick.
 
 What the recordings say about each player and mob is shown too:

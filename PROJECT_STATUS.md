@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -969,7 +969,15 @@ Fable's order, most visible per effort first:
        - `build()` skips backup reads when the recordings cover every chunk it needs.
    - **Not yet:** light updates from neighbours only; block entities (sign text, banner patterns) not drawn;
      a change on a chunk's edge doesn't rebuild the neighbouring chunk (a face can show or hide a moment late).
-7. **Dropped items.**
+7. ✅ **Dropped items.** Built 2026-11-23.
+   - `item` entities are followed like mobs. `paths.dropped_item()` reads the stack from their entity data
+     (index 8, serializer 7, with optional components (serializer 6) skipped before it); it shares
+     `paths.item_stack()` with the equipment reader.
+   - New events: `"it"` (which item; a state, so known from before the window) and `"gone"`
+     (remove_entities: picked up, killed, despawned or out of view). Mobs use `"gone"` too and vanish at once
+     instead of 16 s later. `EXACT_SUFFIX` `.exact6`.
+   - The page draws an icon (`itemTexture`), turning and bobbing.
+   - In the owner's 10 April recording: 572 items, mostly wheat, seeds, glow ink sacs and eggs.
 8. **Chat bubbles** from the server log.
 
 **Not worth it:** particles, sounds, explosions beyond a flash, item-frame contents and maps, the block-break
@@ -1360,6 +1368,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Dropped items in exact playback (parity step 7): item icons from the recordings' entity
+  data; entities vanish when removed (`"gone"`).
 
 - **2026-11-23:** Live block changes in exact playback: changed chunks rebuilt on their own between the 30 s
   moment steps; `/api/momentchanges`, `/api/momentchunk`; faster moment reads.

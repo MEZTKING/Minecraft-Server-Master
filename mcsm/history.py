@@ -582,7 +582,7 @@ class HistoryMap(TerrainServer):
                 name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
                 if kind == "eq":                          # one state per slot: "eq:mainhand", "eq:head", ...
                     kind, value = f"eq:{value[0]}", value[1:]
-                if (kind in ("f", "p", "h", "r") or kind.startswith("eq:")) and t < t0:
+                if (kind in ("f", "p", "h", "r", "it") or kind.startswith("eq:")) and t < t0:
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)
                 elif kind.startswith("eq:") and t > t1:

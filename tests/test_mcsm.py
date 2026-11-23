@@ -1235,6 +1235,13 @@ class TestPosesAndMobs(unittest.TestCase):
                 recs.append(("game_packet", _vi(109) + _vi(20) + _vi(1) + _vi(7)))
             if t == 20:                                   # gets off
                 recs.append(("game_packet", _vi(109) + _vi(20) + _vi(0)))
+            if t == 7:                                    # the dropped item is wheat (entity data index 8, an item stack)
+                wheat = protocol.table(777)["items"].index("wheat")
+                recs.append(("game_packet", _vi(101) + _vi(21) + bytes([0]) + _vi(0) + bytes([0])
+                             + bytes([2]) + _vi(6) + bytes([0]) + bytes([8]) + _vi(7) + _vi(3) + _vi(wheat) + _vi(0) + _vi(0)
+                             + bytes([0xFF])))
+            if t == 30:                                   # picked up
+                recs.append(("game_packet", _vi(78) + _vi(1) + _vi(21)))
             recs.append(("next_tick", b""))
         tmp = tempfile.mkdtemp()
         try:
@@ -1247,7 +1254,9 @@ class TestPosesAndMobs(unittest.TestCase):
             self.assertIn([10, None, "s", 0], ex["events"])
             self.assertIn([12, None, "r", "zombie"], ex["events"])  # riding, and what
             self.assertIn([20, None, "r", ""], ex["events"])        # off again          # a main-hand swing
-            self.assertEqual(ex["mobs"], {"#zombie#20": "zombie"})   # the dropped item isn't followed
+            self.assertEqual(ex["mobs"], {"#zombie#20": "zombie", "#item#21": "item"})   # dropped items too
+            self.assertIn([7, "#item#21", "it", "wheat"], ex["events"])
+            self.assertIn([30, "#item#21", "gone", 1], ex["events"])
             self.assertIn("#zombie#20", ex["who"])
             zrows = [r for r in ex["rows"] if ex["who"][r[1]] == "#zombie#20"]
             self.assertTrue(zrows and all(r[0] % paths.MOB_EVERY == 0 for r in zrows))

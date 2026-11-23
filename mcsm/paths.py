@@ -250,34 +250,74 @@ def equipment(b, k: int, end: int, items: list, comps: list) -> list[list]:
         more = bool(slot & 0x80)
         k += 1
         name = SLOTS[slot & 0x7F] if (slot & 0x7F) < len(SLOTS) else str(slot & 0x7F)
-        count, k = _varint(b, k)
-        if count <= 0:
-            out.append([name, "", "", None])
-            continue
-        iid, k = _varint(b, k)
-        item = items[iid] if 0 <= iid < len(items) else f"#{iid}"
-        add, k = _varint(b, k)
-        rem, k = _varint(b, k)
-        model, colour = "", None
-        try:
-            for _ in range(add):
-                ct, k = _varint(b, k)
-                cname = comps[ct] if 0 <= ct < len(comps) else ""
-                k, val = _component(cname, b, k)
-                if cname == "item_model" and val:
-                    model = val
-                elif cname == "dyed_color":
-                    colour = val
-            for _ in range(rem):
-                k = _varint(b, k)[1]
-        except (ValueError, IndexError, struct.error):
-            out.append([name, item, model, colour])
+        got, k = item_stack(b, k, items, comps)
+        out.append([name] + got[:3])
+        if got[3]:                                     # a component it couldn't read: the rest is unknown
             break
-        out.append([name, item, model, colour])
     return out
 
 
+def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
+    """An item stack: ``([item ("" = empty), item_model or "", dye colour or None, stopped early], new position)``."""
+    count, k = _varint(b, k)
+    if count <= 0:
+        return ["", "", None, False], k
+    iid, k = _varint(b, k)
+    item = items[iid] if 0 <= iid < len(items) else f"#{iid}"
+    add, k = _varint(b, k)
+    rem, k = _varint(b, k)
+    model, colour = "", None
+    try:
+        for _ in range(add):
+            ct, k = _varint(b, k)
+            cname = comps[ct] if 0 <= ct < len(comps) else ""
+            k, val = _component(cname, b, k)
+            if cname == "item_model" and val:
+                model = val
+            elif cname == "dyed_color":
+                colour = val
+        for _ in range(rem):
+            k = _varint(b, k)[1]
+    except (ValueError, IndexError, struct.error):
+        return [item, model, colour, True], k
+    return [item, model, colour, False], k
+
+
+SER_OPT_COMPONENT, SER_ITEM_STACK = 6, 7
+
+
+def dropped_item(b, k: int, end: int, items: list, comps: list) -> str | None:
+    """The item of a dropped item from its entity data (index 8, an item stack), if this packet has it."""
+    last = -1
+    try:
+        while k < end:
+            idx = b[k]
+            if idx == 0xFF or idx <= last or idx > 60:
+                return None
+            last = idx
+            ser, k = _varint(b, k + 1)
+            if idx == 8 and ser == SER_ITEM_STACK:
+                return item_stack(b, k, items, comps)[0][0] or None
+            if ser == SER_BYTE or ser == SER_BOOL:
+                k += 1
+            elif ser == SER_FLOAT:
+                k += 4
+            elif ser == SER_VARINT or idx == 6:
+                k = _varint(b, k)[1]
+            elif ser == SER_VARLONG:
+                k = _varlong(b, k)[1]
+            elif ser == SER_OPT_COMPONENT:
+                k = _nbt_skip(b, k + 1) if b[k] else k + 1
+            else:
+                return None
+    except (IndexError, struct.error, ValueError):
+        return None
+    return None
+
+
 def _followed(kind: str) -> bool:
+    if kind == "item":                                 # dropped items (what they are: from their entity data)
+        return True
     return bool(kind) and kind not in SKIP_ENTITIES and not kind.endswith(("_display", "_arrow", "_potion"))
 
 
@@ -404,7 +444,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 last_move[eid] = tick
                         elif pid == data_id and size > 4:     # entity id, then (index, serializer, value)...
                             eid, k = _varint(b, k)
-                            if eid == me or eid in others:
+                            if eid in others and others[eid].startswith("#item#"):
+                                it = dropped_item(b, k, i + size, items_of, comps_of)
+                                if it:
+                                    extras["events"].append([tick, others[eid], "it", it])   # which item
+                            elif eid == me or eid in others:
                                 who = None if eid == me else others[eid]
                                 d = entity_data(b, k, i + size)
                                 if 0 in d:
@@ -463,6 +507,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 for who in riders.pop(eid, ()) if extras is not None else ():
                                     extras["events"].append([tick, who, "r", ""])   # the vehicle went away
                                 if eid in others:
+                                    if extras is not None and others[eid].startswith("#"):
+                                        extras["events"].append([tick, others[eid], "gone", 1])   # picked up, killed...
                                     del others[eid]
                                     cur.pop(eid, None)
                                     last_out.pop(eid, None)
@@ -673,7 +719,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact5.json.gz"     # 5: held items and armour ("eq"); 4: riding; states from any time before
+EXACT_SUFFIX = ".exact6.json.gz"     # 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

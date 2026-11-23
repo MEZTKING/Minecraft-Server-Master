@@ -1123,8 +1123,25 @@ function mobMesh(label, kind) {
     const g = new THREE.Group(); g.add(box);
     o = { mesh: g, box, kind, dist: 0, last: null }; mobGroup.add(g); mobMeshes.set(label, o);
   }
+  if (kind === "item") { if (!o.icon) itemIcon(o); return o; }
   if (!o.building && MOBM) buildMob(o, label, kind);
   return o;
+}
+// dropped items: the item's icon, turning and bobbing like in the game (a block shows its texture)
+const ITEM_GEO = new THREE.PlaneGeometry(0.42, 0.42);
+function itemIcon(o) {
+  o.box.visible = false;
+  o.icon = new THREE.Mesh(ITEM_GEO, new THREE.MeshLambertMaterial({ transparent: false, alphaTest: 0.3, side: THREE.DoubleSide,
+    color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.35 }));
+  o.icon.position.y = 0.25; o.icon.visible = false; o.mesh.add(o.icon);
+}
+async function setItemIcon(o, item) {
+  o.itemName = item;
+  const t = item ? await itemTexture(item) : null;
+  if (o.itemName !== item) return;                       // changed meanwhile
+  o.icon.material.map = t; o.icon.material.emissiveMap = t; o.icon.material.needsUpdate = true;
+  o.icon.visible = !!t;
+  if (!t) o.box.visible = false;
 }
 function animateMob(o, label, speed) {                   // speed: blocks per second
   const P = o.parts; if (!P) return;
@@ -1195,6 +1212,17 @@ function updateMobs() {
       const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1500);
       o.mesh.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;
       if (died !== null && died > 1500) { o.mesh.visible = false; continue; }               // gone after the death
+      if (died === null) {                                   // picked up, despawned, killed: gone at once
+        const gone = sinceLast(label, "gone", T);
+        if (gone !== null && T - gone >= a[0]) { o.mesh.visible = false; continue; }
+      }
+      if (o.icon) {
+        const it = stateAt(label, "it", T, null);
+        if (it !== o.itemName) setItemIcon(o, it);
+        o.icon.rotation.y = (T / 1000) * 1.4 + (label.length % 7);
+        o.icon.position.y = 0.25 + Math.sin(T / 400 + label.length) * 0.05;
+        continue;
+      }
       animateMob(o, label, speed);
       mobTint(o, label);
     }
