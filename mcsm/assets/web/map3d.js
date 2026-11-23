@@ -113,10 +113,12 @@ function render(cam, samples, players, view, keys = [], ksel = null) {
   } else renderer.render(scene, camView);
 }
 // --- real blocks near the camera, with Minecraft's own textures (from the installed game) -----------
+const IMAGES = new Map();                              // texture pictures, loaded once (many tiles share them)
 function loadImage(url) {
-  return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+  if (!IMAGES.has(url)) IMAGES.set(url, new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; }));
+  return IMAGES.get(url);
 }
-async function buildAtlas(textures, tints) {
+async function buildAtlas(textures, tints, texUrl = URLS.tex) {
   const N = Math.ceil(Math.sqrt(textures.length)), C = 16, cv = document.createElement("canvas");
   cv.width = cv.height = N * C;
   const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
@@ -132,11 +134,11 @@ async function buildAtlas(textures, tints) {
   };
   for (let i = 0; i < textures.length; i++) {
     const x = (i % N) * C, y = Math.floor(i / N) * C, parts = textures[i].split("+");
-    const base = await loadImage(URLS.tex(parts[0]));
+    const base = await loadImage(texUrl(parts[0]));
     if (base) g.drawImage(draw(base, tints[parts[0]]), x, y);
     else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
     if (parts[1]) {                                          // grass block side: + tinted overlay
-      const ov = await loadImage(URLS.tex(`${parts[0]}_${parts[1]}`));
+      const ov = await loadImage(texUrl(`${parts[0]}_${parts[1]}`));
       if (ov) g.drawImage(draw(ov, tints[`${parts[0]}_${parts[1]}`]), x, y);
     }
   }
@@ -146,26 +148,19 @@ async function buildAtlas(textures, tints) {
   return { tex, N };
 }
 const SHADE = [1.0, 0.5, 0.8, 0.8, 0.62, 0.62];
-async function loadBlocks(say, urls = {}) {
-  Object.assign(URLS, urls);
-  let info;
-  try { info = await (await fetch(URLS.blocks)).json(); } catch (e) { return; }
-  if (!info.faces) { if (info.message) say(info.message); return; }
-  say(`loading ${info.faces.toLocaleString()} block faces and their textures…`);
-  const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), buildAtlas(info.textures, info.tints)]);
+// The real blocks of a block list (``info`` from the server, ``buf`` its faces: int16 x, y, z, direction, look) as
+// meshes. *lit*: lit by the scene's sun and sky (normals; the per-side shading is softer), else flat-shaded.
+function blockMeshes(info, buf, atlas, lit = false) {
   const f = new Int16Array(buf), n = f.length / 5, [ox, oz] = info.origin, N = atlas.N, eps = 0.02 / N;
-  const covered = new Set();
-  for (let k = 0; k < n; k++) covered.add(`${(f[k * 5] + ox) >> 4},${(f[k * 5 + 2] + oz) >> 4}`);
-  for (const T of TILES) {                             // rebuild the smooth terrain without the block area
-    scene.remove(T.mesh); T.mesh.geometry.dispose(); T.mesh = tileMesh(T.t, T.buf, covered); scene.add(T.mesh);
-  }
-  const geo = { solid: { p: [], u: [], c: [], i: [] }, water: { p: [], u: [], c: [], i: [] } };
-  const quad = (G, pts, tex, v0, v1, u0, u1, shade) => {
-    const base = G.p.length / 3, cx = (tex % N) / N, cy = Math.floor(tex / N) / N;
-    for (const q of pts) G.p.push(q[0], q[1], q[2]);
+  const geo = { solid: { p: [], u: [], c: [], n: [], i: [] }, water: { p: [], u: [], c: [], n: [], i: [] } };
+  const NORMAL = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, 1, 0]];
+  const quad = (G, pts, tex, v0, v1, u0, u1, shade, d) => {
+    const base = G.p.length / 3, cx = (tex % N) / N, cy = Math.floor(tex / N) / N, nm = NORMAL[d];
+    for (const q of pts) { G.p.push(q[0], q[1], q[2]); G.n.push(nm[0], nm[1], nm[2]); }
     const U = a => cx + eps + (a * (1 - 2 * eps * N)) / N, V = b => 1 - (cy + eps + ((1 - b) * (1 - 2 * eps * N)) / N);
     G.u.push(U(u0), V(v0), U(u1), V(v0), U(u1), V(v1), U(u0), V(v1));
-    for (let k = 0; k < 4; k++) G.c.push(shade, shade, shade);
+    const sh = lit ? 0.72 + 0.28 * shade : shade;
+    for (let k = 0; k < 4; k++) G.c.push(sh, sh, sh);
     G.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   for (let k = 0; k < n; k++) {
@@ -174,31 +169,48 @@ async function loadBlocks(say, urls = {}) {
     const G = b.kind === "water" ? geo.water : geo.solid;
     if (d === 6) {                                             // a plant: two crossed quads
       const t = b.tex[0];
-      quad(G, [[x, y, z], [x + 1, y, z + 1], [x + 1, y + 1, z + 1], [x, y + 1, z]], t, 0, 1, 0, 1, 0.9);
-      quad(G, [[x + 1, y, z], [x, y, z + 1], [x, y + 1, z + 1], [x + 1, y + 1, z]], t, 0, 1, 0, 1, 0.9);
+      quad(G, [[x, y, z], [x + 1, y, z + 1], [x + 1, y + 1, z + 1], [x, y + 1, z]], t, 0, 1, 0, 1, 0.9, 6);
+      quad(G, [[x + 1, y, z], [x, y, z + 1], [x, y + 1, z + 1], [x + 1, y + 1, z]], t, 0, 1, 0, 1, 0.9, 6);
       continue;
     }
     const [a0, b0, c0, a1, b1, c1] = b.box.map(v => v / 16), X0 = x + a0, X1 = x + a1, Y0 = y + b0, Y1 = y + b1, Z0 = z + c0, Z1 = z + c1;
     const t = b.tex[d] ?? b.tex[0], sh = SHADE[d];
-    if (d === 0) quad(G, [[X0, Y1, Z0], [X1, Y1, Z0], [X1, Y1, Z1], [X0, Y1, Z1]], t, a0, a1, c0, c1, sh);
-    else if (d === 1) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y0, Z0], [X0, Y0, Z0]], t, a0, a1, c0, c1, sh);
-    else if (d === 2) quad(G, [[X1, Y0, Z0], [X0, Y0, Z0], [X0, Y1, Z0], [X1, Y1, Z0]], t, b0, b1, 1 - a1, 1 - a0, sh);
-    else if (d === 3) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y1, Z1], [X0, Y1, Z1]], t, b0, b1, a0, a1, sh);
-    else if (d === 4) quad(G, [[X0, Y0, Z0], [X0, Y0, Z1], [X0, Y1, Z1], [X0, Y1, Z0]], t, b0, b1, c0, c1, sh);
-    else quad(G, [[X1, Y0, Z1], [X1, Y0, Z0], [X1, Y1, Z0], [X1, Y1, Z1]], t, b0, b1, 1 - c1, 1 - c0, sh);
+    if (d === 0) quad(G, [[X0, Y1, Z0], [X1, Y1, Z0], [X1, Y1, Z1], [X0, Y1, Z1]], t, a0, a1, c0, c1, sh, d);
+    else if (d === 1) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y0, Z0], [X0, Y0, Z0]], t, a0, a1, c0, c1, sh, d);
+    else if (d === 2) quad(G, [[X1, Y0, Z0], [X0, Y0, Z0], [X0, Y1, Z0], [X1, Y1, Z0]], t, b0, b1, 1 - a1, 1 - a0, sh, d);
+    else if (d === 3) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y1, Z1], [X0, Y1, Z1]], t, b0, b1, a0, a1, sh, d);
+    else if (d === 4) quad(G, [[X0, Y0, Z0], [X0, Y0, Z1], [X0, Y1, Z1], [X0, Y1, Z0]], t, b0, b1, c0, c1, sh, d);
+    else quad(G, [[X1, Y0, Z1], [X1, Y0, Z0], [X1, Y1, Z0], [X1, Y1, Z1]], t, b0, b1, 1 - c1, 1 - c0, sh, d);
   }
   const mesh = (G, mat) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(G.p, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(G.u, 2));
     g.setAttribute("color", new THREE.Float32BufferAttribute(G.c, 3));
+    if (lit) g.setAttribute("normal", new THREE.Float32BufferAttribute(G.n, 3));
     g.setIndex(G.i);
     return new THREE.Mesh(g, mat);
   };
-  BLOCKS.push(mesh(geo.solid, new THREE.MeshBasicMaterial({ map: atlas.tex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide })));
-  if (geo.water.i.length) BLOCKS.push(mesh(geo.water, new THREE.MeshBasicMaterial({ map: atlas.tex, vertexColors: true, transparent: true,
+  const Mat = lit ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
+  const out = [mesh(geo.solid, new Mat({ map: atlas.tex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }))];
+  if (geo.water.i.length) out.push(mesh(geo.water, new Mat({ map: atlas.tex, vertexColors: true, transparent: true,
     opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })));
-  for (const b of BLOCKS) scene.add(b);
+  return out;
+}
+async function loadBlocks(say, urls = {}) {
+  Object.assign(URLS, urls);
+  let info;
+  try { info = await (await fetch(URLS.blocks)).json(); } catch (e) { return; }
+  if (!info.faces) { if (info.message) say(info.message); return; }
+  say(`loading ${info.faces.toLocaleString()} block faces and their textures…`);
+  const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), buildAtlas(info.textures, info.tints)]);
+  const f = new Int16Array(buf), n = f.length / 5, [ox, oz] = info.origin;
+  const covered = new Set();
+  for (let k = 0; k < n; k++) covered.add(`${(f[k * 5] + ox) >> 4},${(f[k * 5 + 2] + oz) >> 4}`);
+  for (const T of TILES) {                             // rebuild the smooth terrain without the block area
+    scene.remove(T.mesh); T.mesh.geometry.dispose(); T.mesh = tileMesh(T.t, T.buf, covered); scene.add(T.mesh);
+  }
+  for (const m of blockMeshes(info, buf, atlas, false)) { BLOCKS.push(m); scene.add(m); }
   say(`real blocks near the camera (textures from ${info.jar})`);
 }
 // --- looking around freely (the history viewer's timelapse view) ---------------------------------------
@@ -244,4 +256,4 @@ function renderFree(players, marks = []) {           // the world through the fr
   controls.update();
   renderer.render(scene, camMap);
 }
-export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree };
+export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes };

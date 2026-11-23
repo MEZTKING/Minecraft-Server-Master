@@ -202,6 +202,26 @@ def find_flashback_dir(explicit: str | None = None, mc_version: str | None = Non
     return max(found, key=lambda f: _activity(f["path"]))["path"]
 
 
+def version_targets(versions) -> list[dict]:
+    """For each Minecraft version (newest first), the Flashback its recordings' copies go into:
+    ``{"mc", "name", "path"}`` (name/path None: there's no Flashback of that version on this PC)."""
+    found = flashback_folders()
+    out = []
+
+    def key(v):
+        return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.-]", v))
+    for v in sorted({v for v in versions if v}, key=key, reverse=True):
+        path = find_flashback_dir(None, v, exact=True)
+        name = next((f["name"] for f in found if f["path"] == path), None) if path else None
+        out.append({"mc": v, "name": name, "path": path})
+    return out
+
+
+def describe_targets(targets: list[dict]) -> str:
+    """"26.1.2 -> Flashback 26.1.2; 1.21.5 -> no Flashback yet" for status lines."""
+    return "; ".join(f"{t['mc']} \u2192 {t['name'] or 'no Flashback of that version on this PC'}" for t in targets)
+
+
 def export_target(r, pick_dir, flashback_dir: str | None, out_dir: str) -> tuple[str, bool]:
     """Where a copy of recording *r* goes: ``(Flashback data folder, installed)``. With *pick_dir* (the
     Flashback of the recording's own Minecraft version) a recording whose version has no Flashback on

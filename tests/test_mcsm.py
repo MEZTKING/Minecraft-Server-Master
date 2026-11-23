@@ -4513,3 +4513,59 @@ class TestCopyRegistry(unittest.TestCase):
             self.assertEqual(fbpanel._stem("2026-05-24--18-49-45 (text).zip"), "2026-05-24--18-49-45")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestRealBlockTiles(unittest.TestCase):
+    """The history viewer's real blocks close up: 128 x 128 pieces, built once, fitting together."""
+
+    def test_tiles(self):
+        from mcsm import blockmesh as bm, terrain, world3d
+        tmp = tempfile.mkdtemp()
+        try:
+            world = os.path.join(tmp, "srv", "world")
+            chunks = {(cx, cz): terrain.make_chunk(cx, cz, lambda x, z: 64 + (x // 20) % 3, lambda x, y, z: "minecraft:stone")
+                      for cx in range(10) for cz in range(2)}
+            terrain.write_region(os.path.join(world, "region", "r.0.0.mca"), chunks)
+            jar = os.path.join(tmp, "client.jar")
+            TestRealBlocks._jar(jar)
+            old = bm.find_client_jar
+            bm.find_client_jar = lambda _v: jar
+            try:
+                bw = world3d.BuildWorld(os.path.join(tmp, "srv"), world, mc="26.1.2", cache=os.path.join(tmp, "cache"))
+                a = bw.block_tile(0, 0, "minecraft:overworld", "/blocktile/0/")
+                b = bw.block_tile(1, 0, "minecraft:overworld", "/blocktile/0/")
+                empty = bw.block_tile(5, 5, "minecraft:overworld", "/blocktile/0/")
+            finally:
+                bm.find_client_jar = old
+            self.assertGreater(a["faces"], 0)
+            self.assertGreater(b["faces"], 0)
+            self.assertEqual((a["origin"], b["origin"]), ([0, 0], [128, 0]))
+            self.assertEqual(empty["faces"], 0)
+            key = a["url"].rsplit("/", 1)[1][:-4]
+            with open(bw.block_tile_file(key), "rb") as fh:
+                faces = [struct.unpack_from("<5h", fh.read(), 0)]
+            self.assertTrue(faces)
+            # pieces side by side: no wall where they meet (a block's west face at x = 128 would be hidden)
+            with open(bw.block_tile_file(b["url"].rsplit("/", 1)[1][:-4]), "rb") as fh:
+                data = fh.read()
+            west_edge = [f for f in (struct.unpack_from("<5h", data, i) for i in range(0, len(data), 10))
+                         if f[0] == 0 and f[3] == 4 and f[1] <= 63]
+            self.assertEqual(west_edge, [])
+            self.assertIsNone(bw.block_tile_file("../evil"))
+            again = bw.block_tile(0, 0, "minecraft:overworld", "/blocktile/0/")      # from the cache
+            self.assertEqual(again["faces"], a["faces"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_version_targets(self):
+        from mcsm import flashback as fbm
+        old = fbm.flashback_folders
+        try:
+            fbm.flashback_folders = lambda: [{"path": "C:/fb26", "name": "Flashback 26.1.2", "mc": "26.1.2"},
+                                             {"path": "C:/fb121", "name": "1.21.11", "mc": "1.21.11"}]
+            t = fbm.version_targets(["1.21.5", "26.1.2", "1.21.11", None, "26.1.2"])
+            self.assertEqual([(x["mc"], x["name"]) for x in t], [("26.1.2", "Flashback 26.1.2"), ("1.21.11", "1.21.11"),
+                                                                ("1.21.5", None)])
+            self.assertIn("1.21.5 \u2192 no Flashback", fbm.describe_targets(t))
+        finally:
+            fbm.flashback_folders = old

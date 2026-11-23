@@ -117,6 +117,49 @@ class BuildWorld:
                         "jar": os.path.basename(self.jar or "")}
         return self._blocks
 
+    TILE = 128                                       # blocks per side of a block tile (the history viewer's pieces)
+    TILE_VERSION = 1
+
+    def block_tile(self, tx: int, tz: int, dim: str, url_prefix: str) -> dict:
+        """Real blocks of one 128 x 128 piece of the world (tile *tx*, *tz*), for the history viewer: built once
+        and kept on disk (``blocktile-<key>.bin`` + ``.json``). ``faces`` 0: nothing there (not explored)."""
+        import json
+        n = self.TILE // 16
+        key = hashlib.sha1(f"{self.TILE_VERSION}|{os.path.abspath(self.root)}|{self.world}|{dim}|{tx}|{tz}|{self.TILE}|{self.mc}".encode()).hexdigest()[:20]
+        base = os.path.join(self.cache, "tiles-blocks", key)
+        try:
+            with open(base + ".json", encoding="utf-8") as fh:
+                info = json.load(fh)
+            if not info["faces"] or os.path.isfile(base + ".bin"):
+                return {**info, "url": url_prefix + key + ".bin"}
+        except (OSError, ValueError, KeyError):
+            pass
+        look = self.look()
+        if not look.zf:
+            return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
+        only = {(tx * n + i, tz * n + j) for i in range(n) for j in range(n)}
+        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only)
+        os.makedirs(os.path.dirname(base), exist_ok=True)
+        if r["faces"]:
+            with open(base + ".bin.part", "wb") as fh:
+                fh.write(r["faces"])
+            os.replace(base + ".bin.part", base + ".bin")
+        info = {"faces": len(r["faces"]) // 10, "origin": r["origin"], "tile": [tx, tz, self.TILE],
+                "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
+                "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
+                "jar": os.path.basename(self.jar or ""), "mc": self.mc,
+                "exact_jar": bool(self.jar and self.mc and self.mc in os.path.basename(self.jar))}
+        with open(base + ".json.part", "w", encoding="utf-8") as fh:
+            json.dump(info, fh, separators=(",", ":"))
+        os.replace(base + ".json.part", base + ".json")
+        return {**info, "url": url_prefix + key + ".bin"}
+
+    def block_tile_file(self, key: str) -> str | None:
+        if not all(c in "0123456789abcdef" for c in key) or len(key) != 20:
+            return None
+        p = os.path.join(self.cache, "tiles-blocks", key + ".bin")
+        return p if os.path.isfile(p) else None
+
     def blocks_file(self) -> str:
         return os.path.join(self.cache, f"blocks-{self.key}.bin")
 

@@ -195,9 +195,16 @@ def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[
 
 
 def build(root: str, world: str, points: list[tuple[float, float]], look: Look, radius: float = 80.0,
-          max_chunks: int = 900, dimension: str = "minecraft:overworld") -> dict:
-    """The visible block faces within *radius* of the (x, z) *points* (the camera path)."""
-    want = _chunks_near(points, radius)
+          max_chunks: int = 900, dimension: str = "minecraft:overworld",
+          only: set[tuple[int, int]] | None = None) -> dict:
+    """The visible block faces within *radius* of the (x, z) *points* (the camera path). With *only* (a set of
+    chunk coordinates), exactly the faces of those chunks; the chunks around them are read too, so faces at the
+    edge are hidden or shown correctly (pieces built side by side fit together)."""
+    if only is not None:
+        want = {(cx + dx, cz + dz) for cx, cz in only for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+        max_chunks = max(max_chunks, len(want))
+    else:
+        want = _chunks_near(points, radius)
     if len(want) > max_chunks:                     # a long flight: keep the chunks nearest to most points
         centre = (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
         want = set(sorted(want, key=lambda c: (c[0] * 16 - centre[0]) ** 2 + (c[1] * 16 - centre[1]) ** 2)[:max_chunks])
@@ -254,11 +261,18 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
     zs = [cz * 16 for _, cz in chunks] or [0]
     x0, z0 = min(xs), min(zs)
     pack = struct.Struct("<5h").pack
+    if only is not None:
+        here = [c for c in only if c in chunks]
+        xs = [cx * 16 for cx, _ in here] or [0]
+        zs = [cz * 16 for _, cz in here] or [0]
+        x0, z0 = min(xs), min(zs)
     for (cx, cz), (_secs, min_y, tops) in chunks.items():
+        if only is not None and (cx, cz) not in only:
+            continue
         for lz in range(16):
             for lx in range(16):
                 x, z = cx * 16 + lx, cz * 16 + lz
-                if not any((x - px) ** 2 + (z - pz) ** 2 <= near2 for px, pz in pts):
+                if only is None and not any((x - px) ** 2 + (z - pz) ** 2 <= near2 for px, pz in pts):
                     continue
                 h = tops[lz * 16 + lx]
                 if h < min_y:

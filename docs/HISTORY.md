@@ -152,6 +152,14 @@ part with a bar: the newest backup's map, the older backups' maps, player positi
 changes between backups, and the building/exploring moments. You can look around meanwhile; **Hide**
 puts the card away.
 
+**Real blocks close up.** With **Real blocks** ticked (next to *Terrain*, on at first), zooming in shows the
+real blocks of the backup on the map, with Minecraft's own textures (from the game installed on this PC, of that
+backup's Minecraft version), lit by the sun and the sky: houses, trees, paths, water and plants. They load in
+128 x 128-block pieces around where you look, nearest first (under a second each the first time, then saved in
+`%LOCALAPPDATA%\mcsm\build-view\`), and follow the time slider to each backup's world. Further away the map stays
+the smooth overview. When a backup's Minecraft version isn't installed on this PC, the status line says so and
+another version's textures are used.
+
 **Changes between backups.** With two or more backups, the viewer compares each backup's ground with the
 one before (in the background, a few minutes the first time for a big library, then saved). Tick
 **Changes** next to **Terrain**: the map outlines what changed between the backup shown and the one before
@@ -172,7 +180,9 @@ backup in **Terrain**) to see another interval.
   5 change moments per backup interval.
 - The map's colours and heights are sampled every few blocks, so sizes are estimates.
 
-**Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. Each
+**Minecraft versions.** Flashback opens a recording only in the Minecraft version it was made with. The
+History tab's status line and the *Export to Flashback* button list where each version's copies go (e.g.
+"26.1.2 → Flashback 26.1.2; 1.21.11 → 1.21.11; 1.21.5 → no Flashback of that version on this PC"). Each
 moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
 only into a Flashback of exactly that version. If there is none on this PC, they go into a folder
 "Flashback for Minecraft <version>" next to the highlights file (the timelapse summary says so first): add a

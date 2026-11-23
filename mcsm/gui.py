@@ -1717,13 +1717,16 @@ class App(ttk.Frame):
                 raise
 
         def after(result):
+            from . import flashback as fbm
             hm, url = result
             self.history, self.history_url, self.history_stack = hm, url, stack
             self.hist_status_var.set(
                 f"Running at {url}. Player paths and terrain keep loading in the background; the page fills "
                 f"in as they arrive. Keep this window open.\nHighlights are saved in {hm.highlights.path}; "
-                + (f"exports go into Flashback ({hm.flashback_dir})." if hm.flashback_dir
-                   else "Flashback's folder wasn't found, so exports go next to that file."))
+                + "copies go into the Flashback of each recording's own Minecraft version (Flashback only opens a "
+                  "recording in its version): " + (fbm.describe_targets(hm.export_targets()) or "no recordings")
+                + ". Versions without a Flashback here get a 'Flashback for Minecraft <version>' folder next to that "
+                  "file; add an instance of that version with Fabric and Flashback to use them.")
             self.hist_start_btn.configure(state="disabled")
             self.hist_stop_btn.configure(state="normal")
             self.hist_open_btn.configure(state="normal")

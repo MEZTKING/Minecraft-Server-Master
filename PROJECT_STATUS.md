@@ -726,6 +726,34 @@ event (0r), mark highlights while watching.
 - **Open questions:** in the app window or the browser page as now? Should quiet times be skipped
   automatically?
 
+### 0x. More kinds of moments: celebrations, sad moments… (raised 2026-11-23)
+
+**The ask:** "for history also add any celebrations, sad moments etc find as much as you can using even player
+statistics data to in parallel etc".
+
+**Proposed design (to review with Fable before building):** new moment kinds found from the logs, the recordings'
+positions and the statistics between backups (`player_history`):
+- **Celebrations:** milestones (first diamonds, first Nether/End visit, killing the dragon or the wither, a full set
+  of armour, an advancement many players get the same evening), birthdays of the server (first day, 100 days),
+  a player's 100th hour, big group gatherings (many players in one place), "gg"/"lets go"/"yay" chat bursts.
+- **Sad moments:** deaths that lost a lot (long time since the last death, deaths in lava/void where items are
+  gone), a player's last session before leaving for good, many deaths in a row, griefed/destroyed builds (big "dug
+  out" changes between backups next to someone else's build), "rip"/"noo" chat bursts.
+- **From statistics (in parallel, per backup interval):** records broken (most blocks mined, furthest flown, most
+  mobs killed in a stretch), sudden changes (play time jumps), the first time a statistic appears (first trade,
+  first enchant, first elytra flight).
+- **In the history:** a kind filter ("celebrations", "sad"), icons on the timeline, and the story mode picks them up.
+- **Open questions:** which kinds matter most; is chat-based mood detection welcome (privacy)?
+
+### 0y. Versions on the history timeline (Fable, 2026-11-23)
+
+A version band on the timeline (1.21.5 | 1.21.10 | 1.21.11 | 26.1.2 | 26.2 | 26.3, from the backups and the
+recordings), each part showing whether a Flashback of that version is on this PC; the version filter extended from
+moments to recordings and highlights; warnings in the video editor when a recording's version has no Flashback or
+no in-world-text support (only 26.1–26.3). One timeline (one world, one story), not separate views per version.
+Still to check: decoding positions per protocol and terrain/changes across the 1.21 → 26 boundary (block renames
+could look like changes).
+
 ### 0w. End-of-year review for everyone and for each player (raised 2026-11-23, for the future)
 
 **The ask:** "for future plans, i want to add a end of year progress for everyone, one that shows everyones
@@ -1093,6 +1121,17 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** History viewer: **real blocks close up** (owner: "render a real world texture behaviour lighting etc
+  … so it doesnt look like a rough sample always at least for the history"): `world3d.block_tile` builds 128 x 128-block
+  pieces of the backup shown (`blockmesh.build(only=...)` reads the chunks around a piece so pieces fit), cached on
+  disk; the page loads them around the camera target (up to 2 pieces out, nearest first), lit (Lambert, normals; shared
+  `map3d.blockMeshes`/`buildAtlas`), and cuts the smooth map away under them (a shader clip list). Versions (Fable's
+  review, owner: "the history should be separated by version"): exports were already per version (each recording to the
+  Flashback of its version); the History tab's status line and the export button/confirm now list it per version
+  (`flashback.version_targets`); real blocks use each backup's own version (client jar, `/blocktex/<layer>/`) and say when
+  that version's game isn't installed; `--flashback-dir` warns that it overrides the per-version choice. On the
+  owner's library: backups 1.21.5 to 26.3, Flashbacks for 1.21.11, 26.1.2, 26.3.
 
 - **2026-11-23:** Add-on stage 1, app side (owner: "Stage 1", then "for now i want to be able to edit and fully finish
   off what i have stored so far": the in-Flashback panel is postponed; Flashback Extras exists, an "ultra" add-on is

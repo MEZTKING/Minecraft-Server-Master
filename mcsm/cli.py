@@ -482,7 +482,8 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
     top = next((b for b in data.backups if norm(b.get("path")) == norm(newest)), None)
     older = []
     if getattr(args, "terrain", "all") == "all" and len(data.backups) > 1:
-        older = [{"label": b.get("label") or os.path.basename(b["path"]), "t": when(b), "path": b["path"]}
+        older = [{"label": b.get("label") or os.path.basename(b["path"]), "t": when(b), "path": b["path"],
+                  "version": b.get("version")}
                  for b in data.backups if b is not top and b.get("path") and os.path.exists(b["path"])]
         older.sort(key=lambda b: b["t"] or 0, reverse=True)
     hm = HistoryMap(data, lambda r: _replay_file(data, r), root, cfg.get("world"), step,
@@ -491,6 +492,11 @@ def start_history(args, data: m.ServerData, stack: ExitStack | None = None, terr
                     flashback_dir=find_flashback_dir(args.flashback_dir), terrain_backups=older,
                     flashback_pick=None if args.flashback_dir else (lambda r: find_flashback_dir(None, r.mc_version, exact=True)),
                     terrain_label=(top or {}).get("label") or "", terrain_time=when(top) if top else None)
+    hm.terrain_version = (top or {}).get("version")
+    if args.flashback_dir:
+        print(f"Note: --flashback-dir puts every copy into {args.flashback_dir}, whatever Minecraft version its recording "
+              "is; Flashback only opens a recording in its own version. Leave it out to use each version's Flashback.",
+              file=sys.stderr)
     return hm, hm.start(args.http_port)
 
 

@@ -9,6 +9,8 @@ Served on ``http://127.0.0.1:<port>`` (this computer only):
     /api/history           time range, players, events, sessions, replays, backups
     /api/paths             player paths decoded so far (grows while recordings are read)
     /api/changes           what changed on the ground between backups (:mod:`mcsm.changes`), as found so far
+    /api/blocktile/<layer>/<dim>/<tx>/<tz>   real blocks of one 128 x 128 piece of a backup's world (the map
+                           close up), with /blocktile/<layer>/<key>.bin and /blocktex/<name>.png
 
 Position sources: player paths decoded from Flashback recordings (:mod:`mcsm.paths`), live-map
 track recordings (``mcsm live --record``), and join positions from the logs.
@@ -169,6 +171,9 @@ class HistoryMap(TerrainServer):
 
     def stop(self) -> None:
         self._stop.set()
+        stack = getattr(self, "_layer_stack", None)
+        if stack is not None:
+            stack.close()
         if self._httpd:
             self._httpd.shutdown()
             self._httpd.server_close()
@@ -332,6 +337,15 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path.startswith("/api/blocktile/"):       # real blocks close up: /api/blocktile/<layer>/<dim>/<tx>/<tz>
+            try:
+                layer, dim, tx, tz = path[len("/api/blocktile/"):].split("/")
+                bw = self.layer_world(int(layer))
+                if bw is None:
+                    return {"faces": 0, "message": "that backup's world isn't readable"}
+                return bw.block_tile(int(tx), int(tz), "minecraft:" + dim, f"/blocktile/{int(layer)}/")
+            except (ValueError, OSError) as exc:
+                return {"faces": 0, "message": str(exc)}
         if path.startswith("/api/tl3d/"):            # the build's world in 3D: /api/tl3d/<id>/tiles|blocks
             parts = path[len("/api/tl3d/"):].split("/")
             if len(parts) == 2 and parts[1] in ("tiles", "blocks"):
@@ -367,8 +381,55 @@ class HistoryMap(TerrainServer):
         cache[moment_id] = bw
         return bw
 
+    def layer_world(self, layer: int):
+        """The world of terrain layer *layer* (0 = the newest backup, then the older ones as the map numbers
+        them) for real blocks, opened once."""
+        import contextlib
+        from . import source, world3d, world as world_mod
+        cache = self.__dict__.setdefault("_layer_worlds", {})
+        if layer in cache:
+            return cache[layer]
+        with self.__dict__.setdefault("_layer_lock", threading.Lock()):
+            if layer in cache:
+                return cache[layer]
+            if layer == 0:
+                found = (self.root, self.world) if self.root and self.world else None
+            elif 1 <= layer <= len(self._terrain_backups):
+                stack = self.__dict__.setdefault("_layer_stack", contextlib.ExitStack())
+                root = stack.enter_context(source.open_server(self._terrain_backups[layer - 1]["path"], include_regions=True))
+                props = world_mod.read_properties(os.path.join(root, "server.properties"))
+                found = (root, world_mod.world_dir(root, props))
+            else:
+                found = None
+            mc = None
+            if found:
+                if layer == 0:
+                    mc = getattr(self, "terrain_version", None)
+                elif 1 <= layer <= len(self._terrain_backups):
+                    mc = self._terrain_backups[layer - 1].get("version")
+                if not mc:                                # unknown: the version most recordings have
+                    versions = [r.mc_version for r in self.data.replays if r.mc_version]
+                    mc = max(set(versions), key=versions.count) if versions else None
+            cache[layer] = world3d.BuildWorld(found[0], found[1], mc=mc, label=str(layer)) if found else None
+            return cache[layer]
+
     def file_for(self, path: str) -> str | None:
-        """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png."""
+        """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png;
+        and the real blocks close up: /blocktile/<layer>/<key>.bin, /blocktex/<name>.png."""
+        if path.startswith("/blocktile/") and path.endswith(".bin"):
+            try:
+                layer, key = path[len("/blocktile/"):-4].split("/")
+                bw = self.layer_world(int(layer))
+            except ValueError:
+                return None
+            return bw.block_tile_file(key) if bw else None
+        if path.startswith("/blocktex/") and path.endswith(".png"):       # /blocktex/<layer>/<name>.png
+            layer, _, name = path[len("/blocktex/"):-4].partition("/")
+            try:
+                bw = self.layer_world(int(layer))
+            except ValueError:
+                return None
+            return bw.texture(name) if bw else None
         if not path.startswith("/tl3d/"):
             return None
         mid, _, rest = path[len("/tl3d/"):].partition("/")
@@ -502,7 +563,15 @@ class HistoryMap(TerrainServer):
         for h in items:
             h["recordings"] = [{"path": r.path, "player": r.recorded_player,
                                 "in_ms": max(0, h["start"] - _ms(r.start))} for r in hl.covering(self.data, h)]
-        return {"file": self.highlights.path, "flashback_dir": self.flashback_dir, "highlights": items}
+        return {"file": self.highlights.path, "flashback_dir": self.flashback_dir, "highlights": items,
+                "targets": self.export_targets(), "per_version": self.flashback_pick is not None}
+
+    def export_targets(self) -> list[dict]:
+        """Where copies go, per Minecraft version of the recordings (each version has its own Flashback)."""
+        from . import flashback as fbm
+        if getattr(self, "_targets", None) is None:
+            self._targets = fbm.version_targets(r.mc_version for r in self.data.replays)
+        return self._targets
 
     def api_post(self, path: str, body: dict):
         from . import highlights as hl
