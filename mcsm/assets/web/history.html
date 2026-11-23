@@ -1050,6 +1050,7 @@ function animateFigure(m, now) {
   P0.rleg.position.y = P0.lleg.position.y = (sneak ? 12 - 0.2 : 12) * PX;
   m.sprint = !!(fl & 0x08);
   m.using = c && c.exact ? !!(stateAt(m.name, "h", T) & 0x01) : false;                  // eating, drawing a bow, a shield
+  m.riding = c && c.exact ? stateAt(m.name, "r", T, "") : "";                          // in a boat, on a horse, on a seat
   const sw = c && c.exact ? swingAt(m.name, T) : null;
   m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
   if (c && c.exact && c.yaw !== undefined) {
@@ -1070,6 +1071,9 @@ function animateFigure(m, now) {
   const s = Math.sin(m.phase) * 0.9 * m.speed * (m.sprint ? 1.35 : 1), P = m.F.parts;
   const lean = P.body.rotation.x ? 0.4 : 0;             // sneaking: the arms follow the body (the game's +0.4)
   P.rleg.rotation.x = s; P.lleg.rotation.x = -s;
+  if (m.riding) {                                       // sitting: legs forward, a little apart (the game's riding pose)
+    P.rleg.rotation.x = P.lleg.rotation.x = -1.41; P.rleg.rotation.z = 0.1; P.lleg.rotation.z = -0.1;
+  } else { P.rleg.rotation.z = P.lleg.rotation.z = 0; }
   P.rarm.rotation.x = m.using ? -1.1 : -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
   m.last = p.clone(); m.lastT = now;
 }

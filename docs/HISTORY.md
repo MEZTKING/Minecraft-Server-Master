@@ -262,7 +262,12 @@ The first time a stretch is watched, its recordings are read in full in the back
 viewer shows what's ready straight away and fills in the rest as it arrives; the status line says how many are
 still being read.
 
-Not shown yet: riding, held items and armour, and the mobs' own textures and animations. The blocks are the
+Players sit (legs forward) while riding: boats and chest boats, horses, mules, minecarts, even a nautilus, and
+the invisible seats your sit datapack uses for chairs and stairs. Getting on and off is shown when it happened.
+A pose, riding or flag keeps its last value from however long before, so someone who got in a boat ten minutes
+earlier is still sitting.
+
+Not shown yet: held items and armour, and the mobs' own textures and animations. The blocks are the
 backup saved after that time, not the world at that very moment.
 
 **Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:

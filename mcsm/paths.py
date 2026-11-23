@@ -214,7 +214,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         event_id = pk.get("entity_event") if ex_on else None
         stime_id = pk.get("set_time") if ex_on else None
         game_id = pk.get("game_event") if ex_on else None
-        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id) if x is not None} | hurt_ids
+        pass_id = pk.get("set_passengers") if ex_on else None
+        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id)
+                 if x is not None} | hurt_ids
+        kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
+        riders: dict[int, set] = {}          # vehicle -> who rides it
         if ex_on:
             extras.setdefault("events", [])
             extras.setdefault("mobs", {})
@@ -272,6 +276,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                         if pid == add_id and size >= 43:     # id, entity id, UUID, type, x, y, z
                             eid, k = _varint(b, k)
                             name = players.get(bytes(b[k:k + 16]))
+                            if extras is not None and eid != me:
+                                t_id, _k = _varint(b, k + 16)
+                                kinds_of[eid] = types[t_id] if 0 <= t_id < len(types) else ""
                             if not name and extras is not None and eid != me:
                                 t_id, _k = _varint(b, k + 16)
                                 kind = types[t_id] if 0 <= t_id < len(types) else ""
@@ -319,10 +326,26 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             eid, k = _varint(b, k)
                             if b[k] in (0, 3) and (eid == me or (eid in others and not others[eid].startswith("#"))):
                                 extras["events"].append([tick, None if eid == me else others[eid], "s", b[k]])
-                        elif pid == remove_id and others:
+                        elif pid == pass_id and size >= 3:    # set_passengers: vehicle, count, riders
+                            veh, k = _varint(b, k)
+                            n, k = _varint(b, k)
+                            now: set = set()
+                            for _ in range(min(n, 64)):
+                                p_id, k = _varint(b, k)
+                                if p_id == me or (p_id in others and not others[p_id].startswith("#")):
+                                    now.add(None if p_id == me else others[p_id])
+                            before_r = riders.get(veh, set())
+                            for who in now - before_r:            # sits down: in a boat, on a horse, on a seat
+                                extras["events"].append([tick, who, "r", kinds_of.get(veh, "") or "seat"])
+                            for who in before_r - now:            # gets off
+                                extras["events"].append([tick, who, "r", ""])
+                            riders[veh] = now
+                        elif pid == remove_id and (others or riders):
                             n, k = _varint(b, k)
                             for _ in range(min(n, 10_000)):
                                 eid, k = _varint(b, k)
+                                for who in riders.pop(eid, ()) if extras is not None else ():
+                                    extras["events"].append([tick, who, "r", ""])   # the vehicle went away
                                 if eid in others:
                                     del others[eid]
                                     cur.pop(eid, None)
@@ -534,17 +557,20 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
+EXACT_SUFFIX = ".exact4.json.gz"     # 4: riding events; states kept from any time before
+
+
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,
                build: bool = True) -> dict | None:
     """Every recorded position of a recording, for exact playback: whenever someone moved or turned (up to 20 a
     second; at least every 15 s): ``{"who": [names, None = the recorded player, "#type#id" = a mob], "dims": [...],
     "rows": [[tick, who index, dim index, x, y, z, yaw, pitch, head yaw], ...], "events": [[tick, who, "f" flags |
     "s" swing / "p" pose / "h" hand use / "hurt" / "d" died, value]], "mobs": {"#type#id": type}, "world": [[tick,
-    "time" | "rain" | "thunder", value, rate]]}``. Worked out once, kept as ``<key>.exact3.json.gz``; with
+    "time" | "rain" | "thunder", value, rate]]}``. Worked out once, kept as ``<key>`` + :data:`EXACT_SUFFIX`; with
     *build* False, None when it hasn't been worked out yet."""
     import gzip
     cache_dir = cache_dir or default_cache_dir()
-    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact3.json.gz")
+    out = os.path.join(cache_dir, _cache_key(zip_path, players) + EXACT_SUFFIX)
     try:
         with gzip.open(out, "rt", encoding="utf-8") as fh:
             return json.load(fh)

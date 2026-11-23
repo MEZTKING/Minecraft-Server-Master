@@ -1231,6 +1231,10 @@ class TestPosesAndMobs(unittest.TestCase):
             if t == 10:                                   # the player starts sneaking (flags 0x02) and swings
                 recs.append(("game_packet", _vi(101) + _vi(7) + bytes([0]) + _vi(0) + bytes([2]) + b"\xff"))
                 recs.append(("game_packet", _vi(2) + _vi(7) + bytes([0])))
+            if t == 12:                                   # rides the zombie (set_passengers 109: vehicle, count, riders)
+                recs.append(("game_packet", _vi(109) + _vi(20) + _vi(1) + _vi(7)))
+            if t == 20:                                   # gets off
+                recs.append(("game_packet", _vi(109) + _vi(20) + _vi(0)))
             recs.append(("next_tick", b""))
         tmp = tempfile.mkdtemp()
         try:
@@ -1240,7 +1244,9 @@ class TestPosesAndMobs(unittest.TestCase):
                 zf.writestr("c0.flashback", _fb_chunk(recs))
             ex = paths.exact_rows(z, os.path.join(tmp, "cache"))
             self.assertIn([10, None, "f", 2], ex["events"])          # sneaking, from tick 10
-            self.assertIn([10, None, "s", 0], ex["events"])          # a main-hand swing
+            self.assertIn([10, None, "s", 0], ex["events"])
+            self.assertIn([12, None, "r", "zombie"], ex["events"])  # riding, and what
+            self.assertIn([20, None, "r", ""], ex["events"])        # off again          # a main-hand swing
             self.assertEqual(ex["mobs"], {"#zombie#20": "zombie"})   # the dropped item isn't followed
             self.assertIn("#zombie#20", ex["who"])
             zrows = [r for r in ex["rows"] if ex["who"][r[1]] == "#zombie#20"]

@@ -515,6 +515,7 @@ class HistoryMap(TerrainServer):
         events: dict[str, dict[str, dict]] = {}       # name -> kind -> {t: value} (de-duplicated across recordings)
         world: dict[str, dict] = {}                   # time / rain / thunder -> {t: [value, rate]}
         before: dict[str, tuple] = {}                 # the world's last state before t0
+        state_before: dict[tuple, tuple] = {}         # (name, kind) -> the last state before t0, however long ago
         for r in self.data.replays:
             if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note"):
                 continue
@@ -542,9 +543,13 @@ class HistoryMap(TerrainServer):
                 return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
             for tick, w, kind, value in data.get("events", []):
                 t = when(tick)
-                # states (flags, pose, hand use) from a minute before, to know them at t0; moments (swing, hurt, death)
-                if (t0 - 60_000 if kind in ("f", "p", "h") else t0) <= t <= t1:
-                    name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
+                # states (flags, pose, hand use, riding): the last one before t0 however long ago, and changes;
+                # moments (swing, hurt, death) only in the window
+                name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
+                if kind in ("f", "p", "h", "r") and t < t0:
+                    if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
+                        state_before[(name, kind)] = (t, value)
+                elif t0 <= t <= t1:
                     events.setdefault(name, {}).setdefault(kind, {})[t] = value
             for tick, kind, value, rate in data.get("world", []):
                 t = when(tick)
@@ -568,6 +573,8 @@ class HistoryMap(TerrainServer):
                     continue
                 (own if w is None else seen).setdefault(name, []).append(
                     [t, row[3], row[4], row[5], data["dims"][row[2]], row[6], row[7], row[8]])
+        for (name, kind), (t, value) in state_before.items():
+            events.setdefault(name, {}).setdefault(kind, {}).setdefault(t, value)
         out = {}
         for name in set(own) | set(seen):
             mine = sorted(own.get(name, []))
@@ -638,7 +645,7 @@ class HistoryMap(TerrainServer):
                     continue
                 try:
                     zp = self.replay_file(r)
-                    if os.path.isfile(os.path.join(cache, paths_mod._cache_key(zp, players) + ".exact3.json.gz")):
+                    if os.path.isfile(os.path.join(cache, paths_mod._cache_key(zp, players) + paths_mod.EXACT_SUFFIX)):
                         continue
                     size += os.path.getsize(zp)
                 except (OSError, ValueError):
@@ -666,7 +673,7 @@ class HistoryMap(TerrainServer):
                         if bw is not None and not bw.tile_ready(key[2], key[3], key[1]):
                             tiles.append(key)
         # disk: as much as what's prepared already takes, per MB of recording / per piece
-        ex = glob.glob(os.path.join(cache, "*.exact3.json.gz"))
+        ex = glob.glob(os.path.join(cache, "*" + paths_mod.EXACT_SUFFIX))
         ratio = 0.025
         tile_mb = 1.1
         try:

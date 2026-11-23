@@ -895,7 +895,14 @@ Fable's order, most visible per effort first:
      partial, f32 rate); it jumps to a whole day when someone sleeps.
    - Rain and thunder come from `game_event` 1, 2, 7 and 8. Thunder counts as rain.
    - On 24 May the owner's recordings show a midday thunderstorm around 21:18 real time.
-3. **Riding.** `set_passengers` and a sitting pose; boats and minecarts.
+3. ✅ **Riding.** Built 2026-11-23.
+   - `set_passengers` gives `"r"` events (the vehicle's type, or empty when getting off; also when the vehicle is
+     removed). Riders are players only.
+   - Every entity's type is remembered, so the sit datapack's armour-stand seats count too.
+   - In the owner's recordings: 63 armour-stand seats, 80 boats, 16 horses/mules and 2 nautili.
+   - The page shows a sitting pose.
+   - States (flags, pose, hand use, riding) now come with their last value before the window, however long
+     ago (`EXACT_SUFFIX` `.exact4`).
 4. **Held items and armour.** `set_equipment`, with item-stack component skippers; items and component types
    from the reports.
 5. **Textured mobs.** Hand-made models with the jar's entity textures: humanoids reuse the player figure,
@@ -1291,6 +1298,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Riding in exact playback (parity step 3): sitting players in boats, on horses and on the sit
+  datapack's seats; states known from any time before; `paths.EXACT_SUFFIX`.
 
 - **2026-11-23:** Graphics Off / Fancy / Ultra in the history viewer (0zc): shadows, sky, haze, glow, water,
   film colour; `map3d.setGraphics` / `applyGraphics`.
