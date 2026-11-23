@@ -160,6 +160,12 @@ filter (*celebrations*, *sad moments*):
   Friends Forever", and every wolf or cat kind, or every animal bred); hard (challenge) advancements; several
   players getting the same advancement within 30 minutes; the server's 100th day and birthdays; a player's 100th
   session and their 100th, 250th, 500th and 1000th hour.
+- **Biomes found** (*biomes found* in the filter): the first player on the server to find each biome, and each
+  player's first time in a rare one (Mushroom Fields, Cherry Grove, Deep Dark, Ice Spikes, jungles, badlands, the
+  Nether's forests and more). The times come from the dates the game keeps for *Adventuring Time* and *Hot
+  Tourist Destinations*, so they're exact to the second. Biomes found in the server's first 3 days count only if
+  they're rare (everyone starts around spawn). A moment where someone died and that outweighs the good part isn't
+  called a celebration.
 - **Sad moments:** dying after 10+ hours of play since the last death ("dies after 16 hours alive"); deaths where the
   items are probably gone (lava, the void, burning); three deaths in ten minutes ("dies again and again"); leaving
   within a minute of dying (and not coming back within five); a regular player's last time on the server, when that
@@ -173,12 +179,34 @@ filter (*celebrations*, *sad moments*):
   words like *gg*, *lets go*, *rip*, *noo*, plus *!!!*, laughter and *:D* / *:(*; no single message labels anyone.
 
 **Real blocks close up.** With **Real blocks** ticked (next to *Terrain*, on at first), zooming in shows the
-real blocks of the backup on the map, with Minecraft's own textures (from the game installed on this PC, of that
-backup's Minecraft version), lit by the sun and the sky: houses, trees, paths, water and plants. They load in
-128 x 128-block pieces around where you look, nearest first (under a second each the first time, then saved in
-`%LOCALAPPDATA%\mcsm\build-view\`), and follow the time slider to each backup's world. Further away the map stays
-the smooth overview. When a backup's Minecraft version isn't installed on this PC, the status line says so and
-another version's textures are used.
+real blocks of the backup on the map, with Minecraft's own textures and shapes (from the game installed on this PC,
+of that backup's Minecraft version). Every block you could see from outside is there, not just the top layer:
+inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
+the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
+fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture),
+signs, banners, shulker boxes. Skulls and statues aren't drawn yet.
+
+The pieces load 128 x 128 blocks at a time around where you look and around every player shown, nearest first
+(about a second each the first time, then saved in `%LOCALAPPDATA%\mcsm\build-view\`), and follow the time slider
+to each backup's world. Further away the map stays the smooth overview. When a backup's Minecraft version isn't
+installed on this PC, the status line says so and another version's textures are used.
+
+**Light.** The real blocks are lit the way the game lights them: each face gets the sky light and the light from
+torches, lanterns, glowstone and so on that the backup stores for that spot, with Minecraft's soft shadows in
+corners. Open **Light** (under *Terrain*) to change it; your settings are remembered:
+
+- **Time of day**: noon is full daylight. At night the sky light fades and only torches and lamps light things
+  (warmly); sunrise and sunset tint the sun.
+- **Brightness**: like the game's *Brightness* option (Moody to Bright).
+- **Torch light**: how strongly torches and lamps light their surroundings.
+- **Exposure**: everything lighter or darker.
+- **Sun shading**: 0 uses Minecraft's fixed shading of block sides; higher shades them by where the sun is.
+- **Soft shadows**: the corner shadows (Minecraft's smooth lighting); 0 turns them off.
+- **Reset** puts everything back.
+
+**Players** are shown as Minecraft figures, each with one of the game's default skins (always the same for a
+player) and a ring in their colour at their feet. They face the way they move and swing their arms and legs as
+they walk. Their real skins aren't shown, because that would mean downloading them from Mojang.
 
 **Changes between backups.** With two or more backups, the viewer compares each backup's ground with the
 one before (in the background, a few minutes the first time for a big library, then saved). Tick

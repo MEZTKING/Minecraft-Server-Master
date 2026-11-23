@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (pages in their own window; texts on camera keyframes, timeline zoom, song sound).
+`CLAUDE.md`). Last updated: 2026-11-23 (real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -728,6 +728,10 @@ event (0r), mark highlights while watching.
 
 ### 0x. More kinds of moments: celebrations, sad moments… (raised 2026-11-23)
 
+Owner, 2026-11-23: "also add player find certain biomes for the first time etc". ✅ Built the same day: `moods.biome_events`
+(server firsts per biome, not in the first 3 days unless rare; personal firsts for rare biomes), from the
+per-biome dates of Adventuring Time / Hot Tourist Destinations. On the owner's library: 185 finds, 38 server firsts.
+
 ✅ **Built 2026-11-23** (owner: "Yes, build them", "add more too", "even getting pets too"), Fable's design: `mcsm/moods.py`
 (tags on deaths/advancements with bonus points and a mood; derived farewells and anniversaries; between-backup
 records, firsts and binges from new per-backup statistics; chat mood words only as a lift), `mood`/`tags` on every
@@ -1098,9 +1102,21 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   future Minecraft version, the add/remove packet ids in `paths.ADD_ENTITY` /
   `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
-- **Block preview is approximate:** one model per block (the first variant; rotations such as sideways
-  logs aren't applied), a block's shape is its model's outline box (stairs look like full blocks), no
-  lighting/biome colours beyond fixed tints; the world is the backup saved after the recording.
+- **Real blocks: what's still approximate:**
+  - Textures don't follow `uvlock`, so the grain on turned stairs can run the wrong way.
+  - Weighted variants always use the first model.
+  - Block entities without a model in the jar are stand-ins:
+    - chests: the entity texture on boxes, each half of a double chest drawn separately;
+    - beds: wool and planks;
+    - signs: a plank board with no text;
+    - banners: a wool flag with no pattern;
+    - shulker boxes: a cube.
+  - Skulls, statues and decorated pots aren't drawn.
+  - Waterlogged blocks show no water.
+  - Biome colours are fixed tints.
+  - Caves are followed only to 40 blocks below the surface.
+  - Players use default skins, picked by name, not the game's uuid rule.
+  - The world shown is the backup saved after that time.
 - **Flashback link not yet tried with a replay open.** Status/seek/camera use Flashback's names (checked in
   its 0.40 jar and source); the captured picture is the game's main framebuffer, which per Flashback's
   source holds the game only (its windows are drawn on a separate layer), at the size of Flashback's game
@@ -1133,6 +1149,22 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Real blocks rebuilt after the owner's screenshots (gaps, flat lighting, box players, empty
+  interiors).
+  - `blockmesh` v2:
+    - reads block states and light;
+    - follows open space from the sky to find every visible block;
+    - turns every model element into quads with variant and element rotations, and multipart;
+    - adds stand-ins for chests, beds, signs, banners and shulker boxes;
+    - stores sky and block light plus corner shading per face, in 12-byte records.
+  - The page lights blocks with Minecraft's light curve; the new Light panel sets time of day, brightness, torch
+    light, exposure, sun shading and soft shadows.
+  - Players are skinned figures that walk.
+  - Real-block pieces now also load around every player.
+  - Biome finds added as moments.
+  - A death that outweighs a celebration makes the moment neutral.
+  - On the owner's world: a 128 x 128 piece builds in about 1.1 s, about 77,000 faces.
 
 - **2026-11-23:** Owner's PC set up (not code): Prism instances "Flashback 1.21.5" and "Flashback 1.21.10" created
   (Fabric loader 0.20.1, Prism picks Java), and Flashback + Fabric API added to them and to "Flashback 26.2"

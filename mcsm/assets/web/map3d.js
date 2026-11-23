@@ -119,11 +119,13 @@ function loadImage(url) {
   return IMAGES.get(url);
 }
 async function buildAtlas(textures, tints, texUrl = URLS.tex) {
-  const N = Math.ceil(Math.sqrt(textures.length)), C = 16, cv = document.createElement("canvas");
+  // one picture holding every texture; entity textures (chests) need more pixels than block ones
+  const N = Math.ceil(Math.sqrt(textures.length)), C = textures.some(t => t.startsWith("entity/")) ? 64 : 16;
+  const cv = document.createElement("canvas");
   cv.width = cv.height = N * C;
   const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
   const tmp = document.createElement("canvas"); tmp.width = tmp.height = C; const tg = tmp.getContext("2d"); tg.imageSmoothingEnabled = false;
-  const draw = (im, tint) => {                               // one 16x16 frame (animated strips: the first), tinted
+  const draw = (im, tint) => {                               // one square frame (animated strips: the first), tinted
     tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, C, C);
     tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
     if (tint) {
@@ -145,56 +147,100 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex) {
   const tex = new THREE.CanvasTexture(cv);
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
   tex.colorSpace = THREE.SRGBColorSpace;
-  return { tex, N };
+  return { tex, N, C };
 }
-const SHADE = [1.0, 0.5, 0.8, 0.8, 0.62, 0.62];
-// The real blocks of a block list (``info`` from the server, ``buf`` its faces: int16 x, y, z, direction, look) as
-// meshes. *lit*: lit by the scene's sun and sky (normals; the per-side shading is softer), else flat-shaded.
-function blockMeshes(info, buf, atlas, lit = false) {
-  const f = new Int16Array(buf), n = f.length / 5, [ox, oz] = info.origin, N = atlas.N, eps = 0.02 / N;
-  const geo = { solid: { p: [], u: [], c: [], n: [], i: [] }, water: { p: [], u: [], c: [], n: [], i: [] } };
-  const NORMAL = [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, 1, 0]];
-  const quad = (G, pts, tex, v0, v1, u0, u1, shade, d) => {
-    const base = G.p.length / 3, cx = (tex % N) / N, cy = Math.floor(tex / N) / N, nm = NORMAL[d];
-    for (const q of pts) { G.p.push(q[0], q[1], q[2]); G.n.push(nm[0], nm[1], nm[2]); }
-    const U = a => cx + eps + (a * (1 - 2 * eps * N)) / N, V = b => 1 - (cy + eps + ((1 - b) * (1 - 2 * eps * N)) / N);
-    G.u.push(U(u0), V(v0), U(u1), V(v0), U(u1), V(v1), U(u0), V(v1));
-    const sh = lit ? 0.72 + 0.28 * shade : shade;
-    for (let k = 0; k < 4; k++) G.c.push(sh, sh, sh);
-    G.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+// How the real blocks are lit (changed live by the page's light controls): Minecraft's own light levels (sky light
+// times daylight, or block light from torches), its side shading and smooth-lighting corners, and the sun.
+const LIGHT = {
+  uDay: { value: 1.0 },            // daylight 0 (night) .. 1 (noon)
+  uTorch: { value: 1.0 },          // how strongly torches, lanterns... light their surroundings
+  uBright: { value: 0.5 },         // Minecraft's brightness option: 0 moody .. 1 bright
+  uExposure: { value: 1.0 },       // overall
+  uSunMix: { value: 0.35 },        // 0: Minecraft's fixed side shading, 1: shaded by the sun's direction
+  uSunDir: { value: new THREE.Vector3(0.4, 1, 0.25).normalize() },
+  uAO: { value: 1.0 },             // corner shading strength
+};
+function setLight(o = {}) {
+  for (const [k, v] of Object.entries(o)) {
+    const u = LIGHT["u" + k[0].toUpperCase() + k.slice(1)];
+    if (!u) continue;
+    if (u.value && u.value.isVector3) u.value.copy(v).normalize(); else u.value = v;
+  }
+}
+function lightShader(sh) {
+  Object.assign(sh.uniforms, LIGHT);
+  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; varying vec3 vN; varying vec3 vL;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL;");
+  sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
+varying vec3 vN; varying vec3 vL;
+uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO; uniform vec3 uSunDir;`)
+    .replace("#include <color_fragment>", `#include <color_fragment>
+  {
+    float sky = vL.x * uDay, blk = vL.y * uTorch;
+    float l = clamp(max(sky, blk), 0.0, 1.0);
+    float b = l / (3.0 - 2.0 * l);                                  // the game's light curve
+    b = mix(b, 1.0 - pow(1.0 - b, 4.0), uBright);                 // its brightness option
+    b = max(b, 0.04);
+    float side = vN.y > 0.5 ? 1.0 : vN.y < -0.5 ? 0.5 : abs(vN.z) > 0.5 ? 0.8 : 0.6;
+    if (dot(vN, vN) < 0.1) side = 1.0;                             // not shaded (torches, flames)
+    else side = mix(side, 0.45 + 0.55 * max(dot(vN, uSunDir), 0.0), uSunMix * (0.4 + 0.6 * uDay));
+    float ao = mix(1.0, vL.z, uAO);
+    vec3 warm = mix(vec3(1.0), vec3(1.0, 0.86, 0.68), clamp(blk - sky, 0.0, 1.0));   // torch light is warm
+    diffuseColor.rgb *= pow(clamp(vec3(b * side * ao * uExposure) * warm, 0.0, 4.0), vec3(2.2));
+  }`);
+}
+const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
+// The real blocks of a block list (``info`` from the server, ``buf`` its records: int16 x, y, z, dir, look; uint16
+// extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
+function blockMeshes(info, buf, atlas) {
+  const dv = new DataView(buf), n = buf.byteLength / 12, [ox, oz] = info.origin, N = atlas.N;
+  const G = () => ({ p: [], u: [], n: [], l: [], i: [] });
+  const geo = { solid: G(), water: G() };
+  const e = 0.001;
+  const quad = (Gr, q, x, y, z, sky, blk, ao) => {
+    const base = Gr.p.length / 3, t = q[0], col = t % N, row = Math.floor(t / N);
+    const P = k => [x + q[3 + k * 3], y + q[4 + k * 3], z + q[5 + k * 3]];
+    const p0 = P(0), p1 = P(1), p3 = P(3);
+    let nx = 0, ny = 0, nz = 0;
+    if (q[2]) {                                          // normal = down x right (the face points outwards)
+      const ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2], bx = p3[0] - p0[0], by = p3[1] - p0[1], bz = p3[2] - p0[2];
+      nx = by * az - bz * ay; ny = bz * ax - bx * az; nz = bx * ay - by * ax;
+      const len = Math.hypot(nx, ny, nz) || 1; nx /= len; ny /= len; nz /= len;
+    }
+    for (let k = 0; k < 4; k++) {
+      const p = P(k);
+      Gr.p.push(p[0], p[1], p[2]); Gr.n.push(nx, ny, nz);
+      const u = Math.min(1 - e, Math.max(e, q[15 + k * 2])), v = Math.min(1 - e, Math.max(e, q[16 + k * 2]));
+      Gr.u.push((col + u) / N, 1 - (row + v) / N);
+      Gr.l.push(sky, blk, AO_LEVEL[(ao >> (2 * k)) & 3]);
+    }
+    Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   for (let k = 0; k < n; k++) {
-    const x = f[k * 5] + ox, y = f[k * 5 + 1], z = f[k * 5 + 2] + oz, d = f[k * 5 + 3], b = info.infos[f[k * 5 + 4]];
+    const o = k * 12, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
+    const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
     if (!b) continue;
-    const G = b.kind === "water" ? geo.water : geo.solid;
-    if (d === 6) {                                             // a plant: two crossed quads
-      const t = b.tex[0];
-      quad(G, [[x, y, z], [x + 1, y, z + 1], [x + 1, y + 1, z + 1], [x, y + 1, z]], t, 0, 1, 0, 1, 0.9, 6);
-      quad(G, [[x + 1, y, z], [x, y, z + 1], [x, y + 1, z + 1], [x + 1, y + 1, z]], t, 0, 1, 0, 1, 0.9, 6);
-      continue;
-    }
-    const [a0, b0, c0, a1, b1, c1] = b.box.map(v => v / 16), X0 = x + a0, X1 = x + a1, Y0 = y + b0, Y1 = y + b1, Z0 = z + c0, Z1 = z + c1;
-    const t = b.tex[d] ?? b.tex[0], sh = SHADE[d];
-    if (d === 0) quad(G, [[X0, Y1, Z0], [X1, Y1, Z0], [X1, Y1, Z1], [X0, Y1, Z1]], t, a0, a1, c0, c1, sh, d);
-    else if (d === 1) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y0, Z0], [X0, Y0, Z0]], t, a0, a1, c0, c1, sh, d);
-    else if (d === 2) quad(G, [[X1, Y0, Z0], [X0, Y0, Z0], [X0, Y1, Z0], [X1, Y1, Z0]], t, b0, b1, 1 - a1, 1 - a0, sh, d);
-    else if (d === 3) quad(G, [[X0, Y0, Z1], [X1, Y0, Z1], [X1, Y1, Z1], [X0, Y1, Z1]], t, b0, b1, a0, a1, sh, d);
-    else if (d === 4) quad(G, [[X0, Y0, Z0], [X0, Y0, Z1], [X0, Y1, Z1], [X0, Y1, Z0]], t, b0, b1, c0, c1, sh, d);
-    else quad(G, [[X1, Y0, Z1], [X1, Y0, Z0], [X1, Y1, Z0], [X1, Y1, Z1]], t, b0, b1, 1 - c1, 1 - c0, sh, d);
+    const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
+    const Gr = b.kind === "water" ? geo.water : geo.solid;
+    if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
+      const mask = ex & 63;
+      for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0);
+    } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, sky, blk, ex & 255);
   }
-  const mesh = (G, mat) => {
+  const mesh = (Gr, mat) => {
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(G.p, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(G.u, 2));
-    g.setAttribute("color", new THREE.Float32BufferAttribute(G.c, 3));
-    if (lit) g.setAttribute("normal", new THREE.Float32BufferAttribute(G.n, 3));
-    g.setIndex(G.i);
+    g.setAttribute("position", new THREE.Float32BufferAttribute(Gr.p, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(Gr.u, 2));
+    g.setAttribute("aN", new THREE.Float32BufferAttribute(Gr.n, 3));
+    g.setAttribute("aL", new THREE.Float32BufferAttribute(Gr.l, 3));
+    g.setIndex(Gr.i);
+    g.computeBoundingSphere();
+    mat.onBeforeCompile = lightShader;
     return new THREE.Mesh(g, mat);
   };
-  const Mat = lit ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
-  const out = [mesh(geo.solid, new Mat({ map: atlas.tex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }))];
-  if (geo.water.i.length) out.push(mesh(geo.water, new Mat({ map: atlas.tex, vertexColors: true, transparent: true,
-    opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })));
+  const out = [mesh(geo.solid, new THREE.MeshBasicMaterial({ map: atlas.tex, alphaTest: 0.5, side: THREE.DoubleSide }))];
+  if (geo.water.i.length) out.push(mesh(geo.water, new THREE.MeshBasicMaterial({ map: atlas.tex, transparent: true,
+    opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })));
   return out;
 }
 async function loadBlocks(say, urls = {}) {
@@ -204,13 +250,13 @@ async function loadBlocks(say, urls = {}) {
   if (!info.faces) { if (info.message) say(info.message); return; }
   say(`loading ${info.faces.toLocaleString()} block faces and their textures…`);
   const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), buildAtlas(info.textures, info.tints)]);
-  const f = new Int16Array(buf), n = f.length / 5, [ox, oz] = info.origin;
+  const f = new Int16Array(buf), n = f.length / 6, [ox, oz] = info.origin;
   const covered = new Set();
-  for (let k = 0; k < n; k++) covered.add(`${(f[k * 5] + ox) >> 4},${(f[k * 5 + 2] + oz) >> 4}`);
+  for (let k = 0; k < n; k++) covered.add(`${(f[k * 6] + ox) >> 4},${(f[k * 6 + 2] + oz) >> 4}`);
   for (const T of TILES) {                             // rebuild the smooth terrain without the block area
     scene.remove(T.mesh); T.mesh.geometry.dispose(); T.mesh = tileMesh(T.t, T.buf, covered); scene.add(T.mesh);
   }
-  for (const m of blockMeshes(info, buf, atlas, false)) { BLOCKS.push(m); scene.add(m); }
+  for (const m of blockMeshes(info, buf, atlas)) { BLOCKS.push(m); scene.add(m); }
   say(`real blocks near the camera (textures from ${info.jar})`);
 }
 // --- looking around freely (the history viewer's timelapse view) ---------------------------------------
@@ -256,4 +302,4 @@ function renderFree(players, marks = []) {           // the world through the fr
   controls.update();
   renderer.render(scene, camMap);
 }
-export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes };
+export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT };

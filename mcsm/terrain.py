@@ -586,6 +586,61 @@ def write_region(path: str, chunks: dict[tuple[int, int], dict]) -> None:
         fh.write(bytes(header) + bytes(body))
 
 
+def make_chunk_blocks(cx: int, cz: int, block_fn: Callable[[int, int, int], str | None], y0: int = 0, y1: int = 128,
+                      light_fn: Callable[[int, int, int], tuple[int, int]] | None = None) -> dict:
+    """A 1.18+ chunk with every block from *y0* to *y1* (``block_fn`` returns a block state such as
+    ``minecraft:oak_stairs[facing=east]`` or None for air) and, with *light_fn* (``(sky, block)``), the light the
+    game stores. For tests of the real blocks."""
+    min_y = -64
+    tops = [min_y - 1] * 256
+    secs: dict[int, list[str | None]] = {}
+    for y in range(y0, y1):
+        for z in range(16):
+            for x in range(16):
+                b = block_fn(cx * 16 + x, y, cz * 16 + z)
+                if b:
+                    secs.setdefault(y >> 4, [None] * 4096)[((y & 15) * 256) + z * 16 + x] = b
+                    tops[z * 16 + x] = max(tops[z * 16 + x], y)
+    if light_fn:
+        for sy in range(y0 >> 4, (y1 >> 4) + 2):
+            secs.setdefault(sy, [None] * 4096)
+
+    def entry(state: str) -> dict:
+        name, _, rest = state.partition("[")
+        props = dict(kv.split("=", 1) for kv in rest.rstrip("]").split(",") if "=" in kv)
+        return {"Name": name, "Properties": props} if props else {"Name": name}
+    out_sections = []
+    for sy, arr in sorted(secs.items()):
+        names = ["minecraft:air"] + sorted({b for b in arr if b})
+        index = {n: i for i, n in enumerate(names)}
+        bits = max(4, math.ceil(math.log2(len(names))))
+        per = 64 // bits
+        longs = [0] * math.ceil(4096 / per)
+        for i, b in enumerate(arr):
+            longs[i // per] |= (index[b] if b else 0) << ((i % per) * bits)
+        longs = [v - (1 << 64) if v >= 1 << 63 else v for v in longs]
+        sec = {"Y": nbt.Typed(nbt.TAG_BYTE, sy),
+               "block_states": {"palette": [entry(n) for n in names], "data": nbt.Typed(nbt.TAG_LONG_ARRAY, longs)}}
+        if light_fn:
+            sky, blk = bytearray(2048), bytearray(2048)
+            for i in range(4096):
+                y, z, x = sy * 16 + (i >> 8), (i >> 4) & 15, i & 15
+                s, b = light_fn(cx * 16 + x, y, cz * 16 + z)
+                sky[i >> 1] |= (s & 15) << (4 * (i & 1))
+                blk[i >> 1] |= (b & 15) << (4 * (i & 1))
+            signed = lambda arr: [v - 256 if v > 127 else v for v in arr]          # noqa: E731
+            sec["SkyLight"] = nbt.Typed(nbt.TAG_BYTE_ARRAY, signed(sky))
+            sec["BlockLight"] = nbt.Typed(nbt.TAG_BYTE_ARRAY, signed(blk))
+        out_sections.append(sec)
+    per = 64 // 9
+    hm = [0] * math.ceil(256 / per)
+    for i, h in enumerate(tops):
+        hm[i // per] |= (h - min_y + 1) << ((i % per) * 9)
+    hm = [v - (1 << 64) if v >= 1 << 63 else v for v in hm]
+    return {"DataVersion": 3700, "xPos": cx, "zPos": cz, "yPos": -4, "Status": "minecraft:full",
+            "sections": out_sections, "Heightmaps": {"MOTION_BLOCKING": nbt.Typed(nbt.TAG_LONG_ARRAY, hm)}}
+
+
 def make_chunk(cx: int, cz: int, height_fn: Callable[[int, int], int], block_fn: Callable[[int, int, int], str]) -> dict:
     """Build a 1.18+ chunk NBT with a correct heightmap (for tests and the demo world)."""
     min_y = -64

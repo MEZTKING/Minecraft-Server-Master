@@ -94,6 +94,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 #help { position: fixed; right: 12px; top: 12px; padding: 6px 10px; font-size: 12px; color: var(--text-2); max-width: 260px; }
 #toggle { display: none; }
 #chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
+#lightBox { margin: 6px 0; } #lightBox summary { cursor: pointer; }
+#lightBox .lgrid { display: grid; grid-template-columns: auto 1fr 3.2em; gap: 4px 8px; align-items: center; margin: 6px 0; }
+#lightBox .lgrid span { font-variant-numeric: tabular-nums; color: var(--text-2); text-align: right; }
 #chgList li:hover { background: var(--chip); }
 #chgList .sw { align-self: center; }
 #loadCard { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
@@ -151,6 +154,18 @@ ul { list-style: none; margin: 0; padding: 0; }
     <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
     <label title="Close up, show the real blocks with Minecraft's textures from the backup shown (loaded around where you look as you move; further away the map stays smooth)"><input type="checkbox" id="realOn" checked> Real blocks</label>
   </div>
+  <details id="lightBox" title="How the real blocks are lit: Minecraft's own light levels from the backup">
+    <summary>Light</summary>
+    <div class="lgrid">
+      <label for="lTime">Time of day</label><input id="lTime" type="range" min="0" max="24" step="0.25" value="12"><span id="lTimeV"></span>
+      <label for="lBright" title="Like Minecraft's Brightness option: Moody (0) to Bright (100)">Brightness</label><input id="lBright" type="range" min="0" max="1" step="0.05" value="0.5"><span id="lBrightV"></span>
+      <label for="lTorch" title="How strongly torches, lanterns, glowstone... light their surroundings">Torch light</label><input id="lTorch" type="range" min="0" max="1.5" step="0.05" value="1"><span id="lTorchV"></span>
+      <label for="lExposure" title="Everything lighter or darker">Exposure</label><input id="lExposure" type="range" min="0.4" max="2" step="0.05" value="1"><span id="lExposureV"></span>
+      <label for="lSun" title="0: Minecraft's fixed shading of block sides; 100: sides shaded by where the sun is">Sun shading</label><input id="lSun" type="range" min="0" max="1" step="0.05" value="0.35"><span id="lSunV"></span>
+      <label for="lAO" title="The soft shadows in corners and under overhangs (Minecraft's smooth lighting)">Soft shadows</label><input id="lAO" type="range" min="0" max="1" step="0.05" value="1"><span id="lAOV"></span>
+    </div>
+    <div class="row"><button id="lReset" type="button">Reset</button><span class="meta">Hold Ctrl and scroll over a slider for fine steps.</span></div>
+  </details>
   <div id="chgBox" hidden>
     <div class="meta" id="chgHead"></div>
     <ul id="chgList"></ul>
@@ -185,7 +200,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="first_join">first joins</option><option value="chat">conversations</option><option value="marker">markers</option>
       <option value="work">building &amp; map art</option><option value="travel">exploring &amp; searching</option>
       <option value="change">changes between backups</option>
-      <option value="celebration">celebrations</option><option value="sad">sad moments</option>
+      <option value="celebration">celebrations</option><option value="biome">biomes found</option><option value="sad">sad moments</option>
       <option value="stats">from the statistics (between backups)</option>
     </select>
     <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
@@ -289,7 +304,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, blockMeshes } from "./map3d.js";
+import { buildAtlas, blockMeshes, setLight } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -344,16 +359,47 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 64, 0);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.495;
-scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.1));
+const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(0.4, 1, 0.25); scene.add(sun);
 const grid = new THREE.GridHelper(1024, 64, 0x888888, 0xaaaaaa);
 grid.position.y = 63; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
 function applySky() {
   const dark = isDark(), d = $("#dim").value;
   const sky = d === "minecraft:the_nether" ? (dark ? 0x2a0d0d : 0x6b2a22) : d === "minecraft:the_end" ? (dark ? 0x0d0a17 : 0x2b2440) : (dark ? 0x101820 : 0xcfe3f5);
-  scene.background = new THREE.Color(sky); scene.fog = new THREE.Fog(sky, 800, 6000);
+  const c = new THREE.Color(sky);
+  if (d === "minecraft:overworld") c.lerp(new THREE.Color(0x0b1020), 1 - LIGHTS.day);   // night sky
+  scene.background = c; scene.fog = new THREE.Fog(c, 800, 6000);
 }
-applySky();
+// ---------- light (Minecraft's light levels on the real blocks; the map and players follow the time of day) ----------
+const LIGHT_DEFAULTS = { time: 12, bright: 0.5, torch: 1, exposure: 1, sun: 0.35, ao: 1 };
+const LIGHTS = { ...LIGHT_DEFAULTS, day: 1 };
+try { Object.assign(LIGHTS, JSON.parse(store.get("mcsm-light") || "{}")); } catch (e) {}
+function applyLight(save = true) {
+  const L = LIGHTS, a = (L.time - 6) / 24 * Math.PI * 2, h = Math.sin(a);           // sunrise 6:00, noon 12:00, sunset 18:00
+  const sm = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+  L.day = 0.2 + 0.8 * sm((h + 0.2) / 0.45);                                          // Minecraft's night is about 1/5 of day
+  const dir = new THREE.Vector3(Math.cos(a), Math.max(0.05, h), 0.3).normalize();
+  setLight({ day: L.day, torch: L.torch, bright: L.bright, exposure: L.exposure, sunMix: L.sun, ao: L.ao, sunDir: dir });
+  sun.position.copy(dir); sun.intensity = 1.6 * L.day * L.exposure; hemi.intensity = (0.35 + 0.75 * L.day) * L.exposure;
+  const warm = h > -0.1 && h < 0.3 ? 1 - Math.abs(h - 0.1) / 0.2 : 0;               // sunrise / sunset colour
+  sun.color.setRGB(1, 1 - 0.25 * Math.max(0, warm), 1 - 0.45 * Math.max(0, warm));
+  for (const k of ["time", "bright", "torch", "exposure", "sun", "ao"]) {
+    const el = $("#l" + (k === "ao" ? "AO" : k[0].toUpperCase() + k.slice(1)));
+    if (!el) continue;
+    el.value = L[k];
+    const v = $(`#${el.id}V`);
+    if (v) v.textContent = k === "time" ? `${String(Math.floor(L.time)).padStart(2, "0")}:${String(Math.round((L.time % 1) * 60)).padStart(2, "0")}`
+      : k === "bright" || k === "sun" || k === "ao" ? Math.round(L[k] * 100) : `${Math.round(L[k] * 100)}%`;
+  }
+  applySky();
+  if (save) store.set("mcsm-light", JSON.stringify(Object.fromEntries(Object.keys(LIGHT_DEFAULTS).map(k => [k, LIGHTS[k]]))));
+}
+for (const k of ["time", "bright", "torch", "exposure", "sun", "ao"]) {
+  const el = $("#l" + (k === "ao" ? "AO" : k[0].toUpperCase() + k.slice(1)));
+  el.addEventListener("input", () => { LIGHTS[k] = +el.value; applyLight(); });
+}
+$("#lReset").onclick = () => { Object.assign(LIGHTS, LIGHT_DEFAULTS); applyLight(); };
+applyLight(false);
 function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeCanvas(); }
 addEventListener("resize", resize);
 
@@ -515,10 +561,25 @@ function realClip() {                               // cut the smooth map away u
   CLIP.n = n; if (CLIP.uniforms) CLIP.uniforms.uClipN.value = n;
 }
 function realWanted() {
-  const d = camera.position.distanceTo(controls.target);
-  if (!$("#realOn").checked || d > 900) return [];
-  const r = d < 250 ? 1 : 2, tx = Math.floor(controls.target.x / REAL_TILE), tz = Math.floor(controls.target.z / REAL_TILE), out = [];
-  for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) out.push([tx + i, tz + j, i * i + j * j]);
+  // where you look (more pieces when zoomed out), then around every player shown, nearest first
+  if (!$("#realOn").checked) return [];
+  const d = camera.position.distanceTo(controls.target), out = [], seen = new Set();
+  const add = (x, z, w) => { const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); out.push([x, z, w]); } };
+  if (d <= 900) {
+    const r = d < 250 ? 1 : 2, tx = Math.floor(controls.target.x / REAL_TILE), tz = Math.floor(controls.target.z / REAL_TILE);
+    for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) add(tx + i, tz + j, i * i + j * j);
+  }
+  for (const m of Object.values(markers)) {
+    if (!m.group.visible) continue;
+    const px = m.group.position.x, pz = m.group.position.z, tx = Math.floor(px / REAL_TILE), tz = Math.floor(pz / REAL_TILE);
+    const fx = px / REAL_TILE - tx, fz = pz / REAL_TILE - tz;
+    add(tx, tz, 0.5);
+    // the neighbouring pieces the player is near (within 48 blocks of the edge)
+    const ix = fx < 0.375 ? -1 : fx > 0.625 ? 1 : 0, iz = fz < 0.375 ? -1 : fz > 0.625 ? 1 : 0;
+    if (ix) add(tx + ix, tz, 1.5);
+    if (iz) add(tx, tz + iz, 1.5);
+    if (ix && iz) add(tx + ix, tz + iz, 2.5);
+  }
   return out.sort((a, b) => a[2] - b[2]);
 }
 async function realStep(now) {
@@ -527,7 +588,7 @@ async function realStep(now) {
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, key = `${dim}|${layer}`;
   if (key !== REAL.key) { realClear(); REAL.key = key; }      // another backup or dimension: start again
   const want = realWanted(), keep = new Set(want.map(([x, z]) => `${x},${z}`));
-  for (const [id, T] of REAL.tiles) if (!keep.has(id) && REAL.tiles.size > 30) {   // far away: let them go
+  for (const [id, T] of REAL.tiles) if (!keep.has(id) && REAL.tiles.size > 60) {   // far away: let them go
     for (const m of T.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.delete(id);
   }
@@ -545,7 +606,7 @@ async function realStep(now) {
       REAL.note = info.exact_jar === false && info.mc ? `real blocks: the backup is Minecraft ${info.mc}, whose game files aren't on this PC; textures from ${info.jar}` : "";
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       if (REAL.key !== key) return;
-      T.meshes = blockMeshes(info, buf, atlas, true);
+      T.meshes = blockMeshes(info, buf, atlas);
       for (const m of T.meshes) { m.material.map = atlas.tex; scene.add(m); }
     } else if (info.message) REAL.failed.add(`${key}|${id}`);
     REAL.tiles.set(id, T); realClip();
@@ -554,7 +615,7 @@ async function realStep(now) {
 }
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
-window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE };   // for checking the view
+window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false) };   // for checking the view
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -603,20 +664,82 @@ const joinsBy = {};
 
 // ---------- player markers ----------
 const markers = {};
-const markerGeo = new THREE.BoxGeometry(0.8, 1.9, 0.8);
+// The game's default skins (in the Minecraft jar on this PC); each player gets one, always the same for them.
+const SKINS = ["steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri"];
+const skinTextures = {};
+function skinTexture(skin) {
+  if (!skinTextures[skin]) {
+    const t = new THREE.TextureLoader().load(`blocktex/0/entity/player/wide/${skin}.png`);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    skinTextures[skin] = t;
+  }
+  return skinTextures[skin];
+}
+const PX = 0.9375 / 16;                                // a skin pixel in blocks (the player is 1.8 blocks tall)
+function skinBox(w, h, d, u, v, grow = 0) {
+  // a box mapped like Minecraft's player model: [u, v] is the top-left of the box's unfolded skin area
+  const g = new THREE.BoxGeometry((w + grow) * PX, (h + grow) * PX, (d + grow) * PX);
+  const r = (x, y, ww, hh) => [x, y, ww, hh];
+  // BoxGeometry faces: +x (the figure's left), -x (its right), +y, -y, +z (front), -z (back)
+  const rects = [r(u + d + w, v + d, d, h), r(u, v + d, d, h), r(u + d, v, w, d), r(u + d + w, v, w, d),
+                 r(u + d, v + d, w, h), r(u + 2 * d + w, v + d, w, h)];
+  const uv = g.attributes.uv;
+  rects.forEach(([x, y, ww, hh], f) => {
+    const c = [[x, y], [x + ww, y], [x, y + hh], [x + ww, y + hh]];
+    for (let k = 0; k < 4; k++) uv.setXY(f * 4 + k, c[k][0] / 64, 1 - c[k][1] / 64);
+  });
+  return g;
+}
+function playerFigure(name, colour) {
+  let hsh = 0; for (const ch of name) hsh = (hsh * 31 + ch.charCodeAt(0)) | 0;
+  const tex = skinTexture(SKINS[Math.abs(hsh) % SKINS.length]);
+  const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.1 });
+  const fig = new THREE.Group(), parts = {};
+  const part = (key, geo, x, y, z, pivotY) => {       // limbs swing about their top
+    const pivot = new THREE.Group(); pivot.position.set(x * PX, pivotY * PX, z * PX);
+    const m = new THREE.Mesh(geo, mat); m.position.y = (y - pivotY) * PX; pivot.add(m);
+    fig.add(pivot); parts[key] = pivot; return pivot;
+  };
+  part("head", skinBox(8, 8, 8, 0, 0), 0, 28, 0, 24);
+  const hat = new THREE.Mesh(skinBox(8, 8, 8, 32, 0, 1), mat); hat.position.y = 4 * PX; parts.head.add(hat);
+  part("body", skinBox(8, 12, 4, 16, 16), 0, 18, 0, 18);
+  part("rarm", skinBox(4, 12, 4, 40, 16), -6, 18, 0, 24);
+  part("larm", skinBox(4, 12, 4, 32, 48), 6, 18, 0, 24);
+  part("rleg", skinBox(4, 12, 4, 0, 16), -2, 6, 0, 12);
+  part("lleg", skinBox(4, 12, 4, 16, 48), 2, 6, 0, 12);
+  // a ring in the player's colour at their feet, to tell them apart
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.6, 24), new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, transparent: true }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; fig.add(ring);
+  return { fig, parts, mat, ring };
+}
+function animateFigure(m, now) {
+  // face the way the player moves and swing arms and legs with their speed
+  const p = m.group.position, last = m.last || p.clone(), dt = Math.max(1, now - (m.lastT || now)) / 1000;
+  const dx = p.x - last.x, dz = p.z - last.z, sp = Math.hypot(dx, dz) / dt;
+  if (Math.hypot(dx, dz) > 0.02) m.yaw = Math.atan2(dx, dz);
+  if (m.yaw !== undefined) {
+    let dy = m.yaw - m.F.fig.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    m.F.fig.rotation.y += dy * Math.min(1, dt * 8);
+  }
+  m.speed = (m.speed || 0) * 0.85 + Math.min(1, sp / 4.3) * 0.15;
+  m.phase = (m.phase || 0) + dt * 9 * Math.min(1, sp / 2);
+  const s = Math.sin(m.phase) * 0.9 * m.speed, P = m.F.parts;
+  P.rleg.rotation.x = s; P.lleg.rotation.x = -s; P.rarm.rotation.x = -s * 0.8; P.larm.rotation.x = s * 0.8;
+  m.last = p.clone(); m.lastT = now;
+}
 function marker(name) {
   if (markers[name]) return markers[name];
   const c = new THREE.Color(playerColour(name));
   const group = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: c, transparent: true });
-  const body = new THREE.Mesh(markerGeo, mat); body.position.y = 0.95; group.add(body);
+  const F = playerFigure(name, c), mat = F.mat;
+  group.add(F.fig);
   scene.add(group);
   const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
   scene.add(trail);
   const label = document.createElement("div");
   label.className = "label"; label.textContent = name; label.style.borderBottom = `2px solid ${playerColour(name)}`;
   $("#labels").appendChild(label);
-  return (markers[name] = { group, mat, trail, label, cur: null });
+  return (markers[name] = { group, mat, F, trail, label, cur: null });
 }
 
 // All paths, faint (one LineSegments per player; segments only across short gaps).
@@ -674,7 +797,7 @@ function update(now, force) {
     m.group.visible = vis;
     if (vis) {
       m.group.position.set(shown.pos[0], shown.pos[1], shown.pos[2]);
-      m.mat.opacity = stale ? 0.45 : 1;
+      m.mat.opacity = stale ? 0.45 : 1; m.F.ring.material.opacity = stale ? 0.45 : 1;
     }
     if (doTrail) {
       const pts = P[name] || [];
@@ -1459,6 +1582,7 @@ function frame(now) {
     for (const [name, m] of Object.entries(markers)) {
       if (!m.group.visible) { m.label.style.display = "none"; continue; }
       m.group.scale.setScalar(Math.max(1, camera.position.distanceTo(m.group.position) / 70));
+      animateFigure(m, now);
       tmp.copy(m.group.position); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
       const on = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
       m.label.style.display = on ? "" : "none";

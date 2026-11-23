@@ -110,9 +110,9 @@ class BuildWorld:
         with open(self.blocks_file() + ".part", "wb") as fh:
             fh.write(r["faces"])
         os.replace(self.blocks_file() + ".part", self.blocks_file())
-        self._blocks = {"faces": len(r["faces"]) // 10, "origin": r["origin"],
+        self._blocks = {"faces": len(r["faces"]) // bm.RECORD.size, "origin": r["origin"],
                         "url": url_prefix + os.path.basename(self.blocks_file()),
-                        "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
+                        "infos": bm.client_infos(r["infos"]),
                         "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
                         "jar": os.path.basename(self.jar or "")}
         return self._blocks
@@ -125,7 +125,7 @@ class BuildWorld:
         and kept on disk (``blocktile-<key>.bin`` + ``.json``). ``faces`` 0: nothing there (not explored)."""
         import json
         n = self.TILE // 16
-        key = hashlib.sha1(f"{self.TILE_VERSION}|{os.path.abspath(self.root)}|{self.world}|{dim}|{tx}|{tz}|{self.TILE}|{self.mc}".encode()).hexdigest()[:20]
+        key = hashlib.sha1(f"{self.TILE_VERSION}|{bm.VERSION}|{os.path.abspath(self.root)}|{self.world}|{dim}|{tx}|{tz}|{self.TILE}|{self.mc}".encode()).hexdigest()[:20]
         base = os.path.join(self.cache, "tiles-blocks", key)
         try:
             with open(base + ".json", encoding="utf-8") as fh:
@@ -144,8 +144,8 @@ class BuildWorld:
             with open(base + ".bin.part", "wb") as fh:
                 fh.write(r["faces"])
             os.replace(base + ".bin.part", base + ".bin")
-        info = {"faces": len(r["faces"]) // 10, "origin": r["origin"], "tile": [tx, tz, self.TILE],
-                "infos": [{k: i[k] for k in ("name", "kind", "box", "tex")} for i in r["infos"]],
+        info = {"faces": len(r["faces"]) // bm.RECORD.size, "origin": r["origin"], "tile": [tx, tz, self.TILE],
+                "infos": bm.client_infos(r["infos"]),
                 "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
                 "jar": os.path.basename(self.jar or ""), "mc": self.mc,
                 "exact_jar": bool(self.jar and self.mc and self.mc in os.path.basename(self.jar))}

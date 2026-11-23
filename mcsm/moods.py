@@ -11,7 +11,8 @@ Three kinds of signal, all from data the app already has:
    - ``long_life`` (a death after 10+ hours of play since the player's last death), ``lossy`` (lava, the void, burning:
      the items are likely gone), ``death_streak`` (3+ deaths of one player in 10 minutes), ``rage_quit`` (left within a
      minute of dying, not back within 5 minutes).
-2. **Derived moments** added to the log events: ``farewell`` (the end of a regular player's last session, if that was
+2. **Derived moments** added to the log events: ``biome`` (the first on the server to find a biome, and each
+   player's first time in a rare one, from the dates kept by Adventuring Time / Hot Tourist Destinations), ``farewell`` (the end of a regular player's last session, if that was
    60+ days before the logs end), ``anniversary`` (the server's day 100, 365, every year; a player's 100th session and
    their 100th, 250th, 500th and 1000th hour of play).
 3. **Between backups** (:func:`stat_moments`, from the statistics saved in each backup): ``record`` (a player's
@@ -58,7 +59,8 @@ CHEER = {"gg", "ggs", "ggwp", "pog", "poggers", "yay", "yes", "nice", "wow", "le
          "hype", "les go", "lesgo", "congrats", "gz", "grats", "hurray", "hooray", "epic", "insane", "omg"}
 MOURN = {"rip", "noo", "no", "f", "oof", "sad", "nooo", "why", "ugh", "damn", "dang", "rest in peace", "unlucky", "rip bozo"}
 LAUGH = re.compile(r"\b(?:a?ha(?:ha)+h?|xd+|lo+l|lmao|lmfao|jaja+|kkk+|www+|ptdr|mdr)\b", re.I)
-CELEBRATE_TAGS = {"boss", "server_first", "challenge", "together", "anniversary", "record", "first", "milestone", "pet"}
+CELEBRATE_TAGS = {"boss", "server_first", "challenge", "together", "anniversary", "record", "first", "milestone", "pet",
+                  "biome"}
 SAD_TAGS = {"long_life", "lossy", "death_streak", "rage_quit", "farewell"}
 
 
@@ -224,6 +226,58 @@ def tag_events(data: m.ServerData, scored: list[dict], canon, adv_name) -> list[
                     out.append({"t": at, "kind": "anniversary", "player": who, "points": POINTS["anniversary_player"],
                                 "text": f"{who}'s {g}th hour on the server", "tags": ["milestone"], "mood": "celebration",
                                 "label": f"{who} reaches {g} hours on the server"})
+    out += biome_events(data, canon)                      # players finding biomes (exact times from advancements)
+    return out
+
+
+BIOME_ADVANCEMENTS = ("adventure/adventuring_time", "nether/explore_nether")
+RARE_BIOMES = {"mushroom_fields", "ice_spikes", "cherry_grove", "deep_dark", "badlands", "wooded_badlands",
+               "bamboo_jungle", "jungle", "sparse_jungle", "mangrove_swamp", "pale_garden", "flower_forest",
+               "sunflower_plains", "frozen_peaks", "jagged_peaks", "lush_caves", "dripstone_caves", "warm_ocean",
+               "deep_frozen_ocean", "windswept_savanna", "old_growth_pine_taiga", "old_growth_spruce_taiga",
+               "old_growth_birch_forest", "snowy_slopes", "frozen_ocean", "basalt_deltas", "warped_forest",
+               "crimson_forest", "soul_sand_valley"}
+BIOME_POINTS = {"server_rare": 4.0, "server": 2.5, "personal_rare": 2.0}
+
+
+def biome_name(biome_id: str) -> str:
+    """``minecraft:cherry_grove`` -> ``Cherry Grove``."""
+    return biome_id.split(":", 1)[-1].replace("_", " ").title().replace(" Of ", " of ")
+
+
+def biome_events(data: m.ServerData, canon) -> list[dict]:
+    """Players finding biomes, from the dates the game keeps for Adventuring Time and Hot Tourist Destinations
+    (exact to the second): the first on the server to find each biome (not in the server's first 3 days, when
+    everyone is still around spawn, unless it's a rare one), and each player's first time in a rare biome."""
+    visits = []                                          # (ms, player, biome)
+    for p in data.players.values():
+        who = canon(p.name)
+        seen = set()
+        for adv in BIOME_ADVANCEMENTS:
+            for crit, dt in ((p.advancements or {}).get(adv, {}).get("criteria") or {}).items():
+                biome = crit.split(":", 1)[-1]
+                t = _ms(dt) if hasattr(dt, "timestamp") else None
+                if t is not None and biome not in seen:
+                    seen.add(biome)
+                    visits.append((t, who, biome))
+    if not visits:
+        return []
+    visits.sort()
+    opening = visits[0][0] + 3 * DAY_MS
+    out, first_by_biome = [], {}
+    for t, who, biome in visits:
+        first_by_biome.setdefault(biome, (t, who))
+    for t, who, biome in visits:
+        rare, name = biome in RARE_BIOMES, biome_name(biome)
+        if first_by_biome[biome] == (t, who) and (rare or t >= opening):
+            pts = BIOME_POINTS["server_rare" if rare else "server"]
+            label = f"{who} is the first on the server to find {name}"
+            out.append({"t": t, "kind": "biome", "player": who, "points": pts, "text": label,
+                        "tags": ["biome", "server_first"], "mood": "celebration", "label": label})
+        elif rare:
+            label = f"{who} finds {name} for the first time"
+            out.append({"t": t, "kind": "biome", "player": who, "points": BIOME_POINTS["personal_rare"], "text": label,
+                        "tags": ["biome"], "mood": "celebration", "label": label})
     return out
 
 
@@ -246,6 +300,10 @@ def group_mood(group: list[dict]) -> str | None:
         score["celebration"] += POINTS["mood_chat"] * cheer
         score["sad"] += POINTS["mood_chat"] * mourn
     best = max(score, key=score.get)
+    if best == "celebration":                     # a death bigger than the good part: not a celebration (nor sad)
+        died = sum(e["points"] for e in group if e["kind"] == "death" and not e.get("mood"))
+        if died >= score["celebration"]:
+            return None
     return best if score[best] >= 1.0 else None
 
 

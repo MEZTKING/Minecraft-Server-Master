@@ -3228,56 +3228,159 @@ class TestRealBlocks(unittest.TestCase):
 
     @staticmethod
     def _jar(path):
-        cube_faces = {f: {"texture": "#" + f} for f in ("down", "up", "north", "south", "west", "east")}
+        cube_faces = {f: {"texture": "#" + f, "cullface": f} for f in ("down", "up", "north", "south", "west", "east")}
+        six = {f: {"texture": "#all"} for f in ("down", "up", "north", "south", "west", "east")}
         files = {
             "blockstates/stone.json": {"variants": {"": {"model": "minecraft:block/stone"}}},
+            "blockstates/glass.json": {"variants": {"": {"model": "minecraft:block/glass"}}},
             "blockstates/short_grass.json": {"variants": {"": {"model": "minecraft:block/short_grass"}}},
-            "blockstates/oak_slab.json": {"variants": {"type=bottom": {"model": "minecraft:block/oak_slab"}}},
+            "blockstates/oak_slab.json": {"variants": {"type=bottom": {"model": "minecraft:block/oak_slab"},
+                                                       "type=top": {"model": "minecraft:block/oak_slab_top"}}},
+            "blockstates/oak_stairs.json": {"variants": {"facing=north": {"model": "minecraft:block/oak_stairs"},
+                                                         "facing=east": {"model": "minecraft:block/oak_stairs", "y": 90}}},
+            "blockstates/oak_fence.json": {"multipart": [{"apply": {"model": "minecraft:block/fence_post"}},
+                                                         {"when": {"north": "true"}, "apply": {"model": "minecraft:block/fence_side"}}]},
             "models/block/cube.json": {"elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": cube_faces}]},
             "models/block/cube_all.json": {"parent": "block/cube", "textures": {
                 **{f: "#all" for f in ("down", "up", "north", "south", "west", "east")}, "particle": "#all"}},
             "models/block/stone.json": {"parent": "block/cube_all", "textures": {"all": {"sprite": "block/stone"}}},
+            "models/block/glass.json": {"parent": "block/cube_all", "textures": {"all": "block/glass"}},
+            "models/block/cross.json": {"textures": {"particle": "#cross"}, "elements": [
+                {"from": [0.8, 0, 8], "to": [15.2, 16, 8], "rotation": {"origin": [8, 8, 8], "axis": "y", "angle": 45, "rescale": True},
+                 "faces": {"north": {"texture": "#cross"}, "south": {"texture": "#cross"}}},
+                {"from": [8, 0, 0.8], "to": [8, 16, 15.2], "rotation": {"origin": [8, 8, 8], "axis": "y", "angle": 45, "rescale": True},
+                 "faces": {"west": {"texture": "#cross"}, "east": {"texture": "#cross"}}}]},
             "models/block/tinted_cross.json": {"parent": "block/cross"},
-            "models/block/cross.json": {"textures": {"particle": "#cross"}},
             "models/block/short_grass.json": {"parent": "minecraft:block/tinted_cross",
                                               "textures": {"cross": "minecraft:block/short_grass"}},
             "models/block/oak_slab.json": {"textures": {"all": "block/oak_planks"}, "elements": [
-                {"from": [0, 0, 0], "to": [16, 8, 16], "faces": {f: {"texture": "#all"} for f in
-                                                                  ("down", "up", "north", "south", "west", "east")}}]},
+                {"from": [0, 0, 0], "to": [16, 8, 16], "faces": six}]},
+            "models/block/oak_slab_top.json": {"textures": {"all": "block/oak_planks"}, "elements": [
+                {"from": [0, 8, 0], "to": [16, 16, 16], "faces": six}]},
+            # a stair as one step on the north half (enough to see the turn)
+            "models/block/oak_stairs.json": {"textures": {"all": "block/oak_planks"}, "elements": [
+                {"from": [0, 0, 0], "to": [16, 16, 8], "faces": six}]},
+            "models/block/fence_post.json": {"textures": {"all": "block/oak_planks"}, "elements": [
+                {"from": [6, 0, 6], "to": [10, 16, 10], "faces": six}]},
+            "models/block/fence_side.json": {"textures": {"all": "block/oak_planks"}, "elements": [
+                {"from": [7, 12, 0], "to": [9, 15, 9], "faces": six}]},
         }
         with zipfile.ZipFile(path, "w") as zf:
             for name, data in files.items():
                 zf.writestr("assets/minecraft/" + name, json.dumps(data))
             zf.writestr("assets/minecraft/textures/block/stone.png", b"\x89PNG stone")
+            zf.writestr("assets/minecraft/textures/entity/chest/normal.png", b"\x89PNG chest")
+
+    @staticmethod
+    def _faces(r):
+        from mcsm import blockmesh as bm
+        ox, oz = r["origin"]
+        out = []
+        for i in range(0, len(r["faces"]), bm.RECORD.size):
+            x, y, z, d, k, ex = bm.RECORD.unpack_from(r["faces"], i)
+            out.append((x + ox, y, z + oz, d, r["infos"][k]["name"], ex))
+        return out
+
+    def _world(self, tmp, block_fn, light_fn=None):
+        from mcsm import terrain
+        world = os.path.join(tmp, "srv", "world")
+        terrain.write_region(os.path.join(world, "region", "r.0.0.mca"),
+                             {(0, 0): terrain.make_chunk_blocks(0, 0, block_fn, 56, 80, light_fn)})
+        return world
 
     def test_blocks(self):
-        from mcsm import blockmesh as bm, terrain
+        from mcsm import blockmesh as bm
         tmp = tempfile.mkdtemp()
         try:
             jar = os.path.join(tmp, "client.jar")
             self._jar(jar)
-            world = os.path.join(tmp, "srv", "world")
-            # a step: 64 high in the west half, 70 in the east half; one tuft of grass, one slab
-            h = lambda x, z: 64 if x < 8 else 70                      # noqa: E731
-            b = lambda x, y, z: ("minecraft:short_grass" if (x, z) == (2, 2) else
-                                 "minecraft:oak_slab" if (x, z) == (3, 3) else "minecraft:stone")   # noqa: E731
-            terrain.write_region(os.path.join(world, "region", "r.0.0.mca"), {(0, 0): terrain.make_chunk(0, 0, h, b)})
+            # a step: ground to 64 in the west half, to 70 in the east half; a tuft of grass, a slab, a stair, a fence
+
+            def b(x, y, z):
+                h = 64 if x < 8 else 70
+                if y <= h:
+                    return "minecraft:stone"
+                if (x, y, z) == (2, 65, 2):
+                    return "minecraft:short_grass"
+                if (x, y, z) == (3, 65, 3):
+                    return "minecraft:oak_slab[type=bottom]"
+                if (x, y, z) == (4, 65, 4):
+                    return "minecraft:oak_stairs[facing=east,half=bottom]"
+                if (x, y, z) == (5, 65, 5):
+                    return "minecraft:oak_fence[east=false,north=true,south=false,west=false]"
+                return None
+            world = self._world(tmp, b)
             look = bm.Look(jar)
             r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], look, radius=40)
-            faces = [struct.unpack_from("<5h", r["faces"], i) for i in range(0, len(r["faces"]), 10)]
-            names = {i["name"]: i for i in r["infos"]}
-            self.assertEqual(names["stone"]["kind"], "cube")
-            self.assertTrue(names["stone"]["tex"] is not None and "block/stone" in r["textures"])   # {"sprite": ...}
-            self.assertEqual(names["short_grass"]["kind"], "cross")
-            self.assertEqual((names["oak_slab"]["kind"], names["oak_slab"]["box"]), ("part", [0, 0, 0, 16, 8, 16]))
-            ox, oz = r["origin"]
-            at = {(x + ox, y, z + oz, d) for x, y, z, d, _i in faces}
+            infos = {i["name"]: i for i in r["infos"]}
+            self.assertEqual(infos["stone"]["kind"], "cube")
+            self.assertTrue(infos["stone"]["opaque"] and "block/stone" in r["textures"])      # {"sprite": ...}
+            self.assertEqual(infos["short_grass"]["kind"], "model")                            # crossed quads
+            self.assertEqual(len(infos["short_grass"]["quads"]), 4)
+            slab = infos["oak_slab"]
+            self.assertEqual((slab["kind"], max(v for q in slab["quads"] for v in q[4:15:3])), ("model", 0.5))
+            # the stair turned to face east: its step (north half when facing north) is now on the east half
+            stair_x = [v for q in infos["oak_stairs"]["quads"] for v in q[3:15:3]]
+            self.assertEqual(min(stair_x), 0.5)
+            self.assertEqual(len(infos["oak_fence"]["quads"]), 12)                             # post + north arm
+            at = {f[:4] for f in self._faces(r)}
             self.assertIn((10, 70, 5, 0), at)                          # top of the high part
-            self.assertIn((8, 70, 5, 4), at)                           # the step's wall, facing west
+            self.assertIn((8, 70, 5, 4), at)                           # the step's wall, facing west, its full height
+            self.assertIn((8, 65, 5, 4), at)
             self.assertNotIn((10, 70, 5, 4), at)                       # between two blocks: hidden
-            self.assertIn((2, 64, 2, 6), at)                           # the grass tuft, crossed quads
+            self.assertNotIn((10, 64, 5, 0), at)                       # buried: hidden
+            for pos in ((2, 65, 2), (3, 65, 3), (4, 65, 4), (5, 65, 5)):
+                self.assertIn(pos + (7,), at)                          # models: whole
+            self.assertIn((3, 64, 3, 0), at)                           # the ground under the slab still shows
+            # light: this chunk has none stored, so everything is daylit; corners next to the step are shaded
+            top = [f for f in self._faces(r) if f[:4] == (7, 64, 5, 0)][0]
+            self.assertEqual(top[5] >> 12, 15)
+            self.assertNotEqual(top[5] & 255, 0)
             self.assertEqual(look.texture_png("block/stone"), b"\x89PNG stone")
             self.assertIsNone(look.texture_png("block/nothing"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_inside_and_light(self):
+        """A room under a roof is drawn when you can see into it (a doorway), and not when it's sealed; faces get
+        the light stored for the space in front of them."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+
+            def house(door):
+                def b(x, y, z):
+                    if y <= 64:
+                        return "minecraft:stone"
+                    inside = 4 <= x <= 10 and 4 <= z <= 10
+                    if not inside or y > 69:
+                        return None
+                    if y == 69:
+                        return "minecraft:stone"                 # the roof
+                    if x in (4, 10) or z in (4, 10):
+                        if door and z == 4 and x == 7 and y in (65, 66):
+                            return None                          # a doorway
+                        return "minecraft:stone"
+                    return None
+                return b
+
+            def light(x, y, z):
+                inside = 5 <= x <= 9 and 5 <= z <= 9 and 65 <= y <= 68
+                return (3, 12) if inside else (15, 0)
+            for door, seen in ((True, True), (False, False)):
+                sub = os.path.join(tmp, str(door))
+                os.makedirs(sub)
+                world = self._world(sub, house(door), light)
+                r = bm.build(os.path.join(sub, "srv"), world, [(8.0, 8.0)], bm.Look(jar), radius=40)
+                floor = [f for f in self._faces(r) if f[:4] == (7, 64, 7, 0)]
+                self.assertEqual(bool(floor), seen, door)
+                if floor:
+                    self.assertEqual(((floor[0][5] >> 12) & 15, (floor[0][5] >> 8) & 15), (3, 12))   # sky 3, torch 12
+            self.assertEqual(bm.parse_state("minecraft:oak_stairs[facing=east,half=top]"),
+                             ("oak_stairs", {"facing": "east", "half": "top"}))
+            self.assertEqual(bm.parse_state("minecraft:stone"), ("stone", {}))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -4553,12 +4656,12 @@ class TestRealBlockTiles(unittest.TestCase):
             self.assertEqual(empty["faces"], 0)
             key = a["url"].rsplit("/", 1)[1][:-4]
             with open(bw.block_tile_file(key), "rb") as fh:
-                faces = [struct.unpack_from("<5h", fh.read(), 0)]
+                faces = [bm.RECORD.unpack_from(fh.read(), 0)]
             self.assertTrue(faces)
             # pieces side by side: no wall where they meet (a block's west face at x = 128 would be hidden)
             with open(bw.block_tile_file(b["url"].rsplit("/", 1)[1][:-4]), "rb") as fh:
                 data = fh.read()
-            west_edge = [f for f in (struct.unpack_from("<5h", data, i) for i in range(0, len(data), 10))
+            west_edge = [f for f in (bm.RECORD.unpack_from(data, i) for i in range(0, len(data), bm.RECORD.size))
                          if f[0] == 0 and f[3] == 4 and f[1] <= 63]
             self.assertEqual(west_edge, [])
             self.assertIsNone(bw.block_tile_file("../evil"))
@@ -4646,6 +4749,41 @@ class TestMoods(unittest.TestCase):
         self.assertIn("Steve: first villager trade", titles)
         self.assertTrue(any("most blocks mined ever" in t and "record" in t for t in titles), titles)
         self.assertTrue(all(x["approx"] and not x["recordings"] for x in out))
+
+    def test_biomes(self):
+        """Biome finds from the dates the game keeps for Adventuring Time: server firsts (not in the opening days,
+        unless rare) and each player's first time in a rare biome."""
+        from datetime import timedelta
+        from mcsm import moods
+        t0 = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+        d = m.ServerData(root="x")
+        for n in ("Steve", "Alex"):
+            d.players[n.lower()] = m.PlayerProfile(None, n)
+        d.players["steve"].advancements = {"adventure/adventuring_time": {"done": False, "completed": None, "criteria": {
+            "minecraft:plains": t0, "minecraft:cherry_grove": t0 + timedelta(hours=1),
+            "minecraft:taiga": t0 + timedelta(days=10)}}}
+        d.players["alex"].advancements = {
+            "adventure/adventuring_time": {"done": False, "completed": None, "criteria": {
+                "minecraft:plains": t0 + timedelta(minutes=5), "minecraft:cherry_grove": t0 + timedelta(days=20)}},
+            "nether/explore_nether": {"done": False, "completed": None, "criteria": {
+                "minecraft:warped_forest": t0 + timedelta(days=30)}}}
+        ev = moods.biome_events(d, lambda n: n)
+        labels = [e["label"] for e in ev]
+        self.assertEqual(labels, [
+            "Steve is the first on the server to find Cherry Grove",          # rare: counts even on the first day
+            "Steve is the first on the server to find Taiga",                 # after the opening days
+            "Alex finds Cherry Grove for the first time",                    # rare: a personal first too
+            "Alex is the first on the server to find Warped Forest"])
+        self.assertTrue(all(e["mood"] == "celebration" and "biome" in e["tags"] for e in ev))   # plains: spawn, not listed
+        self.assertEqual(moods.biome_name("minecraft:old_growth_birch_forest"), "Old Growth Birch Forest")
+
+    def test_death_is_not_a_celebration(self):
+        from mcsm import moods
+        group = [{"kind": "death", "points": 5.0, "player": "Bob"},
+                 {"kind": "biome", "points": 2.0, "player": "Bob", "mood": "celebration"}]
+        self.assertIsNone(moods.group_mood(group))
+        group[0]["points"] = 1.0
+        self.assertEqual(moods.group_mood(group), "celebration")
 
 
 class TestVersionBand(unittest.TestCase):
