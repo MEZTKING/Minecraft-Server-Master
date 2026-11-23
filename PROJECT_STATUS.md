@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -992,23 +992,96 @@ The latent bug Fable found (packet ids of 128 and up) is fixed.
 **The ask:** "for future plans, i want to add a end of year progress for everyone, one that shows everyones
 stuff and one for each individual player for more personal details. add this for the future."
 
-**Proposed design (not started; to review with Fable before building):** a "year in review" made from data
-the app already has, for a chosen year (default: the last 12 months), as a page in the browser that can be
-saved or shared (and maybe a short video later):
-- **Everyone (the server's year):** days the server ran, players and new players by month, total play time,
-  busiest days and hours, the top moments of the year (from the moments finder: fights, advancements, first
-  joins, builds, map art, explorations), builds and changes seen between backups on the map (before/after),
-  deaths and their causes, chat highlights, Minecraft versions and mods over the year, records (longest
-  session, most deaths, furthest travelled, most blocks placed), a timeline of the year by month.
-- **Each player (personal):** their play time by month and favourite hours, sessions, firsts (first join,
-  first advancement, first death), their advancements, deaths and killers, distance by foot/elytra/boat, blocks
-  placed and mined and favourite blocks, their builds and map art (with the area on the map and a timelapse
-  link), places they explored, who they played with most, their best moments, and a "compared with everyone"
-  line for a few stats.
-- **Pages:** one overview page plus one page per player (a list to pick from), styled like "Spotify Wrapped"
-  cards that can be stepped through or scrolled; a "share this card" picture per card.
-- **Open questions:** calendar year or a custom range? only players who played that year? anything to keep
-  private (chat, deaths)? a video version (cards + music) for the server's channel?
+**Design (reviewed with Fable 2026-11-23; not started).**
+
+**Shape.** One builder, two outputs:
+- `mcsm/review.py` makes one `review.json` per range: a server block plus one block per player. It is cached
+  by range and a fingerprint of the library.
+- **Live pages** for the owner: `/review/<year>` and `/review/<year>/<player>`, served by the history server
+  with their own `review.html` (not inside history.html).
+- **Export** for sharing: the same page with the JSON, skins and map images inlined. There is one file for the
+  overview and one per player, and a player's file holds only their own block plus the server totals.
+- **Share a card as a picture:** each card is drawn on a 1080 x 1350 canvas by its own draw function, then
+  saved as a PNG (no DOM screenshots). Skins must come from the same origin or be inlined, or the canvas can't
+  be saved.
+
+**Cards.** "Log" = from the server logs (missing days lower it); "backup" = from Minecraft's statistics at
+backup times (the card says "stats from <first backup> to <last backup>").
+
+Server's year:
+1. The year in numbers: days the server ran, players, total hours (sessions; log).
+2. Players per month, new and returning (first join per player; log).
+3. Busiest days and hours, a heatmap of session minutes in server-local time (log).
+4. Top 5 moments (the moments finder's scores).
+5. The world changed: 2 or 3 before/after map pairs where the surface changed most between the first and
+   last backup in range (backup).
+6. Deaths by cause: the top 5 and the oddest one (death events; log).
+7. Records: longest session; furthest travelled, most mined, most placed (statistics deltas; backup).
+8. Advancements: how many, the rarest, who got each first (dated in the advancement files).
+9. Versions and mods over the year (changes between backups).
+10. Month by month: hours and the top moment of each month.
+11. Chat: how many lines, the busiest chat day, top words. No quotes unless switched on.
+
+Each player:
+1. Headline: hours, days played, rank ("2nd of 9"; sessions). The statistics' play time is a check: more than
+   15% apart says "logs incomplete" and uses the statistics.
+2. Hours by month, favourite hour and weekday.
+3. Firsts in range: first join, advancement, death.
+4. Travel: walked, sprinted, flown, by boat and horse (`*_one_cm` deltas; backup).
+5. Blocks mined and placed (placed = `used` of block items), the top 3 each (backup).
+6. Mobs killed (top 3) and what killed them most (backup).
+7. Deaths: how many, the top cause, the worst day (log).
+8. Advancements earned in range, and the rarest.
+9. Builds and map art near where they played: the area on a map and a timelapse link ("near where you
+   played": who built what isn't certain).
+10. Played with most: minutes online together, top 3 (only on their own page).
+11. Their best 3 moments.
+12. Compared with everyone: ranks on 3 statistics (ranks, not percentiles, for a small server).
+
+**Year boundary.**
+- Default: the calendar year in the server's time zone. Options: the last 12 months, or a custom range.
+- Statistics are never interpolated. Each boundary uses the nearest backup at or before it, and the card
+  says which.
+- No backup before the range: the baseline is zero only if the player first joined within the range;
+  otherwise the card is marked "partial".
+- A statistic that went down (a reset) is clamped to 0 and flagged.
+
+**Privacy.**
+- The owner's live view shows everything. Exports are filtered:
+  - chat: totals only, no quotes;
+  - "played with": only on that player's own page;
+  - deaths: on (they are public in the game), with a per-player switch to hide them.
+- An "exclude from the review" switch per player (reusing the ignore list).
+- No IP addresses; UUIDs only for skins.
+
+**Visuals.**
+- 2D: SVG/canvas charts and top-down map pictures made on the server from the sampled surface.
+- No embedded 3D: it would break the one-file export and can't go on a share card. Each build card instead
+  gets an "open in the 3D viewer" link.
+- A path heatmap over the map is a cheap later addition.
+
+**Build order.**
+1. `review.py` and the JSON; server cards 1, 2, 3, 6, 7, 8; player cards 1 to 8; live pages; boundary
+   labels. Logs, statistics and advancements only: no recordings.
+2. Share pictures (canvas) and the filtered export.
+3. Moments, before/after maps, builds, played-with.
+4. Heatmaps from recordings; a video version.
+
+**Traps.**
+- Merge renamed players by UUID before counting (show the latest name).
+- Leave ignored players out before ranking.
+- Bedrock players have no Mojang skin: use a default.
+- Hour cards use one stated server time zone (summer time included).
+- Split sessions at midnight and at the range's edges. A session with no leave (a crash) ends at the next
+  server start.
+- Never open recordings while building the review: use the cached indexes.
+
+**Open questions for the owner.**
+- Calendar year as the default (a December ritual), or the last 12 months?
+- Are the privacy defaults right (no chat quotes in exports; "played with" only on a player's own page;
+  deaths shown)?
+- Which players get a page: everyone who played in the range, or a chosen list?
+- A video version later (cards and music) for the server's channel?
 
 ### 0v. YouTube-style transitions and title animations (raised 2026-11-23)
 
@@ -1370,6 +1443,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Year-in-review design written (backlog 0w, reviewed with Fable): cards, boundaries,
+  privacy, build order and open questions.
 
 - **2026-11-23:** Chat bubbles over players in the history viewer (parity step 8), switch **Chat** in Show.
 
