@@ -5313,6 +5313,13 @@ class TestMoment(unittest.TestCase):
             self.assertEqual(c.tops[4 * 16 + 3], 70)
             self.assertEqual(moment.world_at([{"zip": z, "tick": 12, "when": lambda t: t * 50}], {(5, 5)},
                                              "minecraft:overworld", None), {})      # a chunk nobody saw: none
+            # the changes over a stretch (for showing them as they happen), and where each cached chunk is
+            self.assertEqual([e[0] for e in moment.edits_between(z, 0, 20)], [5, 8])
+            self.assertEqual([e[0] for e in moment.edits_between(z, 6, 20)], [8])
+            idx = moment.CacheIndex(z, os.path.join(tmp, "cache"))
+            with zipfile.ZipFile(z) as zf:
+                self.assertEqual(idx.where(zf, 0), (0, 0))
+                self.assertIsNone(idx.where(zf, 1))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

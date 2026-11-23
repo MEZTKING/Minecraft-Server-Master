@@ -805,9 +805,10 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         want = {(cx + dx, cz + dz) for cx, cz in core for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
     regions: dict[tuple[int, int], set] = {}
     for cx, cz in want:
-        regions.setdefault((cx >> 5, cz >> 5), set()).add((cx & 31, cz & 31))
+        if (cx, cz) not in (overrides or {}):           # the recordings' own copy needs no backup read
+            regions.setdefault((cx >> 5, cz >> 5), set()).add((cx & 31, cz & 31))
     files = {}
-    for p in terrain.region_files(root, world, dimension):
+    for p in (terrain.region_files(root, world, dimension) if regions else []):
         try:
             _r, rx, rz, _e = os.path.basename(p).split(".")
             files[(int(rx), int(rz))] = p

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -957,9 +957,18 @@ Fable's order, most visible per effort first:
      when ready. Switch **As at that moment**.
    - Checked on the owner's 10 April build at 379, -2296: the village matches the backup and the
      not-yet-built parts differ (92 changes in the main piece).
-   - **Not yet (v2):** changes shown as they happen (per-chunk rebuilds between the 30 s steps; Fable's design:
-     per-chunk face ranges in the tile), light updates from neighbours only, block entities (sign text, banner
-     patterns) not drawn.
+   - ✅ **Live changes** (v2, built 2026-11-23). Between the 30 s steps every chunk with a change since the
+     piece's moment is rebuilt alone, as it was a second after its latest change, and drawn over the piece.
+     - `blockMeshes` groups faces by chunk; `userData.chunks` holds each chunk's index range, and the page
+       hides a chunk by blanking its indices (kept to put back).
+     - `/api/momentchanges/<dim>/<from>/<to>` lists every change in the exact window;
+       `/api/momentchunk/<layer>/<dim>/<cx>/<cz>/<t>` builds one chunk.
+     - Two at a time; about 0.8 s each once warm. Speed-ups that made it possible:
+       - each recording part is read once (`_read_part`, then filtered by tick);
+       - the chunk-cache index records each packet's chunk, so only wanted packets are read;
+       - `build()` skips backup reads when the recordings cover every chunk it needs.
+   - **Not yet:** light updates from neighbours only; block entities (sign text, banner patterns) not drawn;
+     a change on a chunk's edge doesn't rebuild the neighbouring chunk (a face can show or hide a moment late).
 7. **Dropped items.**
 8. **Chat bubbles** from the server log.
 
@@ -1351,6 +1360,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Live block changes in exact playback: changed chunks rebuilt on their own between the 30 s
+  moment steps; `/api/momentchanges`, `/api/momentchunk`; faster moment reads.
 
 - **2026-11-23:** Blocks as they were at the moment (parity step 6, first version): `mcsm/moment.py` decodes
   Flashback's chunk caches and block changes; protocol tables carry block states (`TABLE_VERSION` 3);

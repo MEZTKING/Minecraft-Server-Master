@@ -300,7 +300,21 @@ function blockMeshes(info, buf, atlas) {
   };
   const tints = new Map();                               // RGB565 -> linear colour
   const glows = [];                                      // light sources: a glow each (Fancy)
-  for (let k = 0; k < n; k++) {
+  // faces grouped by chunk, so one chunk's faces can be hidden later (a live block change drawn over it):
+  // each geometry remembers where each chunk's indices are ("cx,cz" -> [start, end])
+  const ck = k => `${(dv.getInt16(k * 14, true) + ox) >> 4},${(dv.getInt16(k * 14 + 4, true) + oz) >> 4}`;
+  const keys = new Array(n);
+  for (let k = 0; k < n; k++) keys[k] = ck(k);
+  const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => (keys[a] < keys[b] ? -1 : keys[a] > keys[b] ? 1 : a - b));
+  geo.solid.ranges = new Map(); geo.water.ranges = new Map();
+  let curKey = null;
+  const close = () => { if (curKey === null) return;
+    for (const Gr of [geo.solid, geo.water]) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.i.length; } };
+  for (const k of order) {
+    if (keys[k] !== curKey) {
+      close(); curKey = keys[k];
+      for (const Gr of [geo.solid, geo.water]) Gr.ranges.set(curKey, [Gr.i.length, Gr.i.length]);
+    }
     const o = k * 14, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
     const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
     const t5 = dv.getUint16(o + 12, true);
@@ -318,6 +332,7 @@ function blockMeshes(info, buf, atlas) {
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
     } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, sky, blk, ex & 255, tint);
   }
+  close();
   const mesh = (Gr, mat) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(Gr.p, 3));
@@ -332,6 +347,7 @@ function blockMeshes(info, buf, atlas) {
     g.computeBoundingSphere();
     const me = new THREE.Mesh(g, mat);
     me.userData.kind = mat.transparent ? "water" : "solid";
+    me.userData.chunks = Gr.ranges;
     me.castShadow = me.receiveShadow = GFX.mode !== "off" && !mat.transparent;
     return me;
   };

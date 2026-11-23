@@ -785,6 +785,87 @@ async function realStep(now) {
   } catch (e) { REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`); }
   finally { REAL.busy = false; }
 }
+// ---------- live block changes (exact playback, blocks as at the moment) ----------
+// The moment pieces are rebuilt every 30 s; in between, each chunk where the recordings saw blocks placed or broken
+// is rebuilt on its own (as it was a second after the latest change) and drawn over its piece, whose faces there
+// are hidden. Changes come from /api/momentchanges for the exact playback window.
+const LIVE = { key: "", byChunk: new Map(), chunks: new Map(), inflight: 0, wait: new Map(), loading: false };
+function chunkHidden(T0, key, hide) {                    // hide (or show again) one chunk's faces of a piece
+  for (const m of T0.meshes) {
+    const r = m.userData.chunks && m.userData.chunks.get(key), idx = m.geometry && m.geometry.index;
+    if (!r || !idx || r[1] <= r[0]) continue;
+    if (!m.userData.orig) m.userData.orig = idx.array.slice();
+    if (hide) idx.array.fill(0, r[0], r[1]); else idx.array.set(m.userData.orig.subarray(r[0], r[1]), r[0]);
+    idx.needsUpdate = true;
+  }
+}
+function liveDrop(key) {
+  const c = LIVE.chunks.get(key); if (!c) return;
+  for (const m of c.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+  if (c.tile && REAL.tiles.get(c.tileId) === c.tile) chunkHidden(c.tile, key, false);
+  LIVE.chunks.delete(key);
+}
+async function liveStep(now) {
+  const mt = momentTime(), dim = $("#dim").value;
+  if (mt === null) { for (const k of [...LIVE.chunks.keys()]) liveDrop(k); return; }
+  const wkey = `${dim}|${EXACT.lo}|${EXACT.hi}`;
+  if (wkey !== LIVE.key && !LIVE.loading) {               // the changes in this playback window
+    LIVE.loading = true;
+    try {
+      const r = await (await fetch(`api/momentchanges/${dim.replace("minecraft:", "")}/${EXACT.lo}/${EXACT.hi}`)).json();
+      LIVE.byChunk = new Map();
+      for (const [t, x, , z] of r.changes || []) {
+        const k = `${x >> 4},${z >> 4}`;
+        if (!LIVE.byChunk.has(k)) LIVE.byChunk.set(k, []);
+        LIVE.byChunk.get(k).push(t);
+      }
+      LIVE.key = wkey;
+    } catch (e) { /* try again next time */ }
+    finally { LIVE.loading = false; }
+    return;
+  }
+  const layer = shownLayer[dim] ?? 0;
+  for (const [key, times] of LIVE.byChunk) {
+    const [cx, cz] = key.split(",").map(Number), tileId = `${Math.floor(cx * 16 / REAL_TILE)},${Math.floor(cz * 16 / REAL_TILE)}`;
+    const tile = REAL.tiles.get(tileId), cur = LIVE.chunks.get(key);
+    // the latest change shown by now that the piece doesn't have yet (the piece is as at tile.mt)
+    let want = null;
+    if (tile && tile.moment && tile.mt != null) {
+      const i = lower(times, T, v => v) - 1;
+      if (i >= 0 && times[i] > tile.mt) want = Math.ceil((times[i] + 1) / 1000) * 1000;
+    }
+    if (cur && cur.tile !== tile) {                       // its piece was replaced: hide it there too (or let go)
+      if (want !== null && tile) { chunkHidden(tile, key, true); cur.tile = tile; } else liveDrop(key);
+    }
+    if (want === null) { if (LIVE.chunks.has(key)) liveDrop(key); continue; }
+    const c = LIVE.chunks.get(key);
+    if ((c && c.t === want) || LIVE.inflight >= 2 || LIVE.wait.get(`${key}|${want}`) > now) continue;
+    LIVE.inflight++;
+    (async () => {
+      try {
+        const info = await (await fetch(`api/momentchunk/${layer}/${dim.replace("minecraft:", "")}/${cx}/${cz}/${want}`)).json();
+        if (info.pending) { LIVE.wait.set(`${key}|${want}`, performance.now() + 800); return; }
+        if (!info.moment) { LIVE.wait.set(`${key}|${want}`, performance.now() + 60_000); return; }
+        let meshes = [];
+        if (info.faces) {
+          const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
+          if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
+          const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
+          meshes = blockMeshes(info, buf, atlas);
+          for (const m of meshes) { if (!m.isPoints) m.material.map = atlas.tex; }
+        }
+        const t2 = REAL.tiles.get(tileId);
+        if (momentTime() === null || !t2 || !t2.moment) { for (const m of meshes) { m.geometry.dispose(); m.material.dispose(); } return; }
+        const old = LIVE.chunks.get(key);
+        for (const m of meshes) scene.add(m);
+        chunkHidden(t2, key, true);
+        if (old) for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+        LIVE.chunks.set(key, { t: want, meshes, tile: t2, tileId });
+      } catch (e) { LIVE.wait.set(`${key}|${want}`, performance.now() + 5000); }
+      finally { LIVE.inflight--; }
+    })();
+  }
+}
 $("#realSkins").checked = store.get("mcsm-real-skins") !== "0";
 $("#realSkins").onchange = () => {
   store.set("mcsm-real-skins", $("#realSkins").checked ? "1" : "0");
@@ -2359,7 +2440,8 @@ function devState() {
     real_blocks: { pieces: REAL.tiles.size, busy: REAL.busy, failed: REAL.failed.size, note: REAL.note || undefined,
       at_moment: [...REAL.tiles.values()].filter(t => t.moment).length,
       moment_time: momentTime() === null ? undefined : new Date(momentTime()).toISOString(),
-      changed_blocks: [...REAL.tiles.values()].reduce((a, t) => a + (t.moment ? t.edits : 0), 0) },
+      changed_blocks: [...REAL.tiles.values()].reduce((a, t) => a + (t.moment ? t.edits : 0), 0),
+      live_chunks: LIVE.chunks.size, changes_in_window: [...LIVE.byChunk.values()].reduce((a, v) => a + v.length, 0) },
     exact: { on: EXACT.on, from: EXACT.lo ? new Date(EXACT.lo).toISOString() : null, to: EXACT.hi ? new Date(EXACT.hi).toISOString() : null,
       players: Object.keys(EXACT.rows).length, mobs: Object.keys(EXACT.mobs).length, busy: EXACT.busy, fetch_ms: DEV.exactMs },
     render: { fps: DEV.fps, draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
@@ -2585,6 +2667,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   realStep(now);                                       // real blocks around where you look
+  liveStep(now);                                       // and blocks placed or broken since, as they happen
   exactStep(now);                                      // every recorded movement, close up at 1x / 10x
   updateMobs();
   if (H && H.range) {

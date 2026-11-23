@@ -257,25 +257,29 @@ class RecChunk:
 
 # ---------------------------------------------------------------- the chunk caches
 class CacheIndex:
-    """Where each chunk packet is inside a recording's ``level_chunk_caches/<n>`` members (found once, kept)."""
+    """Where each chunk packet is inside a recording's ``level_chunk_caches/<n>`` members, and which chunk it is
+    (found once by skimming each member, kept on disk)."""
+
+    VERSION = 2
 
     def __init__(self, zip_path: str, cache_dir: str | None):
         self.zip_path = zip_path
         st = os.stat(zip_path)
-        key = paths_mod._cache_key(zip_path, None) if hasattr(paths_mod, "_cache_key") else str(st.st_size)
+        key = paths_mod._cache_key(zip_path, None)
         self.file = os.path.join(cache_dir, f"{key}.chunkidx.json") if cache_dir else None
-        self.offsets: dict[str, list[int]] = {}
-        self.stamp = [st.st_size, int(st.st_mtime)]
+        self.members: dict[str, list[list[int]]] = {}  # member -> [[offset, cx, cz], ...]
+        self.stamp = [st.st_size, int(st.st_mtime), self.VERSION]
+        self.changed = False
         if self.file and os.path.isfile(self.file):
             try:
                 with open(self.file, encoding="utf-8") as fh:
                     d = json.load(fh)
                 if d.get("stamp") == self.stamp:
-                    self.offsets = d.get("offsets") or {}
+                    self.members = d.get("members") or {}
             except (OSError, ValueError):
                 pass
 
-    def _scan(self, z: zipfile.ZipFile, member: str) -> list[int]:
+    def _scan(self, z: zipfile.ZipFile, member: str) -> list[list[int]]:
         out = []
         pos = 0
         with z.open(member) as fh:
@@ -284,10 +288,31 @@ class CacheIndex:
                 if len(h) < 4:
                     break
                 ln = _U32.unpack(h)[0]
-                out.append(pos)
-                fh.seek(ln, 1)
+                head = fh.read(min(ln, 13))
+                try:
+                    cx, cz = chunk_xz(head)
+                except (IndexError, struct.error):
+                    cx = cz = 0
+                out.append([pos, cx, cz])
+                fh.seek(ln - len(head), 1)
                 pos += 4 + ln
         return out
+
+    def _member(self, z: zipfile.ZipFile, f: int) -> list[list[int]]:
+        member = f"level_chunk_caches/{f}"
+        if member not in self.members:
+            try:
+                self.members[member] = self._scan(z, member)
+            except (KeyError, OSError, zipfile.BadZipFile, struct.error):
+                self.members[member] = []
+            self.changed = True
+        return self.members[member]
+
+    def where(self, z: zipfile.ZipFile, entry: int) -> tuple[int, int] | None:
+        """The chunk (cx, cz) of a packet, from the index."""
+        m = self._member(z, entry // ENTRIES_PER_CACHE)
+        j = entry % ENTRIES_PER_CACHE
+        return (m[j][1], m[j][2]) if j < len(m) else None
 
     def read(self, z: zipfile.ZipFile, indexes: list[int]) -> dict[int, bytes]:
         """The chunk packets with those entry numbers."""
@@ -295,33 +320,33 @@ class CacheIndex:
         by_file: dict[int, list[int]] = {}
         for i in set(indexes):
             by_file.setdefault(i // ENTRIES_PER_CACHE, []).append(i)
-        changed = False
         for f, idx in sorted(by_file.items()):
-            member = f"level_chunk_caches/{f}"
+            offs = self._member(z, f)
             try:
-                if member not in self.offsets:
-                    self.offsets[member] = self._scan(z, member)
-                    changed = True
-                offs = self.offsets[member]
-                with z.open(member) as fh:
+                with z.open(f"level_chunk_caches/{f}") as fh:
                     for i in sorted(idx):
                         j = i % ENTRIES_PER_CACHE
                         if j >= len(offs):
                             continue
-                        fh.seek(offs[j])
+                        fh.seek(offs[j][0])
                         ln = _U32.unpack(fh.read(4))[0]
                         out[i] = fh.read(ln)
             except (KeyError, OSError, zipfile.BadZipFile, struct.error):
                 continue
-        if changed and self.file:
-            try:
-                os.makedirs(os.path.dirname(self.file), exist_ok=True)
-                with open(self.file + ".part", "w", encoding="utf-8") as fh:
-                    json.dump({"stamp": self.stamp, "offsets": self.offsets}, fh, separators=(",", ":"))
-                os.replace(self.file + ".part", self.file)
-            except OSError:
-                pass
+        self.save()
         return out
+
+    def save(self) -> None:
+        if not (self.changed and self.file):
+            return
+        try:
+            os.makedirs(os.path.dirname(self.file), exist_ok=True)
+            with open(self.file + ".part", "w", encoding="utf-8") as fh:
+                json.dump({"stamp": self.stamp, "members": self.members}, fh, separators=(",", ":"))
+            os.replace(self.file + ".part", self.file)
+            self.changed = False
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- one recording at one tick
@@ -351,35 +376,51 @@ def _biome_names(config_packets: list[bytes]) -> list[str]:
     return []
 
 
+_PARTS: dict = {}                                     # (zip, part) -> everything in it (the last few dozen)
+
+
 def recording_state(zip_path: str, tick: int) -> dict | None:
-    """What one recording's game had loaded at *tick*: ``{"proto", "biomes", "chunks": {(dim, cx, cz): [load tick,
-    cache entry]}, "edits": [[tick, dim, x, y, z, state id], ...]}`` (edits after each chunk's load, in order)."""
+    """What one recording's game had loaded at *tick*: ``{"proto", "version", "biomes", "loads": [[dimension, load
+    tick, cache entry], ...], "edits": [[tick, dimension, x, y, z, state id], ...]}`` (in order)."""
     try:
-        z = zipfile.ZipFile(zip_path)
-        meta = json.loads(z.read("metadata.json"))
+        with zipfile.ZipFile(zip_path) as z:
+            meta = json.loads(z.read("metadata.json"))
+            names = paths_mod._chunk_names(z)
     except (OSError, KeyError, ValueError, zipfile.BadZipFile):
         return None
+    durations = meta.get("chunks") or {}
+    start, part, part_start = 0, None, 0              # the part that holds *tick*
+    for n in names:
+        d = int((durations.get(n) or {}).get("duration") or 6000)
+        part, part_start = n, start
+        if tick < start + d:
+            break
+        start += d
+    if part is None:
+        return None
+    key = (zip_path, part)
+    data = _PARTS.get(key) or _remember(_PARTS, key, _read_part(zip_path, meta, part, part_start), 48)
+    if data is None:
+        return None
+    since = max([r for r in data["respawns"] if r <= tick], default=-1)   # a new dimension: everything unloaded
+    return {"proto": data["proto"], "version": data["version"], "biomes": data["biomes"], "part": part,
+            "loads": [ld for ld in data["loads"] if since <= ld[1] <= tick and ld[0] is not None],
+            "edits": [e for e in data["edits"] if since <= e[0] <= tick and e[1] is not None]}
+
+
+def _read_part(zip_path: str, meta: dict, part: str, start: int) -> dict | None:
+    """Every chunk load, block change and change of dimension in one part of a recording."""
     proto = meta.get("protocol_version")
     tbl = protocol.table(proto, meta.get("version_string"))
     pk = (tbl or {}).get("packets") or {}
     bu, sbu, resp = pk.get("block_update"), pk.get("section_blocks_update"), pk.get("respawn")
     if bu is None or sbu is None:
         return None
-    # the part that holds *tick*
-    names = paths_mod._chunk_names(z)
-    durations = (meta.get("chunks") or {})
-    start = 0
-    part = names[0] if names else None
-    for n in names:
-        d = int((durations.get(n) or {}).get("duration") or 6000)
-        if tick < start + d:
-            part = n
-            break
-        start += d
-        part = n
-    if part is None:
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            b = z.read(part)
+    except (OSError, KeyError, zipfile.BadZipFile):
         return None
-    b = z.read(part)
     i = 4
     count, i = _vi(b, i)
     kinds = []
@@ -387,14 +428,14 @@ def recording_state(zip_path: str, tick: int) -> dict | None:
         ln, i = _vi(b, i)
         kinds.append(b[i:i + ln].decode().rsplit("/", 1)[-1])
         i += ln
-    snap = _U32.unpack_from(b, i)[0]
-    i += 4
+    i += 4                                              # the snapshot's length: read on, it comes first
     k_of = {k: n for n, k in enumerate(kinds)}
     nt, gp, mv = k_of.get("next_tick"), k_of.get("game_packet"), k_of.get("move_entities")
-    lc, cfg, clp = k_of.get("level_chunk_cached"), k_of.get("configuration_packet"), k_of.get("create_local_player")
+    lc, cfg = k_of.get("level_chunk_cached"), k_of.get("configuration_packet")
     loads: list[list] = []                              # [dimension, tick, cache entry]
-    pending: list = []                                  # chunks loaded before the dimension is known
     edits: list[list] = []
+    unknown: list[list] = []                            # loads and edits before their dimension is known
+    respawns: list[int] = []
     configs: list[bytes] = []
     dim = None
     t = start
@@ -407,11 +448,11 @@ def recording_state(zip_path: str, tick: int) -> dict | None:
         body_end = j + size
         if aid == nt:
             t += 1
-            if t > tick:
-                break
         elif aid == lc:
-            idx = _vi(b, j)[0]
-            pending.append([t, idx])
+            ld = [dim, t, _vi(b, j)[0]]
+            loads.append(ld)
+            if dim is None:
+                unknown.append(ld)
         elif aid == cfg:
             configs.append(bytes(b[j:body_end]))
         elif aid == mv and size > 2:
@@ -421,36 +462,35 @@ def recording_state(zip_path: str, tick: int) -> dict | None:
                 d = b[k:k + ln].decode("utf-8", "replace")
                 if d:
                     dim = d
+                    for item in unknown:
+                        item[0 if len(item) == 3 else 1] = d
+                    unknown.clear()
             except (IndexError, UnicodeDecodeError):
                 pass
         elif aid == gp:
             pid, k = _vi(b, j)
+            new = []
             if pid == bu:
                 pos, k = struct.unpack_from(">q", b, k)[0], k + 8
                 sid, k = _vi(b, k)
                 x, y, zz = block_pos(pos)
-                edits.append([t, dim, x, y, zz, sid])
+                new.append([t, dim, x, y, zz, sid])
             elif pid == sbu:
                 sp, k = struct.unpack_from(">q", b, k)[0], k + 8
                 sx, sy, sz = section_pos(sp)
                 n, k = _vi(b, k)
                 for _ in range(n):
                     v, k = _varlong(b, k)
-                    edits.append([t, dim, sx * 16 + ((v >> 8) & 15), sy * 16 + (v & 15), sz * 16 + ((v >> 4) & 15), v >> 12])
-            elif pid == resp:                            # a new dimension: everything is unloaded
-                loads.clear()
-                pending.clear()
-                edits.clear()
+                    new.append([t, dim, sx * 16 + ((v >> 8) & 15), sy * 16 + (v & 15), sz * 16 + ((v >> 4) & 15), v >> 12])
+            elif pid == resp:
+                respawns.append(t)
                 dim = None
-        if dim is not None and pending:
-            loads.extend([dim, lt, idx] for lt, idx in pending)
-            pending.clear()
+            edits += new
+            if dim is None:
+                unknown += new
         j = body_end
-    for e in edits:
-        if e[1] is None:
-            e[1] = dim
-    return {"proto": proto, "version": meta.get("version_string"), "loads": loads, "edits": edits,
-            "biomes": _biome_names(configs), "part": part, "dim": dim}
+    return {"proto": proto, "version": meta.get("version_string"), "biomes": _biome_names(configs),
+            "loads": loads, "edits": edits, "respawns": respawns}
 
 
 def chunk_xz(packet: bytes) -> tuple[int, int]:
@@ -487,13 +527,14 @@ def world_at(recordings: list[dict], chunks_wanted: set[tuple[int, int]], dim: s
         if proto not in states_of:
             states_of[proto] = (protocol.block_states(protocol.table(proto, st["version"])), st["biomes"])
         idx = _INDEXES.get(rec["zip"]) or _remember(_INDEXES, rec["zip"], CacheIndex(rec["zip"], cache_dir), 32)
-        mine = [ld for ld in st["loads"] if ld[0] == dim]
-        need = [ld[2] for ld in mine if (rec["zip"], ld[2]) not in _PACKETS]
         try:
-            if need:
-                with zipfile.ZipFile(rec["zip"]) as z:
+            with zipfile.ZipFile(rec["zip"]) as z:          # only the packets of the chunks wanted
+                mine = [ld for ld in st["loads"] if ld[0] == dim and idx.where(z, ld[2]) in chunks_wanted]
+                need = [ld[2] for ld in mine if (rec["zip"], ld[2]) not in _PACKETS]
+                if need:
                     for e, pkt in idx.read(z, need).items():
                         _remember(_PACKETS, (rec["zip"], e), pkt, 3000)
+                idx.save()
         except (OSError, zipfile.BadZipFile):
             continue
         packets = {ld[2]: _PACKETS.get((rec["zip"], ld[2])) for ld in mine}
@@ -523,4 +564,24 @@ def world_at(recordings: list[dict], chunks_wanted: set[tuple[int, int]], dim: s
         if c is not None and ms >= c.loaded_ms and proto == c.proto:
             c.apply(x & 15, y, zz & 15, sid)
             c.last_ms = ms
+    return out
+
+
+def edits_between(zip_path: str, tick0: int, tick1: int) -> list[list]:
+    """Every block change a recording saw from *tick0* to *tick1*: ``[[tick, dim, x, y, z, state id], ...]``."""
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            meta = json.loads(z.read("metadata.json"))
+            names = paths_mod._chunk_names(z)
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return []
+    out, start = [], 0
+    for n in names:
+        end = start + int(((meta.get("chunks") or {}).get(n) or {}).get("duration") or 6000)
+        if end > tick0 and start <= tick1:
+            key = (zip_path, min(end - 1, tick1))
+            st = _STATES.get(key) or _remember(_STATES, key, recording_state(*key), 12)
+            if st:
+                out += [e for e in st["edits"] if tick0 <= e[0] <= tick1]
+        start = end
     return out

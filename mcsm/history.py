@@ -447,6 +447,18 @@ class HistoryMap(TerrainServer):
                     self._moment_why = None
             except ValueError:
                 return {"recordings": []}
+        if path.startswith("/api/momentchanges/"):   # block changes the recordings saw: /api/momentchanges/<dim>/<from>/<to>
+            try:
+                dim, a, b = path[len("/api/momentchanges/"):].split("/")
+                return self.moment_changes("minecraft:" + dim, int(a), int(b))
+            except ValueError:
+                return {"changes": []}
+        if path.startswith("/api/momentchunk/"):     # one chunk at a moment: /api/momentchunk/<layer>/<dim>/<cx>/<cz>/<t ms>
+            try:
+                layer, dim, cx, cz, t = path[len("/api/momentchunk/"):].split("/")
+                return self.moment_tile(int(layer), "minecraft:" + dim, int(cx), int(cz), int(t), chunk=True)
+            except (ValueError, OSError) as exc:
+                return {"faces": 0, "message": str(exc)}
         if path.startswith("/api/momenttile/"):      # blocks at a moment: /api/momenttile/<layer>/<dim>/<tx>/<tz>/<t ms>
             try:
                 layer, dim, tx, tz, t = path[len("/api/momenttile/"):].split("/")
@@ -658,14 +670,33 @@ class HistoryMap(TerrainServer):
 
             def when(tick, off=off, clock=clock, s_ms=s_ms):
                 return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
-            out.append({"zip": zp, "tick": shot.tick_at(meta, off, s_ms, t), "when": when})
+            out.append({"zip": zp, "tick": shot.tick_at(meta, off, s_ms, t), "when": when,
+                        "tick_of": lambda ms, meta=meta, off=off, s_ms=s_ms: shot.tick_at(meta, off, s_ms, ms)})
         return out
 
-    def moment_tile(self, layer: int, dim: str, tx: int, tz: int, t: int) -> dict:
-        """One piece of real blocks as the recordings saw it at *t*: built in the background (``pending`` until
-        then); ``moment`` False when no recording had any of its chunks loaded (the backup's piece)."""
+    def moment_changes(self, dim: str, t0: int, t1: int) -> dict:
+        """Every block change the recordings saw from *t0* to *t1* (ms, at most 10 minutes), in *dim*:
+        ``{"changes": [[t, x, y, z], ...]}`` sorted by time (for showing them as they happen)."""
         from . import moment
-        key = (layer, dim, tx, tz, t)
+        t1 = min(t1, t0 + 600_000)
+        seen, out = set(), []
+        for rec in self.recordings_at(t0) + self.recordings_at((t0 + t1) // 2) + self.recordings_at(t1):
+            if rec["zip"] in seen:
+                continue
+            seen.add(rec["zip"])
+            for tick, d, x, y, z, _sid in moment.edits_between(rec["zip"], rec["tick_of"](t0), rec["tick_of"](t1)):
+                t = rec["when"](tick)
+                if d == dim and t0 <= t <= t1:
+                    out.append([int(t), x, y, z])
+        out.sort()
+        return {"changes": out}
+
+    def moment_tile(self, layer: int, dim: str, tx: int, tz: int, t: int, chunk: bool = False) -> dict:
+        """One piece of real blocks (or, with *chunk*, one chunk) as the recordings saw it at *t*: built in the
+        background (``pending`` until then); ``moment`` False when no recording had any of its chunks loaded (the
+        backup's piece)."""
+        from . import moment
+        key = (layer, dim, tx, tz, t, chunk)
         done = self.__dict__.setdefault("_moment_done", {})
         if key in done:
             return done[key]
@@ -685,13 +716,20 @@ class HistoryMap(TerrainServer):
                     if bw is None:
                         info = {"faces": 0, "message": "that backup's world isn't readable"}
                     else:
-                        n = bw.TILE // 16
+                        n = 1 if chunk else bw.TILE // 16
                         wanted = {(tx * n + i, tz * n + j) for i in range(-1, n + 1) for j in range(-1, n + 1)}
                         cache = os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "moment")
                         over = moment.world_at(self.recordings_at(t), wanted, dim, cache)
                         inside = [k for k in over if tx * n <= k[0] < tx * n + n and tz * n <= k[1] < tz * n + n]
-                        if not inside:
+                        if not inside and chunk:
+                            info = {"faces": 0, "moment": False, "message": "no recording had that chunk"}
+                        elif not inside:
                             info = {**bw.block_tile(tx, tz, dim, f"/blocktile/{layer}/"), "moment": False}
+                        elif chunk:
+                            sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
+                                           for k, c in sorted(over.items()))
+                            info = {**bw.moment_chunk(tx, tz, dim, f"/blocktile/{layer}/", over, sig), "moment": True,
+                                    "edits": len(over[(tx, tz)].edits)}
                         else:
                             sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
                                            for k, c in sorted(over.items()))
