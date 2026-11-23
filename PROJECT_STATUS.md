@@ -1137,7 +1137,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - **2026-11-23:** Owner's PC set up (not code): Prism instances "Flashback 1.21.5" and "Flashback 1.21.10" created
   (Fabric loader 0.20.1, Prism picks Java), and Flashback + Fabric API added to them and to "Flashback 26.2"
   (Flashback 0.39.10 / 0.39.10 / 0.43.6 from Modrinth, sha512 checked). Each counts for `version_targets` once it
-  has been started once (Flashback then makes its `flashback` folder), so every version on the band has a Flashback.
+  has its Flashback jar: `flashback_folders` now also counts an instance whose `mods` has `Flashback-*.jar` (Flashback
+  makes its `flashback` folder only on the first recording), so every version on the band has a Flashback.
 
 - **2026-11-23:** History timeline: Minecraft version band (0y), click to filter moments by version.
 

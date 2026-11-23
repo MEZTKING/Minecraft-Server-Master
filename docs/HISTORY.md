@@ -205,13 +205,14 @@ History tab's status line and the *Export to Flashback* button list where each v
 a **version band** above the players shows which Minecraft version the server ran when (from the backups and the
 recordings; a change is placed at the first backup or recording in the new version), striped where this PC has no
 Flashback of that version. Hover it for the dates and the Flashback; click a version to list only its moments (click
-again for all). Further: (e.g.
+again for all). The status line lists the Flashback per version (e.g.
 "26.1.2 → Flashback 26.1.2; 1.21.11 → 1.21.11; 1.21.5 → no Flashback of that version on this PC"). Each
 moment shows its version, the list can be filtered by version, and copies (highlights and timelapses) go
 only into a Flashback of exactly that version. If there is none on this PC, they go into a folder
 "Flashback for Minecraft <version>" next to the highlights file (the timelapse summary says so first): add a
-Minecraft instance of that version with Fabric and Flashback (e.g. in Prism Launcher), start it once, then
-move that folder's `replays` and `editor_states` files into its `flashback` folder.
+Minecraft instance of that version with Fabric and Flashback (e.g. in Prism Launcher), then move that folder's
+`replays` and `editor_states` files into its `flashback` folder (make it if it isn't there yet). An instance counts
+as soon as Flashback's jar is in its `mods` folder, before Flashback has made its own `flashback` folder.
 
 - Filters: kind of event (also *building & map art* and *exploring & searching*), a Minecraft version, a player, **with a recording** (moments no recording shows can't become a
   video), order **best first** or **by date** (grouped by day).

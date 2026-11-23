@@ -137,9 +137,9 @@ def flashback_folders() -> list[dict]:
     ``[{path, name, launcher, mc}]``; *mc* is the instance's Minecraft version when known."""
     out, seen = [], set()
 
-    def add(path, name, launcher, mc):
+    def add(path, name, launcher, mc, installed=False):
         key = os.path.normcase(os.path.abspath(path))
-        if os.path.isdir(path) and key not in seen:
+        if (installed or os.path.isdir(path)) and key not in seen:
             seen.add(key)
             out.append({"path": path, "name": name, "launcher": launcher, "mc": mc})
 
@@ -158,10 +158,22 @@ def flashback_folders() -> list[dict]:
         for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
             inst = os.path.join(root, name)
             for game in (os.path.join(inst, "minecraft"), os.path.join(inst, ".minecraft"), inst):
-                if os.path.isdir(os.path.join(game, "flashback")):
-                    add(os.path.join(game, "flashback"), name, launcher, _instance_version(inst, name))
+                # Flashback makes its folder only when it first records or lists replays, so an instance with
+                # the mod installed counts too (its folder is made when the app first copies a recording in)
+                if os.path.isdir(os.path.join(game, "flashback")) or _has_flashback_mod(game):
+                    add(os.path.join(game, "flashback"), name, launcher, _instance_version(inst, name), installed=True)
                     break
     return out
+
+
+def _has_flashback_mod(game: str) -> bool:
+    """Whether this game folder's ``mods`` has Flashback itself (``Flashback-<ver>-for-MC<mc>.jar``)."""
+    d = os.path.join(game, "mods")
+    try:
+        names = os.listdir(d) if os.path.isdir(d) else []
+    except OSError:
+        return False
+    return any(n.lower().startswith("flashback-") and n.lower().endswith(".jar") for n in names)
 
 
 def _activity(path: str) -> float:

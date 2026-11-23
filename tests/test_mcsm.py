@@ -1930,6 +1930,15 @@ class TestLibrarySafety(unittest.TestCase):
         try:
             found = fbm.flashback_folders()
             self.assertIn(("Flashback 26.1.2", "26.1.2"), {(f["name"], f["mc"]) for f in found})
+            # a new instance with the mod but never recorded in (no flashback folder yet) counts too
+            new = os.path.join(appdata, "PrismLauncher", "instances", "Flashback 1.21.5")
+            os.makedirs(os.path.join(new, "minecraft", "mods"))
+            open(os.path.join(new, "minecraft", "mods", "Flashback-0.39.10-for-MC1.21.5.jar"), "wb").close()
+            with open(os.path.join(new, "mmc-pack.json"), "w") as fh:
+                json.dump({"components": [{"uid": "net.minecraft", "version": "1.21.5"}]}, fh)
+            self.assertEqual(fbm.find_flashback_dir(None, "1.21.5", exact=True),
+                             os.path.join(new, "minecraft", "flashback"))
+            self.assertIsNone(fbm.find_flashback_dir(None, "1.21.4", exact=True))
             self.assertTrue(fbm.find_flashback_dir(None, "26.1.2").startswith(inst))
             before = sorted(os.listdir(states))
             r = lib.add_projects(os.path.join(self.tmp, "Edited"), w)
