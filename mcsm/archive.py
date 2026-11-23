@@ -258,6 +258,16 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
                     "used": sum(prof.stats.get("used", {}).values()),
                     "used_by_item": dict(sorted(prof.stats.get("used", {}).items(), key=lambda kv: -kv[1])[:12]),
                     "advancements": sum(1 for a in prof.advancements.values() if a.get("done")),
+                    # for celebrations and sad moments between backups (mcsm.moments)
+                    "dragons": prof.stats.get("killed", {}).get("ender_dragon", 0),
+                    "withers": prof.stats.get("killed", {}).get("wither", 0),
+                    "diamonds": sum(v for k, v in prof.stats.get("mined", {}).items() if k.endswith("diamond_ore")),
+                    "traded": c.get("traded_with_villager", 0), "enchanted": c.get("enchant_item", 0),
+                    "fish": c.get("fish_caught", 0), "bred": c.get("animals_bred", 0), "raids_won": c.get("raid_win", 0),
+                    "player_kills": c.get("player_kills", 0), "slept": c.get("sleep_in_bed", 0),
+                    "damage_taken": c.get("damage_taken", 0), "since_death": c.get("time_since_death", 0),
+                    "totems": prof.stats.get("used", {}).get("totem_of_undying", 0),
+                    "elytra": 1 if c.get("aviate_one_cm", 0) > 0 else 0,
                 })
     for prof in out.players.values():
         prof.first_seen = prof.last_seen = None

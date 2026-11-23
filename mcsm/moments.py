@@ -20,6 +20,7 @@ import re
 from datetime import datetime
 
 from . import models as m
+from . import moods
 
 WEIGHTS = {
     "death_by_player": 6.0,      # killed by another player
@@ -123,6 +124,12 @@ def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict |
             continue
         scored.append({"t": t, "kind": kind, "player": who, "text": (e.text or "")[:200], "points": round(pts, 2),
                        "killer": d.get("killer_player")})
+        if kind == "chat":
+            scored[-1]["chat_mood"] = moods.chat_mood(e.text or "")
+
+    # celebrations and sad moments: tags on these events, plus farewells and anniversaries (mcsm.moods)
+    scored += moods.tag_events(data, scored, canon, _advancement_name)
+    scored.sort(key=lambda e: e["t"])
 
     # join events close together into moments, none longer than MAX_MS
     groups: list[list[dict]] = []
@@ -167,18 +174,23 @@ def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict |
         for e in g:
             kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
         why = [f"{k.replace('_', ' ')} x{n}" for k, n in kinds.items()]
+        tags = sorted({t for e in g for t in e.get("tags", [])})
+        if tags:
+            why.append(", ".join(t.replace("_", " ") for t in tags))
         if extra:
             why.append(f"{extra} more player{'s' if extra > 1 else ''} online (x{together:g})")
         why.append(f"{len(recs)} recording{'s' if len(recs) != 1 else ''}"
                    + (f" from {len(views)} points of view (x{cover:g})" if cover > 1 else ""))
         out.append({"id": hashlib.sha1(f"{g[0]['t']}|{g[0]['kind']}|{g[0]['player']}".encode()).hexdigest()[:12],
                     "start": start, "end": end, "score": round(score, 1), "title": _title(g), "kinds": kinds,
-                    "players": players, "events": [{k: v for k, v in e.items() if k != "killer"} for e in g],
+                    "players": players, "events": [{k: v for k, v in e.items() if k not in ("killer", "_adv", "chat_mood", "label")} for e in g],
+                    "mood": moods.group_mood(g), "tags": tags,
                     "online": online, "recordings": [{"path": r.path, "player": r.recorded_player,
                                                       "mc": r.mc_version} for r in recs],
                     "mc": _version(recs), "why": why})
     if tracks:
         out += _work_moments(data, tracks, w, sessions, replays, canon)
+    out += moods.stat_moments(data, canon)              # records, firsts, binges between backups
     out.sort(key=lambda x: -x["score"])
     return out
 
@@ -296,6 +308,8 @@ def _version(recs) -> str | None:
 def _title(g: list[dict]) -> str:
     """A short title from the strongest event of a moment."""
     top = max((e for e in g if e["kind"] != "chat"), key=lambda e: e["points"], default=None)
+    if top is not None and top.get("label"):
+        return top["label"]
     if top is None:
         talkers = sorted({e["player"] for e in g if e["player"]})
         return f"Chat: {', '.join(talkers[:3])}{' and others' if len(talkers) > 3 else ''} ({len(g)} messages)"

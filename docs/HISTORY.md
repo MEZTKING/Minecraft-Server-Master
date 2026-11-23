@@ -152,6 +152,26 @@ part with a bar: the newest backup's map, the older backups' maps, player positi
 changes between backups, and the building/exploring moments. You can look around meanwhile; **Hide**
 puts the card away.
 
+**Celebrations and sad moments.** Moments now have a mood, shown as a badge in the list, with two kinds in the
+filter (*celebrations*, *sad moments*):
+
+- **Celebrations:** defeating the Ender Dragon or the Wither; the first time anyone on the server reached a milestone
+  (the Nether, the End, diamonds, a stronghold, an elytra, a fortress, a raid won…); a player's first pet ("Best
+  Friends Forever", and every wolf or cat kind, or every animal bred); hard (challenge) advancements; several
+  players getting the same advancement within 30 minutes; the server's 100th day and birthdays; a player's 100th
+  session and their 100th, 250th, 500th and 1000th hour.
+- **Sad moments:** dying after 10+ hours of play since the last death ("dies after 16 hours alive"); deaths where the
+  items are probably gone (lava, the void, burning); three deaths in ten minutes ("dies again and again"); leaving
+  within a minute of dying (and not coming back within five); a regular player's last time on the server, when that
+  was 60+ days before the logs end.
+- **From the statistics in the backups** (*from the statistics* in the filter; marked *between backups*, as they happened
+  somewhere between two backups and so have no exact time; not played in the story): a player's first villager trade,
+  enchantment, raid won, totem, elytra flight, dragon, wither, diamonds, player kill, animals bred, fish; records
+  (the most blocks mined, flown, walked, mobs killed or items crafted in one stretch, per hour played; the server's
+  record says so); play binges (far more hours a day than usual).
+- Chat only lifts the mood of something already happening (or a lively chat of 3+ messages from 2+ players): whole
+  words like *gg*, *lets go*, *rip*, *noo*, plus *!!!*, laughter and *:D* / *:(*; no single message labels anyone.
+
 **Real blocks close up.** With **Real blocks** ticked (next to *Terrain*, on at first), zooming in shows the
 real blocks of the backup on the map, with Minecraft's own textures (from the game installed on this PC, of that
 backup's Minecraft version), lit by the sun and the sky: houses, trees, paths, water and plants. They load in

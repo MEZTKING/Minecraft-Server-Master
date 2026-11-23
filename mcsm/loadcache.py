@@ -21,7 +21,7 @@ from datetime import date, tzinfo
 from . import models as m
 from . import progress as jobs
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2                # 2: more statistics per backup (celebrations)
 _SKIP_DIRS = {"region", "entities", "poi", ".cache", "__pycache__"}
 
 

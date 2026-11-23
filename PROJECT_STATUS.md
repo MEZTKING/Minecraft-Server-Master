@@ -728,6 +728,13 @@ event (0r), mark highlights while watching.
 
 ### 0x. More kinds of moments: celebrations, sad moments… (raised 2026-11-23)
 
+✅ **Built 2026-11-23** (owner: "Yes, build them", "add more too", "even getting pets too"), Fable's design: `mcsm/moods.py`
+(tags on deaths/advancements with bonus points and a mood; derived farewells and anniversaries; between-backup
+records, firsts and binges from new per-backup statistics; chat mood words only as a lift), `mood`/`tags` on every
+moment, filter and badges in the history viewer, story mode skips between-backup moments. On the owner's library:
+103 celebrations, 91 sad moments (no farewells: every regular still plays). Left for later: griefing (needs build
+ownership), gatherings from positions.
+
 **The ask:** "for history also add any celebrations, sad moments etc find as much as you can using even player
 statistics data to in parallel etc".
 
@@ -1121,6 +1128,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Celebrations and sad moments (0x): `mcsm/moods.py`, moments' `mood` and `tags`, per-backup statistics
+  extended (dragons, withers, diamonds, trades, enchanting, fish, breeding, raids, player kills, sleep, damage, time
+  since death, totems, elytra; `loadcache` version 2 so saved loads are read again), history filter/badges.
 
 - **2026-11-23:** History viewer: **real blocks close up** (owner: "render a real world texture behaviour lighting etc
   … so it doesnt look like a rough sample always at least for the history"): `world3d.block_tile` builds 128 x 128-block

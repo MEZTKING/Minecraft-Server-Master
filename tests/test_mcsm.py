@@ -3444,7 +3444,8 @@ class TestMoments(unittest.TestCase):
         rare = next(x for x in ms if "Rare One" in x["title"])
         self.assertEqual(rare["score"], round(3.0 * (1 + 0.5 * 2), 1))           # 1 / (1 of 3 regulars)
         common = next(x for x in ms if "Common" in x["title"])
-        self.assertEqual(common["score"], 3.0)                                   # 1 each, all three in it
+        self.assertEqual(common["score"], 7.0)            # 1 each, all three in it, + 4 for all three together (mcsm.moods)
+        self.assertEqual(common["mood"], "celebration")
         titles = [x["title"] for x in ms]
         self.assertIn("Bob joins for the first time", titles)
         self.assertNotIn("Visitor joins for the first time", titles)
@@ -4569,3 +4570,70 @@ class TestRealBlockTiles(unittest.TestCase):
             self.assertIn("1.21.5 \u2192 no Flashback", fbm.describe_targets(t))
         finally:
             fbm.flashback_folders = old
+
+
+class TestMoods(unittest.TestCase):
+    """Celebrations and sad moments: tags on deaths and advancements, farewells, anniversaries, statistics."""
+
+    def _data(self):
+        from datetime import timedelta
+        t0 = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+        h = lambda x: t0 + timedelta(hours=x)                                          # noqa: E731
+        d = m.ServerData(root="x")
+        for n in ("Steve", "Alex", "Bob", "Old"):
+            d.players[n.lower()] = m.PlayerProfile(None, n)
+        d.log_files = [m.LogFileInfo("a.log", "2026-01-01", "filename", 10, t0, h(24 * 150))]
+        ev = []
+        for day in range(12):                                                         # Steve plays 12 sessions of 1 hour
+            d.sessions.append(m.Session("Steve", h(day * 24), h(day * 24 + 1)))
+        d.sessions.append(m.Session("Old", h(0), h(6)))                                # Old: 6 hours, then gone for good
+        d.sessions.append(m.Session("Alex", h(24 * 149), h(24 * 149 + 1)))
+        ev.append(m.Event(h(11 * 24 + 0.5), m.EV_DEATH, "Steve", "Steve tried to swim in lava", data={"cause": "tried to swim in lava"}))
+        ev.append(m.Event(h(11 * 24 + 0.5) + timedelta(seconds=20), m.EV_LEAVE, "Steve", "Steve left the game"))
+        for k in range(3):                                                            # Bob dies 3 times in 6 minutes
+            ev.append(m.Event(h(5) + timedelta(minutes=2 * k), m.EV_DEATH, "Bob", "Bob was slain by Zombie",
+                              data={"cause": "was slain by Zombie", "killer": "Zombie"}))
+        ev.append(m.Event(h(2), m.EV_ADVANCEMENT, "Alex", "Alex has made the advancement [Best Friends Forever]",
+                          data={"title": "Best Friends Forever", "kind": "task"}))
+        ev.append(m.Event(h(3), m.EV_ADVANCEMENT, "Alex", "Alex has made the advancement [We Need to Go Deeper]",
+                          data={"title": "We Need to Go Deeper", "kind": "task"}))
+        ev.append(m.Event(h(3) + timedelta(seconds=10), m.EV_CHAT, "Steve", "GG!!!"))
+        ev.append(m.Event(h(24 * 149 + 0.5), m.EV_JOIN, "Alex", "Alex joined the game"))
+        d.events = ev
+        return d, h
+
+    def test_tags(self):
+        from mcsm import moments, moods
+        d, h = self._data()
+        ms = moments.find_moments(d)
+        tags = {t for x in ms for t in (x.get("tags") or [])}
+        self.assertTrue({"long_life", "lossy", "rage_quit", "death_streak", "pet", "server_first", "farewell"} <= tags, tags)
+        steve = next(x for x in ms if "long_life" in (x.get("tags") or []))
+        self.assertEqual(steve["mood"], "sad")
+        self.assertIn("hours alive", steve["title"])
+        nether = next(x for x in ms if "server_first" in (x.get("tags") or []))
+        self.assertEqual(nether["mood"], "celebration")
+        self.assertIn("first trip to the Nether", nether["title"])
+        bye = next(x for x in ms if "farewell" in (x.get("tags") or []))
+        self.assertEqual(bye["players"], ["Old"])
+        self.assertEqual(moods.chat_mood("GG!!!"), "cheer")
+        self.assertEqual(moods.chat_mood("noooooo"), "mourn")
+        self.assertEqual(moods.chat_mood("rip bozo"), "mourn")
+        self.assertIsNone(moods.chat_mood("going to the mine"))
+
+    def test_statistics(self):
+        from datetime import timedelta
+        from mcsm import moods
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        rows = []
+        for i in range(6):
+            rows.append({"backup": f"b{i}", "time": t0 + timedelta(days=30 * i), "play_ticks": 72000 * 10 * i,
+                         "blocks_mined": 1000 * i + (20000 if i == 5 else 0), "traded": 0 if i < 3 else 4,
+                         "fly_cm": 0, "mob_kills": 0, "walk_cm": 0, "items_crafted": 0})
+        d = m.ServerData(root="x")
+        d.player_history = {"Steve": rows}
+        out = moods.stat_moments(d, lambda n: n)
+        titles = [x["title"] for x in out]
+        self.assertIn("Steve: first villager trade", titles)
+        self.assertTrue(any("most blocks mined ever" in t and "record" in t for t in titles), titles)
+        self.assertTrue(all(x["approx"] and not x["recordings"] for x in out))

@@ -45,6 +45,11 @@ input[type=text] { font: inherit; padding: 4px 8px; border-radius: 6px; border: 
 button:disabled { opacity: .5; cursor: default; }
 #hl li, #moments li { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
 #moments li.norec { opacity: .55; }
+#moments .mood { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 6px; margin-right: 5px;
+  vertical-align: 1px; text-transform: uppercase; letter-spacing: .03em; }
+#moments .mood.celebration { background: color-mix(in srgb, #eda100 25%, transparent); color: var(--text); }
+#moments .mood.sad { background: color-mix(in srgb, #2a78d6 25%, transparent); color: var(--text); }
+#moments .mood.approx { background: var(--chip); color: var(--text-2); }
 #moments .score { float: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 #moments li.day, #storyFeed li.day { border: 0; padding: 8px 2px 0; color: var(--text-2); font-size: 12px; font-weight: 600; }
 #storyFeed li { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); margin-top: 5px; cursor: pointer; }
@@ -180,6 +185,8 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="first_join">first joins</option><option value="chat">conversations</option><option value="marker">markers</option>
       <option value="work">building &amp; map art</option><option value="travel">exploring &amp; searching</option>
       <option value="change">changes between backups</option>
+      <option value="celebration">celebrations</option><option value="sad">sad moments</option>
+      <option value="stats">from the statistics (between backups)</option>
     </select>
     <select id="mPlayer" title="Only moments with this player"><option value="">everyone</option></select>
     <select id="mVersion" title="Only moments recorded in this Minecraft version (Flashback opens a recording only in its own version)"><option value="">any version</option></select>
@@ -1024,7 +1031,8 @@ async function loadMoments() {
 function renderMoments() {
   const kind = $("#mKind").value, who = $("#mPlayer").value, rec = $("#mRec").checked, byTime = $("#mOrder").value === "time";
   const ver = $("#mVersion").value;
-  const kindOk = m => !kind || m.kinds[kind] || (kind === "work" && ["building", "map_art"].includes(m.mode))
+  const kindOk = m => !kind || m.kinds[kind] || ((kind === "celebration" || kind === "sad") && m.mood === kind)
+    || (kind === "work" && ["building", "map_art"].includes(m.mode))
     || (kind === "travel" && ["exploring", "searching", "journey"].includes(m.mode));
   let list = MOM.filter(m => kindOk(m) && (!ver || m.mc === ver) && (!who || m.players.includes(who) || m.online.includes(who))
                              && (!rec || m.recordings.length));
@@ -1039,7 +1047,12 @@ function renderMoments() {
       + (m.events.length > 12 ? `\n… ${m.events.length - 12} more` : "");
     const t = document.createElement("div"); t.className = "t";
     const sc = document.createElement("span"); sc.className = "score"; sc.textContent = m.score;
-    t.append(sc, document.createTextNode(m.title));
+    t.append(sc);
+    if (m.mood) { const b = document.createElement("span"); b.className = "mood " + m.mood;
+      b.textContent = m.mood === "celebration" ? "celebration" : "sad"; b.title = (m.tags || []).join(", "); t.append(b); }
+    if (m.approx) { const b = document.createElement("span"); b.className = "mood approx"; b.textContent = "between backups";
+      b.title = "Found in the statistics saved in two backups: it happened somewhere between them"; t.append(b); }
+    t.append(document.createTextNode(m.title));
     const meta = document.createElement("div"); meta.className = "meta";
     const pov = [...new Set(m.recordings.map(r => r.player || "?"))];
     meta.textContent = `${fmtShort(m.start)} · ${hms(m.end - m.start)} · ${m.players.join(", ") || "?"} · `
@@ -1291,7 +1304,7 @@ let STORY = [], storyOn = false, storyShown = -1, storyHold = 0, DAYS = [];
 const STORY_SPEED = 10;
 function buildStory() {
   const min = +$("#storyMin").value;
-  STORY = MOM.filter(m => m.score >= min).sort((a, b) => a.start - b.start);
+  STORY = MOM.filter(m => m.score >= min && !m.approx).sort((a, b) => a.start - b.start);   // no exact time: not played
   storyShown = -2; renderStory();
 }
 function storyIndexAt(t) {                          // the last moment that started at or before t
