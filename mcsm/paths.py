@@ -199,21 +199,21 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
                     if clock is not None and aid == gp and size >= 9:
-                        pid = b[i]
+                        pid, kk = _varint(b, i) if b[i] & 0x80 else (b[i], i + 1)     # the id, then the packet
                         if pid == time_pid:
-                            clock_point(tick, struct.unpack_from(">q", b, i + 1)[0])
-                        elif time_pid is None and pid < 128:
+                            clock_point(tick, struct.unpack_from(">q", b, kk)[0])
+                        elif time_pid is None:
                             lst = probe.setdefault(pid, [])
-                            if len(lst) < 40:
-                                lst.append((tick, struct.unpack_from(">q", b, i + 1)[0]))
+                            if len(lst) < 40 and kk + 8 <= i + size:
+                                lst.append((tick, struct.unpack_from(">q", b, kk)[0]))
                     if aid == nt:
                         tick += 1
                         if clock is not None and time_pid is None and tick == CLOCK_PROBE_TICKS:
                             time_pid = _find_clock(probe, clock_point)
                         if tick % every == 0:
                             yield from _sample(tick, cur, last_out, last_move, others, remove_id, min_move, full)
-                    elif aid == gp and size > 2 and (players or extras is not None) and b[i] in watch:
-                        # (ids below 128 are one byte; this skips the ~40 other packets per tick cheaply)
+                    elif aid == gp and size > 2 and (players or extras is not None) and (b[i] in watch or b[i] & 0x80)                             and _varint(b, i)[0] in watch:
+                        # (ids below 128 are one byte: most of the ~40 other packets per tick are skipped cheaply)
                         pid, k = _varint(b, i)
                         if pid == add_id and size >= 43:     # id, entity id, UUID, type, x, y, z
                             eid, k = _varint(b, k)

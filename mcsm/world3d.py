@@ -154,6 +154,21 @@ class BuildWorld:
         os.replace(base + ".json.part", base + ".json")
         return {**info, "url": url_prefix + key + ".bin"}
 
+    def block_at(self, x: int, y: int, z: int, dim: str = "minecraft:overworld") -> dict:
+        """What the backup has at one block (for the viewer's dev mode): state, light, biome, the column's top."""
+        rx, rz, cx, cz = x >> 9, z >> 9, (x >> 4) & 31, (z >> 4) & 31
+        for p in terrain.region_files(self.root, self.world, dim):
+            if os.path.basename(p) != f"r.{rx}.{rz}.mca":
+                continue
+            for lx, lz, raw in terrain.iter_raw_chunks(p):
+                if (lx, lz) == (cx, cz):
+                    c = bm.Chunk(raw)
+                    sky, blk = c.light(x & 15, y, z & 15)
+                    return {"x": x, "y": y, "z": z, "state": c.state(x & 15, y, z & 15) or "minecraft:air",
+                            "sky_light": sky, "block_light": blk, "biome": c.biome(x & 15, y, z & 15),
+                            "top": c.tops[(z & 15) * 16 + (x & 15)], "backup": self.label or os.path.basename(self.root)}
+        return {"x": x, "y": y, "z": z, "state": None, "message": "not in this backup (never explored)"}
+
     def block_tile_file(self, key: str) -> str | None:
         if not all(c in "0123456789abcdef" for c in key) or len(key) != 20:
             return None

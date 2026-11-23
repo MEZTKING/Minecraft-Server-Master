@@ -94,6 +94,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 #help { position: fixed; right: 12px; top: 12px; padding: 6px 10px; font-size: 12px; color: var(--text-2); max-width: 260px; }
 #toggle { display: none; }
 #chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
+#dev { position: absolute; right: 16px; top: 120px; width: 380px; max-height: calc(100% - 260px); overflow: auto; padding: 10px 12px; z-index: 6; font-size: 12px; }
+#dev pre { margin: 6px 0; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; color: var(--text); }
 #lightBox { margin: 6px 0; } #lightBox summary { cursor: pointer; }
 #lightBox .lgrid { display: grid; grid-template-columns: auto 1fr 3.2em; gap: 4px 8px; align-items: center; margin: 6px 0; }
 #lightBox .lgrid span { font-variant-numeric: tabular-nums; color: var(--text-2); text-align: right; }
@@ -145,6 +147,10 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="minecraft:the_end">The End</option>
     </select></label>
     <button id="fit" type="button">Show everyone</button>
+    <label title="Watch through a player's eyes (their recorded look) or from just behind them. Esc leaves.">Spectate
+      <select id="spec"><option value="">nobody</option></select></label>
+    <select id="specMode" title="First person: through their eyes · Behind: a few blocks behind them"><option value="first">First person</option><option value="third">Behind</option></select>
+    <button id="freeCam" type="button" title="Fly around like Flashback's free camera: hold a mouse button and drag to look, WASD to move, Space up, Shift down, Ctrl faster, scroll for speed (key F)">Free cam</button>
     <button id="theme" type="button">Theme</button>
   </div>
   <div class="row" id="terrainRow" hidden>
@@ -154,6 +160,19 @@ ul { list-style: none; margin: 0; padding: 0; }
     <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
     <label title="Close up, show the real blocks with Minecraft's textures from the backup shown (loaded around where you look as you move; further away the map stays smooth)"><input type="checkbox" id="realOn" checked> Real blocks</label>
   </div>
+  <details id="showBox" title="What to show on the map">
+    <summary>Show</summary>
+    <div class="row" style="flex-wrap:wrap;gap:4px 12px">
+      <label><input type="checkbox" id="shPlayers" checked> Players</label>
+      <label><input type="checkbox" id="shNames" checked> Names</label>
+      <label><input type="checkbox" id="shRings" checked> Colour rings</label>
+      <label><input type="checkbox" id="shTrails" checked> Trails</label>
+      <label><input type="checkbox" id="shMobs" checked> Mobs and pets</label>
+      <label title="The smooth overview map (further away, and where real blocks haven't loaded)"><input type="checkbox" id="shMap" checked> Map</label>
+      <label><input type="checkbox" id="shGrid" checked> Grid</label>
+    </div>
+    <div class="meta">Real blocks, all paths and event pins have their own switches above and below.</div>
+  </details>
   <details id="lightBox" title="How the real blocks are lit: Minecraft's own light levels from the backup">
     <summary>Light</summary>
     <div class="lgrid">
@@ -257,7 +276,18 @@ ul { list-style: none; margin: 0; padding: 0; }
   <div class="row" style="margin-top:6px"><button id="loadHide" type="button">Hide</button></div>
 </div>
 <div id="storyCard"><div class="d"></div><div class="h"></div><div class="p"></div></div>
-<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses · I / O mark a highlight's start / end</div>
+<div id="dev" class="card" hidden>
+  <div class="row" style="justify-content:space-between"><b>Dev mode</b><span class="meta">` to hide</span></div>
+  <pre id="devText"></pre>
+  <div class="row" style="flex-wrap:wrap;gap:4px">
+    <button id="devLink" type="button" title="A link that opens the viewer at this moment, with this camera (and who you spectate)">Copy view link</button>
+    <button id="devCopy" type="button" title="Everything shown here, as text, for a bug report">Copy debug info</button>
+    <button id="devReal" type="button" title="Throw away the loaded real blocks and load them again">Reload blocks</button>
+    <button id="devExact" type="button" title="Fetch the exact recording of this moment again">Reload exact</button>
+  </div>
+  <div class="row"><input id="devGo" type="text" placeholder="Go to: x y z  or  2026-05-24 20:31:09"><button id="devGoBtn" type="button">Go</button></div>
+</div>
+<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses · I / O mark a highlight's start / end · F: free camera (WASD, Space/Shift, drag to look)</div>
 
 <section id="timeline" class="card">
   <div class="row" style="margin-top:0">
@@ -401,6 +431,25 @@ for (const k of ["time", "bright", "torch", "exposure", "sun", "ao"]) {
 }
 $("#lReset").onclick = () => { Object.assign(LIGHTS, LIGHT_DEFAULTS); applyLight(); };
 applyLight(false);
+// ---------- what to show (remembered) ----------
+const SHOW = { players: true, names: true, rings: true, trails: true, mobs: true, map: true, grid: true };
+try { Object.assign(SHOW, JSON.parse(store.get("mcsm-show") || "{}")); } catch (e) {}
+function applyShow() {
+  for (const k of Object.keys(SHOW)) { const el = $("#sh" + k[0].toUpperCase() + k.slice(1)); if (el) el.checked = SHOW[k]; }
+  grid.visible = SHOW.grid;
+  if (typeof mobGroup !== "undefined") mobGroup.visible = SHOW.mobs;
+  const d = $("#dim").value;
+  for (const [dim, g] of Object.entries(terrainGroups)) g.visible = SHOW.map && dim === d;
+  for (const m of Object.values(typeof markers !== "undefined" ? markers : {})) {
+    m.F.ring.visible = SHOW.rings;
+    if (!SHOW.players) { m.group.visible = false; m.trail.visible = false; m.label.style.display = "none"; }
+  }
+  if (typeof H !== "undefined" && H) update(performance.now(), true);
+}
+for (const k of Object.keys(SHOW)) {
+  const el = $("#sh" + k[0].toUpperCase() + k.slice(1));
+  el.addEventListener("change", () => { SHOW[k] = el.checked; store.set("mcsm-show", JSON.stringify(SHOW)); applyShow(); });
+}
 function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeCanvas(); }
 addEventListener("resize", resize);
 
@@ -564,10 +613,11 @@ function realClip() {                               // cut the smooth map away u
 function realWanted() {
   // where you look (more pieces when zoomed out), then around every player shown, nearest first
   if (!$("#realOn").checked) return [];
-  const d = camera.position.distanceTo(controls.target), out = [], seen = new Set();
+  const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name), focus = free ? camera.position : controls.target;
+  const d = free ? 60 : camera.position.distanceTo(controls.target), out = [], seen = new Set();
   const add = (x, z, w) => { const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); out.push([x, z, w]); } };
   if (d <= 900) {
-    const r = d < 250 ? 1 : 2, tx = Math.floor(controls.target.x / REAL_TILE), tz = Math.floor(controls.target.z / REAL_TILE);
+    const r = d < 250 ? 1 : 2, tx = Math.floor(focus.x / REAL_TILE), tz = Math.floor(focus.z / REAL_TILE);
     for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) add(tx + i, tz + j, i * i + j * j);
   }
   for (const m of Object.values(markers)) {
@@ -625,7 +675,7 @@ $("#realSkins").onchange = () => {
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
-window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
+window.__history = { get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -647,7 +697,7 @@ function onlineAt(name, t) {
 // for the time around you, on the world clock; elsewhere the lighter overview paths.
 const EXACT = { lo: 0, hi: 0, rows: {}, flags: {}, swings: {}, mobs: {}, busy: false, last: 0, on: false };
 function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
-  return !!H && +$("#speed").value <= 10 && camera.position.distanceTo(controls.target) < 600;
+  return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || camera.position.distanceTo(controls.target) < 600);
 }
 async function exactStep(now) {
   EXACT.on = exactWanted();
@@ -658,7 +708,9 @@ async function exactStep(now) {
   const from = Math.round(T - 10_000), to = Math.round(T + ahead);
   const slow = setTimeout(() => toastStatus("Reading the recordings of this moment in full detail (the first time can take a minute)…"), 1500);
   try {
+    const t0 = performance.now();
     const r = await (await fetch(`api/exact/${from}/${to}`)).json();
+    DEV.exactMs = Math.round(performance.now() - t0);
     clearTimeout(slow); if ($("#status").textContent.startsWith("Reading the recordings")) toastStatus("");
     EXACT.rows = r.players || {}; EXACT.lo = from; EXACT.hi = to;
     EXACT.flags = r.flags || {}; EXACT.swings = r.swings || {}; EXACT.mobs = r.mobs || {};
@@ -672,14 +724,17 @@ function exactAt(name, t) {
   if (!rows || !rows.length || t < rows[0][0]) return null;
   const i = lower(rows, t, r => r[0]), a = rows[i - 1], b = rows[i];
   if (!a || t - a[0] > 16_000) return null;                // not recorded here (keep-alive rows come every 15 s)
-  let pos = [a[1], a[2], a[3]], yaw = a[5], pitch = a[6], head = a[7];
-  // consecutive ticks: glide; a longer gap means they stood still until the next row
-  if (b && b[0] - a[0] <= 120 && a[4] === b[4] && Math.abs(b[1] - a[1]) + Math.abs(b[3] - a[3]) < 8) {
-    const f = (t - a[0]) / Math.max(1, b[0] - a[0]), turn = (x, y) => x + ((((y - x) % 360) + 540) % 360 - 180) * f;
+  let pos = [a[1], a[2], a[3]], yaw = a[5], pitch = a[6], head = a[7], speed = 0;
+  // a row is written when something changed, so between rows they held still; glide into the next row over (up to)
+  // 150 ms, as the game smooths other players, so steps up and jumps don't snap. Not across teleports.
+  if (b && a[4] === b[4] && Math.abs(b[1] - a[1]) + Math.abs(b[2] - a[2]) + Math.abs(b[3] - a[3]) < 8) {
+    const gap = Math.max(1, b[0] - a[0]), move = Math.min(gap, 150);
+    const f = Math.min(1, Math.max(0, (t - (b[0] - move)) / move)), turn = (x, y) => x + ((((y - x) % 360) + 540) % 360 - 180) * f;
     pos = [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f];
     yaw = turn(a[5], b[5]); pitch = a[6] + (b[6] - a[6]) * f; head = turn(a[7], b[7]);
+    if (gap <= 400) speed = Math.hypot(b[1] - a[1], b[3] - a[3]) / (gap / 1000);   // blocks a second, for the legs
   }
-  return { pos, dim: a[4], fresh: true, exact: true, yaw, pitch, head };
+  return { pos, dim: a[4], fresh: true, exact: true, yaw, pitch, head, speed };
 }
 // A player's flags at t (0x02 sneaking, 0x08 sprinting, 0x10 swimming, 0x80 elytra) and their last arm swing.
 function flagsAt(name, t) {
@@ -710,7 +765,7 @@ const MOB_COLOUR = { zombie: 0x4a8f3c, creeper: 0x3fbf3f, skeleton: 0xd8d8d8, sp
   cow: 0x5a3d2a, pig: 0xf0a0a0, sheep: 0xeeeeee, chicken: 0xf8f8f8, wolf: 0xd8d0c8, cat: 0xe8a050, villager: 0xa07850,
   iron_golem: 0xc8c0b8, bat: 0x40342a, squid: 0x3a5a78, glow_squid: 0x30c0b0, horse: 0x8a5a30, bee: 0xf0c020,
   slime: 0x70c050, blaze: 0xf0b020, witch: 0x503070, drowned: 0x3a8a8a, husk: 0xb09060, piglin: 0xe0a080 };
-const mobGroup = new THREE.Group(); scene.add(mobGroup);
+const mobGroup = new THREE.Group(); scene.add(mobGroup); mobGroup.visible = SHOW.mobs;
 const mobMeshes = new Map();
 function mobMesh(label, kind) {
   let o = mobMeshes.get(label);
@@ -821,13 +876,13 @@ function playerFigure(name, colour, real = null) {
   const layer = (pivot, g, y) => { const o = new THREE.Mesh(g, mat); o.position.y = y * PX; pivot.add(o); };
   part("head", sb(8, 8, 8, 0, 0), 0, 28, 0, 24);
   layer(parts.head, sb(8, 8, 8, 32, 0, 1), 4);                                      // hat
-  part("body", sb(8, 12, 4, 16, 16), 0, 18, 0, 18);
+  part("body", sb(8, 12, 4, 16, 16), 0, 18, 0, 24);            // turns about the neck
   part("rarm", sb(aw, 12, 4, 40, 16), -(4 + aw / 2), 18, 0, 24);
   part("larm", legacy ? sb(aw, 12, 4, 40, 16) : sb(aw, 12, 4, 32, 48), 4 + aw / 2, 18, 0, 24);
   part("rleg", sb(4, 12, 4, 0, 16), -2, 6, 0, 12);
   part("lleg", legacy ? sb(4, 12, 4, 0, 16) : sb(4, 12, 4, 16, 48), 2, 6, 0, 12);
   if (outer) {                                         // the skin's outer layer: jacket, sleeves, trousers
-    layer(parts.body, sb(8, 12, 4, 16, 32, 0.5), 0);
+    layer(parts.body, sb(8, 12, 4, 16, 32, 0.5), -6);
     layer(parts.rarm, sb(aw, 12, 4, 40, 32, 0.5), -6);
     layer(parts.larm, sb(aw, 12, 4, 48, 48, 0.5), -6);
     layer(parts.rleg, sb(4, 12, 4, 0, 32, 0.5), -6);
@@ -848,8 +903,14 @@ function animateFigure(m, now) {
   const fl = c && c.exact ? flagsAt(m.name, T) : 0, flat = (fl & 0x10) || (fl & 0x80), sneak = !flat && (fl & 0x02);
   m.F.fig.rotation.order = "YXZ";
   m.F.fig.rotation.x += ((flat ? Math.PI / 2 : 0) - m.F.fig.rotation.x) * Math.min(1, dt * 10);
-  m.F.fig.position.y = flat ? 0.3 : sneak ? -0.12 : 0;
-  P0.body.rotation.x = sneak ? 0.45 : 0;
+  m.F.fig.position.y = flat ? 0.3 : sneak ? -0.125 : 0;
+  // the game's sneaking pose: body 0.5 rad forward from the neck, head 4.2 px and body/arms 3.2 px lower,
+  // legs 4 px back
+  P0.body.rotation.x = sneak ? 0.5 : 0;
+  P0.head.position.y = (sneak ? 24 - 4.2 : 24) * PX;
+  P0.body.position.y = P0.rarm.position.y = P0.larm.position.y = (sneak ? 24 - 3.2 : 24) * PX;
+  P0.rleg.position.z = P0.lleg.position.z = sneak ? -4 * PX : 0;
+  P0.rleg.position.y = P0.lleg.position.y = (sneak ? 12 - 0.2 : 12) * PX;
   m.sprint = !!(fl & 0x08);
   const sw = c && c.exact ? swingAt(m.name, T) : null;
   m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
@@ -865,10 +926,11 @@ function animateFigure(m, now) {
     let dy = m.yaw - m.F.fig.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     m.F.fig.rotation.y += dy * Math.min(1, dt * 8);
   }
-  m.speed = (m.speed || 0) * 0.85 + Math.min(1, sp / 4.3) * 0.15;
-  m.phase = (m.phase || 0) + dt * 9 * Math.min(1, sp / 2);
+  const v = c && c.exact ? c.speed : sp;                 // exact playback: the recorded speed, not frame jitter
+  m.speed = (m.speed || 0) * 0.85 + Math.min(1, v / 4.3) * 0.15;
+  m.phase = (m.phase || 0) + dt * 9 * Math.min(1, v / 2);
   const s = Math.sin(m.phase) * 0.9 * m.speed * (m.sprint ? 1.35 : 1), P = m.F.parts;
-  const lean = P.body.rotation.x * 0.8;                 // sneaking: arms forward with the body
+  const lean = P.body.rotation.x ? 0.4 : 0;             // sneaking: the arms follow the body (the game's +0.4)
   P.rleg.rotation.x = s; P.lleg.rotation.x = -s;
   P.rarm.rotation.x = -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
   m.last = p.clone(); m.lastT = now;
@@ -992,8 +1054,8 @@ function update(now, force) {
     let shown = live, stale = false;
     if (!shown && sess) { const k = lastKnown(name, sess, T); if (k) { shown = k; stale = true; } }
     m.cur = shown ? { ...shown, stale, online: !!sess, recorded: !!live, by: live && live.by } : null;
-    const vis = !!shown && shown.dim === d;
-    m.group.visible = vis;
+    const vis = !!shown && shown.dim === d && SHOW.players;
+    m.group.visible = vis; m.trail.visible = vis && SHOW.trails; m.F.ring.visible = SHOW.rings;
     if (vis) updateSkin(name, m);
     if (vis) {
       m.group.position.set(shown.pos[0], shown.pos[1], shown.pos[2]);
@@ -1128,7 +1190,7 @@ $("#players").onclick = e => {
 function setDim(d) { $("#dim").value = d; applySky(); updateDimVisibility(); loadTerrain(d); buildAllPaths(); update(performance.now(), true); }
 function updateDimVisibility() {
   const d = $("#dim").value;
-  for (const [dim, g] of Object.entries(terrainGroups)) g.visible = dim === d;
+  for (const [dim, g] of Object.entries(terrainGroups)) g.visible = dim === d && SHOW.map;
   grid.visible = !(terrainGroups[d] && terrainGroups[d].children.length);
 }
 $("#dim").onchange = () => { following = null; setDim($("#dim").value); fitAll(); };
@@ -1746,8 +1808,200 @@ $("#mNext").onclick = () => stepMoment(1);
 let playing = false, lastFrame = performance.now();
 function setPlaying(p) { playing = p; if (!p) playUntil = null; $("#play").textContent = p ? "Pause" : "Play"; }
 $("#play").onclick = () => setPlaying(!playing);
+// ---------- dev mode (` key): live state, the block under the mouse, view links, reloads ----------
+const DEV = { on: false, last: 0, frames: 0, fps: 0, fpsT: 0, block: null, blockKey: "", exactMs: 0 };
+function setDev(on) {
+  DEV.on = on; $("#dev").hidden = !on; store.set("mcsm-dev", on ? "1" : "0");
+}
+const r1 = v => Math.round(v * 10) / 10;
+function devState() {
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  const players = {};
+  for (const [n, m] of Object.entries(markers)) {
+    const c = m.cur; if (!c) continue;
+    players[n] = { pos: c.pos.map(r1), dim: c.dim.replace("minecraft:", ""),
+      source: c.exact ? "exact recording" : c.stale ? "last seen (stale)" : c.recorded ? "overview path" : "?",
+      by: c.by || undefined, yaw: c.yaw !== undefined ? r1(c.yaw) : undefined, flags: c.exact ? flagsAt(n, T) : undefined,
+      shown: m.group.visible };
+  }
+  return {
+    time: new Date(T).toISOString(), t: Math.round(T), speed: +$("#speed").value, playing,
+    camera: { mode: SPEC.name ? `spectate ${SPEC.name} (${$("#specMode").value})` : FREE.on ? "free" : "orbit",
+      pos: camera.position.toArray().map(r1), looking: d.toArray().map(v => Math.round(v * 100) / 100),
+      target: FREE.on || SPEC.name ? undefined : controls.target.toArray().map(r1) },
+    dimension: $("#dim").value, terrain_layer: shownLayer[$("#dim").value] ?? 0,
+    real_blocks: { pieces: REAL.tiles.size, busy: REAL.busy, failed: REAL.failed.size, note: REAL.note || undefined },
+    exact: { on: EXACT.on, from: EXACT.lo ? new Date(EXACT.lo).toISOString() : null, to: EXACT.hi ? new Date(EXACT.hi).toISOString() : null,
+      players: Object.keys(EXACT.rows).length, mobs: Object.keys(EXACT.mobs).length, busy: EXACT.busy, fetch_ms: DEV.exactMs },
+    render: { fps: DEV.fps, draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+    block_under_mouse: DEV.block, players,
+  };
+}
+function devUpdate(now) {
+  DEV.frames++;
+  if (now - DEV.fpsT > 1000) { DEV.fps = Math.round(DEV.frames * 1000 / (now - DEV.fpsT)); DEV.frames = 0; DEV.fpsT = now; }
+  if (!DEV.on || now - DEV.last < 250) return;
+  DEV.last = now;
+  const st = devState(), b = st.block_under_mouse;
+  const lines = [
+    `${st.time}  (t=${st.t})  ${st.playing ? "playing" : "paused"} ${st.speed}x`,
+    `camera ${st.camera.mode}  at ${st.camera.pos.join(", ")}  looking ${st.camera.looking.join(", ")}`,
+    `${st.dimension}  backup layer ${st.terrain_layer}  ·  real blocks: ${st.real_blocks.pieces} pieces${st.real_blocks.busy ? ", loading" : ""}${st.real_blocks.failed ? `, ${st.real_blocks.failed} failed` : ""}`,
+    `exact: ${st.exact.on ? "on" : "off"}  ${st.exact.players} players, ${st.exact.mobs} mobs${st.exact.busy ? "  (fetching…)" : ""}  last fetch ${st.exact.fetch_ms} ms`,
+    `${st.render.fps} fps  ${st.render.draw_calls} draw calls  ${st.render.triangles.toLocaleString()} triangles`,
+    b ? `block ${b.x} ${b.y} ${b.z}: ${b.state || b.message || "?"}${b.biome ? `  biome ${b.biome.replace("minecraft:", "")}` : ""}${b.sky_light !== undefined ? `  light sky ${b.sky_light} block ${b.block_light}` : ""}` : "block: point at a real block",
+    "", ...Object.entries(st.players).map(([n, p]) => `${n}: ${p.pos.join(", ")} ${p.dim} · ${p.source}${p.by ? ` (seen by ${p.by})` : ""}${p.yaw !== undefined ? ` · yaw ${p.yaw}` : ""}${p.flags ? ` · flags ${p.flags}` : ""}`),
+  ];
+  $("#devText").textContent = lines.join("\n");
+}
+// the block under the mouse: look it up in the backup shown (after the mouse rests)
+const devRay = new THREE.Raycaster(), devMouse = new THREE.Vector2();
+let devTimer = null;
+renderer.domElement.addEventListener("pointermove", e => {
+  if (!DEV.on) return;
+  clearTimeout(devTimer);
+  devTimer = setTimeout(async () => {
+    const r = renderer.domElement.getBoundingClientRect();
+    devMouse.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+    devRay.setFromCamera(devMouse, camera);
+    const meshes = []; for (const T0 of REAL.tiles.values()) meshes.push(...T0.meshes);
+    const hit = devRay.intersectObjects(meshes, false)[0];
+    if (!hit) { DEV.block = null; return; }
+    const p = hit.point.clone().addScaledVector(hit.face.normal, -0.01), x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z);
+    const key = `${x},${y},${z}`; if (key === DEV.blockKey) return; DEV.blockKey = key;
+    try { DEV.block = await (await fetch(`api/blockat/${shownLayer[$("#dim").value] ?? 0}/${$("#dim").value.replace("minecraft:", "")}/${x}/${y}/${z}`)).json(); }
+    catch (err) { DEV.block = { x, y, z, message: String(err) }; }
+  }, 120);
+});
+function viewLink() {
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  const q = new URLSearchParams({ t: Math.round(T), c: camera.position.toArray().map(r1).join(","),
+    g: (FREE.on || SPEC.name ? camera.position.clone().addScaledVector(d, 10) : controls.target).toArray().map(r1).join(","),
+    d: $("#dim").value.replace("minecraft:", "") });
+  if (SPEC.name) { q.set("spec", SPEC.name); q.set("mode", $("#specMode").value); }
+  if (FREE.on) q.set("free", "1");
+  return `${location.origin}${location.pathname}#${q}`;
+}
+async function copyText(text, what) {
+  try { await navigator.clipboard.writeText(text); toastStatus(`${what} copied.`); }
+  catch (e) { prompt(`Copy the ${what.toLowerCase()}:`, text); }
+}
+$("#devLink").onclick = () => copyText(viewLink(), "View link");
+$("#devCopy").onclick = () => copyText(viewLink() + "\n" + JSON.stringify(devState(), null, 1), "Debug info");
+$("#devReal").onclick = () => { realClear(); REAL.key = ""; toastStatus("Reloading the real blocks…"); };
+$("#devExact").onclick = () => { EXACT.lo = EXACT.hi = 0; EXACT.last = 0; };
+$("#devGoBtn").onclick = () => {
+  const v = $("#devGo").value.trim(), n = v.split(/[\s,]+/).map(Number);
+  if (n.length === 3 && n.every(Number.isFinite)) {
+    if (FREE.on || SPEC.name) { setSpec(""); camera.position.set(n[0] + 6, n[1] + 5, n[2] + 6); if (FREE.on) setFree(false); }
+    controls.target.set(n[0], n[1], n[2]); camera.position.set(n[0] + 6, n[1] + 5, n[2] + 6); controls.update(); return;
+  }
+  const t = Date.parse(v.replace(" ", "T"));
+  if (Number.isFinite(t)) seek(t); else toastStatus("Go to: type x y z, or a date and time like 2026-05-24 20:31:09");
+};
+$("#devGo").addEventListener("keydown", e => { if (e.key === "Enter") $("#devGoBtn").click(); });
+// a view link: #t=..&c=x,y,z&g=x,y,z&d=overworld[&spec=name&mode=first][&free=1]
+function applyViewLink() {
+  if (!location.hash || location.hash.length < 3) return;
+  const q = new URLSearchParams(location.hash.slice(1)), num = k => (q.get(k) || "").split(",").map(Number);
+  if (q.get("d")) { $("#dim").value = "minecraft:" + q.get("d"); $("#dim").dispatchEvent(new Event("change")); }
+  if (q.get("t")) seek(+q.get("t"), false);
+  const c = num("c"), g = num("g");
+  if (c.length === 3 && c.every(Number.isFinite)) camera.position.set(...c);
+  if (g.length === 3 && g.every(Number.isFinite)) { controls.target.set(...g); controls.update(); }
+  if (q.get("free")) setFree(true);
+  if (q.get("spec")) { $("#specMode").value = q.get("mode") || "first"; setSpec(q.get("spec")); }
+}
+setDev(store.get("mcsm-dev") === "1" || /[?&]dev=1/.test(location.search));
+
+// ---------- spectate: through a player's eyes (their recorded look) or from just behind them ----------
+const SPEC = { name: "" };
+function setSpec(name) {
+  if (SPEC.name && markers[SPEC.name]) markers[SPEC.name].F.fig.visible = true;
+  SPEC.name = name || ""; $("#spec").value = SPEC.name;
+  if (SPEC.name) {
+    if (FREE.on) setFree(false);
+    controls.enabled = false; camera.near = 0.05; camera.updateProjectionMatrix();
+    if (+$("#speed").value > 10) $("#speed").value = "1";            // the exact recording plays at 1x / 10x
+    toastStatus(`Spectating ${SPEC.name} (${$("#specMode").value === "first" ? "first person" : "from behind"}) · Esc to stop`);
+  } else {
+    controls.enabled = true;
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    controls.target.copy(camera.position).addScaledVector(d, 6); controls.update(); toastStatus("");
+  }
+}
+function specStep() {
+  const m = markers[SPEC.name], c = m && m.cur;
+  if (!c || !m.group.visible && $("#specMode").value !== "first") return;
+  const r = d => d * Math.PI / 180;
+  // where they look: the recorded head turn and pitch; without the exact recording, the way they move
+  const yaw = c.exact ? r(c.head ?? c.yaw) : -m.F.fig.rotation.y, pitch = c.exact ? r(c.pitch) : 0;
+  const sneak = c.exact && (flagsAt(SPEC.name, T) & 0x02);
+  const eye = new THREE.Vector3(c.pos[0], c.pos[1] + (sneak ? 1.27 : 1.62), c.pos[2]);
+  const fwd = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+  const first = $("#specMode").value === "first";
+  m.F.fig.visible = !first; m.label.style.display = first ? "none" : m.label.style.display;
+  if (first) camera.position.copy(eye).addScaledVector(fwd, 0.05);
+  else camera.position.copy(eye).addScaledVector(fwd, -4).add(new THREE.Vector3(0, 0.6, 0));
+  camera.lookAt(eye.clone().addScaledVector(fwd, first ? 10 : 2));
+}
+$("#spec").onchange = () => setSpec($("#spec").value);
+$("#specMode").onchange = () => { if (SPEC.name) setSpec(SPEC.name); };
+function fillSpec() {
+  const sel = $("#spec"), keep = sel.value;
+  sel.replaceChildren(new Option("nobody", ""), ...H.players.map(n => new Option(n, n)));
+  sel.value = keep;
+}
+
+// ---------- free camera (like Flashback's): look with the mouse, fly with WASD / Space / Shift ----------
+const FREE = { on: false, keys: new Set(), yaw: 0, pitch: 0, speed: 10, drag: false, lx: 0, ly: 0 };
+function setFree(on) {
+  if (on && SPEC.name) setSpec("");
+  FREE.on = on; $("#freeCam").classList.toggle("primary", on); controls.enabled = !on;
+  if (on) {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    FREE.yaw = Math.atan2(-d.x, -d.z); FREE.pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+    camera.near = 0.05; camera.updateProjectionMatrix();
+    toastStatus("Free camera: drag to look · WASD move · Space up · Shift down · Ctrl faster · scroll: speed · F or Esc to leave");
+  } else {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    controls.target.copy(camera.position).addScaledVector(d, 10); controls.update();
+    toastStatus("");
+  }
+}
+function freeStep(dt) {
+  const k = FREE.keys, f = new THREE.Vector3(-Math.sin(FREE.yaw), 0, -Math.cos(FREE.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
+  const v = new THREE.Vector3();
+  if (k.has("KeyW")) v.add(f); if (k.has("KeyS")) v.sub(f); if (k.has("KeyD")) v.add(r); if (k.has("KeyA")) v.sub(r);
+  if (k.has("Space")) v.y += 1; if (k.has("ShiftLeft") || k.has("ShiftRight")) v.y -= 1;
+  if (v.lengthSq()) camera.position.addScaledVector(v.normalize(), FREE.speed * (k.has("ControlLeft") ? 4 : 1) * dt / 1000);
+  camera.rotation.order = "YXZ"; camera.rotation.set(FREE.pitch, FREE.yaw, 0);
+}
+renderer.domElement.addEventListener("pointerdown", e => { if (!FREE.on) return; FREE.drag = true; FREE.lx = e.clientX; FREE.ly = e.clientY; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener("pointermove", e => {
+  if (!FREE.on || !FREE.drag) return;
+  FREE.yaw -= (e.clientX - FREE.lx) * 0.004; FREE.pitch = Math.max(-1.55, Math.min(1.55, FREE.pitch - (e.clientY - FREE.ly) * 0.004));
+  FREE.lx = e.clientX; FREE.ly = e.clientY;
+});
+renderer.domElement.addEventListener("pointerup", () => { FREE.drag = false; });
+renderer.domElement.addEventListener("contextmenu", e => { if (FREE.on) e.preventDefault(); });
+renderer.domElement.addEventListener("wheel", e => {
+  if (!FREE.on) return;
+  e.preventDefault(); FREE.speed = Math.max(0.5, Math.min(200, FREE.speed * (e.deltaY < 0 ? 1.25 : 0.8)));
+  toastStatus(`Free camera speed: ${FREE.speed.toFixed(1)} blocks a second`);
+}, { passive: false });
+$("#freeCam").onclick = () => setFree(!FREE.on);
+addEventListener("keyup", e => FREE.keys.delete(e.code));
+addEventListener("blur", () => FREE.keys.clear());
 addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
+  if (e.code === "Backquote") { setDev(!DEV.on); return; }
+  if (e.code === "Escape" && SPEC.name) { setSpec(""); for (const m of Object.values(markers)) m.F.fig.visible = true; return; }
+  if (e.code === "KeyF" || (e.code === "Escape" && FREE.on)) { setFree(!FREE.on && e.code === "KeyF"); return; }
+  if (FREE.on && ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "ControlLeft"].includes(e.code)) {
+    e.preventDefault(); FREE.keys.add(e.code); return;                       // flying, not playing
+  }
+  if (e.code === "KeyP") setPlaying(!playing);
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
   if (e.code === "KeyI") $("#hlIn").click();
   if (e.code === "KeyO") $("#hlOut").click();
@@ -1783,8 +2037,9 @@ function frame(now) {
     }
     for (const [name, m] of Object.entries(markers)) {
       if (!m.group.visible) { m.label.style.display = "none"; continue; }
-      m.group.scale.setScalar(Math.max(1, camera.position.distanceTo(m.group.position) / 70));
+      m.group.scale.setScalar(FREE.on ? 1 : Math.max(1, camera.position.distanceTo(m.group.position) / 70));
       animateFigure(m, now);
+      if (!SHOW.names) { m.label.style.display = "none"; continue; }
       tmp.copy(m.group.position); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
       const on = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
       m.label.style.display = on ? "" : "none";
@@ -1792,7 +2047,8 @@ function frame(now) {
       if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
     }
   }
-  controls.update();
+  if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
+  devUpdate(now);
   renderer.render(scene, camera);
 }
 
@@ -1875,6 +2131,8 @@ async function loadPaths() {
 async function init() {
   H = await (await fetch("api/history")).json();
   loadSkinLine();                                      // skins from the recordings (read once, then kept)
+  applyShow(); fillSpec();
+  setTimeout(applyViewLink, 0);                        // opened from a view link: go there
   $("#title").textContent = H.title; document.title = `${H.title} – History`;
   if (!H.range) { toastStatus("No events, sessions or recordings found in this backup."); return; }
   $("#range").textContent = `${fmtShort(H.range[0])} → ${fmtShort(H.range[1])}`;

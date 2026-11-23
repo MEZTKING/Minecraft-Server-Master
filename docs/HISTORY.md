@@ -221,7 +221,10 @@ recordings of them fill the times it doesn't cover. Faster speeds and the zoomed
 overview paths, about one point a second. The detail for a recording is worked out the first time you watch it
 (a few seconds) and then kept.
 
-In that view the players also sneak, sprint, swim and fly with elytra (lying forward) and swing their arms
+Movement between recorded positions is smoothed like the game smooths other players: a player holds still
+until shortly before the next recorded position, then glides into it, so steps up and jumps don't snap. Legs
+swing with the recorded speed. In that view the players also sneak (the game's pose: bent from the neck, head
+and arms lower, legs back), sprint, swim and fly with elytra (lying forward), and swing their arms
 when they did. Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player show as boxes,
 sized and coloured by kind, a couple of times a second. Dropped items, arrows and other things that fly past
 aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
@@ -229,6 +232,50 @@ that can take up to a minute, and later views are quick.
 
 Not shown yet: sleeping, held items and armour, and the mobs' own textures and animations. The blocks are the
 backup saved after that time, not the world at that very moment.
+
+**Show.** Open **Show** (under *Terrain*) to turn things on or off. Your choice is remembered:
+
+- **Players**, their **Names** and their **Colour rings**
+- **Trails** (the line behind each player)
+- **Mobs and pets**
+- the smooth **Map** and the **Grid**
+
+**Real blocks**, **All paths** and **Event pins** keep their own switches.
+
+**Free camera.** Press **F** or click **Free cam** to fly like Flashback's free camera:
+
+- **Look around:** hold a mouse button and drag.
+- **Move:** **W A S D**.
+- **Up and down:** **Space** and **Shift**.
+- **Faster:** hold **Ctrl**.
+- **Speed:** the scroll wheel.
+
+Press **F** or **Esc** to go back to orbiting. While the free camera is on, use **P** or the Play button to play
+and pause, because Space moves you up.
+
+**Spectate.** Pick a player in **Spectate** to watch them:
+
+- **First person:** through their eyes, with their recorded head turn and look; lower when they sneak.
+- **Behind:** a few blocks behind them.
+
+Spectating switches to exact playback (1×). **Esc** stops.
+
+**Dev mode** (press the **`** key, or open the page with `?dev=1`) shows a panel with:
+
+- the exact time (and its number) and the camera's position, direction and mode;
+- the backup shown and how many real-block pieces have loaded (or failed);
+- whether exact playback is on, with its players, mobs and how long the last fetch took;
+- the frame rate, draw calls and triangles;
+- each player's position, where it comes from (exact recording, overview path, last seen) and their pose flags;
+- the block under the mouse, read from the backup: its full state, light and biome.
+
+Its buttons:
+
+- **Copy view link:** a link that opens the viewer at this moment, with this camera and spectate. Send it
+  along with a problem so it can be looked at in exactly the same place.
+- **Copy debug info:** all of the above as text.
+- **Reload blocks** and **Reload exact:** load them again.
+- **Go to:** type `x y z` or a date and time such as `2026-05-24 20:31:09`.
 
 **Players** are shown as Minecraft figures with their own skins, including the skin's outer layer (hat, jacket,
 sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,

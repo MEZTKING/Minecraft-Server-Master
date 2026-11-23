@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 3                     # bump when the output changes (cached tiles are built again)
+VERSION = 4                     # bump when the output changes (cached tiles are built again)
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
@@ -450,22 +450,29 @@ class Look:
         if name in ("chest", "trapped_chest", "ender_chest"):
             tex = tex or {"chest": "entity/chest/normal", "trapped_chest": "entity/chest/trapped",
                           "ender_chest": "entity/chest/ender"}[name]
-            # a double chest: each half reaches its other half (left joins to the east of a chest facing north)
+            # The texture's regions (as the game's chest model maps them; the model is drawn mirrored, so a region the
+            # model calls "east" shows on the west side): lid top, base bottom, front / back / sides of lid and base.
+            # A double chest's halves use their own textures (15 wide, only the outer side drawn); left joins the
+            # block to the east of a chest facing north.
             half = props.get("type", "single")
-            x0, x1 = (1, 16) if half == "left" else (0, 15) if half == "right" else (1, 15)
-            sides = {"west": [0, 33, 14, 43], "east": [28, 33, 42, 43]}
-            lsides = {"west": [0, 14, 14, 19], "east": [28, 14, 42, 19]}
-            if half == "left":
-                sides.pop("east"), lsides.pop("east")
-            elif half == "right":
-                sides.pop("west"), lsides.pop("west")
-            els = [box([x0, 0, 1], [x1, 10, 15], {"north": [14, 33, 28, 43], "south": [42, 33, 56, 43],
-                                                  "down": [28, 19, 42, 33], **sides}),
-                   box([x0, 10, 1], [x1, 14, 15], {"north": [14, 14, 28, 19], "south": [42, 14, 56, 19],
-                                                   "up": [14, 0, 28, 14], **lsides})]
-            if half == "single":
-                els.append(box([7, 7, 0], [9, 11, 1], {"north": [1, 1, 3, 5], "up": [1, 0, 3, 1], "west": [0, 1, 1, 5],
-                                                       "east": [3, 1, 4, 5], "down": [3, 0, 5, 1]}))
+            if half in ("left", "right") and self.has_texture(f"{tex}_{half}"):
+                tex = f"{tex}_{half}"
+                if half == "left":
+                    x0, x1, outer, ou, ob = 1, 16, "west", [29, 14, 43, 19], [29, 33, 43, 43]
+                else:
+                    x0, x1, outer, ou, ob = 0, 15, "east", [0, 14, 14, 19], [0, 33, 14, 43]
+                lid = {"north": [14, 14, 29, 19], "south": [43, 14, 58, 19], "up": [29, 0, 44, 14], outer: ou}
+                base = {"north": [14, 33, 29, 43], "south": [43, 33, 58, 43], "down": [14, 19, 29, 33], outer: ob}
+                els = [box([x0, 0, 1], [x1, 10, 15], base), box([x0, 10, 1], [x1, 14, 15], lid)]
+            else:
+                els = [box([1, 0, 1], [15, 10, 15], {"north": [14, 33, 28, 43], "south": [42, 33, 56, 43],
+                                                     "west": [28, 33, 42, 43], "east": [0, 33, 14, 43],
+                                                     "down": [14, 19, 28, 33]}),
+                       box([1, 10, 1], [15, 14, 15], {"north": [14, 14, 28, 19], "south": [42, 14, 56, 19],
+                                                      "west": [28, 14, 42, 19], "east": [0, 14, 14, 19],
+                                                      "up": [28, 0, 42, 14]}),
+                       box([7, 7, 0], [9, 11, 1], {"north": [1, 1, 3, 5], "up": [1, 0, 3, 1], "west": [0, 1, 1, 5],
+                                                   "east": [3, 1, 4, 5], "down": [3, 0, 5, 1]})]
             return [els, {"t": tex}, (64, 64), 0, facing_y]
         heads = {"skeleton": ("entity/skeleton/skeleton", 32), "wither_skeleton": ("entity/skeleton/wither_skeleton", 32),
                  "zombie": ("entity/zombie/zombie", 64), "creeper": ("entity/creeper/creeper", 32),

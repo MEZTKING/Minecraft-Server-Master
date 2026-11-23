@@ -3397,6 +3397,8 @@ class TestRealBlocks(unittest.TestCase):
                 zf.writestr(name if name.startswith("data/") else "assets/minecraft/" + name, json.dumps(data))
             zf.writestr("assets/minecraft/textures/block/stone.png", b"\x89PNG stone")
             zf.writestr("assets/minecraft/textures/entity/chest/normal.png", b"\x89PNG chest")
+            for half in ("left", "right"):                # a double chest's halves have their own textures
+                zf.writestr(f"assets/minecraft/textures/entity/chest/normal_{half}.png", b"\x89PNG chest")
             zf.writestr("assets/minecraft/textures/colormap/grass.png", TestRealBlocks._png(256, 256, (10, 200, 30)))
 
     @staticmethod
@@ -4212,6 +4214,10 @@ class TestBuildWorld3D(unittest.TestCase):
             self.assertTrue(os.path.isfile(bw.blocks_file()))
             self.assertTrue(os.path.isfile(bw.texture("block/stone")))
             self.assertIsNone(bw.texture("../evil"))
+            # dev mode: one block of the backup
+            at = bw.block_at(3, 64, 4)
+            self.assertEqual((at["state"], at["top"], at["sky_light"]), ("minecraft:stone", 64, 15))
+            self.assertIsNone(bw.block_at(5000, 64, 5000)["state"])                   # never explored
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

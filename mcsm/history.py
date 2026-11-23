@@ -410,6 +410,13 @@ class HistoryMap(TerrainServer):
             u = skins.clean_uuid(path[len("/api/skin/"):])
             s = skins.skin(u) if u else None
             return {"found": True, "url": f"/skin/{u}.png", "slim": s["slim"]} if s else {"found": False}
+        if path.startswith("/api/blockat/"):         # dev mode: one block of a backup, /api/blockat/<layer>/<dim>/<x>/<y>/<z>
+            try:
+                layer, dim, x, y, z = path[len("/api/blockat/"):].split("/")
+                bw = self.layer_world(int(layer))
+                return bw.block_at(int(x), int(y), int(z), "minecraft:" + dim) if bw else {"message": "no such backup"}
+            except (ValueError, OSError) as exc:
+                return {"message": str(exc)}
         if path.startswith("/api/blocktile/"):       # real blocks close up: /api/blocktile/<layer>/<dim>/<tx>/<tz>
             try:
                 layer, dim, tx, tz = path[len("/api/blocktile/"):].split("/")

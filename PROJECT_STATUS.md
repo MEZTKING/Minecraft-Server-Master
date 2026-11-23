@@ -803,6 +803,60 @@ they form 717 stretches of play. Where one player appears in two recordings at t
 the positions agree: median 0.00 blocks, 90% 0.00, 99% 0.24. With the old timing the median was 0.69 blocks,
 90% 2.54 and 99% 40.
 
+### 0za. Recording like Flashback, in the history viewer (raised 2026-11-23)
+
+Owner: "add free roaming for the camera i guess, and all the feature to record like flashback", then "add player
+spectate/first person mode view", "add a dev mode that makes your life easier to navigate and troubleshoot", and
+"add the ability to manually record a moments if not already existed".
+
+- ✅ **Built 2026-11-23:**
+  - free camera (WASD, Space/Shift, drag to look, scroll speed);
+  - spectate (first person from the recorded look, or behind);
+  - dev mode (live state, block under the mouse via `/api/blockat`, view links, copy debug info, go to,
+    reloads);
+  - Show panel.
+- **Manual moments** already exist as *Highlights for videos*: Start (I), End (O), a title and Save, then Export
+  to Flashback. Open question: also list them among the moments?
+- **Proposed design for recording:**
+  - camera keyframes on a timeline in the viewer: position, look and FOV at a time, smooth or linear between
+    them, as Flashback does; free-camera views or spectate can be saved as keyframes;
+  - a preview of the path;
+  - export as a video from the browser (canvas capture at a fixed frame rate, played frame by frame at exact
+    times, so the result doesn't depend on the PC's speed; WebM, then ffmpeg to MP4 as the joins already do);
+  - optionally, the same keyframes written into the Flashback copies of the recordings.
+
+  Open questions: resolution and frame rate (1080p60?), and whether to add text and music from the video
+  editor.
+
+### 0zb. Viewer parity with the recordings (Fable's plan, 2026-11-23)
+
+Owner: "i assume you should finish the parity for the viewer first, im not sure ask fable".
+
+Fable's order, most visible per effort first:
+
+1. **Entity data.** A generic entity-data reader (skip by serializer, learn serializer ids from the recording:
+   the one at index 6 is Pose, etc.). Then:
+   - pose: sleeping, dying;
+   - hand use: eating, bow, shield;
+   - hurt flash (`hurt_animation` / `damage_event`) and death fall-over (`entity_event` 3);
+   - flags and pose for mobs too.
+2. **Time and weather from the recording.** dayTime is the second i64 of `set_time`; check it on 26.1+.
+   Rain and thunder come from `game_event`; they would drive the Light panel.
+3. **Riding.** `set_passengers` and a sitting pose; boats and minecarts.
+4. **Held items and armour.** `set_equipment`, with item-stack component skippers; items and component types
+   from the reports.
+5. **Textured mobs.** Hand-made models with the jar's entity textures: humanoids reuse the player figure,
+   then quadrupeds, chicken, creeper, spider, villager, horse, wolf and cat.
+6. **Blocks as they were at that moment.** The recording's chunk data plus block updates as a timeline over
+   the backup mesh. About a week of work; the biggest gain in fidelity.
+7. **Dropped items.**
+8. **Chat bubbles** from the server log.
+
+**Not worth it:** particles, sounds, explosions beyond a flash, item-frame contents and maps, the block-break
+crack animation.
+
+The latent bug Fable found (packet ids of 128 and up) is fixed.
+
 ### 0w. End-of-year review for everyone and for each player (raised 2026-11-23, for the future)
 
 **The ask:** "for future plans, i want to add a end of year progress for everyone, one that shows everyones
@@ -1184,6 +1238,16 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** History viewer, after the owner's test at spawn on 24 May.
+  - New: Show panel, free camera, spectate (first person / behind), dev mode (`/api/blockat`, view links).
+  - Exact playback now glides between recorded positions (no snapping on steps) and takes leg speed from the
+    recording.
+  - The game's sneaking pose.
+  - Chest lids and bottoms use the right texture regions; double chests use the game's `_left` / `_right`
+    textures (`blockmesh` v4).
+  - Packet ids of 128 and up are read correctly.
+  - Backlog 0za and 0zb added.
 
 - **2026-11-23:** Poses, arm swings and mobs in exact playback (0z step 3).
   - `mcsm/protocol.py` and `assets/protocols.json`, generated from the game's reports on the owner's PC.
