@@ -18,8 +18,9 @@ import tempfile
 import zipfile
 
 PACKETS = ("add_entity", "remove_entities", "set_entity_data", "animate", "set_time", "entity_event",
-           "set_equipment", "set_passengers", "hurt_animation", "damage_event", "game_event")
-TABLE_VERSION = 2          # 2: item and data component names (held items and armour)
+           "set_equipment", "set_passengers", "hurt_animation", "damage_event", "game_event",
+           "level_chunk_with_light", "block_update", "section_blocks_update", "forget_level_chunk", "respawn")
+TABLE_VERSION = 3          # 3: block states and the chunk packets (blocks at the moment); 2: items and components
 BUNDLED = os.path.join(os.path.dirname(__file__), "assets", "protocols.json")
 _cache: dict[int, dict | None] = {}
 
@@ -50,7 +51,41 @@ def from_reports(folder: str, version: str, protocol: int) -> dict:
     return {"version": version, "protocol": protocol,
             "packets": {k: packets[f"minecraft:{k}"]["protocol_id"] for k in PACKETS if f"minecraft:{k}" in packets},
             "entity_types": types, "items": listed("minecraft:item"),
-            "components": listed("minecraft:data_component_type")}
+            "components": listed("minecraft:data_component_type"),
+            "blocks": _block_table(os.path.join(folder, "reports", "blocks.json"))}
+
+
+def _block_table(path: str) -> list:
+    """Every block state by network id, compactly: ``[[name, [[property, [values]], ...]], ...]`` in id order.
+    The game numbers a block's states as every combination of its properties, sorted by property name, the last
+    changing fastest (checked here against every id in the report)."""
+    import itertools
+    if not os.path.isfile(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        blocks = json.load(fh)
+    ids = {s["id"]: (name, tuple(sorted((s.get("properties") or {}).items())))
+           for name, v in blocks.items() for s in v["states"]}
+    out, n = [], 0
+    for name, v in sorted(blocks.items(), key=lambda kv: min(s["id"] for s in kv[1]["states"])):
+        props = sorted((v.get("properties") or {}).items())
+        for combo in itertools.product(*[vals for _, vals in props]):
+            if ids.get(n) != (name, tuple(zip([p for p, _ in props], combo))):
+                raise ValueError(f"block state {n} isn't where expected ({name})")
+            n += 1
+        out.append([name.split(":", 1)[-1], [[p, vals] for p, vals in props]])
+    return out
+
+
+def block_states(t: dict | None) -> list[str]:
+    """``minecraft:oak_stairs[facing=east,half=top,...]`` for every block state id of a protocol table."""
+    import itertools
+    out = []
+    for name, props in (t or {}).get("blocks") or []:
+        for combo in itertools.product(*[vals for _, vals in props]):
+            out.append(f"minecraft:{name}" + ("[" + ",".join(f"{p}={v}" for (p, _), v in zip(props, combo)) + "]"
+                                              if props else ""))
+    return out
 
 
 def _launcher_classpath(version: str) -> tuple[list[str], str | None]:
@@ -122,7 +157,7 @@ def table(protocol: int | None, version: str | None = None) -> dict | None:
                 t = json.load(fh)
         except (OSError, ValueError):
             t = None
-    if t is not None and "items" not in t and version:        # made by an older app: make it again
+    if t is not None and ("items" not in t or "blocks" not in t) and version:   # made by an older app: again
         t = None
     if t is None and version:
         t = generate(version)

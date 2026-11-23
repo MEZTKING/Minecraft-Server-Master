@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -934,8 +934,32 @@ Fable's order, most visible per effort first:
    - Yaw now turns the short way between rows.
    - Dev: `__history.mobGallery()` lines up one of each kind in the sky.
    - Not done: babies (no flag recorded), variants from entity data, chests on chest minecarts, bats hanging.
-6. **Blocks as they were at that moment.** The recording's chunk data plus block updates as a timeline over
-   the backup mesh. About a week of work; the biggest gain in fidelity.
+6. ✅ **Blocks as they were at that moment** (first version, built 2026-11-23). `mcsm/moment.py`.
+   - **Where the data is.** Flashback keeps chunk packets in `level_chunk_caches/<n>` (10,000 per member; a
+     u32 length, then the packet), referred to by `level_chunk_cached` actions. Each `c<n>.flashback` part (5 min,
+     length in `metadata.json` `chunks`) starts with a snapshot loading every chunk then loaded, so the world a
+     recording saw at tick t = its part's snapshot + the stream to t. No light updates or chunk unloads are kept.
+   - **Decoding.** `level_chunk_with_light` sections are paletted containers with global state ids (26.x: block
+     and fluid counts; 1.21.x: one count). Light masks are longs or bytes, depending on the version: the
+     decoder takes whichever reads to the packet's end. `block_update`, `section_blocks_update` and
+     `respawn` are applied as well. Biome names come from the recording's own configuration packets.
+   - **Block state names.** The protocol tables (`TABLE_VERSION` 3) carry every block with its properties. A
+     block's states are every combination of its properties, sorted by name, the last changing fastest; this is
+     checked against every id when the table is made.
+   - **Where chunks are found.** `CacheIndex` notes where each chunk sits inside a recording's caches (once,
+     ~1 s per member; `moment/*.chunkidx.json`).
+   - **Merging recordings.** `world_at()` uses every recording running then: the most recently loaded copy of a
+     chunk is the base, and all recordings' later changes are applied in world-clock order.
+   - **Showing it.** `RecChunk` has `Chunk`'s interface, so `blockmesh.build(overrides=...)` meshes it.
+     `world3d.moment_tile()` keeps the last 400 in `tiles-moment/`; `/api/momenttile/<layer>/<dim>/<tx>/<tz>/<t>`
+     is built in the background (2 at a time, `pending` until ready); `/api/momentrecs/<t>` is for dev.
+   - The page: during exact playback the 9 nearest pieces use moment tiles at T rounded to 30 s, swapped in
+     when ready. Switch **As at that moment**.
+   - Checked on the owner's 10 April build at 379, -2296: the village matches the backup and the
+     not-yet-built parts differ (92 changes in the main piece).
+   - **Not yet (v2):** changes shown as they happen (per-chunk rebuilds between the 30 s steps; Fable's design:
+     per-chunk face ranges in the tile), light updates from neighbours only, block entities (sign text, banner
+     patterns) not drawn.
 7. **Dropped items.**
 8. **Chat bubbles** from the server log.
 
@@ -1231,6 +1255,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | No companion mod inside Flashback for now; music via Flashback's own AUDIO track + beat markers proposed instead | Flashback has no add-on API and a hard-coded keyframe format (from its source) |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
 | 2026-11-23 | Mob models are read from the installed client jar's model code by a bytecode interpreter, not hand-made or bundled | Exact for every mob and version, no Mojang code or assets shipped; 26.1+ jars aren't obfuscated |
+| 2026-11-23 | Blocks at a moment come from each recording part's own snapshot plus its stream, merged across recordings by world clock; backup elsewhere | Flashback re-snapshots every 5-minute part, so no year-long tracking is needed; an old snapshot is worse than the backup |
 
 ## Known gaps and unverified assumptions
 
@@ -1326,6 +1351,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Blocks as they were at the moment (parity step 6, first version): `mcsm/moment.py` decodes
+  Flashback's chunk caches and block changes; protocol tables carry block states (`TABLE_VERSION` 3);
+  moment tiles near you during exact playback; switch **As at that moment**.
 
 - **2026-11-23:** Textured mobs (parity step 5): `mcsm/mobmodels.py` reads every mob model from the installed
   game's own code; `/api/mobmodels`, `/mobtex/`; animated models in exact playback, boxes as the fallback.

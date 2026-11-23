@@ -280,8 +280,15 @@ texture. Items from the Hero's Journey datapack show as the plain item they're b
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
 
-The blocks are the
-backup saved after that time, not the world at that very moment.
+**Blocks as at that moment.** With **As at that moment** ticked (next to *Real blocks*, on at first), the blocks
+near you during exact playback are the world as the recordings saw it at that time, not as the next backup has
+it: a build half done, a hole just dug, a house not yet there. Every recording keeps the chunks its player's game
+received and every block placed or broken after that; the app puts together what all the recordings running at
+that moment saw (the latest change wins). The nine pieces nearest you are rebuilt every 30 seconds of playback
+and when you jump; the label next to the switch says which moment they show. Further away, and where no
+recording had the chunks loaded, the backup's blocks stay. Building a piece takes a few seconds (the first time
+a recording is used, a little longer while the app notes where its chunks are kept). Light where a block was
+changed is estimated from around it, as Flashback keeps no light updates.
 
 **Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:
 

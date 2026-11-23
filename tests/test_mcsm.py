@@ -5196,6 +5196,127 @@ def _class_file(name: str, methods: dict) -> bytes:
     return head + struct.pack(">HHHHH", 0x21, this, sup, 0, 0) + struct.pack(">H", len(methods)) + body + struct.pack(">H", 0)
 
 
+def _chunk_packet(cx: int, cz: int, ids: dict, two_counts: bool = True, mask_bytes: bool = True) -> bytes:
+    """A level_chunk_with_light packet (26.3 layout by default): stone up to y 63, grass at y 64, air above;
+    one biome; sky light 15 in the grass section."""
+    import struct
+    sec_count = struct.pack(">hh", 4096, 0) if two_counts else struct.pack(">h", 4096)
+    data = b""
+    for s in range(24):
+        if s < 8:
+            data += sec_count + bytes([0]) + _vi(ids["stone"])
+        elif s == 8:                               # palette [air, grass], 4 bits: grass on the bottom layer
+            longs = [0x1111111111111111 if i < 16 else 0 for i in range(256)]
+            data += sec_count + bytes([4]) + _vi(2) + _vi(ids["air"]) + _vi(ids["grass"]) + b"".join(struct.pack(">Q", v) for v in longs)
+        else:
+            data += sec_count + bytes([0]) + _vi(ids["air"])
+        data += bytes([0]) + _vi(0)                # biomes: one
+    top = 64 - (-64) + 1                           # heightmap value: the top block + 1, above the bottom
+    hm = [sum(top << (9 * k) for k in range(7)) for _ in range(37)]
+    p = _vi(46) + struct.pack(">ii", cx, cz) + _vi(1) + _vi(4) + _vi(37) + b"".join(struct.pack(">Q", v) for v in hm)
+    p += _vi(len(data)) + data + _vi(0)            # no block entities
+    sky_bit = 1 << (8 + 1)                         # section 8 (bit 0 is the one below the lowest)
+    if mask_bytes:
+        p += _vi(2) + sky_bit.to_bytes(2, "little") + _vi(0) + _vi(0) + _vi(0)
+    else:
+        p += _vi(1) + struct.pack(">Q", sky_bit) + _vi(0) + _vi(0) + _vi(0)
+    p += _vi(1) + _vi(2048) + bytes([0xFF]) * 2048 + _vi(0)
+    return p
+
+
+class TestMoment(unittest.TestCase):
+    """Blocks as they were at a moment: chunk packets, block changes and the world from several recordings."""
+
+    @classmethod
+    def setUpClass(cls):
+        from mcsm import protocol
+        states = protocol.block_states(protocol.table(777))
+        cls.states = states
+        cls.ids = {"air": states.index("minecraft:air"), "stone": states.index("minecraft:stone"),
+                   "grass": states.index("minecraft:grass_block[snowy=false]"), "glass": states.index("minecraft:glass")}
+
+    def test_block_table(self):
+        from mcsm import protocol
+        self.assertEqual(protocol.table(777)["packets"]["level_chunk_with_light"], 46)
+        self.assertEqual(self.states[0], "minecraft:air")
+        tmp = tempfile.mkdtemp()
+        try:                                       # properties are numbered sorted by name, the last fastest
+            p = os.path.join(tmp, "blocks.json")
+            with open(p, "w") as fh:
+                json.dump({"minecraft:air": {"states": [{"id": 0}]},
+                           "minecraft:lamp": {"properties": {"lit": ["true", "false"], "facing": ["up", "down"]},
+                                              "states": [{"id": 1, "properties": {"facing": "up", "lit": "true"}},
+                                                         {"id": 2, "properties": {"facing": "up", "lit": "false"}},
+                                                         {"id": 3, "properties": {"facing": "down", "lit": "true"}},
+                                                         {"id": 4, "properties": {"facing": "down", "lit": "false"}}]}}, fh)
+            t = {"blocks": protocol._block_table(p)}
+            self.assertEqual(protocol.block_states(t)[2], "minecraft:lamp[facing=up,lit=false]")
+            with open(p, "w") as fh:                   # a report that doesn't follow the rule: refused
+                json.dump({"minecraft:lamp": {"properties": {"lit": ["true", "false"]},
+                                              "states": [{"id": 0, "properties": {"lit": "false"}},
+                                                         {"id": 1, "properties": {"lit": "true"}}]}}, fh)
+            with self.assertRaises(ValueError):
+                protocol._block_table(p)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_chunk_packet(self):
+        from mcsm import moment
+        for two, as_bytes, proto in ((True, True, 777), (False, False, 773)):
+            c = moment.RecChunk(_chunk_packet(2, -3, self.ids, two, as_bytes), proto, self.states,
+                                ["minecraft:plains"], "minecraft:overworld")
+            self.assertEqual((c.cx, c.cz, c.min_y, len(c.sections)), (2, -3, -64, 24))
+            self.assertEqual(c.state(5, 64, 7), "minecraft:grass_block[snowy=false]")
+            self.assertEqual(c.state(5, 10, 7), "minecraft:stone")
+            self.assertEqual(c.state(5, 65, 7), "minecraft:air")
+            self.assertEqual(c.tops[7 * 16 + 5], 64)
+            self.assertEqual(c.biome(5, 64, 7), "minecraft:plains")
+            self.assertEqual(c.light(5, 66, 7), (15, 0))
+        c.apply(5, 70, 7, self.ids["glass"])               # a block placed: the column's top goes up
+        self.assertEqual((c.state(5, 70, 7), c.tops[7 * 16 + 5]), ("minecraft:glass", 70))
+        c.apply(5, 70, 7, self.ids["air"])                 # and broken again
+        self.assertEqual(c.tops[7 * 16 + 5], 64)
+        self.assertEqual(moment.block_pos(((5 & 0x3FFFFFF) << 38) | ((-7 & 0x3FFFFFF) << 12) | (70 & 0xFFF)), (5, 70, -7))
+        self.assertEqual(moment.section_pos(((-1 & 0x3FFFFF) << 42) | ((2 & 0x3FFFFF) << 20) | (4 & 0xFFFFF)), (-1, 4, 2))
+
+    def test_world_from_recordings(self):
+        import struct
+        from mcsm import moment
+        g = self.ids["glass"]
+        recs = []
+        for t in range(20):
+            recs.append(("move_entities", _fb_move([(7, 8.0, 65.0, 8.0)])))
+            if t == 5:                                     # a block placed at (3, 70, 4)
+                pos = ((3 & 0x3FFFFFF) << 38) | ((4 & 0x3FFFFFF) << 12) | (70 & 0xFFF)
+                recs.append(("game_packet", _vi(8) + struct.pack(">q", pos) + _vi(g)))
+            if t == 8:                                     # several in one section: (1, 69, 1)
+                sec = (0 << 42) | (0 << 20) | 4
+                recs.append(("game_packet", _vi(86) + struct.pack(">q", sec) + _vi(1)
+                             + _vi((g << 12) | (1 << 8) | (1 << 4) | 5)))
+            recs.append(("next_tick", b""))
+        tmp = tempfile.mkdtemp()
+        try:
+            z = os.path.join(tmp, "r.zip")
+            pkt = _chunk_packet(0, 0, self.ids)
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3",
+                                                         "chunks": {"c0.flashback": {"duration": 20}}}))
+                zf.writestr("level_chunk_caches/0", struct.pack(">I", len(pkt)) + pkt)
+                zf.writestr("c0.flashback", _fb_chunk(recs, [("level_chunk_cached", _vi(0))]))
+            st = moment.recording_state(z, 6)
+            self.assertEqual(st["loads"], [["minecraft:overworld", 0, 0]])
+            self.assertEqual(st["edits"], [[5, "minecraft:overworld", 3, 70, 4, g]])
+            world = moment.world_at([{"zip": z, "tick": 12, "when": lambda t: t * 50}], {(0, 0)},
+                                    "minecraft:overworld", os.path.join(tmp, "cache"))
+            c = world[(0, 0)]
+            self.assertEqual((c.state(3, 70, 4), c.state(1, 69, 1)), ("minecraft:glass", "minecraft:glass"))
+            self.assertEqual(c.tops[4 * 16 + 3], 70)
+            self.assertEqual(moment.world_at([{"zip": z, "tick": 12, "when": lambda t: t * 50}], {(5, 5)},
+                                             "minecraft:overworld", None), {})      # a chunk nobody saw: none
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestMobModels(unittest.TestCase):
     """Mob models read from the client jar's model code by a small bytecode interpreter."""
 

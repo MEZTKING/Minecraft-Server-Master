@@ -436,6 +436,23 @@ class HistoryMap(TerrainServer):
                 return bw.block_tile(int(tx), int(tz), "minecraft:" + dim, f"/blocktile/{int(layer)}/")
             except (ValueError, OSError) as exc:
                 return {"faces": 0, "message": str(exc)}
+        if path.startswith("/api/momentrecs/"):      # dev: the recordings running at a moment, /api/momentrecs/<t ms>
+            try:
+                self._moment_why = []
+                try:
+                    recs = self.recordings_at(int(path[len("/api/momentrecs/"):]))
+                    return {"recordings": [{"zip": os.path.basename(r["zip"]), "tick": r["tick"]} for r in recs],
+                            "not_running": self._moment_why}
+                finally:
+                    self._moment_why = None
+            except ValueError:
+                return {"recordings": []}
+        if path.startswith("/api/momenttile/"):      # blocks at a moment: /api/momenttile/<layer>/<dim>/<tx>/<tz>/<t ms>
+            try:
+                layer, dim, tx, tz, t = path[len("/api/momenttile/"):].split("/")
+                return self.moment_tile(int(layer), "minecraft:" + dim, int(tx), int(tz), int(t))
+            except (ValueError, OSError) as exc:
+                return {"faces": 0, "message": str(exc)}
         if path.startswith("/api/tl3d/"):            # the build's world in 3D: /api/tl3d/<id>/tiles|blocks
             parts = path[len("/api/tl3d/"):].split("/")
             if len(parts) == 2 and parts[1] in ("tiles", "blocks"):
@@ -611,6 +628,85 @@ class HistoryMap(TerrainServer):
                                     + [[t, v[0], v[1]] for t, v in world.get(k, {}).items()])
                           for k in set(world) | set(before)},
                 "mobs": {k: {"type": v["type"], "rows": [v["rows"][t] for t in sorted(v["rows"])]} for k, v in mobs.items()}}
+
+    # ---- blocks as they were at a moment (from the recordings' chunk data; see mcsm.moment) ----
+    def recordings_at(self, t: int) -> list[dict]:
+        """Every recording running at *t* (ms, world clock): ``{"zip", "tick", "when"}`` for :mod:`mcsm.moment`."""
+        from . import shot
+        self.paths()                                   # the world-clock offsets
+        players = paths_mod.player_uuids(self.data)
+        out = []
+        for r in self.data.replays:
+            if r.format != "flashback" or r.unfinished or r.start is None or any(c in r.path for c in APP_COPIES):
+                continue
+            s_ms = int(r.start.timestamp() * 1000)
+            if s_ms - 120_000 > t or s_ms + r.duration_ms + 120_000 < t:
+                continue
+            try:
+                zp = self.replay_file(r)
+            except (OSError, ValueError):
+                continue
+            track = os.path.join(self.cache_dir or paths_mod.default_cache_dir(), paths_mod._cache_key(zp, players) + ".jsonl")
+            off, meta = self._offsets.get(track), self._metas.get(track) or {}
+            a, b = shot.span(meta, off, s_ms, r.duration_ms)
+            if not a <= t <= b:
+                why = getattr(self, "_moment_why", None)        # dev: why a recording isn't used
+                if why is not None:
+                    why.append([os.path.basename(zp), a, b, off, bool(meta.get("clock"))])
+                continue
+            clock = meta.get("clock")
+
+            def when(tick, off=off, clock=clock, s_ms=s_ms):
+                return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
+            out.append({"zip": zp, "tick": shot.tick_at(meta, off, s_ms, t), "when": when})
+        return out
+
+    def moment_tile(self, layer: int, dim: str, tx: int, tz: int, t: int) -> dict:
+        """One piece of real blocks as the recordings saw it at *t*: built in the background (``pending`` until
+        then); ``moment`` False when no recording had any of its chunks loaded (the backup's piece)."""
+        from . import moment
+        key = (layer, dim, tx, tz, t)
+        done = self.__dict__.setdefault("_moment_done", {})
+        if key in done:
+            return done[key]
+        jobs = self.__dict__.setdefault("_moment_jobs", set())
+        lock = self.__dict__.setdefault("_moment_lock", threading.Lock())
+        slots = self.__dict__.setdefault("_moment_slots", threading.Semaphore(2))
+        with lock:
+            if key in jobs:
+                return {"pending": True}
+            jobs.add(key)
+
+        def work():
+            info: dict
+            with slots:
+                try:
+                    bw = self.layer_world(layer)
+                    if bw is None:
+                        info = {"faces": 0, "message": "that backup's world isn't readable"}
+                    else:
+                        n = bw.TILE // 16
+                        wanted = {(tx * n + i, tz * n + j) for i in range(-1, n + 1) for j in range(-1, n + 1)}
+                        cache = os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "moment")
+                        over = moment.world_at(self.recordings_at(t), wanted, dim, cache)
+                        inside = [k for k in over if tx * n <= k[0] < tx * n + n and tz * n <= k[1] < tz * n + n]
+                        if not inside:
+                            info = {**bw.block_tile(tx, tz, dim, f"/blocktile/{layer}/"), "moment": False}
+                        else:
+                            sig = "|".join(f"{k}:{c.loaded_ms}:{len(c.edits)}:{getattr(c, 'last_ms', 0)}"
+                                           for k, c in sorted(over.items()))
+                            info = {**bw.moment_tile(tx, tz, dim, f"/blocktile/{layer}/", over, sig), "moment": True,
+                                    "recorded_chunks": len(inside),
+                                    "edits": sum(len(over[k].edits) for k in inside)}
+                except (OSError, ValueError, zipfile.BadZipFile, struct.error, IndexError, KeyError) as exc:
+                    info = {"faces": 0, "message": f"blocks at that moment: {exc}"}
+            with lock:
+                done[key] = info
+                while len(done) > 200:
+                    done.pop(next(iter(done)))
+                jobs.discard(key)
+        threading.Thread(target=work, daemon=True).start()
+        return {"pending": True}
 
     def _exact_build(self, zp: str, players) -> None:
         """Read a recording in full for exact playback in the background (three at a time; each once)."""

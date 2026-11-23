@@ -788,10 +788,11 @@ def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[
 
 def build(root: str, world: str, points: list[tuple[float, float]], look: Look, radius: float = 80.0,
           max_chunks: int = 900, dimension: str = "minecraft:overworld",
-          only: set[tuple[int, int]] | None = None) -> dict:
+          only: set[tuple[int, int]] | None = None, overrides: dict | None = None) -> dict:
     """The visible block faces within *radius* of the (x, z) *points* (the camera path). With *only* (a set of
     chunk coordinates), exactly the blocks of those chunks; the chunks around them are read too, so faces at the
-    edge are hidden or shown correctly (pieces built side by side fit together)."""
+    edge are hidden or shown correctly (pieces built side by side fit together). *overrides*: chunks to use
+    instead of the backup's ((cx, cz) -> a chunk with the same interface, e.g. :class:`mcsm.moment.RecChunk`)."""
     if only is not None:
         core = set(only)
         want = {(cx + dx, cz + dz) for cx, cz in only for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
@@ -824,6 +825,9 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 chunks[(rx * 32 + lx, rz * 32 + lz)] = Chunk(raw)
             except (ValueError, IndexError, struct.error, KeyError, TypeError):
                 continue
+    for key, c in (overrides or {}).items():         # blocks as a recording saw them
+        if key in want:
+            chunks[key] = c
 
     infos = look.infos
     cache: dict[tuple[int, int, int], int | None] = {}

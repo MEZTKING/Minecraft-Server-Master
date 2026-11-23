@@ -131,10 +131,32 @@ class BuildWorld:
     def block_tile(self, tx: int, tz: int, dim: str, url_prefix: str) -> dict:
         """Real blocks of one 128 x 128 piece of the world (tile *tx*, *tz*), for the history viewer: built once
         and kept on disk (``blocktile-<key>.bin`` + ``.json``). ``faces`` 0: nothing there (not explored)."""
+        return self._tile(tx, tz, dim, url_prefix, self._tile_key(tx, tz, dim), "tiles-blocks", None)
+
+    MOMENT_KEEP = 400                                    # moment tiles kept on disk (the oldest go first)
+
+    def moment_tile(self, tx: int, tz: int, dim: str, url_prefix: str, overrides: dict, sig: str) -> dict:
+        """Real blocks of one piece with *overrides* (chunks as recordings saw them at a moment, see
+        :mod:`mcsm.moment`) in place of the backup's; *sig* identifies that state. Kept in a bounded cache."""
+        key = hashlib.sha1(f"{self._tile_key(tx, tz, dim)}|moment|{sig}".encode()).hexdigest()[:20]
+        info = self._tile(tx, tz, dim, url_prefix, key, "tiles-moment", overrides)
+        folder = os.path.join(self.cache, "tiles-moment")
+        try:
+            files = sorted((e for e in os.scandir(folder) if e.name.endswith(".json")), key=lambda e: e.stat().st_mtime)
+            for e in files[:max(0, len(files) - self.MOMENT_KEEP)]:
+                for ext in (".json", ".bin"):
+                    try:
+                        os.remove(e.path[:-5] + ext)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        return info
+
+    def _tile(self, tx: int, tz: int, dim: str, url_prefix: str, key: str, folder: str, overrides) -> dict:
         import json
         n = self.TILE // 16
-        key = self._tile_key(tx, tz, dim)
-        base = os.path.join(self.cache, "tiles-blocks", key)
+        base = os.path.join(self.cache, folder, key)
         try:
             with open(base + ".json", encoding="utf-8") as fh:
                 info = json.load(fh)
@@ -146,7 +168,7 @@ class BuildWorld:
         if not look.zf:
             return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
         only = {(tx * n + i, tz * n + j) for i in range(n) for j in range(n)}
-        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only)
+        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides)
         os.makedirs(os.path.dirname(base), exist_ok=True)
         if r["faces"]:
             with open(base + ".bin.part", "wb") as fh:
@@ -180,8 +202,11 @@ class BuildWorld:
     def block_tile_file(self, key: str) -> str | None:
         if not all(c in "0123456789abcdef" for c in key) or len(key) != 20:
             return None
-        p = os.path.join(self.cache, "tiles-blocks", key + ".bin")
-        return p if os.path.isfile(p) else None
+        for folder in ("tiles-blocks", "tiles-moment"):
+            p = os.path.join(self.cache, folder, key + ".bin")
+            if os.path.isfile(p):
+                return p
+        return None
 
     def blocks_file(self) -> str:
         return os.path.join(self.cache, f"blocks-{self.key}.bin")

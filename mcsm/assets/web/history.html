@@ -159,6 +159,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     </select></label>
     <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
     <label title="Close up, show the real blocks with Minecraft's textures from the backup shown (loaded around where you look as you move; further away the map stays smooth)"><input type="checkbox" id="realOn" checked> Real blocks</label>
+    <label title="During exact playback, show the blocks near you as the recordings saw them at that moment (built as they were, not as the next backup has them); updated every 30 seconds of playback and when you jump"><input type="checkbox" id="momentOn" checked> As at that moment<span id="momentAt" style="opacity:.7"></span></label>
   </div>
   <details id="showBox" title="What to show on the map">
     <summary>Show</summary>
@@ -699,7 +700,14 @@ function fillTerrainMenu() {
 $("#terrainSel").onchange = () => { terrainMode = $("#terrainSel").value; loadTerrain($("#dim").value); };
 
 // ---------- real blocks close up: 128 x 128 pieces of the backup shown, loaded around where you look ----------
-const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map(), failed: new Set() };
+const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map(), failed: new Set(), wait: new Map() };
+// blocks at the moment (exact playback): the nearest pieces come from the recordings' chunk data at a time rounded
+// to MOMENT_STEP, so a piece is rebuilt every 30 s of playback (and when you jump)
+const MOMENT_STEP = 30_000, MOMENT_TILES = 9;
+function momentTime() {
+  if (!$("#momentOn").checked || !EXACT.on || !(T >= EXACT.lo && T <= EXACT.hi)) return null;
+  return Math.floor(T / MOMENT_STEP) * MOMENT_STEP;
+}
 const REAL_TILE = 128;
 function realClear() {
   for (const T of REAL.tiles.values()) for (const m of T.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
@@ -743,14 +751,26 @@ async function realStep(now) {
     for (const m of T.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.delete(id);
   }
-  const next = want.find(([x, z]) => !REAL.tiles.has(`${x},${z}`) && !REAL.failed.has(`${key}|${x},${z}`));
+  const mt = momentTime(), mtOf = i => (mt !== null && i < MOMENT_TILES ? mt : null);
+  const wantMt = new Map(want.map(([x, z], i) => [`${x},${z}`, mtOf(i)]));
+  let next = want.find(([x, z]) => !REAL.tiles.has(`${x},${z}`) && !REAL.failed.has(`${key}|${x},${z}`));
+  if (!next) next = want.find(([x, z]) => {                 // a piece shown at another moment (or the backup's)
+    const id = `${x},${z}`, T0 = REAL.tiles.get(id), w = wantMt.get(id);
+    return T0 && (T0.mt ?? null) !== w && !(REAL.wait.get(`${id}|${w}`) > now) && !REAL.failed.has(`${key}|${id}|${w}`);
+  });
+  const shownAt = [...REAL.tiles.values()].find(t => t.moment)?.mt;     // say which moment the blocks are from
+  $("#momentAt").textContent = shownAt ? ` (${new Date(shownAt).toLocaleTimeString()})` : "";
   if (!next) { realClip(); return; }
   REAL.busy = true;
-  const [tx, tz] = next, id = `${tx},${tz}`;
+  const [tx, tz] = next, id = `${tx},${tz}`, mtx = wantMt.get(id) ?? null;
   try {
-    const info = await (await fetch(`api/blocktile/${layer}/${dim.replace("minecraft:", "")}/${tx}/${tz}`)).json();
+    const url = mtx === null ? `api/blocktile/${layer}/${dim.replace("minecraft:", "")}/${tx}/${tz}`
+      : `api/momenttile/${layer}/${dim.replace("minecraft:", "")}/${tx}/${tz}/${mtx}`;
+    const info = await (await fetch(url)).json();
     if (REAL.key !== key) return;
-    const T = { x0: tx * REAL_TILE, z0: tz * REAL_TILE, meshes: [] };
+    if (info.pending) { REAL.wait.set(`${id}|${mtx}`, now + 1500); return; }   // being built: ask again soon
+    const old = REAL.tiles.get(id);
+    const T = { x0: tx * REAL_TILE, z0: tz * REAL_TILE, meshes: [], mt: mtx, moment: !!info.moment, edits: info.edits || 0 };
     if (info.faces) {
       const akey = layer + "|" + info.jar + "|" + info.textures.join("|");        // each backup's own game textures
       if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
@@ -759,9 +779,10 @@ async function realStep(now) {
       if (REAL.key !== key) return;
       T.meshes = blockMeshes(info, buf, atlas);                // in the current graphics mode
       for (const m of T.meshes) { if (!m.isPoints) m.material.map = atlas.tex; scene.add(m); }
-    } else if (info.message) REAL.failed.add(`${key}|${id}`);
+    } else if (info.message) REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`);
+    if (old && old !== T) for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.set(id, T); realClip();
-  } catch (e) { REAL.failed.add(`${key}|${id}`); }
+  } catch (e) { REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`); }
   finally { REAL.busy = false; }
 }
 $("#realSkins").checked = store.get("mcsm-real-skins") !== "0";
@@ -775,6 +796,8 @@ $("#realSkins").onchange = () => {
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
+$("#momentOn").checked = store.get("mcsm-moment") !== "0";
+$("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
 window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -2333,7 +2356,10 @@ function devState() {
       pos: camera.position.toArray().map(r1), looking: d.toArray().map(v => Math.round(v * 100) / 100),
       target: FREE.on || SPEC.name ? undefined : controls.target.toArray().map(r1) },
     dimension: $("#dim").value, terrain_layer: shownLayer[$("#dim").value] ?? 0,
-    real_blocks: { pieces: REAL.tiles.size, busy: REAL.busy, failed: REAL.failed.size, note: REAL.note || undefined },
+    real_blocks: { pieces: REAL.tiles.size, busy: REAL.busy, failed: REAL.failed.size, note: REAL.note || undefined,
+      at_moment: [...REAL.tiles.values()].filter(t => t.moment).length,
+      moment_time: momentTime() === null ? undefined : new Date(momentTime()).toISOString(),
+      changed_blocks: [...REAL.tiles.values()].reduce((a, t) => a + (t.moment ? t.edits : 0), 0) },
     exact: { on: EXACT.on, from: EXACT.lo ? new Date(EXACT.lo).toISOString() : null, to: EXACT.hi ? new Date(EXACT.hi).toISOString() : null,
       players: Object.keys(EXACT.rows).length, mobs: Object.keys(EXACT.mobs).length, busy: EXACT.busy, fetch_ms: DEV.exactMs },
     render: { fps: DEV.fps, draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
