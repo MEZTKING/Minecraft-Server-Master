@@ -30,6 +30,13 @@ position (verified on real ServerReplay 3.5.2/3.6.0 files, 2026-11-21).
   view. For unknown protocol versions, other players stop being tracked
   :data:`OTHER_TIMEOUT_TICKS` after they last moved.
 
+**The world clock** (designed with Fable, 2026-11-23): every second the server sends each player the world's
+game time (a set-time game packet starting with ``i64 gameTime``), and that counter is the same in every
+recording. Its packet id differs per version, so it is found by behaviour: the packet whose first 8 bytes rise
+by exactly the ticks passed. Each recording keeps ``[[tick, gameTime], ...]`` breakpoints (a jump means the
+recording was paused there), so all recordings line up to the tick, whatever the lag; :func:`world_offsets`
+turns game time into real time (one offset per stretch of overlapping recordings, from their save times).
+
 Output is in the live-map track format (one JSON object per line)::
 
     {"t": <epoch ms>, "players": [{"name", "x", "y", "z", "yaw", "pitch", "dimension"}]}
@@ -55,7 +62,7 @@ SAMPLE_TICKS = 20          # at most one point per second
 KEEPALIVE_TICKS = 20 * 15  # ...and at least one every 15 s while the player stands still
 MIN_MOVE = 0.25            # blocks
 OTHER_TIMEOUT_TICKS = 20 * 60   # other players without a known remove packet: stop after 1 min still
-CACHE_VERSION = 2
+CACHE_VERSION = 3          # 3: rows carry their tick ("k") and the file ends with the recording's clock
 
 # Game packet ids by protocol version (found in the owner's real recordings, 2026-11-21:
 # add entity carries a known player's UUID; remove entities is the only "[count, ids]" packet
@@ -98,15 +105,29 @@ def _protocol(z: zipfile.ZipFile) -> int | None:
         return None
 
 
-def decode_entities(zip_path: str, players: dict[bytes, str] | None = None
-                    ) -> Iterator[tuple[int, str | None, str, float, float, float, float, float]]:
-    """Yield ``(tick, who, dimension, x, y, z, yaw, pitch)``, sampled about once a second.
+CLOCK_PROBE_TICKS = 600     # the world clock's packet is found in the first 30 s
+
+
+def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, every: int = SAMPLE_TICKS,
+                    min_move: float = MIN_MOVE, clock: list | None = None, full: bool = False
+                    ) -> Iterator[tuple]:
+    """Yield ``(tick, who, dimension, x, y, z, yaw, pitch)``, sampled about once a second (every *every* ticks,
+    when moved at least *min_move* blocks; *full*: also ``head yaw, on ground``).
 
     ``who`` is None for the recorded player, else the name of another player in view (from
-    *players*: ``{16-byte UUID: name}``). Raises ``ValueError`` for files that aren't
-    Flashback replays.
+    *players*: ``{16-byte UUID: name}``). With *clock* (a list), the recording's world-clock breakpoints
+    ``[tick, gameTime]`` are added to it (see the module docstring). Raises ``ValueError`` for files that
+    aren't Flashback replays.
     """
     players = players or {}
+    probe: dict[int, list] = {}          # packet id -> [(tick, first i64)] while looking for the world clock
+    time_pid: int | None = None
+
+    def clock_point(t: int, gt: int) -> None:
+        if not clock or abs((gt - t) - (clock[-1][1] - clock[-1][0])) > 2:
+            clock.append([t, gt])            # the first, and wherever the recording was paused
+        clock_last[:] = [t, gt]
+    clock_last: list = []
     with zipfile.ZipFile(zip_path) as z:
         proto = _protocol(z)
         add_id = ADD_ENTITY.get(proto, DEFAULT_ADD_ENTITY)
@@ -144,10 +165,20 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None
                     aid, i = _varint(b, i)
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
+                    if clock is not None and aid == gp and size >= 9:
+                        pid = b[i]
+                        if pid == time_pid:
+                            clock_point(tick, struct.unpack_from(">q", b, i + 1)[0])
+                        elif time_pid is None and pid < 128:
+                            lst = probe.setdefault(pid, [])
+                            if len(lst) < 40:
+                                lst.append((tick, struct.unpack_from(">q", b, i + 1)[0]))
                     if aid == nt:
                         tick += 1
-                        if tick % SAMPLE_TICKS == 0:
-                            yield from _sample(tick, cur, last_out, last_move, others, remove_id)
+                        if clock is not None and time_pid is None and tick == CLOCK_PROBE_TICKS:
+                            time_pid = _find_clock(probe, clock_point)
+                        if tick % every == 0:
+                            yield from _sample(tick, cur, last_out, last_move, others, remove_id, min_move, full)
                     elif aid == gp and size > 2 and players and (b[i] == add_id or b[i] == remove_id):
                         # (ids below 128 are one byte; this skips the ~40 other packets per tick cheaply)
                         pid, k = _varint(b, i)
@@ -182,7 +213,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None
                             n, j = _varint(p, j)
                             for _ in range(n):
                                 eid, j = _varint(p, j)
-                                x, y, zz, yaw, pitch, _hy = _POS.unpack_from(p, j)
+                                x, y, zz, yaw, pitch, hy = _POS.unpack_from(p, j)
+                                gr = p[j + _POS.size] if full else 0
                                 j += _POS.size + 1
                                 if me is None and local is not None and eid not in first_seen:
                                     first_seen[eid] = (x, y, zz)
@@ -191,16 +223,42 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None
                                         others.pop(eid, None)
                                         cur.pop(eid, None)
                                 if eid == me:
-                                    cur[None] = {"dim": dim, "x": x, "y": y, "z": zz, "yaw": yaw, "pitch": pitch}
+                                    cur[None] = {"dim": dim, "x": x, "y": y, "z": zz, "yaw": yaw, "pitch": pitch,
+                                                 "head": hy, "ground": gr}
                                     dim_now = dim
                                 elif eid in others:
                                     cur[eid] = {"dim": dim, "x": x, "y": y, "z": zz, "yaw": yaw, "pitch": pitch,
-                                                "name": others[eid]}
+                                                "head": hy, "ground": gr, "name": others[eid]}
                                     last_move[eid] = tick
                     i += size
+        if clock is not None:
+            if time_pid is None:
+                _find_clock(probe, clock_point)
+            if clock_last and clock and clock[-1][0] != clock_last[0]:
+                clock.append([clock_last[0], clock_last[1]])     # the last reading: where the recording ends
 
 
-def _sample(tick, cur, last_out, last_move, others, remove_id):
+def _find_clock(probe: dict, clock_point) -> int | None:
+    """The packet id of the world clock: its first 8 bytes rise by the ticks passed (allowing a tick either way, as a
+    packet can land on either side of a tick). Replays its readings into *clock_point*; None if there's none."""
+    best, best_pid = 0.0, None
+    for pid, v in probe.items():
+        if len(v) < 5:
+            continue
+        steps = [(t1 - t0, g1 - g0) for (t0, g0), (t1, g1) in zip(v, v[1:]) if t1 > t0]
+        if len(steps) < 4:
+            continue
+        ok = sum(1 for dt, dg in steps if abs(dg - dt) <= 1) / len(steps)
+        if ok > best:
+            best, best_pid = ok, pid
+    if best_pid is None or best < 0.8:
+        return None
+    for t, g in probe[best_pid]:
+        clock_point(t, g)
+    return best_pid
+
+
+def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE, full=False):
     for key, c in sorted(cur.items(), key=lambda kv: kv[0] is not None):    # the recorded player first
         if key is not None:
             if key not in others:
@@ -209,10 +267,15 @@ def _sample(tick, cur, last_out, last_move, others, remove_id):
                 continue                     # unknown protocol: can't tell when they left view
         lo = last_out.get(key)
         moved = (lo is None or lo[4] != c["dim"]
-                 or abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) >= MIN_MOVE)
+                 or abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) >= min_move
+                 or (full and (c["yaw"], c["pitch"], c.get("head")) != lo[5:8]))
         if moved or tick - lo[0] >= KEEPALIVE_TICKS:
-            last_out[key] = (tick, c["x"], c["y"], c["z"], c["dim"])
-            yield tick, c.get("name"), c["dim"], c["x"], c["y"], c["z"], c["yaw"], c["pitch"]
+            last_out[key] = (tick, c["x"], c["y"], c["z"], c["dim"], c["yaw"], c["pitch"], c.get("head"))
+            if full:
+                yield (tick, c.get("name"), c["dim"], c["x"], c["y"], c["z"], c["yaw"], c["pitch"],
+                       c.get("head", c["yaw"]), c.get("ground", 0))
+            else:
+                yield tick, c.get("name"), c["dim"], c["x"], c["y"], c["z"], c["yaw"], c["pitch"]
 
 
 def decode_points(zip_path: str) -> Iterator[tuple[int, str, float, float, float, float, float]]:
@@ -257,12 +320,15 @@ def replay_track(replay: m.Replay, zip_path: str, cache_dir: str | None,
 
     def flush(fh, tick, rows):
         if rows:
-            fh.write(json.dumps({"t": start_ms + tick * 50, "source": "replay", "recorded_by": replay.recorded_player,
-                                 "players": rows}) + "\n")
+            fh.write(json.dumps({"t": start_ms + tick * 50, "k": tick, "source": "replay",
+                                 "recorded_by": replay.recorded_player, "players": rows}) + "\n")
 
+    clock: list = []
+    last_tick = 0
     with open(tmp, "w", encoding="utf-8") as fh:
         cur_tick, rows = None, []
-        for tick, who, dim, x, y, z, yaw, pitch in decode_entities(zip_path, players):
+        for tick, who, dim, x, y, z, yaw, pitch in decode_entities(zip_path, players, clock=clock):
+            last_tick = tick
             if tick != cur_tick:
                 flush(fh, cur_tick, rows)
                 cur_tick, rows = tick, []
@@ -272,6 +338,12 @@ def replay_track(replay: m.Replay, zip_path: str, cache_dir: str | None,
                 row["seen"] = True                # in view of the recorded player, not recording themselves
             rows.append(row)
         flush(fh, cur_tick, rows)
+        arcade = (replay.raw_meta or {}).get("arcade") or {}
+        save = arcade.get("epoch_time_ms") if isinstance(arcade.get("epoch_time_ms"), (int, float)) else None
+        if rows or cur_tick is not None or clock:            # the recording's clock, for lining recordings up
+            fh.write(json.dumps({"meta": {"clock": clock, "ticks": max(last_tick, replay.duration_ms // 50),
+                                          "save_ms": save, "start_ms": start_ms,
+                                          "recorded_by": replay.recorded_player}}) + "\n")
     os.replace(tmp, out)
     return out if os.path.getsize(out) else None
 
@@ -305,23 +377,126 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-def read_tracks(files: list[str]) -> dict[str, list[list]]:
+def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None) -> dict:
+    """Every recorded position of a recording, for exact playback: whenever someone moved or turned (up to 20 a
+    second; at least every 15 s): ``{"who": [names, None = the recorded player], "dims": [...], "rows": [[tick,
+    who index, dim index, x, y, z, yaw, pitch, head yaw], ...]}``. Worked out once, kept as ``<key>.exact.json.gz``."""
+    import gzip
+    cache_dir = cache_dir or default_cache_dir()
+    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact.json.gz")
+    try:
+        with gzip.open(out, "rt", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError, EOFError):
+        pass
+    who: list = []
+    dims: list = []
+    rows = []
+    for tick, w, dim, x, y, z, yaw, pitch, head, _ground in decode_entities(zip_path, players, every=1, min_move=0.01,
+                                                                           full=True):
+        if w not in who:
+            who.append(w)
+        if dim not in dims:
+            dims.append(dim)
+        rows.append([tick, who.index(w), dims.index(dim), round(x, 3), round(y, 3), round(z, 3),
+                     round(yaw, 1), round(pitch, 1), round(head if head is not None else yaw, 1)])
+    data = {"who": who, "dims": dims, "rows": rows}
+    os.makedirs(cache_dir, exist_ok=True)
+    with gzip.open(out + ".part", "wt", encoding="utf-8") as fh:
+        json.dump(data, fh, separators=(",", ":"))
+    os.replace(out + ".part", out)
+    return data
+
+
+def read_meta(path: str) -> dict | None:
+    """A recording track file's clock (its last line): ``{"clock", "ticks", "save_ms", "start_ms"}``, or None."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            n = fh.tell()
+            fh.seek(max(0, n - 65536))
+            last = fh.read().splitlines()[-1:]
+        row = json.loads(last[0]) if last else {}
+    except (OSError, ValueError, IndexError):
+        return None
+    return row.get("meta") if isinstance(row, dict) else None
+
+
+def game_time(clock: list, tick: int) -> int:
+    """The world's game time at *tick* of a recording, from its clock breakpoints."""
+    import bisect
+    i = bisect.bisect_right(clock, [tick, float("inf")]) - 1
+    t0, g0 = clock[max(0, i)][:2]
+    return g0 + (tick - t0)
+
+
+def world_offsets(metas: dict[str, dict]) -> dict[str, int]:
+    """``{file: offset_ms}`` so that real time = offset + game time x 50 ms, the same offset for every recording in a
+    stretch of overlapping play (so they line up to the tick). Each recording suggests an offset from its save time
+    (else its start); recordings close in game time whose suggestions agree within 30 s (no server restart between)
+    share the median."""
+    rows = []
+    for f, m in metas.items():
+        clock = (m or {}).get("clock") or []
+        if not clock:
+            continue
+        g0 = clock[0][1] - clock[0][0]
+        g1 = game_time(clock, int(m.get("ticks") or clock[-1][0]))
+        if m.get("save_ms"):
+            anchor, good = m["save_ms"] - g1 * 50, True
+        elif m.get("start_ms"):
+            anchor, good = m["start_ms"] - g0 * 50, False
+        else:
+            continue
+        rows.append((g0, g1, anchor, good, f))
+    rows.sort()
+    out: dict[str, int] = {}
+    group: list = []
+    gmax = None
+
+    def settle():
+        if not group:
+            return
+        best = [a for _g0, _g1, a, good, _f in group if good] or [a for _g0, _g1, a, _good, _f in group]
+        best.sort()
+        off = best[len(best) // 2]
+        for r in group:
+            out[r[4]] = int(off)
+    for r in rows:
+        if group and r[0] <= gmax + 1200:
+            med = sorted(x[2] for x in group)[len(group) // 2]
+            if abs(r[2] - med) < 30_000:
+                group.append(r)
+                gmax = max(gmax, r[1])
+                continue
+        settle()
+        group, gmax = [r], r[1]
+    settle()
+    return out
+
+
+def read_tracks(files: list[str], timing: dict[str, tuple[int, list]] | None = None) -> dict[str, list[list]]:
     """``{player: [[t_ms, x, y, z, dimension(, seen_by)], ...]}``, time-sorted, from track files.
 
     ``seen_by`` (the recording's player) is present when the position comes from someone
-    else's recording."""
+    else's recording. With *timing* (``{file: (offset_ms, clock)}``), recording points get their time from the
+    world clock (see :func:`world_offsets`) instead of the recording's estimated start."""
     out: dict[str, list[list]] = {}
     for f in files:
+        off, clock = (timing or {}).get(f, (None, None))
         with open(f, encoding="utf-8") as fh:
             for line in fh:
                 try:
                     row = json.loads(line)
                 except ValueError:
                     continue
+                t = row.get("t")
+                if off is not None and clock and row.get("k") is not None:
+                    t = off + game_time(clock, row["k"]) * 50
                 for p in row.get("players") or []:
                     if p.get("x") is None:
                         continue
-                    pt = [row["t"], p["x"], p["y"], p["z"], p.get("dimension") or "minecraft:overworld"]
+                    pt = [t, p["x"], p["y"], p["z"], p.get("dimension") or "minecraft:overworld"]
                     if p.get("seen") and row.get("recorded_by"):
                         pt.append(row["recorded_by"])
                     out.setdefault(p["name"], []).append(pt)

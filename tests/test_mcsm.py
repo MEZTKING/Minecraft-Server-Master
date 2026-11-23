@@ -1075,6 +1075,62 @@ def _fb_move(entities: list[tuple[int, float, float, float]], dim: str = "minecr
     return p
 
 
+class TestWorldClock(unittest.TestCase):
+    """Recordings lined up on the world's game time (the set-time packet), pauses found, real time per stretch."""
+
+    @staticmethod
+    def _rec(path, start_gt, ticks, pause_at=None, pause=0):
+        import struct
+        recs = [("create_local_player", struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 0.0, 64.0, 0.0) + b"\0" * 40)]
+        gt = start_gt
+        for t in range(ticks):
+            if t == pause_at:
+                gt += pause                               # the recording was paused: the world went on
+            recs.append(("move_entities", _fb_move([(7, t / 20, 64.0, 0.0)])))
+            if t % 20 == 1:                               # set time (26.3: id 115): game time, day time, ticking
+                recs.append(("game_packet", _vi(115) + struct.pack(">qq?", gt, gt % 24000, True)))
+            recs.append(("next_tick", b""))
+            gt += 1
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("metadata.json", json.dumps({"protocol_version": 777}))
+            zf.writestr("c0.flashback", _fb_chunk(recs))
+
+    def test_clock(self):
+        from mcsm import paths
+        tmp = tempfile.mkdtemp()
+        try:
+            a, b = os.path.join(tmp, "a.zip"), os.path.join(tmp, "b.zip")
+            self._rec(a, 50_000, 1000, pause_at=500, pause=200)
+            self._rec(b, 50_300, 600)
+            ca, cb = [], []
+            list(paths.decode_entities(a, clock=ca))
+            list(paths.decode_entities(b, clock=cb))
+            self.assertEqual(len(ca), 3)                                   # start, the pause, the last reading
+            self.assertEqual(paths.game_time(ca, 100), 50_100)
+            self.assertEqual(paths.game_time(ca, 700), 50_900)             # 200 ticks of pause before
+            self.assertEqual(paths.game_time(cb, 0), 50_300)
+            # real time: both end on the same clock; a third recording after a server restart (its save says so)
+            metas = {"a": {"clock": ca, "ticks": 999, "save_ms": 1_000_000 + 51_199 * 50},
+                     "b": {"clock": cb, "ticks": 599, "save_ms": 1_000_000 + 50_899 * 50 + 900},   # saved a bit late
+                     "c": {"clock": [[0, 51_300]], "ticks": 100, "save_ms": 9_000_000 + 51_400 * 50}}
+            off = paths.world_offsets(metas)
+            self.assertEqual(off["a"], off["b"])                           # one stretch of play: one offset
+            self.assertNotEqual(off["a"], off["c"])                        # after a restart: its own
+            # the same moment in both recordings gets the same time, to the tick
+            ta = off["a"] + paths.game_time(ca, 700) * 50
+            tb = off["b"] + paths.game_time(cb, 600) * 50                  # game time 50,900 in both
+            self.assertEqual(ta, tb)
+            # every recorded movement (for exact playback), kept once
+            ex = paths.exact_rows(b, os.path.join(tmp, "cache"))
+            self.assertEqual(ex["who"], [None])
+            self.assertGreater(len(ex["rows"]), 500)                       # every tick (it moves each tick)
+            self.assertEqual(ex["rows"][10][:2], [11, 0])
+            self.assertEqual(ex["rows"][10][6:9], [90.0, 0.0, 90.0])       # yaw, pitch, head yaw
+            self.assertEqual(paths.exact_rows(b, os.path.join(tmp, "cache")), ex)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestHistory(unittest.TestCase):
     """Player paths from Flashback recordings, and the history viewer's data and web server."""
 

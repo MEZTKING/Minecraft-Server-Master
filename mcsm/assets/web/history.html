@@ -625,7 +625,7 @@ $("#realSkins").onchange = () => {
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
-window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false) };   // for checking the view
+window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -643,7 +643,44 @@ function onlineAt(name, t) {
   return (s.end == null ? t <= H.range[1] : t <= s.end) ? s : null;
 }
 // Interpolated position at t, or the last point if it is recent; {pos, dim, fresh}.
+// Exact playback: close to the players at 1x or 10x (or paused), every recorded movement and turn (up to 20 a second)
+// for the time around you, on the world clock; elsewhere the lighter overview paths.
+const EXACT = { lo: 0, hi: 0, rows: {}, busy: false, last: 0, on: false };
+function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
+  return !!H && +$("#speed").value <= 10 && camera.position.distanceTo(controls.target) < 600;
+}
+async function exactStep(now) {
+  EXACT.on = exactWanted();
+  if (!EXACT.on || EXACT.busy || now - EXACT.last < 400) return;
+  const ahead = Math.max(60_000, 30_000 * +$("#speed").value);
+  if (T >= EXACT.lo + 5_000 && T <= EXACT.hi - ahead / 3) return;          // still covered
+  EXACT.busy = true; EXACT.last = now;
+  const from = Math.round(T - 10_000), to = Math.round(T + ahead);
+  try {
+    const r = await (await fetch(`api/exact/${from}/${to}`)).json();
+    EXACT.rows = r.players || {}; EXACT.lo = from; EXACT.hi = to;
+    EXACT.busy = false;
+    update(performance.now(), true);                   // show them where they really were (also when paused)
+  } catch (e) { /* the overview paths stay */ }
+  finally { EXACT.busy = false; }
+}
+function exactAt(name, t) {
+  const rows = EXACT.on && t >= EXACT.lo && t <= EXACT.hi && EXACT.rows[name];
+  if (!rows || !rows.length || t < rows[0][0]) return null;
+  const i = lower(rows, t, r => r[0]), a = rows[i - 1], b = rows[i];
+  if (!a || t - a[0] > 16_000) return null;                // not recorded here (keep-alive rows come every 15 s)
+  let pos = [a[1], a[2], a[3]], yaw = a[5], pitch = a[6], head = a[7];
+  // consecutive ticks: glide; a longer gap means they stood still until the next row
+  if (b && b[0] - a[0] <= 120 && a[4] === b[4] && Math.abs(b[1] - a[1]) + Math.abs(b[3] - a[3]) < 8) {
+    const f = (t - a[0]) / Math.max(1, b[0] - a[0]), turn = (x, y) => x + ((((y - x) % 360) + 540) % 360 - 180) * f;
+    pos = [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f];
+    yaw = turn(a[5], b[5]); pitch = a[6] + (b[6] - a[6]) * f; head = turn(a[7], b[7]);
+  }
+  return { pos, dim: a[4], fresh: true, exact: true, yaw, pitch, head };
+}
 function positionAt(name, t) {
+  const ex = exactAt(name, t);
+  if (ex) return ex;
   const pts = P[name]; if (!pts || !pts.length) return null;
   const i = lower(pts, t, p => p[0]);
   const a = pts[i - 1], b = pts[i];
@@ -737,10 +774,19 @@ function playerFigure(name, colour, real = null) {
   return { fig, parts, mat, ring };
 }
 function animateFigure(m, now) {
-  // face the way the player moves and swing arms and legs with their speed
+  // exact playback: body, head and look as recorded; otherwise face the way the player moves. Arms and legs swing
+  // with their speed.
   const p = m.group.position, last = m.last || p.clone(), dt = Math.max(1, now - (m.lastT || now)) / 1000;
   const dx = p.x - last.x, dz = p.z - last.z, sp = Math.hypot(dx, dz) / dt;
-  if (Math.hypot(dx, dz) > 0.02) m.yaw = Math.atan2(dx, dz);
+  const c = m.cur, P0 = m.F.parts;
+  if (c && c.exact && c.yaw !== undefined) {
+    const r = d => d * Math.PI / 180;
+    m.F.fig.rotation.y = -r(c.yaw); m.yaw = undefined;
+    P0.head.rotation.y = -r((((c.head - c.yaw) % 360) + 540) % 360 - 180); P0.head.rotation.x = r(c.pitch);
+  } else {
+    P0.head.rotation.set(0, 0, 0);
+    if (Math.hypot(dx, dz) > 0.02) m.yaw = Math.atan2(dx, dz);
+  }
   if (m.yaw !== undefined) {
     let dy = m.yaw - m.F.fig.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     m.F.fig.rotation.y += dy * Math.min(1, dt * 8);
@@ -1638,6 +1684,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   realStep(now);                                       // real blocks around where you look
+  exactStep(now);                                      // every recorded movement, close up at 1x / 10x
   if (H && H.range) {
     if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
       storyStep(now, dt);

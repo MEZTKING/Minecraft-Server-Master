@@ -770,6 +770,29 @@ no in-world-text support (only 26.1–26.3). One timeline (one world, one story)
 Still to check: decoding positions per protocol and terrain/changes across the 1.21 → 26 boundary (block renames
 could look like changes).
 
+### 0z. Recordings played back exactly, all at once (raised 2026-11-23)
+
+Owner: "are player movements accurate?" then "make sure everything is exactly like the recordings, so everything can
+be played at once accurately".
+
+Design by Fable, 2026-11-23:
+
+1. ✅ **World clock.** The set-time game packet's i64 game time is shared by all recordings. Its packet id is found
+   by behaviour (111 / 113 / 115 in the owner's 773 / 775 / 777 recordings). Per recording, `[tick, gameTime]`
+   breakpoints, with pauses as jumps. `paths.world_offsets` gives one offset per stretch of overlapping play,
+   from the save times; ServerReplay 3.4.x recordings without the clock keep the old estimate.
+2. ✅ **Exact playback.** `paths.exact_rows` holds every movement and turn of a recording (`.exact.json.gz`, built
+   on first view) and `/api/exact/<from>/<to>` serves it. The page uses it zoomed in at 1x or 10x: position,
+   body yaw, head yaw and pitch, with each player's own recording first.
+3. **Next.** Sneaking, swimming and elytra from entity-data index 0 (a flags byte stable across versions), arm
+   swing from `animate`, mobs and pets as boxes from add-entity types. Per-version packet ids would come from
+   the server jar's `--reports`.
+4. **Deferred.** Held items and armour (the item codec changes every version), mob metadata, and block changes from
+   recordings (the terrain stays the backup).
+
+Measured before the change: computed starts were typically 1.5–3 s after the file-name time, 90% within 7 s,
+independent of length. After it, recordings of the same moment share game time to the tick.
+
 ### 0w. End-of-year review for everyone and for each player (raised 2026-11-23, for the future)
 
 **The ask:** "for future plans, i want to add a end of year progress for everyone, one that shows everyones
@@ -1151,6 +1174,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Exact playback (0z steps 1-2, Fable's design).
+  - The world clock in every recording (`paths` `CACHE_VERSION` 3: rows keep their tick and the file ends with
+    the clock; all paths are decoded again once, about 15 minutes for the owner's 2,446 recordings).
+  - `world_offsets`.
+  - Exact rows per recording and `/api/exact`.
+  - The page plays them zoomed in at 1x and 10x, with body, head and look.
 
 - **2026-11-23:** Real blocks rebuilt after the owner's screenshots (gaps, flat lighting, box players, empty
   interiors).

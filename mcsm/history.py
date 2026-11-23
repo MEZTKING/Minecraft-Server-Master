@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import math
 import os
+import struct
 import threading
+import zipfile
 from typing import Callable
 
 from . import models as m, paths as paths_mod
@@ -178,6 +180,8 @@ class HistoryMap(TerrainServer):
                  terrain_label: str = "", terrain_time: int | None = None):
         from . import highlights as hl
         self.data, self.replay_file = data, replay_file
+        self._metas, self._offsets, self._loaded_off = {}, {}, {}
+        self._exact_lock = threading.Lock()
         self._skins, self._skin_lock = None, threading.Lock()
         if not highlights_file and data.library_world:      # a library world keeps its own highlights
             highlights_file = os.path.join(data.library_world, "highlights.json")
@@ -356,9 +360,17 @@ class HistoryMap(TerrainServer):
             files = self._track_files + self._replay_tracks
         if self._paths_cache and self._paths_cache[0] == len(files):
             return self._paths_cache[1]
-        for f in files:                       # each file is read once
-            if f not in self._loaded:
-                self._loaded[f] = paths_mod.read_tracks([f])
+        # line the recordings up on the world clock (one offset per stretch of overlapping play)
+        for f in files:
+            if f not in self._metas:
+                self._metas[f] = paths_mod.read_meta(f)
+        self._offsets = paths_mod.world_offsets({f: self._metas[f] for f in files if self._metas.get(f)})
+        for f in files:                       # each file is read once (again if its offset changed)
+            off = self._offsets.get(f)
+            if f not in self._loaded or self._loaded_off.get(f) != off:
+                timing = {f: (off, self._metas[f]["clock"])} if off is not None else None
+                self._loaded[f] = paths_mod.read_tracks([f], timing)
+                self._loaded_off[f] = off
         aliases = self._payload["aliases"]
         merged: dict[str, list[list]] = {}
         ignored = set(self.data.ignored or [])
@@ -385,6 +397,12 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path.startswith("/api/exact/"):           # every recorded movement in a time window: /api/exact/<from>/<to>
+            try:
+                a, b = (int(v) for v in path[len("/api/exact/"):].split("/"))
+            except ValueError:
+                return {"players": {}}
+            return self.exact(a, b)
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
@@ -467,6 +485,61 @@ class HistoryMap(TerrainServer):
                     mc = max(set(versions), key=versions.count) if versions else None
             cache[layer] = world3d.BuildWorld(found[0], found[1], mc=mc, label=str(layer)) if found else None
             return cache[layer]
+
+    def exact(self, t0: int, t1: int) -> dict:
+        """Every recorded position from *t0* to *t1* (ms, at most 10 minutes): ``{"players": {name: [[t, x, y, z,
+        dimension, yaw, pitch, head yaw], ...]}}``, on the world clock. A player's own recording wins; others' views of
+        them fill the time it doesn't cover."""
+        t1 = min(t1, t0 + 600_000)
+        self.paths()                                   # the world-clock offsets
+        players = paths_mod.player_uuids(self.data)
+        aliases = self._payload["aliases"]
+        ignored = set(self.data.ignored or [])
+        own: dict[str, list] = {}
+        seen: dict[str, list] = {}
+        for r in self.data.replays:
+            if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note"):
+                continue
+            s_ms = int(r.start.timestamp() * 1000)
+            if s_ms - 120_000 > t1 or s_ms + r.duration_ms + 120_000 < t0:
+                continue
+            try:
+                zp = self.replay_file(r)
+                track = os.path.join(self.cache_dir or paths_mod.default_cache_dir(), paths_mod._cache_key(zp, players) + ".jsonl")
+                with self._exact_lock:
+                    data = paths_mod.exact_rows(zp, self.cache_dir, players)
+            except (OSError, ValueError, zipfile.BadZipFile, struct.error, IndexError):
+                continue
+            off = self._offsets.get(track)
+            meta = self._metas.get(track) or {}
+            clock = meta.get("clock")
+            for row in data["rows"]:
+                tick = row[0]
+                t = off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
+                if t < t0 or t > t1:
+                    continue
+                w = data["who"][row[1]]
+                name = aliases.get(w or r.recorded_player, w or r.recorded_player)
+                if not name or name.lower() in ignored:
+                    continue
+                (own if w is None else seen).setdefault(name, []).append(
+                    [t, row[3], row[4], row[5], data["dims"][row[2]], row[6], row[7], row[8]])
+        out = {}
+        for name in set(own) | set(seen):
+            mine = sorted(own.get(name, []))
+            others = sorted(seen.get(name, []))
+            if mine:                                   # someone else's view only where their own recording has nothing
+                import bisect
+                ts = [p[0] for p in mine]
+                keep = []
+                for p in others:
+                    i = bisect.bisect_left(ts, p[0])
+                    near = [ts[k] for k in (i - 1, i) if 0 <= k < len(ts)]
+                    if not near or min(abs(p[0] - v) for v in near) > 16_000:
+                        keep.append(p)
+                others = keep
+            out[name] = sorted(mine + others)
+        return {"players": out, "from": t0, "to": t1}
 
     def skin_timeline(self) -> dict:
         """``{name: [[start_ms, hash, slim], ...]}``: each player's skin from their recordings (worked out once)."""

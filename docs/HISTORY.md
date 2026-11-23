@@ -208,6 +208,22 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
 - **Soft shadows**: the corner shadows (Minecraft's smooth lighting); 0 turns them off.
 - **Reset** puts everything back.
 
+**Exact playback.** All recordings play together on the world's own clock. Every recording contains the game
+time the server sends each player every second, and that clock is the same in every recording. So recordings
+made at the same time line up to a twentieth of a second, even through server lag. A paused recording shows up
+as a jump in the clock, so the pause is placed exactly. Real dates come from the save times, with one shared
+setting for each stretch of play, so players who were together stay together.
+
+Zoomed in at **1×** or **10×**, or paused, the viewer uses every movement the recordings hold (about ten a
+second, as the server sent them): the exact path, each step and jump, which way each player faced, where their
+head turned and whether they looked up or down. Each player's own recording is used first; other players'
+recordings of them fill the times it doesn't cover. Faster speeds and the zoomed-out view use the lighter
+overview paths, about one point a second. The detail for a recording is worked out the first time you watch it
+(a few seconds) and then kept.
+
+Not shown yet: sneaking, swimming, elytra flight, sleeping, arm swings, held items and armour, mobs, pets and
+dropped items. The blocks are the backup saved after that time, not the world at that very moment.
+
 **Players** are shown as Minecraft figures with their own skins, including the skin's outer layer (hat, jacket,
 sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,
 faces the way they move, and swings their arms and legs as they walk.
