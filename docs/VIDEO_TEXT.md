@@ -318,7 +318,7 @@ labels; each has its own default. The line under the buttons says which default 
 **Where it's saved:** your texts, song and camera changes are saved as you edit, one file per video or
 Flashback scene, in `%LOCALAPPDATA%\mcsm\video-text\` (with this video's default looks); the defaults for
 all videos are in `%LOCALAPPDATA%\mcsm\text-styles.json`. **Put world texts & song in Flashback** makes a
-copy of the recording named "… (text)" in that Flashback's `replays` folder (right-click the edit in **Open a
+copy of the recording named "<scene> – <recording> (text)" (e.g. "Meeting Room – 2026-05-24--18-49-45 (text)"; Flashback lists recordings by that name, not by the scene) in that Flashback's `replays` folder (right-click the edit in **Open a
 Flashback edit…** to find it); **Make the video with on-screen texts & pictures** writes a new video next to
 the original.
 

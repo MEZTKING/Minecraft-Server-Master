@@ -4401,3 +4401,15 @@ class TestLinkInstances(unittest.TestCase):
             self.assertEqual(flashlink.installed_version(tmp), "0.2.0")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestCopyNames(unittest.TestCase):
+    """Copies are findable in Flashback's list even when the recording never got a name."""
+
+    def test_names(self):
+        from mcsm.flashback import copy_name
+        self.assertEqual(copy_name({"name": "Unnamed"}, "C:/r/2026-05-24--18-49-45.zip", " (text)", "Meeting Room"),
+                         "Meeting Room – 2026-05-24--18-49-45 (text)")
+        self.assertEqual(copy_name({"name": "Big build"}, "x.zip", " (timelapse 1 of 9)"), "Big build (timelapse 1 of 9)")
+        self.assertEqual(copy_name({}, "C:/r/2026-04-10--16-02-16.zip", " (mcsm)"), "2026-04-10--16-02-16 (mcsm)")
+        self.assertEqual(copy_name({"name": "Meeting Room 2"}, "a.zip", " (text)", "meeting room"), "Meeting Room 2 (text)")

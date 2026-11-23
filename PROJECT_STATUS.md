@@ -1058,6 +1058,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** Copies get a findable name in Flashback's list (owner: "i cant find the meeting room recording in
+  flashback"): a recording that never got a name was listed as "Unnamed (text)"; now `flashback.copy_name` uses the
+  recording's file name (its date) and, for text copies, the scene's name: "Meeting Room – 2026-05-24--18-49-45 (text)".
+
 - **2026-11-23:** "Install the Flashback link" window: instances older than Minecraft 26.1 are shown greyed out
   (the mod needs 26.1+; the owner's list offered 1.21.11 first), and each says if the mod is installed already
   (and which version); the first one still needing it is chosen.

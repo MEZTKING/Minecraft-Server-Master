@@ -236,6 +236,18 @@ class FlashbackMarker:
     colour: int = 0xFF5555
 
 
+def copy_name(meta: dict, src: str, suffix: str, title: str | None = None) -> str:
+    """The name Flashback lists a copy by. A recording that never got a name ("Unnamed", "") is named after
+    its file (the date it was recorded), so the copy can be found in Flashback's list; *title* (the scene's
+    name) goes in front."""
+    name = str(meta.get("name") or "").strip()
+    if not name or name.lower().startswith("unnamed") or name == "Replay":
+        name = os.path.splitext(os.path.basename(str(src).rstrip("/\\")))[0]
+    if title and title.strip() and title.strip().lower() not in name.lower():
+        name = f"{title.strip()} – {name}"
+    return name + suffix
+
+
 def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_suffix: str = " (mcsm)",
                       new_uuid: bool = True) -> dict:
     """Copy a Flashback replay ``.zip`` adding *markers*. Returns the new metadata.
@@ -265,7 +277,7 @@ def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_s
         if new_uuid:
             meta["original_uuid_mcsm"] = meta.get("uuid")
             meta["uuid"] = str(uuid_mod.uuid4())
-        meta["name"] = (meta.get("name") or "Replay") + name_suffix
+        meta["name"] = copy_name(meta, src, name_suffix)
         os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         tmp = dst + ".part"
         with zipfile.ZipFile(tmp, "w") as zout:

@@ -638,7 +638,7 @@ def _plan_entity(eid: int, t: WorldText, add_id: int, data_id: int, type_id: int
 
 def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffix: str = " (text)",
                           keep_uuid: str | None = None, video: str | None = None,
-                          markers: dict | None = None) -> dict:
+                          markers: dict | None = None, title: str | None = None) -> dict:
     """Copy a Flashback recording with *texts* placed in its world. The original isn't changed.
     Returns the copy's metadata (new uuid; ``original_uuid_mcsm`` = the original's).
 
@@ -721,7 +721,8 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
         meta["uuid"] = keep_uuid or str(uuid_mod.uuid4())
         if video:
             meta["mcsm_video"] = os.path.normcase(os.path.abspath(video))
-        meta["name"] = (meta.get("name") or "Replay") + name_suffix
+        from .flashback import copy_name
+        meta["name"] = copy_name(meta, src, name_suffix, title)        # findable in Flashback's list
         meta["mcsm_world_text"] = [t.__dict__ for t in texts_in]
         if markers:
             merged = dict(meta.get("markers") or {})

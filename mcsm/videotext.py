@@ -1126,7 +1126,8 @@ def write_world_copy(match: dict, texts: list, video: str | None = None, flashba
             dst = os.path.join(fb, "replays", f"{base} {n}.zip")
             n += 1
         say(f"Writing a copy of {os.path.basename(src)} with the text in its world…")
-    meta = wt.write_world_text_copy(src, dst, texts, keep_uuid=keep, video=video, markers=markers)
+    meta = wt.write_world_text_copy(src, dst, texts, keep_uuid=keep, video=video, markers=markers,
+                                    title=match.get("name"))
     edit_path = os.path.join(fb, "editor_states", meta["uuid"] + ".json")
     if os.path.exists(edit_path):
         edit = edit_path                              # keep your edit of the earlier copy as it is
