@@ -1762,8 +1762,8 @@ class TestLibrarySafety(unittest.TestCase):
         servers = [self._server(n, age) for n, age in (("a", 10), ("b", 5), ("c", 1))]
         for s in servers[1:]:
             p = os.path.join(s, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
-            with zipfile.ZipFile(p, "a") as zf:
-                zf.writestr("extra.txt", "changed")
+            with zipfile.ZipFile(p, "a") as zf:                  # a fixed time: the same bytes in both backups
+                zf.writestr(zipfile.ZipInfo("extra.txt", date_time=(2024, 5, 3, 18, 0, 0)), "changed")
         for s in servers:
             lib.import_backup(s, self.lib, mode="copy")
         w = lib.list_worlds(self.lib)[0]["path"]
