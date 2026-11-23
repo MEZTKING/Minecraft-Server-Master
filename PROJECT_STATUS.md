@@ -1103,17 +1103,18 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   `REMOVE_ENTITIES` (find them as described in `paths.py`).
 
 - **Real blocks: what's still approximate:**
-  - Textures don't follow `uvlock`, so the grain on turned stairs can run the wrong way.
   - Weighted variants always use the first model.
   - Block entities without a model in the jar are stand-ins:
-    - chests: the entity texture on boxes, each half of a double chest drawn separately;
+    - chests: the entity texture on boxes; each half of a double chest reaches the other, using the single-chest
+      texture;
     - beds: wool and planks;
     - signs: a plank board with no text;
     - banners: a wool flag with no pattern;
-    - shulker boxes: a cube.
-  - Skulls, statues and decorated pots aren't drawn.
-  - Waterlogged blocks show no water.
-  - Biome colours are fixed tints.
+    - shulker boxes: a cube;
+    - skulls and heads: a box with the mob's head texture, the player head as Steve;
+    - decorated pots: a box with the pot textures.
+  - Not drawn: copper golem statues, dragon heads.
+  - Swamp grass uses one of the game's two swamp colours (the game picks by noise).
   - Caves are followed only to 40 blocks below the surface.
   - Players' real skins come from Mojang (`mcsm/skins.py`; only UUIDs are sent). Without one, the default skin is
     picked by name, not by the game's UUID rule.
@@ -1172,6 +1173,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
     and a *Real skins* switch.
   - A death that outweighs a celebration makes the moment neutral.
   - On the owner's world: a 128 x 128 piece builds in about 1.1 s, about 77,000 faces.
+  - Then, blockmesh v3:
+    - biome colours: biome palettes read from the chunks; colours from the jar's biome files and colour maps, with
+      a stdlib PNG reader; blended over 3 x 3 biome cells; per face as RGB565 in a 14-byte record; grass block
+      sides tint only the overlay;
+    - water in waterlogged blocks;
+    - uvlock;
+    - double chests joined;
+    - skulls, heads and decorated pots.
 
 - **2026-11-23:** Owner's PC set up (not code): Prism instances "Flashback 1.21.5" and "Flashback 1.21.10" created
   (Fabric loader 0.20.1, Prism picks Java), and Flashback + Fabric API added to them and to "Flashback 26.2"

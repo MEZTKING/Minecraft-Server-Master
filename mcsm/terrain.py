@@ -587,7 +587,8 @@ def write_region(path: str, chunks: dict[tuple[int, int], dict]) -> None:
 
 
 def make_chunk_blocks(cx: int, cz: int, block_fn: Callable[[int, int, int], str | None], y0: int = 0, y1: int = 128,
-                      light_fn: Callable[[int, int, int], tuple[int, int]] | None = None) -> dict:
+                      light_fn: Callable[[int, int, int], tuple[int, int]] | None = None,
+                      biome_fn: Callable[[int, int, int], str] | None = None) -> dict:
     """A 1.18+ chunk with every block from *y0* to *y1* (``block_fn`` returns a block state such as
     ``minecraft:oak_stairs[facing=east]`` or None for air) and, with *light_fn* (``(sky, block)``), the light the
     game stores. For tests of the real blocks."""
@@ -631,6 +632,19 @@ def make_chunk_blocks(cx: int, cz: int, block_fn: Callable[[int, int, int], str 
             signed = lambda arr: [v - 256 if v > 127 else v for v in arr]          # noqa: E731
             sec["SkyLight"] = nbt.Typed(nbt.TAG_BYTE_ARRAY, signed(sky))
             sec["BlockLight"] = nbt.Typed(nbt.TAG_BYTE_ARRAY, signed(blk))
+        if biome_fn:                                  # one biome per 4 x 4 x 4 blocks
+            cells = [biome_fn(cx * 16 + (i & 3) * 4, sy * 16 + (i >> 4) * 4, cz * 16 + ((i >> 2) & 3) * 4) for i in range(64)]
+            bpal = sorted(set(cells))
+            if len(bpal) == 1:
+                sec["biomes"] = {"palette": bpal}
+            else:
+                bbits = math.ceil(math.log2(len(bpal)))
+                bper = 64 // bbits
+                bl = [0] * math.ceil(64 / bper)
+                for i, c in enumerate(cells):
+                    bl[i // bper] |= bpal.index(c) << ((i % bper) * bbits)
+                sec["biomes"] = {"palette": bpal, "data": nbt.Typed(nbt.TAG_LONG_ARRAY,
+                                                                    [v - (1 << 64) if v >= 1 << 63 else v for v in bl])}
         out_sections.append(sec)
     per = 64 // 9
     hm = [0] * math.ceil(256 / per)

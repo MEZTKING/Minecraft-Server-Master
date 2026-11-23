@@ -603,7 +603,7 @@ async function realStep(now) {
     const T = { x0: tx * REAL_TILE, z0: tz * REAL_TILE, meshes: [] };
     if (info.faces) {
       const akey = layer + "|" + info.jar + "|" + info.textures.join("|");        // each backup's own game textures
-      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`));
+      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
       REAL.note = info.exact_jar === false && info.mc ? `real blocks: the backup is Minecraft ${info.mc}, whose game files aren't on this PC; textures from ${info.jar}` : "";
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       if (REAL.key !== key) return;

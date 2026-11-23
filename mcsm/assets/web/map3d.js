@@ -118,16 +118,17 @@ function loadImage(url) {
   if (!IMAGES.has(url)) IMAGES.set(url, new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; }));
   return IMAGES.get(url);
 }
-async function buildAtlas(textures, tints, texUrl = URLS.tex) {
+async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
   // one picture holding every texture; entity textures (chests) need more pixels than block ones
   const N = Math.ceil(Math.sqrt(textures.length)), C = textures.some(t => t.startsWith("entity/")) ? 64 : 16;
   const cv = document.createElement("canvas");
   cv.width = cv.height = N * C;
   const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
   const tmp = document.createElement("canvas"); tmp.width = tmp.height = C; const tg = tmp.getContext("2d"); tg.imageSmoothingEnabled = false;
-  const draw = (im, tint) => {                               // one square frame (animated strips: the first), tinted
+  const draw = (im, tint, whole = false) => {               // one square frame (animated strips: the first), tinted
     tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, C, C);
-    tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
+    if (whole) tg.drawImage(im, 0, 0, im.width, im.height, 0, 0, C, C);   // entity textures: the whole picture
+    else tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
     if (tint) {
       tg.globalCompositeOperation = "multiply"; tg.fillStyle = `rgb(${tint[0]},${tint[1]},${tint[2]})`; tg.fillRect(0, 0, C, C);
       tg.globalCompositeOperation = "destination-in"; tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
@@ -137,11 +138,18 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex) {
   for (let i = 0; i < textures.length; i++) {
     const x = (i % N) * C, y = Math.floor(i / N) * C, parts = textures[i].split("+");
     const base = await loadImage(texUrl(parts[0]));
-    if (base) g.drawImage(draw(base, tints[parts[0]]), x, y);
+    if (base) g.drawImage(draw(base, tints[parts[0]], parts[0].startsWith("entity/")), x, y);
     else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
-    if (parts[1]) {                                          // grass block side: + tinted overlay
+    if (parts[1]) {                                          // grass block side: + the overlay the biome colours
       const ov = await loadImage(texUrl(`${parts[0]}_${parts[1]}`));
-      if (ov) g.drawImage(draw(ov, tints[`${parts[0]}_${parts[1]}`]), x, y);
+      if (ov) {
+        // the overlay's pixels are marked (alpha 250) so the shader tints only them, not the dirt underneath
+        const o = draw(ov, null), od = o.getContext("2d").getImageData(0, 0, C, C), cd = g.getImageData(x, y, C, C);
+        for (let k = 0; k < od.data.length; k += 4) if (od.data[k + 3] > 128) {
+          cd.data[k] = od.data[k]; cd.data[k + 1] = od.data[k + 1]; cd.data[k + 2] = od.data[k + 2]; cd.data[k + 3] = 250;
+        }
+        g.putImageData(cd, x, y);
+      }
     }
   }
   const tex = new THREE.CanvasTexture(cv);
@@ -169,12 +177,16 @@ function setLight(o = {}) {
 }
 function lightShader(sh) {
   Object.assign(sh.uniforms, LIGHT);
-  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; varying vec3 vN; varying vec3 vL;")
-    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL;");
+  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; attribute vec4 aT; varying vec3 vN; varying vec3 vL; varying vec4 vT;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL; vT = aT;");
   sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
-varying vec3 vN; varying vec3 vL;
+varying vec3 vN; varying vec3 vL; varying vec4 vT;
 uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO; uniform vec3 uSunDir;`)
     .replace("#include <color_fragment>", `#include <color_fragment>
+  if (vT.a > 1.5) {                                                  // only the overlay (marked alpha 250)
+    float o = 1.0 - step(0.995, diffuseColor.a);
+    diffuseColor.rgb *= mix(vec3(1.0), vT.rgb, o); diffuseColor.a = 1.0;
+  } else if (vT.a > 0.5) diffuseColor.rgb *= vT.rgb;               // the biome's grass, leaves or water colour
   {
     float sky = vL.x * uDay, blk = vL.y * uTorch;
     float l = clamp(max(sky, blk), 0.0, 1.0);
@@ -193,11 +205,13 @@ const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
 // The real blocks of a block list (``info`` from the server, ``buf`` its records: int16 x, y, z, dir, look; uint16
 // extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
 function blockMeshes(info, buf, atlas) {
-  const dv = new DataView(buf), n = buf.byteLength / 12, [ox, oz] = info.origin, N = atlas.N;
-  const G = () => ({ p: [], u: [], n: [], l: [], i: [] });
+  const dv = new DataView(buf), n = buf.byteLength / 14, [ox, oz] = info.origin, N = atlas.N;
+  const G = () => ({ p: [], u: [], n: [], l: [], t: [], i: [] });
   const geo = { solid: G(), water: G() };
   const e = 0.001;
-  const quad = (Gr, q, x, y, z, sky, blk, ao) => {
+  const lin = v => Math.pow(v, 2.2);
+  const quad = (Gr, q, x, y, z, sky, blk, ao, tint) => {
+    const mode = q[23] || 0;
     const base = Gr.p.length / 3, t = q[0], col = t % N, row = Math.floor(t / N);
     const P = k => [x + q[3 + k * 3], y + q[4 + k * 3], z + q[5 + k * 3]];
     const p0 = P(0), p1 = P(1), p3 = P(3);
@@ -213,19 +227,24 @@ function blockMeshes(info, buf, atlas) {
       const u = Math.min(1 - e, Math.max(e, q[15 + k * 2])), v = Math.min(1 - e, Math.max(e, q[16 + k * 2]));
       Gr.u.push((col + u) / N, 1 - (row + v) / N);
       Gr.l.push(sky, blk, AO_LEVEL[(ao >> (2 * k)) & 3]);
+      Gr.t.push(tint[0], tint[1], tint[2], mode);
     }
     Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
+  const tints = new Map();                               // RGB565 -> linear colour
   for (let k = 0; k < n; k++) {
-    const o = k * 12, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
+    const o = k * 14, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
     const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
+    const t5 = dv.getUint16(o + 12, true);
     if (!b) continue;
+    let tint = tints.get(t5);
+    if (!tint) { tint = [lin(((t5 >> 11) & 31) / 31), lin(((t5 >> 5) & 63) / 63), lin((t5 & 31) / 31)]; tints.set(t5, tint); }
     const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
     const Gr = b.kind === "water" ? geo.water : geo.solid;
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
-      for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0);
-    } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, sky, blk, ex & 255);
+      for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
+    } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, sky, blk, ex & 255, tint);
   }
   const mesh = (Gr, mat) => {
     const g = new THREE.BufferGeometry();
@@ -233,6 +252,7 @@ function blockMeshes(info, buf, atlas) {
     g.setAttribute("uv", new THREE.Float32BufferAttribute(Gr.u, 2));
     g.setAttribute("aN", new THREE.Float32BufferAttribute(Gr.n, 3));
     g.setAttribute("aL", new THREE.Float32BufferAttribute(Gr.l, 3));
+    g.setAttribute("aT", new THREE.Float32BufferAttribute(Gr.t, 4));
     g.setIndex(Gr.i);
     g.computeBoundingSphere();
     mat.onBeforeCompile = lightShader;
@@ -250,9 +270,9 @@ async function loadBlocks(say, urls = {}) {
   if (!info.faces) { if (info.message) say(info.message); return; }
   say(`loading ${info.faces.toLocaleString()} block faces and their textures…`);
   const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), buildAtlas(info.textures, info.tints)]);
-  const f = new Int16Array(buf), n = f.length / 6, [ox, oz] = info.origin;
+  const f = new Int16Array(buf), n = f.length / 7, [ox, oz] = info.origin;
   const covered = new Set();
-  for (let k = 0; k < n; k++) covered.add(`${(f[k * 6] + ox) >> 4},${(f[k * 6 + 2] + oz) >> 4}`);
+  for (let k = 0; k < n; k++) covered.add(`${(f[k * 7] + ox) >> 4},${(f[k * 7 + 2] + oz) >> 4}`);
   for (const T of TILES) {                             // rebuild the smooth terrain without the block area
     scene.remove(T.mesh); T.mesh.geometry.dispose(); T.mesh = tileMesh(T.t, T.buf, covered); scene.add(T.mesh);
   }

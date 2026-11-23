@@ -3264,12 +3264,26 @@ class TestRealBlocks(unittest.TestCase):
                 {"from": [6, 0, 6], "to": [10, 16, 10], "faces": six}]},
             "models/block/fence_side.json": {"textures": {"all": "block/oak_planks"}, "elements": [
                 {"from": [7, 12, 0], "to": [9, 15, 9], "faces": six}]},
+            "blockstates/grass_block.json": {"variants": {"snowy=false": {"model": "minecraft:block/grass_block"}}},
+            "models/block/grass_block.json": {"textures": {"top": "block/grass_block_top", "side": "block/grass_block_side",
+                                                           "overlay": "block/grass_block_side_overlay", "bottom": "block/dirt"},
+                "elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {
+                    "down": {"texture": "#bottom", "cullface": "down"}, "up": {"texture": "#top", "cullface": "up", "tintindex": 0},
+                    **{f: {"texture": "#side", "cullface": f} for f in ("north", "south", "west", "east")}}},
+                    {"from": [0, 0, 0], "to": [16, 16, 16], "faces": {
+                        f: {"texture": "#overlay", "cullface": f, "tintindex": 0} for f in ("north", "south", "west", "east")}}]},
+            "data/minecraft/worldgen/biome/plains.json": {"temperature": 0.8, "downfall": 0.4, "effects": {"water_color": 4159204}},
+            "data/minecraft/worldgen/biome/badlands.json": {"temperature": 2.0, "downfall": 0.0,
+                                                           "effects": {"grass_color": "#90814d", "water_color": "#3f76e4"}},
+            "blockstates/oak_stairs_uv.json": {"variants": {"facing=east": {"model": "minecraft:block/oak_stairs", "y": 90,
+                                                                            "uvlock": True}}},
         }
         with zipfile.ZipFile(path, "w") as zf:
             for name, data in files.items():
-                zf.writestr("assets/minecraft/" + name, json.dumps(data))
+                zf.writestr(name if name.startswith("data/") else "assets/minecraft/" + name, json.dumps(data))
             zf.writestr("assets/minecraft/textures/block/stone.png", b"\x89PNG stone")
             zf.writestr("assets/minecraft/textures/entity/chest/normal.png", b"\x89PNG chest")
+            zf.writestr("assets/minecraft/textures/colormap/grass.png", TestRealBlocks._png(256, 256, (10, 200, 30)))
 
     @staticmethod
     def _faces(r):
@@ -3277,15 +3291,26 @@ class TestRealBlocks(unittest.TestCase):
         ox, oz = r["origin"]
         out = []
         for i in range(0, len(r["faces"]), bm.RECORD.size):
-            x, y, z, d, k, ex = bm.RECORD.unpack_from(r["faces"], i)
-            out.append((x + ox, y, z + oz, d, r["infos"][k]["name"], ex))
+            x, y, z, d, k, ex, tint = bm.RECORD.unpack_from(r["faces"], i)
+            out.append((x + ox, y, z + oz, d, r["infos"][k]["name"], ex, tint))
         return out
 
-    def _world(self, tmp, block_fn, light_fn=None):
+    @staticmethod
+    def _png(w, h, rgb):
+        """A plain RGB PNG of one colour (for the colour maps in the test jar)."""
+        import zlib
+
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+        raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    def _world(self, tmp, block_fn, light_fn=None, biome_fn=None):
         from mcsm import terrain
         world = os.path.join(tmp, "srv", "world")
         terrain.write_region(os.path.join(world, "region", "r.0.0.mca"),
-                             {(0, 0): terrain.make_chunk_blocks(0, 0, block_fn, 56, 80, light_fn)})
+                             {(0, 0): terrain.make_chunk_blocks(0, 0, block_fn, 56, 80, light_fn, biome_fn)})
         return world
 
     def test_blocks(self):
@@ -3338,6 +3363,56 @@ class TestRealBlocks(unittest.TestCase):
             self.assertNotEqual(top[5] & 255, 0)
             self.assertEqual(look.texture_png("block/stone"), b"\x89PNG stone")
             self.assertIsNone(look.texture_png("block/nothing"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_biomes_water_and_stand_ins(self):
+        """Grass takes its biome's colour (blended at the edge), waterlogged blocks have water round them, double
+        chests reach each other, skulls are drawn, uvlock keeps a turned stair's texture lined up."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+
+            def b(x, y, z):
+                if y < 64:
+                    return "minecraft:stone"
+                if y == 64:
+                    return "minecraft:grass_block[snowy=false]"
+                if (x, y, z) == (3, 65, 3):
+                    return "minecraft:oak_slab[type=bottom,waterlogged=true]"
+                return None
+            world = self._world(tmp, b, biome_fn=lambda x, y, z: "minecraft:badlands" if x >= 8 else "minecraft:plains")
+            look = bm.Look(jar)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], look, radius=40)
+            faces = self._faces(r)
+            tops = {(f[0], f[2]): f[6] for f in faces if f[1] == 64 and f[3] == 0 and f[4] == "grass_block"}
+            plains, badlands = bm.rgb565((10, 200, 30)), bm.rgb565((0x90, 0x81, 0x4d))     # colour map / the biome's own
+            self.assertEqual(tops[(1, 1)], plains)
+            self.assertEqual(tops[(14, 14)], badlands)
+            self.assertNotIn(tops[(7, 7)], (plains, badlands))                            # blended where they meet
+            grass = next(i for i in r["infos"] if i["name"] == "grass_block")
+            self.assertEqual(grass["quads"][0][-1], 1)                                     # top: tinted
+            self.assertEqual(grass["quads"][2][-1], 2)                                     # sides: only the overlay
+            self.assertIn("block/grass_block_side+overlay", r["textures"])
+            water = [f for f in faces if f[:3] == (3, 65, 3) and f[4] == "water"]
+            self.assertTrue(any(f[3] == 0 for f in water))                                  # its water surface
+            self.assertEqual(water[0][6], bm.rgb565((63, 118, 228)))                        # plains water colour
+            # stand-ins and turns
+            chest_l = look.infos[look.info("minecraft:chest[facing=north,type=left]")]
+            chest_1 = look.infos[look.info("minecraft:chest[facing=north,type=single]")]
+            self.assertEqual(max(v for q in chest_l["quads"] for v in q[3:15:3]), 1.0)       # reaches the other half
+            self.assertLess(max(v for q in chest_1["quads"] for v in q[3:15:3]), 1.0)
+            skull = look.info("minecraft:skeleton_skull[rotation=0]")
+            self.assertIsNotNone(skull)
+            self.assertIsNone(look.info("minecraft:dragon_head[rotation=0]"))               # not drawn yet
+            stair = look.infos[look.info("minecraft:oak_stairs_uv[facing=east]")]
+            top = next(q for q in stair["quads"] if all(abs(q[4 + 3 * k] - 1) < 1e-6 for k in range(4)))
+            # uvlock: the top's texture corners follow the world x/z of its corners
+            self.assertEqual([round(v, 3) for v in top[15:23:2]], [round(v, 3) for v in top[3:15:3]])
+            w, h, px = bm.png_pixels(self._png(4, 2, (1, 2, 3)))
+            self.assertEqual((w, h, px[0], len(px)), (4, 2, (1, 2, 3), 8))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

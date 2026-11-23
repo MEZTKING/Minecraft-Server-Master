@@ -113,7 +113,7 @@ class BuildWorld:
         self._blocks = {"faces": len(r["faces"]) // bm.RECORD.size, "origin": r["origin"],
                         "url": url_prefix + os.path.basename(self.blocks_file()),
                         "infos": bm.client_infos(r["infos"]),
-                        "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
+                        "textures": r["textures"], "tints": {}, "sizes": bm.texture_sizes(look, r["textures"]),
                         "jar": os.path.basename(self.jar or "")}
         return self._blocks
 
@@ -146,7 +146,7 @@ class BuildWorld:
             os.replace(base + ".bin.part", base + ".bin")
         info = {"faces": len(r["faces"]) // bm.RECORD.size, "origin": r["origin"], "tile": [tx, tz, self.TILE],
                 "infos": bm.client_infos(r["infos"]),
-                "textures": r["textures"], "tints": {t: c for t, c in bm.TINTS.items() if t in r["textures"]},
+                "textures": r["textures"], "tints": {}, "sizes": bm.texture_sizes(look, r["textures"]),
                 "jar": os.path.basename(self.jar or ""), "mc": self.mc,
                 "exact_jar": bool(self.jar and self.mc and self.mc in os.path.basename(self.jar))}
         with open(base + ".json.part", "w", encoding="utf-8") as fh:

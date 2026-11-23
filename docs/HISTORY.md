@@ -183,8 +183,12 @@ real blocks of the backup on the map, with Minecraft's own textures and shapes (
 of that backup's Minecraft version). Every block you could see from outside is there, not just the top layer:
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
-fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture),
-signs, banners, shulker boxes. Skulls and statues aren't drawn yet.
+fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;
+a double chest joins up), signs, banners, shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
+water (waterlogged stairs, slabs, fences...) have their water. Grass, leaves, vines and water take the colour of
+their biome, from the game's own biome files: swamps are murky, badlands and savannas dry, jungles bright. Like the
+game, the colour is blended where biomes meet. Turned stairs, fences and walls keep their texture lined up as in
+the game. Not drawn yet: copper golem statues and dragon heads.
 
 The pieces load 128 x 128 blocks at a time around where you look and around every player shown, nearest first
 (about a second each the first time, then saved in `%LOCALAPPDATA%\mcsm\build-view\`), and follow the time slider

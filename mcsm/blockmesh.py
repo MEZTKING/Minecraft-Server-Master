@@ -35,25 +35,152 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 2                     # bump when the output changes (cached tiles are built again)
+VERSION = 3                     # bump when the output changes (cached tiles are built again)
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
-RECORD = struct.Struct("<5hH")
+RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
 
 AIR = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air", "minecraft:light", "minecraft:barrier",
        "minecraft:structure_void", "minecraft:moving_piston"}
 DIRS = [(0, 1, 0), (0, -1, 0), (0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)]
 FACE_NAMES = ["up", "down", "north", "south", "west", "east"]
 GRASS, FOLIAGE, WATER = (124, 189, 107), (89, 174, 48), (63, 118, 228)
-TINTS = {"block/grass_block_top": GRASS, "block/grass_block_side_overlay": GRASS, "block/short_grass": GRASS,
-         "block/grass": GRASS, "block/tall_grass_top": GRASS, "block/tall_grass_bottom": GRASS, "block/fern": GRASS,
-         "block/large_fern_top": GRASS, "block/large_fern_bottom": GRASS, "block/sugar_cane": GRASS,
-         "block/oak_leaves": FOLIAGE, "block/jungle_leaves": FOLIAGE, "block/acacia_leaves": FOLIAGE,
-         "block/dark_oak_leaves": FOLIAGE, "block/mangrove_leaves": (146, 193, 98), "block/vine": FOLIAGE,
-         "block/spruce_leaves": (97, 153, 97), "block/birch_leaves": (128, 167, 85), "block/lily_pad": (32, 128, 48),
-         "block/water_still": WATER, "block/water_flow": WATER, "block/attached_melon_stem": (224, 199, 28),
-         "block/melon_stem": (224, 199, 28), "block/pumpkin_stem": (224, 199, 28), "block/redstone_dust_dot": (200, 10, 10),
-         "block/redstone_dust_line0": (200, 10, 10), "block/redstone_dust_line1": (200, 10, 10)}
+# Tints now come from each spot's biome (``Biomes``) and are applied per face; kept for older callers.
+TINTS: dict = {}
+FIXED_TINTS = {"spruce_leaves": (97, 153, 97), "birch_leaves": (128, 167, 85), "mangrove_leaves": (146, 193, 98),
+               "lily_pad": (32, 128, 48), "attached_melon_stem": (224, 199, 28), "attached_pumpkin_stem": (224, 199, 28),
+               "melon_stem": (224, 199, 28), "pumpkin_stem": (224, 199, 28)}
+GRASS_TINTED = {"grass_block", "short_grass", "grass", "tall_grass", "fern", "large_fern", "potted_fern", "sugar_cane",
+                "bush"}
+
+
+def tint_kind(name: str, props: dict) -> str | tuple | None:
+    """What colours a block's tinted faces: "grass", "foliage", "water" (from the biome) or a fixed colour."""
+    if name in ("water", "bubble_column"):
+        return "water"
+    if name in FIXED_TINTS:
+        return FIXED_TINTS[name]
+    if name == "redstone_wire":
+        f = int(props.get("power", "0") or 0) / 15
+        return (int(255 * (f * 0.6 + (0.4 if f > 0 else 0.3))), int(255 * max(0.0, f * f * 0.7 - 0.5)),
+                int(255 * max(0.0, f * f * 0.6 - 0.7)))
+    if "leaves" in name or name == "vine":
+        return "foliage"
+    return "grass"
+
+
+def rgb565(c) -> int:
+    return ((c[0] >> 3) << 11) | ((c[1] >> 2) << 5) | (c[2] >> 3)
+
+
+def png_pixels(data: bytes) -> tuple[int, int, list[tuple[int, int, int]]]:
+    """A small PNG reader (8-bit grey, RGB, RGBA or palette; not interlaced): ``(width, height, [rgb...])``."""
+    import zlib
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("not a PNG")
+    pos, idat, plte = 8, bytearray(), b""
+    w = h = ctype = 0
+    while pos < len(data):
+        n = struct.unpack_from(">I", data, pos)[0]
+        kind = data[pos + 4:pos + 8]
+        body = data[pos + 8:pos + 8 + n]
+        if kind == b"IHDR":
+            w, h, depth, ctype, _c, _f, inter = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or inter:
+                raise ValueError("unsupported PNG")
+        elif kind == b"PLTE":
+            plte = body
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + n
+    bpp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
+    raw = zlib.decompress(bytes(idat))
+    stride = w * bpp
+    prev = bytearray(stride)
+    out = []
+    for y in range(h):
+        f = raw[y * (stride + 1)]
+        line = bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b, c = prev[i], (prev[i - bpp] if i >= bpp else 0)
+            if f == 1:
+                line[i] = (line[i] + a) & 255
+            elif f == 2:
+                line[i] = (line[i] + b) & 255
+            elif f == 3:
+                line[i] = (line[i] + ((a + b) >> 1)) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        for x in range(w):
+            px = line[x * bpp:(x + 1) * bpp]
+            if ctype == 3:
+                k = px[0] * 3
+                out.append((plte[k], plte[k + 1], plte[k + 2]))
+            elif ctype in (0, 4):
+                out.append((px[0], px[0], px[0]))
+            else:
+                out.append((px[0], px[1], px[2]))
+        prev = line
+    return w, h, out
+
+
+def _colour(v) -> tuple[int, int, int] | None:
+    if isinstance(v, str) and v.startswith("#"):
+        v = int(v[1:], 16)
+    if isinstance(v, int):
+        return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+    return None
+
+
+class Biomes:
+    """Grass, foliage and water colours per biome, from the game's own biome files and colour maps (in the jar)."""
+
+    def __init__(self, look: "Look"):
+        self.look = look
+        self._maps: dict[str, list | None] = {}
+        self._cache: dict[tuple[str, str], tuple[int, int, int]] = {}
+
+    def _map(self, name: str):
+        if name not in self._maps:
+            try:
+                self._maps[name] = png_pixels(self.look.zf.read(f"assets/minecraft/textures/colormap/{name}.png"))[2]
+            except (KeyError, ValueError, AttributeError, struct.error, IndexError):
+                self._maps[name] = None
+        return self._maps[name]
+
+    def colour(self, biome: str | None, kind: str) -> tuple[int, int, int]:
+        biome = (biome or "minecraft:plains").split(":", 1)[-1]
+        key = (biome, kind)
+        if key in self._cache:
+            return self._cache[key]
+        d = self.look._json(f"data/minecraft/worldgen/biome/{biome}.json") or {}
+        eff = d.get("effects") or {}
+        temp = max(0.0, min(1.0, float(d.get("temperature", 0.8))))
+        down = max(0.0, min(1.0, float(d.get("downfall", 0.4)))) * temp
+
+        def from_map(name, default):
+            px = self._map(name)
+            if not px:
+                return default
+            i, j = int((1 - temp) * 255), int((1 - down) * 255)
+            k = j * 256 + i
+            return px[k] if 0 <= k < len(px) else default
+        if kind == "water":
+            c = _colour(eff.get("water_color")) or WATER
+        elif kind == "foliage":
+            c = _colour(eff.get("foliage_color")) or from_map("foliage", FOLIAGE)
+        else:
+            c = _colour(eff.get("grass_color")) or from_map("grass", GRASS)
+            mod = eff.get("grass_color_modifier")
+            if mod == "swamp":
+                c = (106, 112, 57)                         # the game's swamp grass (it also mixes in a darker one)
+            elif mod == "dark_forest":
+                c = tuple(((v & 0xFE) + b) >> 1 for v, b in zip(c, (0x28, 0x34, 0x0A)))
+        self._cache[key] = c
+        return c
+
 
 # A face's corners (top-left, top-right, bottom-right, bottom-left seen from outside): per axis 0 = from, 1 = to
 CORNERS = {"up": [(0, 1, 0), (1, 1, 0), (1, 1, 1), (0, 1, 1)], "down": [(0, 0, 1), (1, 0, 1), (1, 0, 0), (0, 0, 0)],
@@ -109,6 +236,19 @@ def _full_face_dir(q: list) -> int | None:
             v[axis] = 1 if next(iter(vals)) == 1.0 else -1
             return DIRS.index(tuple(v))
     return None
+
+
+def _locked_uv(pts) -> list[tuple[float, float]] | None:
+    """Texture corners lined up with the world for a turned, axis-aligned face (uvlock)."""
+    ax, ay, az = (pts[1][i] - pts[0][i] for i in range(3))
+    bx, by, bz = (pts[3][i] - pts[0][i] for i in range(3))
+    n = (by * az - bz * ay, bz * ax - bx * az, bx * ay - by * ax)
+    if abs(n[0]) + abs(n[1]) + abs(n[2]) < 1e-9:
+        return None
+    d = _dir_of(n)
+    f = {0: lambda p: (p[0], p[2]), 1: lambda p: (p[0], 16 - p[2]), 2: lambda p: (16 - p[0], 16 - p[1]),
+         3: lambda p: (p[0], 16 - p[1]), 4: lambda p: (p[2], 16 - p[1]), 5: lambda p: (16 - p[2], 16 - p[1])}[d]
+    return [(f(p)[0] / 16, f(p)[1] / 16) for p in pts]
 
 
 def find_client_jar(mc_version: str | None) -> str | None:
@@ -218,9 +358,12 @@ class Look:
         return self._tex_index[tex]
 
     # --- quads ---
-    def _element_quads(self, els: list, textures: dict, x_rot: int = 0, y_rot: int = 0, tex_size: int = 16,
-                       overlay: bool = True) -> list[list]:
-        """The quads of model elements, turned by the variant's x then y rotation."""
+    def _element_quads(self, els: list, textures: dict, x_rot: int = 0, y_rot: int = 0, tex_size=16,
+                       overlay: bool = True, uvlock: bool = False) -> list[list]:
+        """The quads of model elements, turned by the variant's x then y rotation. Each quad ends with its tint mode:
+        0 none, 1 the whole face (grass, leaves, water), 2 only the overlay (a grass block's sides). With *uvlock*
+        (stairs, fences, walls) a turned face keeps the texture lined up with the world, as in the game."""
+        tw, th = (tex_size, tex_size) if isinstance(tex_size, (int, float)) else tex_size
         quads = []
         pairs = {}
         if overlay and len(els) == 2 and els[0].get("from") == els[1].get("from") and els[0].get("to") == els[1].get("to"):
@@ -259,19 +402,24 @@ class Look:
                     v = _rotate(v, "x", -x_rot, (0, 0, 0)) if x_rot else v
                     v = _rotate(v, "y", -y_rot, (0, 0, 0)) if y_rot else v
                     cull_i = _dir_of(v)
-                u0, v0, u1, v1 = (float(a) / tex_size for a in uv)
+                u0, v0, u1, v1 = float(uv[0]) / tw, float(uv[1]) / th, float(uv[2]) / tw, float(uv[3]) / th
                 corners = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
                 r = (int(fd.get("rotation") or 0) // 90) % 4
+                uvs = [corners[(k - r) % 4] for k in range(4)]
+                if uvlock and (x_rot or y_rot) and not (rot and rot.get("angle")):
+                    uvs = _locked_uv(pts) or uvs
                 q = [self._tid(tex), cull_i, 0 if e.get("shade") is False else 1]
                 for p in pts:
                     q += [round(p[0] / 16, 5), round(p[1] / 16, 5), round(p[2] / 16, 5)]
-                for k in range(4):
-                    q += [round(c, 5) for c in corners[(k - r) % 4]]
+                for c in uvs:
+                    q += [round(c[0], 5), round(c[1], 5)]
+                q.append(2 if face in pairs else (1 if fd.get("tintindex") is not None else 0))
                 quads.append(q)
         return quads
 
     def _special(self, name: str, props: dict) -> list | None:
-        """Stand-ins for block entities whose look isn't a model in the jar: ``(elements, textures, tex_size)``."""
+        """Stand-ins for block entities whose look isn't a model in the jar:
+        ``[elements, textures, (texture width, height), x rotation, y rotation]``."""
         facing_y = {"north": 0, "east": 90, "south": 180, "west": 270}.get(props.get("facing", "north"), 0)
 
         def box(f, t, faces, tex="#t"):
@@ -290,7 +438,7 @@ class Look:
                        {"from": [0, 30, 6.5], "to": [16, 32, 8.5], "faces": pole}]
                 rot = int(props.get("rotation", "0") or 0)
                 facing_y = int(round(rot * 22.5 / 90.0)) * 90 % 360
-            return [els, {"w": wool, "p": "block/oak_planks"}, 16, 0, facing_y]
+            return [els, {"w": wool, "p": "block/oak_planks"}, (16, 16), 0, facing_y]
         if name.endswith("copper_chest"):
             stage = name.replace("waxed_", "").replace("copper_chest", "").rstrip("_")
             tex = "entity/chest/copper" + (f"_{stage}" if stage else "")
@@ -302,13 +450,49 @@ class Look:
         if name in ("chest", "trapped_chest", "ender_chest"):
             tex = tex or {"chest": "entity/chest/normal", "trapped_chest": "entity/chest/trapped",
                           "ender_chest": "entity/chest/ender"}[name]
-            els = [box([1, 0, 1], [15, 10, 15], {"north": [14, 33, 28, 43], "south": [42, 33, 56, 43],
-                                                 "west": [0, 33, 14, 43], "east": [28, 33, 42, 43], "down": [28, 19, 42, 33]}),
-                   box([1, 10, 1], [15, 14, 15], {"north": [14, 14, 28, 19], "south": [42, 14, 56, 19],
-                                                  "west": [0, 14, 14, 19], "east": [28, 14, 42, 19], "up": [14, 0, 28, 14]}),
-                   box([7, 7, 0], [9, 11, 1], {"north": [1, 1, 3, 5], "up": [1, 0, 3, 1], "west": [0, 1, 1, 5],
-                                               "east": [3, 1, 4, 5], "down": [3, 0, 5, 1]})]
-            return [els, {"t": tex}, 64, 0, facing_y]
+            # a double chest: each half reaches its other half (left joins to the east of a chest facing north)
+            half = props.get("type", "single")
+            x0, x1 = (1, 16) if half == "left" else (0, 15) if half == "right" else (1, 15)
+            sides = {"west": [0, 33, 14, 43], "east": [28, 33, 42, 43]}
+            lsides = {"west": [0, 14, 14, 19], "east": [28, 14, 42, 19]}
+            if half == "left":
+                sides.pop("east"), lsides.pop("east")
+            elif half == "right":
+                sides.pop("west"), lsides.pop("west")
+            els = [box([x0, 0, 1], [x1, 10, 15], {"north": [14, 33, 28, 43], "south": [42, 33, 56, 43],
+                                                  "down": [28, 19, 42, 33], **sides}),
+                   box([x0, 10, 1], [x1, 14, 15], {"north": [14, 14, 28, 19], "south": [42, 14, 56, 19],
+                                                   "up": [14, 0, 28, 14], **lsides})]
+            if half == "single":
+                els.append(box([7, 7, 0], [9, 11, 1], {"north": [1, 1, 3, 5], "up": [1, 0, 3, 1], "west": [0, 1, 1, 5],
+                                                       "east": [3, 1, 4, 5], "down": [3, 0, 5, 1]}))
+            return [els, {"t": tex}, (64, 64), 0, facing_y]
+        heads = {"skeleton": ("entity/skeleton/skeleton", 32), "wither_skeleton": ("entity/skeleton/wither_skeleton", 32),
+                 "zombie": ("entity/zombie/zombie", 64), "creeper": ("entity/creeper/creeper", 32),
+                 "piglin": ("entity/piglin/piglin", 64), "player": ("entity/player/wide/steve", 64)}
+        kind = name.replace("_wall_skull", "").replace("_wall_head", "").replace("_skull", "").replace("_head", "")
+        if kind in heads and name.endswith(("_skull", "_head")):
+            tex, h = heads[kind]
+            # the head's skin layout (like a player skin): front, back, sides, top, bottom; model faces south
+            faces = {"south": [8, 8, 16, 16], "north": [24, 8, 32, 16], "west": [0, 8, 8, 16], "east": [16, 8, 24, 16],
+                     "up": [8, 0, 16, 8], "down": [16, 0, 24, 8]}
+            if "_wall_" in name:                        # against the block behind it: facing north = back to the south
+                els = [box([4, 4, 8], [12, 12, 16], {**faces, "north": [8, 8, 16, 16], "south": [24, 8, 32, 16]})]
+            else:
+                els = [box([4, 0, 4], [12, 8, 12], faces)]
+                rot = int(props.get("rotation", "0") or 0)
+                facing_y = int(round(rot * 22.5 / 90.0)) * 90 % 360
+            return [els, {"t": tex}, (64, h), 0, facing_y]
+        if name == "decorated_pot":
+            side = "entity/decorated_pot/decorated_pot_side"
+            if not self.has_texture(side):
+                return [[box([1, 0, 1], [15, 16, 15], {k: [0, 0, 16, 16] for k in FACE_NAMES})], {"t": "block/terracotta"},
+                        (16, 16), 0, 0]
+            body = {"from": [1, 0, 1], "to": [15, 16, 15], "faces": {k: {"texture": "#s", "uv": [1, 0, 15, 16]}
+                                                                      for k in ("north", "south", "west", "east")}}
+            body["faces"]["up"] = {"texture": "#b", "uv": [0, 0, 16, 16]}
+            body["faces"]["down"] = {"texture": "#b", "uv": [0, 0, 16, 16]}
+            return [[body], {"s": side, "b": "entity/decorated_pot/decorated_pot_base"}, (16, 16), 0, facing_y]
         if name.endswith("_bed"):
             colour = name[:-4]
             top = "block/white_wool" if props.get("part") == "head" else f"block/{colour}_wool"
@@ -319,7 +503,7 @@ class Look:
                 els.append({"from": [lx, 0, lz], "to": [lx + 3, 3, lz + 3], "faces": {
                     k: {"texture": "#bottom"} for k in ("north", "south", "west", "east", "down")}})
             # the head's pillow end points the way the bed faces; model drawn facing north
-            return [els, {"top": top, "side": f"block/{colour}_wool", "bottom": "block/oak_planks"}, 16, 0, facing_y]
+            return [els, {"top": top, "side": f"block/{colour}_wool", "bottom": "block/oak_planks"}, (16, 16), 0, facing_y]
         if name.endswith(("_sign", "_hanging_sign")):
             wood = name
             for suf in ("_wall_hanging_sign", "_hanging_sign", "_wall_sign", "_sign"):
@@ -337,11 +521,11 @@ class Look:
                        {"from": [7.25, 0, 7.25], "to": [8.75, 7, 8.75], "faces": six}]
                 rot = int(props.get("rotation", "0") or 0)
                 facing_y = int(round(rot * 22.5 / 90.0)) * 90 % 360
-            return [els, {"p": planks}, 16, 0, facing_y]
+            return [els, {"p": planks}, (16, 16), 0, facing_y]
         if name.endswith("shulker_box"):
             tex = f"block/{name}" if self.has_texture(f"block/{name}") else "block/shulker_box"
             return [[{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {k: {"texture": "#t"} for k in FACE_NAMES}}],
-                    {"t": tex}, 16, 0, 0]
+                    {"t": tex}, (16, 16), 0, 0]
         return None
 
     def info(self, state: str) -> int | None:
@@ -352,7 +536,9 @@ class Look:
         kind, quads = "model", []
         if name in ("water", "bubble_column", "lava"):
             tex = "block/lava_still" if name == "lava" else "block/water_still"
-            el = [{"from": [0, 0, 0], "to": [16, 14, 16], "faces": {k: {"texture": tex, "cullface": k} for k in FACE_NAMES}}]
+            tint = {} if name == "lava" else {"tintindex": 0}
+            el = [{"from": [0, 0, 0], "to": [16, 14, 16], "faces": {k: {"texture": tex, "cullface": k, **tint}
+                                                                   for k in FACE_NAMES}}]
             quads = self._element_quads(el, {})
             kind = "lava" if name == "lava" else "water"
         else:
@@ -381,7 +567,7 @@ class Look:
                     m = self._model(a.get("model") or "")
                     if m["elements"]:
                         quads += self._element_quads(m["elements"], m["textures"], int(a.get("x") or 0),
-                                                     int(a.get("y") or 0))
+                                                     int(a.get("y") or 0), uvlock=bool(a.get("uvlock")))
                 if not applies and not bs:                    # no blockstate file (an unknown block): a plain cube
                     tex = f"block/{name}" if self.has_texture(f"block/{name}") else None
                     if tex:
@@ -404,8 +590,10 @@ class Look:
             for q in quads:
                 by_dir[q[1]] = q
             quads = by_dir
+        tinted = any(q and q[-1] for q in quads)
         info = {"name": name, "kind": kind, "quads": quads, "opaque": kind == "cube" and not cutout,
-                "cutout": cutout}
+                "cutout": cutout, "water": props.get("waterlogged") == "true",
+                "tint": tint_kind(name, props) if tinted else None}
         self.index[state] = len(self.infos)
         self.infos.append(info)
         return self.index[state]
@@ -422,7 +610,8 @@ class Look:
 # --- reading chunks with block states and light ---------------------------------------------------------
 
 _U16, _I32 = struct.Struct(">H"), struct.Struct(">i")
-_SEC = {b"Y": "val", b"block_states": {b"palette": "lazy", b"data": "lazy"}, b"BlockLight": "lazy", b"SkyLight": "lazy"}
+_SEC = {b"Y": "val", b"block_states": {b"palette": "lazy", b"data": "lazy"}, b"BlockLight": "lazy", b"SkyLight": "lazy",
+        b"biomes": {b"palette": "lazy", b"data": "lazy"}}
 _OLD_SEC = {b"Y": "val", b"Palette": "lazy", b"BlockStates": "lazy", b"BlockLight": "lazy", b"SkyLight": "lazy"}
 _ROOT = {b"yPos": "val", b"Heightmaps": terrain._HM_SPEC, b"sections": ("list", _SEC),
          b"Level": {b"Heightmaps": terrain._HM_SPEC, b"Sections": ("list", _OLD_SEC)}}
@@ -496,6 +685,8 @@ class Chunk:
             secs = [(s.get(b"Y", 0), (s.get(b"block_states") or {}).get(b"palette"),
                      (s.get(b"block_states") or {}).get(b"data"), s.get(b"BlockLight"), s.get(b"SkyLight"))
                     for s in root[b"sections"]]
+            self._biome_lazy = {s.get(b"Y", 0): ((s.get(b"biomes") or {}).get(b"palette"), (s.get(b"biomes") or {}).get(b"data"))
+                                for s in root[b"sections"] if s.get(b"biomes")}
             self.min_y = root.get(b"yPos", -4) * 16
             hm = root.get(b"Heightmaps") or {}
         else:
@@ -504,6 +695,7 @@ class Chunk:
                     for s in level.get(b"Sections") or []]
             self.min_y = 0
             hm = level.get(b"Heightmaps") or {}
+            self._biome_lazy = {}
         self._lazy = {y: rest for y, *rest in secs}
         self._dec: dict[int, tuple | None] = {}
         self.lit = any(s[4] for s in secs)            # light worked out by the game (else: everything daylit)
@@ -526,6 +718,27 @@ class Chunk:
             v = (pal, longs or [], bits, _byte_array(self.raw, bl_l), _byte_array(self.raw, sl_l))
         self._dec[sy] = v
         return v
+
+    def biome(self, x: int, y: int, z: int) -> str | None:
+        """The biome at x, y, z (chunk-local x/z; the game stores one per 4 x 4 x 4 blocks)."""
+        sy = y >> 4
+        dec = self._bio.get(sy) if hasattr(self, "_bio") else None
+        if dec is None:
+            if not hasattr(self, "_bio"):
+                self._bio = {}
+            lz = self._biome_lazy.get(sy)
+            pal, longs = [], []
+            if lz and lz[0]:
+                pal = _palette(self.raw, *lz[0])
+                longs = terrain._value(self.raw, lz[1][0], lz[1][1])[0] if lz[1] else []
+            dec = self._bio[sy] = (pal, longs or [], math.ceil(math.log2(len(pal))) if len(pal) > 1 else 0)
+        pal, longs, bits = dec
+        if not pal:
+            return None
+        if len(pal) == 1 or not longs or not bits:
+            return pal[0]
+        idx = terrain._unpack(longs, bits, ((y >> 2) & 3) * 16 + (z >> 2) * 4 + (x >> 2))
+        return pal[idx] if idx < len(pal) else pal[0]
 
     def state(self, x: int, y: int, z: int) -> str | None:
         s = self.section(y >> 4)
@@ -677,6 +890,35 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         t = top(x, z)
         return t is not None and (y > t or (x, y, z) in seen)
 
+    biomes = Biomes(look)
+    tint_cache: dict[tuple, int] = {}
+
+    def biome_at(x: int, y: int, z: int) -> str | None:
+        c = chunks.get((x >> 4, z >> 4))
+        return c.biome(x & 15, y, z & 15) if c is not None and y >= c.min_y else None
+
+    def tint(x: int, y: int, z: int, kind) -> int:
+        """The colour (RGB565) of a tinted face at x, y, z: the biome's, blended over the cells around (like the game)."""
+        if kind is None:
+            return 0
+        if isinstance(kind, tuple):
+            return rgb565(kind)
+        key = (x >> 2, y >> 2, z >> 2, kind)
+        v = tint_cache.get(key)
+        if v is None:
+            acc = [0, 0, 0]
+            n = 0
+            for dx in (-4, 0, 4):
+                for dz in (-4, 0, 4):
+                    b = biome_at((x & ~3) + dx, y, (z & ~3) + dz)
+                    if b is None and (dx or dz):
+                        continue
+                    c = biomes.colour(b, kind)
+                    acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]]
+                    n += 1
+            v = tint_cache[key] = rgb565(tuple(a // max(1, n) for a in acc))
+        return v
+
     def light(x: int, y: int, z: int) -> int:
         c = chunks.get((x >> 4, z >> 4))
         if c is None:
@@ -720,7 +962,17 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 if opaque(x + dx, y + dy, z + dz):
                     mask |= 1 << d
             lt = max(light(x, y, z), light(x, y + 1, z), key=lambda v: (v >> 4) + (v & 15))
-            faces += pack(x - x0, y, z - z0, 7, i, mask | (lt << 8))
+            faces += pack(x - x0, y, z - z0, 7, i, mask | (lt << 8), tint(x, y, z, info["tint"]))
+            if info["water"]:                               # waterlogged: the water around it too
+                w = look.info("minecraft:water")
+                for d, (dx, dy, dz) in enumerate(DIRS):
+                    nx, ny, nz = x + dx, y + dy, z + dz
+                    if not visible(nx, ny, nz):
+                        continue
+                    n = block(nx, ny, nz)
+                    if n is not None and (infos[n]["opaque"] or infos[n]["kind"] == "water" or infos[n]["water"]):
+                        continue
+                    faces += pack(x - x0, y, z - z0, d, w, light(nx, ny, nz) << 8, tint(x, y, z, "water"))
             continue
         for d, (dx, dy, dz) in enumerate(DIRS):
             nx, ny, nz = x + dx, y + dy, z + dz
@@ -729,7 +981,8 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
             n = block(nx, ny, nz)
             if n is not None:
                 ninfo = infos[n]
-                if ninfo["opaque"] or n == i or (kind in ("water", "lava") and ninfo["kind"] == kind):
+                if ninfo["opaque"] or n == i or (kind in ("water", "lava") and ninfo["kind"] == kind) \
+                        or (kind == "water" and ninfo["water"]):
                     continue
             if info["quads"][d] is None:
                 continue
@@ -750,7 +1003,7 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                     oc = opaque(nx + s[0], ny + s[1], nz + s[2])
                     occ = 3 if (o1 and o2) else (o1 + o2 + oc)
                     ao |= occ << (2 * k)
-            faces += pack(x - x0, y, z - z0, d, i, ao | (light(nx, ny, nz) << 8))
+            faces += pack(x - x0, y, z - z0, d, i, ao | (light(nx, ny, nz) << 8), tint(x, y, z, info["tint"]))
     return {"origin": [x0, z0], "infos": infos, "textures": look.textures, "faces": bytes(faces),
             "chunks": len(chunks), "open": len(seen)}
 
@@ -758,3 +1011,14 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
 def client_infos(infos: list[dict]) -> list[dict]:
     """What the page needs of each look."""
     return [{"name": i["name"], "kind": i["kind"], "quads": i["quads"], "cutout": i["cutout"]} for i in infos]
+
+
+def texture_sizes(look: "Look", textures: list[str]) -> dict:
+    """Width and height of textures that aren't 16 x 16 square tiles (entity textures), for the page's atlas."""
+    out = {}
+    for t in textures:
+        if t.startswith("entity/"):
+            data = look.texture_png(t.split("+")[0])
+            if data and len(data) > 24:
+                out[t] = list(struct.unpack(">II", data[16:24]))
+    return out
