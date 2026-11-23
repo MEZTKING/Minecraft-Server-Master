@@ -167,7 +167,13 @@ const LIGHT = {
   uSunMix: { value: 0.35 },        // 0: Minecraft's fixed side shading, 1: shaded by the sun's direction
   uSunDir: { value: new THREE.Vector3(0.4, 1, 0.25).normalize() },
   uAO: { value: 1.0 },             // corner shading strength
+  uFancy: { value: 0.0 },          // graphics Fancy/Ultra: the sun's light and shadows do the side shading
+  uGain: { value: 1.0 },           // brightness match between Off and Fancy
+  uTime: { value: 0.0 },           // seconds, for the water's waves
+  uSky: { value: new THREE.Color(0.75, 0.85, 1.0) },   // what the water reflects
 };
+// Graphics: "off" (Minecraft-like flat light), "fancy" (sun shadows, sky reflections on water, glow), "ultra"
+const GFX = { mode: "off" };
 function setLight(o = {}) {
   for (const [k, v] of Object.entries(o)) {
     const u = LIGHT["u" + k[0].toUpperCase() + k.slice(1)];
@@ -177,11 +183,14 @@ function setLight(o = {}) {
 }
 function lightShader(sh) {
   Object.assign(sh.uniforms, LIGHT);
+  // our faces are seen from their back (clockwise winding): keep the stored normal instead of flipping it per side
+  sh.fragmentShader = sh.fragmentShader.replace("#include <normal_fragment_begin>",
+    "vec3 normal = normalize( vNormal ); vec3 nonPerturbedNormal = normal;");
   sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; attribute vec4 aT; varying vec3 vN; varying vec3 vL; varying vec4 vT;")
     .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL; vT = aT;");
   sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
 varying vec3 vN; varying vec3 vL; varying vec4 vT;
-uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO; uniform vec3 uSunDir;`)
+uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO, uFancy, uGain, uTime; uniform vec3 uSunDir; uniform vec3 uSky;`)
     .replace("#include <color_fragment>", `#include <color_fragment>
   if (vT.a > 1.5) {                                                  // only the overlay (marked alpha 250)
     float o = 1.0 - step(0.995, diffuseColor.a);
@@ -196,17 +205,73 @@ uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO; uniform vec3 uSunD
     float side = vN.y > 0.5 ? 1.0 : vN.y < -0.5 ? 0.5 : abs(vN.z) > 0.5 ? 0.8 : 0.6;
     if (dot(vN, vN) < 0.1) side = 1.0;                             // not shaded (torches, flames)
     else side = mix(side, 0.45 + 0.55 * max(dot(vN, uSunDir), 0.0), uSunMix * (0.4 + 0.6 * uDay));
+    side = mix(side, 1.0, uFancy);                                   // fancy: the lit material shades by the sun
     float ao = mix(1.0, vL.z, uAO);
     vec3 warm = mix(vec3(1.0), vec3(1.0, 0.86, 0.68), clamp(blk - sky, 0.0, 1.0));   // torch light is warm
-    diffuseColor.rgb *= pow(clamp(vec3(b * side * ao * uExposure) * warm, 0.0, 4.0), vec3(2.2));
+    diffuseColor.rgb *= pow(clamp(vec3(b * side * ao * uExposure) * warm, 0.0, 4.0), vec3(2.2)) * uGain;
   }`);
 }
+// Water in Fancy: the sky reflected more at grazing angles, the sun's glint, small moving waves.
+function waterShader(sh) {
+  lightShader(sh);
+  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWorld;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+  sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWorld;")
+    .replace("#include <opaque_fragment>", `
+  if (uFancy > 0.5 && vN.y > 0.5) {
+    vec3 n = normalize(vec3(0.06 * sin(vWorld.x * 1.7 + uTime * 1.3) + 0.04 * sin(vWorld.z * 2.3 - uTime * 1.7), 1.0,
+                            0.06 * cos(vWorld.z * 1.5 + uTime * 1.1) + 0.04 * cos(vWorld.x * 2.1 + uTime * 1.9)));
+    vec3 v = normalize(cameraPosition - vWorld);
+    float fres = pow(1.0 - max(dot(v, n), 0.0), 3.0);
+    outgoingLight = mix(outgoingLight, uSky * 0.45 * (0.25 + 0.75 * uDay), 0.05 + 0.5 * fres);
+    outgoingLight += vec3(1.0, 0.95, 0.8) * pow(max(dot(reflect(-v, n), uSunDir), 0.0), 220.0) * 2.5 * uDay;
+    diffuseColor.a = mix(diffuseColor.a, 0.95, fres);
+  }
+  #include <opaque_fragment>`);
+}
+// light sources get a soft glow in Fancy (a sprite each): torches, lanterns, glowstone, fire...
+const GLOW = /(^|_)(torch|lantern|glowstone|sea_lantern|shroomlight|jack_o_lantern|campfire|end_rod|froglight|beacon|fire|lava_cauldron|redstone_lamp|candle)$/;
+let glowTex = null;
+function glowTexture() {
+  if (glowTex) return glowTex;
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.25, "rgba(255,255,255,0.45)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  glowTex = new THREE.CanvasTexture(c); return glowTex;
+}
+const GLOW_MAT = new THREE.PointsMaterial({ size: 3.2, map: null, transparent: true, depthWrite: false,
+  blending: THREE.AdditiveBlending, vertexColors: true, opacity: 0.6 });
+function blockMaterial(kind, atlas) {
+  // Off: flat (Minecraft-like). Fancy/Ultra: a lit material that takes the sun's shadows.
+  const fancy = GFX.mode !== "off", Mat = fancy && kind !== "water" ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
+  const m = kind === "water"
+    ? new Mat({ map: atlas.tex, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })
+    : new Mat({ map: atlas.tex, alphaTest: 0.5, side: THREE.DoubleSide });
+  m.onBeforeCompile = kind === "water" ? waterShader : lightShader;
+  // our faces wind clockwise seen from outside, so the engine's "front" is the inside: drawing that side into the
+  // shadow map keeps sunlit surfaces from shadowing themselves
+  m.shadowSide = THREE.FrontSide;
+  m.customProgramCacheKey = () => kind === "water" ? "mcsm-water" : "mcsm-blocks";
+  return m;
+}
+// Switch the graphics of block meshes already built (their geometry stays).
+function applyGraphics(meshes, atlasTex) {
+  for (const m of meshes) {
+    if (m.isPoints) { m.visible = GFX.mode !== "off"; continue; }
+    const kind = m.userData.kind || "solid";
+    const old = m.material, mat = blockMaterial(kind, { tex: old.map || atlasTex });
+    m.material = mat; old.dispose();
+    m.castShadow = m.receiveShadow = GFX.mode !== "off" && kind !== "water";
+  }
+}
+function setGraphics(mode) { GFX.mode = mode; LIGHT.uFancy.value = mode === "off" ? 0 : 1; }
 const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
 // The real blocks of a block list (``info`` from the server, ``buf`` its records: int16 x, y, z, dir, look; uint16
 // extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
 function blockMeshes(info, buf, atlas) {
   const dv = new DataView(buf), n = buf.byteLength / 14, [ox, oz] = info.origin, N = atlas.N;
-  const G = () => ({ p: [], u: [], n: [], l: [], t: [], i: [] });
+  const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], i: [] });
   const geo = { solid: G(), water: G() };
   const e = 0.001;
   const lin = v => Math.pow(v, 2.2);
@@ -221,9 +286,11 @@ function blockMeshes(info, buf, atlas) {
       nx = by * az - bz * ay; ny = bz * ax - bx * az; nz = bx * ay - by * ax;
       const len = Math.hypot(nx, ny, nz) || 1; nx /= len; ny /= len; nz /= len;
     }
+    const axis = Math.max(Math.abs(nx), Math.abs(ny), Math.abs(nz)) > 0.99;
+    const lx = axis ? nx : 0, ly = axis ? ny : 1, lz = axis ? nz : 0;
     for (let k = 0; k < 4; k++) {
       const p = P(k);
-      Gr.p.push(p[0], p[1], p[2]); Gr.n.push(nx, ny, nz);
+      Gr.p.push(p[0], p[1], p[2]); Gr.n.push(nx, ny, nz); Gr.ln.push(lx, ly, lz);
       const u = Math.min(1 - e, Math.max(e, q[15 + k * 2])), v = Math.min(1 - e, Math.max(e, q[16 + k * 2]));
       Gr.u.push((col + u) / N, 1 - (row + v) / N);
       Gr.l.push(sky, blk, AO_LEVEL[(ao >> (2 * k)) & 3]);
@@ -232,6 +299,7 @@ function blockMeshes(info, buf, atlas) {
     Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   const tints = new Map();                               // RGB565 -> linear colour
+  const glows = [];                                      // light sources: a glow each (Fancy)
   for (let k = 0; k < n; k++) {
     const o = k * 14, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
     const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
@@ -241,6 +309,10 @@ function blockMeshes(info, buf, atlas) {
     if (!tint) { tint = [lin(((t5 >> 11) & 31) / 31), lin(((t5 >> 5) & 63) / 63), lin((t5 & 31) / 31)]; tints.set(t5, tint); }
     const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
     const Gr = b.kind === "water" ? geo.water : geo.solid;
+    if (GLOW.test(b.name) && (d === 7 || d === 0)) {
+      const soul = b.name.startsWith("soul_");
+      glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
+    }
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
@@ -251,16 +323,28 @@ function blockMeshes(info, buf, atlas) {
     g.setAttribute("position", new THREE.Float32BufferAttribute(Gr.p, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(Gr.u, 2));
     g.setAttribute("aN", new THREE.Float32BufferAttribute(Gr.n, 3));
+    // the lit material (Fancy) shades with "normal": a face's outward normal; plants and other slanted or unshaded
+    // quads are lit as if facing up (like the game lights plants evenly). See lightShader: no back-face flip.
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(Gr.ln, 3));
     g.setAttribute("aL", new THREE.Float32BufferAttribute(Gr.l, 3));
     g.setAttribute("aT", new THREE.Float32BufferAttribute(Gr.t, 4));
     g.setIndex(Gr.i);
     g.computeBoundingSphere();
-    mat.onBeforeCompile = lightShader;
-    return new THREE.Mesh(g, mat);
+    const me = new THREE.Mesh(g, mat);
+    me.userData.kind = mat.transparent ? "water" : "solid";
+    me.castShadow = me.receiveShadow = GFX.mode !== "off" && !mat.transparent;
+    return me;
   };
-  const out = [mesh(geo.solid, new THREE.MeshBasicMaterial({ map: atlas.tex, alphaTest: 0.5, side: THREE.DoubleSide }))];
-  if (geo.water.i.length) out.push(mesh(geo.water, new THREE.MeshBasicMaterial({ map: atlas.tex, transparent: true,
-    opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })));
+  const out = [mesh(geo.solid, blockMaterial("solid", atlas))];
+  if (geo.water.i.length) out.push(mesh(geo.water, blockMaterial("water", atlas)));
+  if (glows.length) {
+    const g = new THREE.BufferGeometry(), n6 = glows.length / 6, pos = new Float32Array(n6 * 3), col = new Float32Array(n6 * 3);
+    for (let k = 0; k < n6; k++) { pos.set(glows.slice(k * 6, k * 6 + 3), k * 3); col.set(glows.slice(k * 6 + 3, k * 6 + 6), k * 3); }
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    if (!GLOW_MAT.map) GLOW_MAT.map = glowTexture();
+    const pts = new THREE.Points(g, GLOW_MAT); pts.visible = GFX.mode !== "off"; pts.userData.kind = "glow";
+    out.push(pts);
+  }
   return out;
 }
 async function loadBlocks(say, urls = {}) {
@@ -322,4 +406,5 @@ function renderFree(players, marks = []) {           // the world through the fr
   controls.update();
   renderer.render(scene, camMap);
 }
-export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT };
+export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT,
+         GFX, GLOW_MAT, setGraphics, applyGraphics };

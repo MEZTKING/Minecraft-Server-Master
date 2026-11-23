@@ -206,6 +206,19 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
 - **Exposure**: everything lighter or darker.
 - **Sun shading**: 0 uses Minecraft's fixed shading of block sides; higher shades them by where the sun is.
 - **Soft shadows**: the corner shadows (Minecraft's smooth lighting); 0 turns them off.
+- **Graphics:** how much is drawn. Your choice is remembered.
+  - **Off:** Minecraft's own flat look, as without shaders.
+  - **Fancy:** shader-like looks, drawn in the page itself, as real shader packs only run inside the game:
+    - the sun casts shadows from blocks and players;
+    - a real sky with sunrise and sunset colours, the sun and moon, stars at night and grey rain clouds;
+    - haze in the distance;
+    - a soft glow around torches, lanterns, glowstone, fire and other light sources (soul ones glow blue),
+      strongest at night;
+    - water that reflects the sky, more at a glancing angle, with the sun's glint and small moving waves;
+    - film-like colour.
+
+    It's about as bright as Off overall.
+  - **Ultra:** the same with sharper shadows reaching further, at full screen resolution. It's slower.
 - **Reset** puts everything back.
 
 **Exact playback.** All recordings play together on the world's own clock. Every recording contains the game

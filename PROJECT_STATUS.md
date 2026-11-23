@@ -840,6 +840,23 @@ spectate/first person mode view", "add a dev mode that makes your life easier to
 
 ### 0zc. Shader-like looks in the history viewer (raised 2026-11-23)
 
+✅ **Built 2026-11-23** (owner: "Shader-like looks"): *Graphics* Off / Fancy / Ultra in Light.
+
+- In Fancy and Ultra, the blocks use a lit material (`MeshLambertMaterial`) with sun shadow maps that follow
+  the focus: 2048 px over ±90 blocks, or 4096 px over ±150 in Ultra.
+  - Our faces wind clockwise, so the normal isn't flipped per side, and the shadow map draws the engine's
+    front (inner) side.
+  - Plants and slanted quads are lit as if facing up.
+  - The brightness gain (1.6) is measured so Fancy averages the same as Off at the village.
+- Also built:
+  - a sky dome shader (sun, moon, stars, sunrise and sunset glow, rain);
+  - distance fog;
+  - ACES tone mapping;
+  - additive glow sprites at light sources (built with each block piece);
+  - water with fresnel sky reflection, a sun glint and waves.
+- Not done: screen-space AO, bloom (both need post-processing passes that aren't vendored), and reflections of
+  the world itself.
+
 Owner: "would it be possible to have shader support or anything for the history viewing".
 
 Real shader packs (Iris and OptiFine) are written for the game's own renderer and can't run in a browser.
@@ -1274,6 +1291,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Graphics Off / Fancy / Ultra in the history viewer (0zc): shadows, sky, haze, glow, water,
+  film colour; `map3d.setGraphics` / `applyGraphics`.
 
 - **2026-11-23:** Plan in the viewer, render in Flashback.
   - `mcsm/shot.py`: picks the recording, converts real time to ticks through the world clock (pauses included),

@@ -183,6 +183,8 @@ ul { list-style: none; margin: 0; padding: 0; }
       <label for="lSun" title="0: Minecraft's fixed shading of block sides; 100: sides shaded by where the sun is">Sun shading</label><input id="lSun" type="range" min="0" max="1" step="0.05" value="0.35"><span id="lSunV"></span>
       <label for="lAO" title="The soft shadows in corners and under overhangs (Minecraft's smooth lighting)">Soft shadows</label><input id="lAO" type="range" min="0" max="1" step="0.05" value="1"><span id="lAOV"></span>
     </div>
+    <div class="row"><label title="Off: flat light like Minecraft without shaders. Fancy: sun shadows, a real sky, haze, glowing light sources, water that reflects the sky. Ultra: sharper, wider shadows (slower).">Graphics
+      <select id="lGfx"><option value="off">Off</option><option value="fancy">Fancy</option><option value="ultra">Ultra</option></select></label></div>
     <label title="Close up at 1x / 10x: the time of day, rain and thunder as they were in the recording (they set Time of day)"><input type="checkbox" id="lFollow" checked> Time and weather from the recording</label>
     <div class="row"><button id="lReset" type="button">Reset</button><span class="meta">Hold Ctrl and scroll over a slider for fine steps.</span></div>
   </details>
@@ -363,7 +365,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, blockMeshes, setLight } from "./map3d.js";
+import { buildAtlas, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -420,6 +422,8 @@ controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.495;
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(0.4, 1, 0.25); scene.add(sun);
+const SUN_DIR = new THREE.Vector3(0.4, 1, 0.25).normalize();
+let SKY = null;                                          // the Fancy sky dome (made with the graphics settings)
 const grid = new THREE.GridHelper(1024, 64, 0x888888, 0xaaaaaa);
 grid.position.y = 63; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
 function applySky() {
@@ -431,6 +435,12 @@ function applySky() {
     c.lerp(new THREE.Color(0x0b1020), 1 - LIGHTS.day);                                  // night sky
   }
   scene.background = c; scene.fog = new THREE.Fog(c, 800, 6000);
+  if (typeof GFX !== "undefined" && GFX.mode !== "off" && d === "minecraft:overworld") {
+    const hz = new THREE.Color().setRGB(0.62, 0.76, 0.95).lerp(new THREE.Color(0.02, 0.025, 0.05), 1 - LIGHTS.day)
+      .lerp(new THREE.Color(0.36, 0.38, 0.42), Math.min(1, (LIGHTS.rain || 0) * 0.85));
+    scene.fog = new THREE.Fog(hz, 220, (LIGHTS.rain || 0) > 0.3 ? 900 : 2200);         // haze in the distance
+    LIGHT.uSky.value.copy(hz);
+  }
 }
 // ---------- light (Minecraft's light levels on the real blocks; the map and players follow the time of day) ----------
 const LIGHT_DEFAULTS = { time: 12, bright: 0.5, torch: 1, exposure: 1, sun: 0.35, ao: 1 };
@@ -443,7 +453,10 @@ function applyLight(save = true) {
   L.day *= (1 - 0.31 * (L.rain || 0)) * (1 - 0.31 * (L.thunder || 0));                // rain and thunder darken the sky (the game: 5/16 each)
   const dir = new THREE.Vector3(Math.cos(a), Math.max(0.05, h), 0.3).normalize();
   setLight({ day: L.day, torch: L.torch, bright: L.bright, exposure: L.exposure, sunMix: L.sun, ao: L.ao, sunDir: dir });
-  sun.position.copy(dir); sun.intensity = 1.6 * L.day * L.exposure; hemi.intensity = (0.35 + 0.75 * L.day) * L.exposure;
+  sun.position.copy(dir); SUN_DIR.copy(dir); sun.intensity = 1.6 * L.day * L.exposure; hemi.intensity = (0.35 + 0.75 * L.day) * L.exposure;
+  if (SKY) { SKY.material.uniforms.uSunDir.value.copy(new THREE.Vector3(Math.cos(a), h, 0.3).normalize());
+    SKY.material.uniforms.uDay.value = L.day; SKY.material.uniforms.uRain.value = Math.max(L.rain || 0, L.thunder || 0);
+    GLOW_MAT.opacity = 0.25 + 0.55 * (1 - L.day); }
   const warm = h > -0.1 && h < 0.3 ? 1 - Math.abs(h - 0.1) / 0.2 : 0;               // sunrise / sunset colour
   sun.color.setRGB(1, 1 - 0.25 * Math.max(0, warm), 1 - 0.45 * Math.max(0, warm));
   for (const k of ["time", "bright", "torch", "exposure", "sun", "ao"]) {
@@ -481,6 +494,61 @@ function applyShow() {
 for (const k of Object.keys(SHOW)) {
   const el = $("#sh" + k[0].toUpperCase() + k.slice(1));
   el.addEventListener("change", () => { SHOW[k] = el.checked; store.set("mcsm-show", JSON.stringify(SHOW)); applyShow(); });
+}
+// ---------- graphics: Off / Fancy / Ultra (shader-like looks, all in the page) ----------
+SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uDay: { value: 1 }, uRain: { value: 0 } },
+  vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `varying vec3 vDir; uniform vec3 uSunDir; uniform float uDay, uRain;
+    float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+    void main() {
+      float h = max(vDir.y, 0.0);
+      vec3 zen = mix(vec3(0.004, 0.006, 0.02), vec3(0.16, 0.36, 0.85), uDay), hor = mix(vec3(0.02, 0.025, 0.05), vec3(0.62, 0.76, 0.95), uDay);
+      vec3 col = vDir.y < 0.0 ? hor * 0.85 : mix(hor, zen, pow(h, 0.55));
+      float low = 1.0 - smoothstep(-0.05, 0.35, uSunDir.y);                                   // sunrise and sunset glow
+      col += vec3(1.0, 0.42, 0.12) * pow(max(dot(vDir, uSunDir), 0.0), 6.0) * low * 0.7 * (1.0 - h);
+      float sd = dot(vDir, uSunDir), md = dot(vDir, -uSunDir);
+      col = mix(col, vec3(1.6, 1.45, 1.1), smoothstep(0.99935, 0.9997, sd) * (1.0 - uRain));    // the sun
+      col = mix(col, vec3(0.85, 0.88, 0.95), smoothstep(0.9995, 0.9998, md) * (1.0 - uRain));   // the moon
+      if (hash(floor(vDir * 420.0)) > 0.9982 && vDir.y > 0.0) col += vec3(0.9) * (1.0 - uDay) * (1.0 - uRain);   // stars
+      col = mix(col, vec3(0.36, 0.38, 0.42) * (0.25 + 0.75 * uDay), uRain * 0.85);           // rain clouds
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+}));
+SKY.frustumCulled = false; SKY.renderOrder = -10; SKY.visible = false; scene.add(SKY);
+const SUN_TARGET = new THREE.Object3D(); scene.add(SUN_TARGET); sun.target = SUN_TARGET;
+const GFX_OPTS = { off: null, fancy: { map: 2048, half: 90, ratio: 1.5 }, ultra: { map: 4096, half: 150, ratio: 2 } };
+function applyGraphicsMode(mode, save = true) {
+  mode = GFX_OPTS[mode] !== undefined ? mode : "off";
+  setGraphics(mode); $("#lGfx").value = mode;
+  if (save) store.set("mcsm-gfx", mode);
+  const o = GFX_OPTS[mode];
+  renderer.shadowMap.enabled = !!o; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  sun.castShadow = !!o;
+  if (o) {
+    sun.shadow.mapSize.set(o.map, o.map); sun.shadow.map?.dispose(); sun.shadow.map = null;
+    Object.assign(sun.shadow.camera, { left: -o.half, right: o.half, top: o.half, bottom: -o.half, near: 1, far: 600 });
+    sun.shadow.camera.updateProjectionMatrix(); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.06;
+  }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, o ? o.ratio : 2));
+  renderer.toneMapping = o ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; renderer.toneMappingExposure = 1.15;
+  LIGHT.uGain.value = o ? 1.6 : 1;                       // measured: the same average brightness as Off
+  SKY.visible = !!o;
+  for (const T of REAL.tiles.values()) applyGraphics(T.meshes);
+  for (const m of Object.values(markers)) m.F.fig.traverse(x => { if (x.isMesh) x.castShadow = !!o; });
+  applySky(); resize();
+}
+$("#lGfx").onchange = () => applyGraphicsMode($("#lGfx").value);
+function gfxStep(now) {
+  if (GFX.mode === "off") return;
+  LIGHT.uTime.value = now / 1000;
+  const focus = (FREE.on || SPEC.name || SHOT.preview) ? camera.position : controls.target;
+  SUN_TARGET.position.copy(focus);
+  sun.position.copy(focus).addScaledVector(SUN_DIR, 300);
+  SKY.position.copy(camera.position);
 }
 function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeCanvas(); }
 addEventListener("resize", resize);
@@ -689,8 +757,8 @@ async function realStep(now) {
       REAL.note = info.exact_jar === false && info.mc ? `real blocks: the backup is Minecraft ${info.mc}, whose game files aren't on this PC; textures from ${info.jar}` : "";
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       if (REAL.key !== key) return;
-      T.meshes = blockMeshes(info, buf, atlas);
-      for (const m of T.meshes) { m.material.map = atlas.tex; scene.add(m); }
+      T.meshes = blockMeshes(info, buf, atlas);                // in the current graphics mode
+      for (const m of T.meshes) { if (!m.isPoints) m.material.map = atlas.tex; scene.add(m); }
     } else if (info.message) REAL.failed.add(`${key}|${id}`);
     REAL.tiles.set(id, T); realClip();
   } catch (e) { REAL.failed.add(`${key}|${id}`); }
@@ -707,7 +775,7 @@ $("#realSkins").onchange = () => {
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
-window.__history = { get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -950,6 +1018,7 @@ function playerFigure(name, colour, real = null) {
     layer(parts.lleg, sb(4, 12, 4, 0, 48, 0.5), -6);
   }
   // a ring in the player's colour at their feet, to tell them apart
+  fig.traverse(x => { if (x.isMesh) x.castShadow = GFX.mode !== "off"; });
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.6, 24), new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, transparent: true }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; fig.add(ring);
   return { fig, parts, mat, ring };
@@ -2279,6 +2348,7 @@ function frame(now) {
   if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
   devUpdate(now);
   worldStep(now, dt);
+  gfxStep(now);
   renderer.render(scene, camera);
 }
 
@@ -2361,7 +2431,7 @@ async function loadPaths() {
 async function init() {
   H = await (await fetch("api/history")).json();
   loadSkinLine();                                      // skins from the recordings (read once, then kept)
-  applyShow(); fillSpec();
+  applyShow(); fillSpec(); applyGraphicsMode(store.get("mcsm-gfx") || "off", false);
   $("#prPlayer").replaceChildren(new Option("everyone", ""), ...H.players.map(n => new Option(n, n)));
   try { SHOT.keys = JSON.parse(store.get(shotStore()) || "[]"); } catch (e) {}
   renderShot(); checkShot(); prepPoll();
