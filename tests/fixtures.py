@@ -78,6 +78,19 @@ LATEST = """\
 REPLAY_START_MS = int(datetime(2024, 5, 3, 18, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
 
 
+# A fixed entry time for every zip the fixtures write. zf.writestr("name", ...) stamps entries with the
+# current time (2-second steps), so two servers built a moment apart got different archive bytes, and
+# tests that expect identical copies across backups flaked on slow CI runners.
+ZIP_TIME = (2024, 5, 3, 18, 0, 0)
+
+
+def _zput(zf: zipfile.ZipFile, name: str, data: str | bytes) -> None:
+    info = zipfile.ZipInfo(name, date_time=ZIP_TIME)
+    info.compress_type = zf.compression
+    info.external_attr = 0o600 << 16                   # what writestr gives a plain name
+    zf.writestr(info, data)
+
+
 def _write(path: str, text: str | bytes, mode: str = "w") -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, mode, **({} if "b" in mode else {"encoding": "utf-8"})) as fh:
@@ -143,12 +156,12 @@ def build_server(root: str) -> str:
     rp = os.path.join(root, "recordings", "players", "Steve", "2024-05-03--18-00-00.mcpr")
     os.makedirs(os.path.dirname(rp), exist_ok=True)
     with zipfile.ZipFile(rp, "w") as zf:
-        zf.writestr("metaData.json", json.dumps({
+        _zput(zf, "metaData.json", json.dumps({
             "singleplayer": False, "serverName": "Friends SMP", "duration": 600_000, "date": REPLAY_START_MS,
             "mcversion": "1.20.4", "fileFormat": "MCPR", "fileFormatVersion": 14, "protocol": 765,
             "generator": "ServerReplay v1.1.0", "selfId": -1, "players": [STEVE]}))
-        zf.writestr("markers.json", json.dumps([{"realTimestamp": 90_000, "value": {"name": "Cool moment"}}]))
-        zf.writestr("recording.tmcpr", b"")
+        _zput(zf, "markers.json", json.dumps([{"realTimestamp": 90_000, "value": {"name": "Cool moment"}}]))
+        _zput(zf, "recording.tmcpr", b"")
 
     # crash report
     _write(os.path.join(root, "crash-reports", "crash-2024-05-02_00.10.00-server.txt"),
@@ -208,15 +221,15 @@ def add_extra_replays(root: str) -> None:
     buf = _io.BytesIO()
     write_flashback_chunk(buf, FLASHBACK_RTC_MS + 1000, ticks_before=20, extra_ticks=5)
     with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-05-00.zip"), "w") as zf:
-        zf.writestr("metadata.json", meta(3600, {"600": {"colour": 16711680, "description": "Dragon fight",
+        _zput(zf, "metadata.json", meta(3600, {"600": {"colour": 16711680, "description": "Dragon fight",
                                                          "position": {"position": [1.0, 70.0, 2.0],
                                                                       "dimension": "minecraft:the_end"}}}))
-        zf.writestr("c0.flashback", buf.getvalue())
-        zf.writestr("icon.png", b"")
+        _zput(zf, "c0.flashback", buf.getvalue())
+        _zput(zf, "icon.png", b"")
 
     with zipfile.ZipFile(os.path.join(folder, "2024-05-03--21-00-00.zip"), "w") as zf:
-        zf.writestr("metadata.json", meta(1200))
-        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")  # header, no actions, no clock
+        _zput(zf, "metadata.json", meta(1200))
+        _zput(zf, "c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")  # header, no actions, no clock
 
     raw = os.path.join(folder, "2024-05-03--22-00-00")
     os.makedirs(raw, exist_ok=True)
@@ -264,20 +277,20 @@ def build_server_26_1(root: str) -> str:
     os.makedirs(folder, exist_ok=True)
     save_ms = int(datetime(2024, 5, 3, 18, 10, 0, tzinfo=timezone.utc).timestamp() * 1000)
     with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-05-00.zip"), "w") as zf:
-        zf.writestr("metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000001", "name": "Unnamed",
+        _zput(zf, "metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000001", "name": "Unnamed",
                                                  "version_string": "26.1.2", "world_name": "Main_World",
                                                  "data_version": 4790, "protocol_version": 775, "total_ticks": 1,
                                                  "markers": {}, "chunks": {"c0.flashback": {"duration": 1, "forcePlaySnapshot": False}}}))
-        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
-        zf.writestr("arcade_replay_meta.json", json.dumps({"name": "Steve", "epoch_time_ms": save_ms,
+        _zput(zf, "c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
+        _zput(zf, "arcade_replay_meta.json", json.dumps({"name": "Steve", "epoch_time_ms": save_ms,
                                                            "accumulated_paused_time": "00:01:00"}))
     # A recording with a sane length: start = save - length - paused
     with zipfile.ZipFile(os.path.join(folder, "2024-05-03--20-30-00.zip"), "w") as zf:
-        zf.writestr("metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000002", "name": "Unnamed",
+        _zput(zf, "metadata.json", json.dumps({"uuid": "5f1c0f7e-0000-4000-8000-000000000002", "name": "Unnamed",
                                                  "version_string": "26.1.2", "world_name": "Main_World", "total_ticks": 2400,
                                                  "markers": {}, "chunks": {"c0.flashback": {"duration": 2400, "forcePlaySnapshot": False}}}))
-        zf.writestr("c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
-        zf.writestr("arcade_replay_meta.json", json.dumps({
+        _zput(zf, "c0.flashback", b"\xd7\x80\xe8\x84\x00\x00\x00\x00\x00")
+        _zput(zf, "arcade_replay_meta.json", json.dumps({
             "name": "Steve", "epoch_time_ms": int(datetime(2024, 5, 3, 18, 33, 0, tzinfo=timezone.utc).timestamp() * 1000),
             "accumulated_paused_time": "00:01:00"}))
     return root
