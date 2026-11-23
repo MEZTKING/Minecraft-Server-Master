@@ -280,6 +280,31 @@ def register_copy(copy_path: str, uuid: str, original_uuid: str | None, kind: st
     os.replace(p + ".part", p)
 
 
+def unregister_copy(copy_path: str) -> None:
+    """Take a copy the app removed again (e.g. a half-made one) off its Flashback's registry; an empty registry
+    leaves no file behind."""
+    folder = os.path.dirname(os.path.abspath(copy_path))
+    if os.path.basename(folder).lower() != "replays":
+        return
+    fb = os.path.dirname(folder)
+    p = os.path.join(mcsm_dir(fb), "registry.json")
+    if not os.path.isfile(p):
+        return
+    reg = registry(fb)
+    name = os.path.basename(copy_path)
+    reg["copies"] = {u: c for u, c in reg["copies"].items() if c.get("file") != name}
+    if reg["copies"]:
+        with open(p + ".part", "w", encoding="utf-8") as fh:
+            json.dump(reg, fh, indent=1)
+        os.replace(p + ".part", p)
+    else:
+        os.remove(p)
+        try:
+            os.rmdir(mcsm_dir(fb))
+        except OSError:
+            pass
+
+
 def is_app_copy(flashback_dir: str, uuid: str) -> bool:
     return uuid in registry(flashback_dir)["copies"]
 

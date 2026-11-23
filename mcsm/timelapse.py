@@ -526,6 +526,8 @@ def export_moment(data: m.ServerData, moment: dict, tracks: dict[str, list[list]
                 os.remove(f)
             except OSError:
                 pass
+            if f.lower().endswith(".zip"):
+                fbm.unregister_copy(f)                   # and off the app's list of copies
         raise
     os.makedirs(out_dir, exist_ok=True)
     return _write_order(pm, title, written, out_dir, folders, camera)
