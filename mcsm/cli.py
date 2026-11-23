@@ -1074,6 +1074,35 @@ def cmd_story(args) -> int:
     return cmd_history(h)
 
 
+def cmd_flashback_edits(args) -> int:
+    """Versioned backups of your Flashback edits: save new versions now, list an edit's versions, restore one."""
+    import time as time_mod
+    from . import editbackup
+    if args.action == "backup":
+        r = editbackup.snapshot_all(why="by hand")
+        print(f"Checked {r['checked']} Flashback edits, saved {r['saved']} new version(s) in {editbackup.backup_root()}")
+        return 0
+    if not args.edit:
+        print("Give the edit: --edit <flashback>/editor_states/<recording id>.json", file=sys.stderr)
+        return 2
+    vs = editbackup.versions(args.edit)
+    if args.action == "versions":
+        if not vs:
+            print("No saved versions of this edit yet.")
+        for i, v in enumerate(vs, 1):
+            when = time_mod.strftime("%Y-%m-%d %H:%M:%S", time_mod.localtime(v["time"]))
+            print(f"{i:3}. {when}  {v['keyframes'] if v['keyframes'] is not None else '?':>4} keyframes  "
+                  f"{', '.join(v['scenes'])}  {v['why']}")
+        return 0
+    if not args.version or not 1 <= args.version <= len(vs):
+        print(f"Give --version N (1 = newest, of {len(vs)}; see 'versions')", file=sys.stderr)
+        return 2
+    editbackup.restore(args.edit, vs[args.version - 1]["path"])
+    print(f"Restored version {args.version}. Close that recording in Flashback before restoring, or Flashback "
+          "writes its open copy back.")
+    return 0
+
+
 def cmd_flashback_link(args) -> int:
     """The Flashback companion mod: is it running, which replay is open; or install it."""
     from . import flashlink
@@ -1365,6 +1394,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["list", "add", "remove"])
     p.add_argument("names", nargs="*", help="player names")
     p.set_defaults(func=cmd_ignore)
+
+    p = sub.add_parser("flashback-edits", help="versioned backups of your Flashback edits: backup, versions, restore")
+    p.add_argument("action", choices=["backup", "versions", "restore"])
+    p.add_argument("--edit", help="versions/restore: the edit, <flashback>/editor_states/<recording id>.json")
+    p.add_argument("--version", type=int, help="restore: which version (1 = newest, as 'versions' lists them)")
+    p.set_defaults(func=cmd_flashback_edits)
 
     p = sub.add_parser("flashback-link", help="the Flashback companion mod: status, or install it into an instance")
     p.add_argument("action", choices=["status", "install"])

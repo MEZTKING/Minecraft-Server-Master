@@ -176,6 +176,8 @@ def plan(match: dict, music: dict, music_dir: str) -> dict:
 def set_audio_track(edit_path: str, song_path: str | None, tick: int = 0) -> None:
     """Put the song on the edit's AUDIO track named ``mcsm music`` (replacing the app's earlier one;
     your own tracks are left alone). *song_path* None removes the app's track."""
+    from . import editbackup
+    editbackup.snapshot(edit_path, "before the app set the song")
     with open(edit_path, encoding="utf-8") as fh:
         state = json.load(fh)
     scenes = state.get("scenes") or []

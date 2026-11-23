@@ -4443,3 +4443,73 @@ class TestPutBack(unittest.TestCase):
                 fbm.put_back(os.path.join(lib, "gone.zip"), fb)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestEditBackups(unittest.TestCase):
+    """Versions of Flashback edits: only when changed, kept, restorable (and the restore can be undone)."""
+
+    def test_versions_and_restore(self):
+        from mcsm import editbackup as eb
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "inst", "minecraft", "flashback")
+            os.makedirs(os.path.join(fb, "editor_states"))
+            st = os.path.join(fb, "editor_states", "abc.json")
+            root = os.path.join(tmp, "backups")
+
+            def write(keys):
+                with open(st, "w", encoding="utf-8") as fh:
+                    json.dump({"scenes": [{"name": "Meeting Room", "keyframeTracks": [
+                        {"keyframeType": "CAMERA", "keyframesByTick": {str(k): {} for k in range(keys)}}]}]}, fh)
+            write(55)
+            self.assertIsNotNone(eb.snapshot(st, "first", root))
+            self.assertIsNone(eb.snapshot(st, "again", root))                          # unchanged: no new version
+            write(3)                                                                    # oops: most keyframes gone
+            os.utime(st, (time.time() + 5, time.time() + 5))
+            self.assertIsNotNone(eb.snapshot(st, "after", root))
+            vs = eb.versions(st, root)
+            self.assertEqual([v["keyframes"] for v in vs], [3, 55])
+            self.assertEqual(vs[0]["scenes"], ["Meeting Room"])
+            eb.restore(st, vs[1]["path"], root)
+            with open(st, encoding="utf-8") as fh:
+                self.assertEqual(len(json.load(fh)["scenes"][0]["keyframeTracks"][0]["keyframesByTick"]), 55)
+            self.assertEqual(eb.versions(st, root)[0]["keyframes"], 3)                 # the replaced one is kept
+            with self.assertRaises(ValueError):
+                eb.restore(st, os.path.join(tmp, "other.json"), root)
+            r = eb.snapshot_all([fb], "start", root)
+            self.assertEqual(r["checked"], 1)
+            for k in range(eb.KEEP_LAST + 5):                                           # pruning keeps the last 30
+                write(100 + k)
+                os.utime(st, (time.time() + 10 + k, time.time() + 10 + k))
+                eb.snapshot(st, "", root)
+            self.assertLessEqual(len(eb.versions(st, root)), eb.KEEP_LAST + 2)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestCopyRegistry(unittest.TestCase):
+    """The list of the app's own copies in each Flashback (the add-on will only change those)."""
+
+    def test_registry(self):
+        from mcsm import flashback as fbm, fbpanel
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "flashback")
+            os.makedirs(os.path.join(fb, "replays"))
+
+            def rec(name, meta):
+                with zipfile.ZipFile(os.path.join(fb, "replays", name), "w") as z:
+                    z.writestr("metadata.json", json.dumps(meta))
+            rec("2026-05-24--18-49-45.zip", {"uuid": "orig"})
+            rec("2026-05-24--18-49-45 (text).zip", {"uuid": "copy1", "name": "Renamed in Flashback"})   # mark dropped
+            rec("x (timelapse 2 of 9).zip", {"uuid": "tl2"})
+            rec("y.zip", {"uuid": "copy3", "original_uuid_mcsm": "orig"})
+            self.assertEqual(fbm.register_existing(fb), 3)
+            reg = fbm.registry(fb)["copies"]
+            self.assertEqual(set(reg), {"copy1", "tl2", "copy3"})
+            self.assertFalse(fbm.is_app_copy(fb, "orig"))
+            self.assertEqual(reg["tl2"]["kind"], "timelapse")
+            self.assertEqual(fbm.register_existing(fb), 0)
+            self.assertEqual(fbpanel._stem("2026-05-24--18-49-45 (text).zip"), "2026-05-24--18-49-45")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

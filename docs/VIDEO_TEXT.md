@@ -326,3 +326,19 @@ copy of the recording named "<scene> – <recording> (text)" (e.g. "Meeting Room
 Flashback edit…** to find it); **Make the video with on-screen texts & pictures** writes a new video next to
 the original.
 
+## Your Flashback edits are backed up
+
+Flashback keeps each edit (your camera keyframes, scenes, tracks) in `flashback/editor_states/<recording id>.json`
+and rewrites it as you edit. The app saves **versions** of every edit in `%LOCALAPPDATA%\mcsm\edit-backups\`:
+when the app starts (every edit that changed since its last version) and right before the app itself changes an
+edit (camera keyframes, the song track). The last 30 versions of each edit are kept, plus one per day before that.
+In **Open a Flashback edit…**, right-click an edit → **Earlier versions of this edit…** lists them (when, how many
+camera keyframes, scenes, why) and **Restore this version** puts one back. The current edit is saved first, so a
+restore can be undone. Close that recording in Flashback first: Flashback writes the edit it has open back from
+memory. Command line: `mcsm flashback-edits backup`, `mcsm flashback-edits versions --edit FILE`,
+`mcsm flashback-edits restore --edit FILE --version N`.
+
+The app also keeps a list of the copies it made in each Flashback (`flashback/mcsm/registry.json`; text, highlight
+and timelapse copies, also older ones, recognised by their file names). Your originals are never on it, and a
+future Flashback add-on will only change what's on it.
+

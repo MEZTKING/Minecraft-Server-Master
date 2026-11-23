@@ -52,6 +52,8 @@ BUTTON_TIPS = {
     "Join…": "Choose where to save the joined video and make it.",
     "Up": "Move the selected video earlier.",
     "Down": "Move the selected video later.",
+    "Restore this version": "Put the chosen saved version back as the edit (the current one is saved first).",
+    "Open the backups folder": "The folder with this edit's saved versions.",
     "Cancel": "Stop the job that is running (it stops after the file it's on; nothing is left half-written).",
     "Ignored players…": "Players who were never supposed to join: leave them out everywhere (reports, moments, "
                         "story, timelapses, maps). Nothing in your backups is changed.",
@@ -284,6 +286,22 @@ class App(ttk.Frame):
         self.status_var = tk.StringVar(value="No server loaded")
         ttk.Label(box, textvariable=self.status_var, foreground="gray", wraplength=820).grid(row=2, column=0, columnspan=5, sticky="w", pady=(6, 0))
         self._build_updates(box)
+
+    def _backup_edits(self) -> None:
+        """At start: save a version of every Flashback edit that changed, and note the app's copies (in the
+        background; a line in the log when something was saved)."""
+        def work():
+            from . import editbackup, flashback as fbm
+            try:
+                r = editbackup.snapshot_all(why="when the app started")
+                for f in fbm.flashback_folders():
+                    fbm.register_existing(f["path"])
+                if r["saved"]:
+                    self.q.put(("log", f"Saved {r['saved']} new version(s) of your Flashback edits "
+                                       f"({editbackup.backup_root()}).\n"))
+            except Exception as exc:                 # noqa: BLE001 -- a backup problem mustn't stop the app
+                self.q.put(("log", f"Couldn't back up the Flashback edits: {exc}\n"))
+        threading.Thread(target=work, daemon=True).start()
 
     def _save_reopen(self) -> None:
         from . import updater
@@ -1432,6 +1450,7 @@ class App(ttk.Frame):
             m.add_command(label="Show the recording in its folder", state="normal" if rec and os.path.exists(rec) else "disabled",
                           command=lambda: show_in_folder(rec))
             m.add_command(label="Show the edit's timeline file (editor state)", command=lambda: show_in_folder(e["state"]))
+            m.add_command(label="Earlier versions of this edit…", command=lambda: self._edit_versions(e, win))
             m.add_command(label="Open this Flashback's replays folder",
                           command=lambda: show_in_folder(os.path.join(fb, "replays")))
             out = fbm.export_folder(fb)
@@ -1450,6 +1469,54 @@ class App(ttk.Frame):
                   foreground="gray").pack(padx=10, anchor="w")
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
         ttk.Button(row, text="Open", command=go).pack(side="right", padx=6)
+
+    def _edit_versions(self, e: dict, parent) -> None:
+        """The saved versions of one Flashback edit, to restore one (the current one is saved first)."""
+        import time as time_mod
+        from . import editbackup
+        editbackup.snapshot(e["state"], "before looking at versions")
+        vs = editbackup.versions(e["state"])
+        win = tk.Toplevel(parent)
+        win.title("Earlier versions of this edit")
+        win.transient(parent)
+        ttk.Label(win, text="Saved versions of this Flashback edit, newest first (the app saves one whenever the edit "
+                            "changed, when the app starts and before it changes an edit). Restoring saves the current "
+                            "edit first, so it can be undone. Close this recording in Flashback before restoring.",
+                  wraplength=600, justify="left").pack(padx=10, pady=(10, 6), anchor="w")
+        cols = ("when", "keys", "scenes", "why")
+        tree = ttk.Treeview(win, columns=cols, show="headings", height=min(14, max(3, len(vs))), selectmode="browse")
+        for c, label, w in (("when", "Saved", 150), ("keys", "Camera keyframes", 110), ("scenes", "Scenes", 180),
+                            ("why", "Why", 200)):
+            tree.heading(c, text=label)
+            tree.column(c, width=w, anchor="w")
+        for i, v in enumerate(vs):
+            tree.insert("", "end", iid=str(i), values=(time_mod.strftime("%Y-%m-%d %H:%M", time_mod.localtime(v["time"])),
+                                                       v["keyframes"] if v["keyframes"] is not None else "?",
+                                                       ", ".join(v["scenes"]), v["why"]))
+        tree.pack(fill="both", expand=True, padx=10)
+
+        def go():
+            sel = tree.selection()
+            if not sel:
+                return
+            v = vs[int(sel[0])]
+            if not messagebox.askyesno(APP_NAME, "Put this version back as the edit?\n\nIs the recording closed in "
+                                                 "Flashback? (If it's open, Flashback writes its own copy back.)",
+                                       parent=win):
+                return
+            try:
+                editbackup.restore(e["state"], v["path"])
+            except (OSError, ValueError) as exc:
+                messagebox.showerror(APP_NAME, str(exc), parent=win)
+                return
+            messagebox.showinfo(APP_NAME, "Restored. Open the recording in Flashback to see it.", parent=win)
+            win.destroy()
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=8)
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+        ttk.Button(row, text="Restore this version", command=go).pack(side="right", padx=6)
+        ttk.Button(row, text="Open the backups folder",
+                   command=lambda: show_in_folder(editbackup.versions_dir(e["state"]))).pack(side="left")
 
     def _vid_put_back(self, rec: str, fb: str, instance: str, parent, done=None) -> None:
         """Copy an edit's recording (e.g. from the library) into its Flashback's replays folder."""
@@ -2087,6 +2154,7 @@ def main() -> int:
         app.after(200, app._load)
     else:
         app.after(300, app._reopen_last)                 # the last server, as it was
+    app.after(1500, app._backup_edits)                   # versions of your Flashback edits, quietly
     root.mainloop()
     return 0
 

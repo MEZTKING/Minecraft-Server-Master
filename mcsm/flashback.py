@@ -46,6 +46,7 @@ normal speed. Output ticks must strictly increase.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import os
 import re
 import shutil
@@ -244,6 +245,75 @@ def in_replays(recording: str | None, flashback_dir: str) -> bool:
     return os.path.normcase(os.path.abspath(os.path.dirname(recording))) == rep
 
 
+# --- the app's own copies, and the app's folder inside each Flashback -------------------------------------
+# ``<flashback>/mcsm/registry.json`` lists every recording the app made (text, highlight and timelapse copies):
+# the Flashback add-on only ever changes those, never your originals. (A mark inside the copy's edit can't be
+# relied on: Flashback rewrites edits from memory and drops what it doesn't know.)
+
+def mcsm_dir(flashback_dir: str) -> str:
+    return os.path.join(flashback_dir, "mcsm")
+
+
+def registry(flashback_dir: str) -> dict:
+    try:
+        with open(os.path.join(mcsm_dir(flashback_dir), "registry.json"), encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) and isinstance(d.get("copies"), dict) else {"copies": {}}
+    except (OSError, ValueError):
+        return {"copies": {}}
+
+
+def register_copy(copy_path: str, uuid: str, original_uuid: str | None, kind: str, name: str = "") -> None:
+    """Note a copy the app made in its Flashback's registry (when *copy_path* is in a Flashback replays folder)."""
+    folder = os.path.dirname(os.path.abspath(copy_path))
+    if os.path.basename(folder).lower() != "replays" or not uuid:
+        return
+    fb = os.path.dirname(folder)
+    reg = registry(fb)
+    reg["copies"][uuid] = {"original": original_uuid, "kind": kind, "name": name, "file": os.path.basename(copy_path),
+                           "made": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    d = mcsm_dir(fb)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "registry.json")
+    with open(p + ".part", "w", encoding="utf-8") as fh:
+        json.dump(reg, fh, indent=1)
+    os.replace(p + ".part", p)
+
+
+def is_app_copy(flashback_dir: str, uuid: str) -> bool:
+    return uuid in registry(flashback_dir)["copies"]
+
+
+_COPY_FILE = re.compile(r" \((text|highlights|mcsm|timelapse \d+ of \d+|timelapse)\)( \d+)?\.zip$", re.IGNORECASE)
+
+
+def register_existing(flashback_dir: str) -> int:
+    """Add copies the app made before the registry existed: recognised by the app's mark in their metadata or,
+    as Flashback drops that mark when you rename a recording, by their file name ("… (text).zip",
+    "… (highlights).zip", "… (timelapse 2 of 9).zip", "… (mcsm).zip"). Returns how many were added."""
+    import zipfile
+    reg = registry(flashback_dir)["copies"]
+    d = os.path.join(flashback_dir, "replays")
+    added = 0
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not name.lower().endswith(".zip"):
+            continue
+        try:
+            with zipfile.ZipFile(os.path.join(d, name)) as z:
+                meta = json.loads(z.read("metadata.json"))
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            continue
+        uid = meta.get("uuid")
+        m = _COPY_FILE.search(name)
+        if not uid or uid in reg or not (m or meta.get("original_uuid_mcsm") or meta.get("mcsm_world_text")):
+            continue
+        kind = (m.group(1).split(" ")[0].lower() if m else "copy")
+        register_copy(os.path.join(d, name), uid, meta.get("original_uuid_mcsm"), kind, meta.get("name", ""))
+        reg = registry(flashback_dir)["copies"]
+        added += 1
+    return added
+
+
 def replay_ids(flashback_dir: str) -> set[str]:
     """The ids of the recordings in this Flashback's ``replays`` folder (what its list shows)."""
     import zipfile
@@ -353,6 +423,9 @@ def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_s
                 with zin.open(info) as fin, zout.open(out_info, "w", force_zip64=True) as fout:
                     shutil.copyfileobj(fin, fout, 1 << 20)
         os.replace(tmp, dst)
+    if new_uuid:
+        kind = name_suffix.strip(" ()").split(" ")[0] or "copy"
+        register_copy(dst, meta["uuid"], meta.get("original_uuid_mcsm"), kind, meta.get("name", ""))
     meta["_markers_added"] = added
     return meta
 

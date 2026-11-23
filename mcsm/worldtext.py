@@ -758,6 +758,8 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                 os.remove(tmp)
             raise
     meta["_chunks"] = chunks
+    from .flashback import register_copy
+    register_copy(dst, meta.get("uuid"), meta.get("original_uuid_mcsm"), "text", meta.get("name", ""))
     return meta
 
 
@@ -894,6 +896,8 @@ def eye_at(scene: dict, tick: float) -> tuple[list[float], float, float] | None:
 def set_camera_track(edit_path: str, keyframes: list[dict]) -> None:
     """Replace the CAMERA keyframes of the edit's open scene with *keyframes* (``{tick, position,
     yaw, pitch, roll, interpolation_type}``), keeping the track itself and everything else."""
+    from . import editbackup
+    editbackup.snapshot(edit_path, "before the app set the camera")
     with open(edit_path, encoding="utf-8") as fh:
         state = json.load(fh)
     scenes = state.get("scenes") or []

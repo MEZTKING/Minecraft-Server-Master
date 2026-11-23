@@ -1094,6 +1094,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** Add-on stage 1, app side (owner: "Stage 1", then "for now i want to be able to edit and fully finish
+  off what i have stored so far": the in-Flashback panel is postponed; Flashback Extras exists, an "ultra" add-on is
+  for later): `mcsm/editbackup.py` versioned backups of every Flashback edit (at app start, before the app writes an
+  edit; last 30 + one a day; restore saves the current first), "Earlier versions of this edit…" in the edit picker,
+  `mcsm flashback-edits`; `flashback.registry`/`register_copy`/`register_existing` (app copies, also by file name as
+  Flashback drops the app's mark when a recording is renamed); `mcsm/fbpanel.py` (per-recording events file for the
+  future panel, not used yet). On the owner's PC: 32 edits saved, 13 copies registered, no originals.
+
 - **2026-11-23:** Checked the owner's report "Thank you for playing … its in both meeting room recordings": the text
   is not in either original (library or Flashback copy, searched byte for byte); only in the app's "(text)" copy,
   made 22 Nov 08:57 and not remade since (so it doesn't have the new letter-drop title yet). Backlog 0q: native
