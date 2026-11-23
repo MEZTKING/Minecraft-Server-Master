@@ -236,6 +236,68 @@ class FlashbackMarker:
     colour: int = 0xFF5555
 
 
+def in_replays(recording: str | None, flashback_dir: str) -> bool:
+    """Whether *recording* is in this Flashback's own ``replays`` folder (so Flashback lists it)."""
+    if not recording:
+        return False
+    rep = os.path.normcase(os.path.abspath(os.path.join(flashback_dir, "replays")))
+    return os.path.normcase(os.path.abspath(os.path.dirname(recording))) == rep
+
+
+def replay_ids(flashback_dir: str) -> set[str]:
+    """The ids of the recordings in this Flashback's ``replays`` folder (what its list shows)."""
+    import zipfile
+    out = set()
+    d = os.path.join(flashback_dir, "replays")
+    for name in os.listdir(d) if os.path.isdir(d) else []:
+        if not name.lower().endswith(".zip"):
+            continue
+        try:
+            with zipfile.ZipFile(os.path.join(d, name)) as z:
+                uid = json.loads(z.read("metadata.json")).get("uuid")
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            continue
+        if uid:
+            out.add(uid)
+    return out
+
+
+def put_back(recording: str, flashback_dir: str) -> str:
+    """Copy *recording* (e.g. from the library) into this Flashback's ``replays`` folder, so Flashback lists it
+    again and opens it with its edit (Flashback finds an edit by the recording's id). The original stays where
+    it is. A file of the same name that is a different recording gets " (2)" etc. Returns the copy's path."""
+    import shutil
+    import zipfile
+    if not recording or not os.path.isfile(recording):
+        raise ValueError("the recording isn't on this PC any more")
+    if in_replays(recording, flashback_dir):
+        return recording
+    with zipfile.ZipFile(recording) as z:
+        uid = json.loads(z.read("metadata.json")).get("uuid")
+    target = os.path.join(flashback_dir, "replays")
+    os.makedirs(target, exist_ok=True)
+    stem, ext = os.path.splitext(os.path.basename(recording))
+    dst, n = os.path.join(target, stem + ext), 2
+    while os.path.exists(dst):
+        try:
+            with zipfile.ZipFile(dst) as z:
+                if json.loads(z.read("metadata.json")).get("uuid") == uid:
+                    return dst                                  # already there under this name
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            pass
+        dst, n = os.path.join(target, f"{stem} ({n}){ext}"), n + 1
+    shutil.copyfile(recording, dst + ".part")
+    try:
+        with zipfile.ZipFile(dst + ".part") as z:
+            if z.testzip() is not None or json.loads(z.read("metadata.json")).get("uuid") != uid:
+                raise ValueError("the copy didn't come out right")
+    except BaseException:
+        os.remove(dst + ".part")
+        raise
+    os.replace(dst + ".part", dst)
+    return dst
+
+
 def copy_name(meta: dict, src: str, suffix: str, title: str | None = None) -> str:
     """The name Flashback lists a copy by. A recording that never got a name ("Unnamed", "") is named after
     its file (the date it was recorded), so the copy can be found in Flashback's list; *title* (the scene's

@@ -17,7 +17,11 @@ in (*copy* = a copy the app made, with text; empty edits are hidden unless you t
 Choose a scene and press **Open** (or double-click). **Right-click** a row to find its files: show the
 recording in its folder (the app's timelapse and highlight copies are in that Flashback's `replays`
 folder), show the edit's timeline file, open that Flashback's replays folder, or open the folder that
-Flashback saves exported videos to (the one you last chose on its export screen). From the command line:
+Flashback saves exported videos to (the one you last chose on its export screen).
+A recording that isn't in that Flashback's own `replays` folder (e.g. only in your library) is marked
+*not in Flashback*: Flashback doesn't list it, though your edit is kept. Right-click → **Put the recording back in
+Flashback** copies it into the replays folder (checked; the original stays where it is); Flashback then lists it
+again and opens it with your edit. From the command line:
 `mcsm video-editor --list-edits` lists them with the `--edit STATE.json --scene N` to open each, then
 `mcsm video-editor --edit STATE.json [--scene N] --world <library world>`.
 

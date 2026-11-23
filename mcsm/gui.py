@@ -1353,6 +1353,7 @@ class App(ttk.Frame):
         self._run("Reading your Flashback edits", lambda _: vt.list_edits(world), lambda edits: self._vid_edit_pick(edits))
 
     def _vid_edit_pick(self, edits: list[dict]) -> None:
+        from . import flashback as fbm
         if not edits:
             messagebox.showinfo(APP_NAME, "No Flashback edits were found (Flashback keeps them in "
                                           "flashback/editor_states of the Minecraft instance).")
@@ -1373,6 +1374,14 @@ class App(ttk.Frame):
         tree.pack(fill="both", expand=True, padx=10)
         show_empty = tk.BooleanVar(value=False)
         rows: dict[str, dict] = {}
+        ids: dict[str, set] = {}                             # recordings (by id) each Flashback lists
+
+        def not_in_flashback(e) -> bool:
+            """The edit's recording isn't in its Flashback's replays folder (e.g. only in the library)."""
+            fb = os.path.dirname(os.path.dirname(e["state"]))
+            if fb not in ids:
+                ids[fb] = fbm.replay_ids(fb)
+            return bool(e.get("recording")) and e.get("uuid") not in ids[fb] and not fbm.in_replays(e["recording"], fb)
 
         def fill():
             tree.delete(*tree.get_children())
@@ -1383,8 +1392,9 @@ class App(ttk.Frame):
                 length = f"{int(e['length'] // 60)}:{e['length'] % 60:04.1f}" if e["length"] is not None else "no export range"
                 several = sum(1 for o in edits if o["state"] == e["state"]) > 1
                 name = e["scene_name"] + (" (current scene)" if e["current"] and several else "") + (" · copy" if e["copy"] else "")
-                iid = tree.insert("", "end", values=(name, e["recording_name"], length, e["keyframes"], e["saved_text"],
-                                                     e["instance"]))
+                away = not_in_flashback(e)
+                iid = tree.insert("", "end", values=(name, e["recording_name"] + ("  · not in Flashback" if away else ""),
+                                                     length, e["keyframes"], e["saved_text"], e["instance"]))
                 rows[iid] = e
             kids = tree.get_children()
             if kids:
@@ -1427,12 +1437,32 @@ class App(ttk.Frame):
             out = fbm.export_folder(fb)
             m.add_command(label=f"Open the folder Flashback saves videos to{'' if out else ' (none set yet)'}",
                           state="normal" if out else "disabled", command=lambda: show_in_folder(out))
+            if rec and os.path.isfile(rec) and not_in_flashback(e):
+                def done(dst):
+                    ids.setdefault(fb, set()).add(e.get("uuid"))
+                    fill()
+                m.add_separator()
+                m.add_command(label=f"Put the recording back in Flashback ({e['instance']})",
+                              command=lambda: self._vid_put_back(rec, fb, e["instance"], win, done))
             m.tk_popup(event.x_root, event.y_root)
         tree.bind("<Button-3>", menu)
         ttk.Label(win, text="Right-click an edit to find its recording, its timeline file or the exported videos.",
                   foreground="gray").pack(padx=10, anchor="w")
         ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
         ttk.Button(row, text="Open", command=go).pack(side="right", padx=6)
+
+    def _vid_put_back(self, rec: str, fb: str, instance: str, parent, done=None) -> None:
+        """Copy an edit's recording (e.g. from the library) into its Flashback's replays folder."""
+        from . import flashback as fbm
+        size = os.path.getsize(rec) / 1e6
+        if not messagebox.askyesno(APP_NAME, f"Copy\n{rec}\n({size:,.0f} MB) into\n{os.path.join(fb, 'replays')}?\n\n"
+                                             f"Flashback ({instance}) then lists it again and opens it with this edit. "
+                                             "The recording where it is now isn't changed.", parent=parent):
+            return
+        self._run("Putting the recording back in Flashback", lambda _d: fbm.put_back(rec, fb),
+                  after=lambda dst: (done and done(dst), messagebox.showinfo(
+                      APP_NAME, f"Copied to\n{dst}\n\nIn Flashback, go Back and open Select Replay again to see it.",
+                      parent=parent)))
 
     def _vid_edit_open(self, p: str, scene: int | None = None) -> None:
         from .videoeditor import VideoEditor

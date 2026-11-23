@@ -1058,6 +1058,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** "Open a Flashback edit": recordings not in that Flashback's replays folder are marked "not in
+  Flashback" (by recording id, `flashback.replay_ids`), and right-click → "Put the recording back in Flashback" copies
+  them there (`flashback.put_back`: checked zip and id, a different recording with the same name gets " (2)", the
+  original stays). Owner: "Yes, add it".
+
 - **2026-11-23:** Owner: "wheres my original edits". Their edits were intact in Flashback 26.1.2's editor_states,
   but the recordings were only in the library, so Flashback didn't list them. Copied (owner: "Yes, copy them") the
   four with camera keyframes back into its replays folder (Meeting Room 2026-05-24--18-49-45, Fishinand chasing

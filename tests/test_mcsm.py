@@ -4413,3 +4413,33 @@ class TestCopyNames(unittest.TestCase):
         self.assertEqual(copy_name({"name": "Big build"}, "x.zip", " (timelapse 1 of 9)"), "Big build (timelapse 1 of 9)")
         self.assertEqual(copy_name({}, "C:/r/2026-04-10--16-02-16.zip", " (mcsm)"), "2026-04-10--16-02-16 (mcsm)")
         self.assertEqual(copy_name({"name": "Meeting Room 2"}, "a.zip", " (text)", "meeting room"), "Meeting Room 2 (text)")
+
+
+class TestPutBack(unittest.TestCase):
+    """An edit's recording copied back into Flashback's replays folder (checked; the original stays)."""
+
+    def test_put_back(self):
+        from mcsm import flashback as fbm
+        tmp = tempfile.mkdtemp()
+        try:
+            fb = os.path.join(tmp, "flashback")
+            os.makedirs(os.path.join(fb, "replays"))
+            lib = os.path.join(tmp, "library")
+            os.makedirs(lib)
+
+            def rec(path, uid):
+                with zipfile.ZipFile(path, "w") as z:
+                    z.writestr("metadata.json", json.dumps({"uuid": uid}))
+                return path
+            src = rec(os.path.join(lib, "2026-05-24--18-49-45.zip"), "aaa")
+            self.assertFalse(fbm.in_replays(src, fb))
+            dst = fbm.put_back(src, fb)
+            self.assertEqual(dst, os.path.join(fb, "replays", "2026-05-24--18-49-45.zip"))
+            self.assertTrue(fbm.in_replays(dst, fb) and os.path.isfile(src))           # the original stays
+            self.assertEqual(fbm.put_back(src, fb), dst)                               # already there
+            other = rec(os.path.join(tmp, "2026-05-24--18-49-45.zip"), "bbb")          # same name, another recording
+            self.assertTrue(fbm.put_back(other, fb).endswith("2026-05-24--18-49-45 (2).zip"))
+            with self.assertRaises(ValueError):
+                fbm.put_back(os.path.join(lib, "gone.zip"), fb)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
