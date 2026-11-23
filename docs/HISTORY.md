@@ -204,9 +204,14 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
 - **Soft shadows**: the corner shadows (Minecraft's smooth lighting); 0 turns them off.
 - **Reset** puts everything back.
 
-**Players** are shown as Minecraft figures, each with one of the game's default skins (always the same for a
-player) and a ring in their colour at their feet. They face the way they move and swing their arms and legs as
-they walk. Their real skins aren't shown, because that would mean downloading them from Mojang.
+**Players** are shown as Minecraft figures with their own skins, including the skin's outer layer (hat, jacket,
+sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,
+faces the way they move, and swings their arms and legs as they walk.
+
+The skins come from Mojang, the same place the game gets them: the app sends only each player's UUID. Each skin
+is kept in `%LOCALAPPDATA%\mcsm\skins\` and checked again after a week, in case someone changed theirs. Untick
+**Real skins** (next to *Event pins*) to use the game's default skins instead (Steve, Alex and the others, always
+the same one for a player). Default skins are also used when a player has no skin or there's no internet.
 
 **Changes between backups.** With two or more backups, the viewer compares each backup's ground with the
 one before (in the background, a few minutes the first time for a big library, then saved). Tick

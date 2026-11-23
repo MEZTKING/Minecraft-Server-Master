@@ -1115,7 +1115,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   - Waterlogged blocks show no water.
   - Biome colours are fixed tints.
   - Caves are followed only to 40 blocks below the surface.
-  - Players use default skins, picked by name, not the game's uuid rule.
+  - Players' real skins come from Mojang (`mcsm/skins.py`; only UUIDs are sent). Without one, the default skin is
+    picked by name, not by the game's UUID rule.
   - The world shown is the backup saved after that time.
 - **Flashback link not yet tried with a replay open.** Status/seek/camera use Flashback's names (checked in
   its 0.40 jar and source); the captured picture is the game's main framebuffer, which per Flashback's
@@ -1163,6 +1164,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   - Players are skinned figures that walk.
   - Real-block pieces now also load around every player.
   - Biome finds added as moments.
+  - Players' real skins from Mojang, after the owner said "Yes, real skins": `mcsm/skins.py`, kept in
+    `%LOCALAPPDATA%\mcsm\skins`, refreshed weekly, with slim arms, the outer layer and old 64x32 skins handled,
+    and a *Real skins* switch.
   - A death that outweighs a celebration makes the moment neutral.
   - On the owner's world: a 128 x 128 piece builds in about 1.1 s, about 77,000 faces.
 

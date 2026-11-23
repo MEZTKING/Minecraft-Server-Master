@@ -179,6 +179,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     </select></label>
     <label><input type="checkbox" id="allPaths"> All paths</label>
     <label><input type="checkbox" id="pins" checked> Event pins</label>
+    <label title="Show each player's own skin, downloaded from Mojang (only their UUID is sent) and kept on this PC; off: the game's default skins"><input type="checkbox" id="realSkins" checked> Real skins</label>
   </div>
   <h2>Players</h2>
   <ul id="players"></ul>
@@ -613,6 +614,11 @@ async function realStep(now) {
   } catch (e) { REAL.failed.add(`${key}|${id}`); }
   finally { REAL.busy = false; }
 }
+$("#realSkins").checked = store.get("mcsm-real-skins") !== "0";
+$("#realSkins").onchange = () => {
+  store.set("mcsm-real-skins", $("#realSkins").checked ? "1" : "0");
+  for (const name of Object.keys(markers)) $("#realSkins").checked ? realSkin(name) : setFigure(name, null);
+};
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 window.__history = { camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false) };   // for checking the view
@@ -690,23 +696,37 @@ function skinBox(w, h, d, u, v, grow = 0) {
   });
   return g;
 }
-function playerFigure(name, colour) {
+function playerFigure(name, colour, real = null) {
+  // real: {tex, slim, legacy} a player's own skin (legacy: an old 64 x 32 one, whose left arm and leg copy the right)
   let hsh = 0; for (const ch of name) hsh = (hsh * 31 + ch.charCodeAt(0)) | 0;
-  const tex = skinTexture(SKINS[Math.abs(hsh) % SKINS.length]);
+  const tex = real ? real.tex : skinTexture(SKINS[Math.abs(hsh) % SKINS.length]);
   const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.1 });
+  const aw = real && real.slim ? 3 : 4, legacy = real && real.legacy, outer = !legacy;
   const fig = new THREE.Group(), parts = {};
   const part = (key, geo, x, y, z, pivotY) => {       // limbs swing about their top
     const pivot = new THREE.Group(); pivot.position.set(x * PX, pivotY * PX, z * PX);
     const m = new THREE.Mesh(geo, mat); m.position.y = (y - pivotY) * PX; pivot.add(m);
     fig.add(pivot); parts[key] = pivot; return pivot;
   };
-  part("head", skinBox(8, 8, 8, 0, 0), 0, 28, 0, 24);
-  const hat = new THREE.Mesh(skinBox(8, 8, 8, 32, 0, 1), mat); hat.position.y = 4 * PX; parts.head.add(hat);
-  part("body", skinBox(8, 12, 4, 16, 16), 0, 18, 0, 18);
-  part("rarm", skinBox(4, 12, 4, 40, 16), -6, 18, 0, 24);
-  part("larm", skinBox(4, 12, 4, 32, 48), 6, 18, 0, 24);
-  part("rleg", skinBox(4, 12, 4, 0, 16), -2, 6, 0, 12);
-  part("lleg", skinBox(4, 12, 4, 16, 48), 2, 6, 0, 12);
+  const V = legacy ? 32 : 64;                          // the skin's height in pixels
+  const sb = (w, h, d, u, v, grow = 0) => { const g = skinBox(w, h, d, u, v, grow);
+    if (V !== 64) { const a = g.attributes.uv; for (let i = 0; i < a.count; i++) a.setY(i, 1 - (1 - a.getY(i)) * 2); }
+    return g; };
+  const layer = (pivot, g, y) => { const o = new THREE.Mesh(g, mat); o.position.y = y * PX; pivot.add(o); };
+  part("head", sb(8, 8, 8, 0, 0), 0, 28, 0, 24);
+  layer(parts.head, sb(8, 8, 8, 32, 0, 1), 4);                                      // hat
+  part("body", sb(8, 12, 4, 16, 16), 0, 18, 0, 18);
+  part("rarm", sb(aw, 12, 4, 40, 16), -(4 + aw / 2), 18, 0, 24);
+  part("larm", legacy ? sb(aw, 12, 4, 40, 16) : sb(aw, 12, 4, 32, 48), 4 + aw / 2, 18, 0, 24);
+  part("rleg", sb(4, 12, 4, 0, 16), -2, 6, 0, 12);
+  part("lleg", legacy ? sb(4, 12, 4, 0, 16) : sb(4, 12, 4, 16, 48), 2, 6, 0, 12);
+  if (outer) {                                         // the skin's outer layer: jacket, sleeves, trousers
+    layer(parts.body, sb(8, 12, 4, 16, 32, 0.5), 0);
+    layer(parts.rarm, sb(aw, 12, 4, 40, 32, 0.5), -6);
+    layer(parts.larm, sb(aw, 12, 4, 48, 48, 0.5), -6);
+    layer(parts.rleg, sb(4, 12, 4, 0, 32, 0.5), -6);
+    layer(parts.lleg, sb(4, 12, 4, 0, 48, 0.5), -6);
+  }
   // a ring in the player's colour at their feet, to tell them apart
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.6, 24), new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, transparent: true }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; fig.add(ring);
@@ -727,6 +747,28 @@ function animateFigure(m, now) {
   P.rleg.rotation.x = s; P.lleg.rotation.x = -s; P.rarm.rotation.x = -s * 0.8; P.larm.rotation.x = s * 0.8;
   m.last = p.clone(); m.lastT = now;
 }
+// A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
+function setFigure(name, real) {
+  const m = markers[name];
+  if (!m) return;
+  const old = m.F, F = playerFigure(name, new THREE.Color(playerColour(name)), real);
+  F.fig.rotation.y = old.fig.rotation.y;
+  m.group.remove(old.fig); m.group.add(F.fig);
+  F.mat.opacity = old.mat.opacity; F.ring.material.opacity = old.ring.material.opacity;
+  m.F = F; m.mat = F.mat;
+}
+async function realSkin(name) {
+  const uuid = H && H.uuids && H.uuids[name];
+  if (!uuid || !$("#realSkins").checked) return;
+  try {
+    const r = await (await fetch(`api/skin/${uuid.replace(/-/g, "")}`)).json();
+    if (!r.found || !$("#realSkins").checked) return;
+    new THREE.TextureLoader().load(r.url, tex => {
+      tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
+      setFigure(name, { tex, slim: r.slim, legacy: tex.image && tex.image.height === 32 });
+    });
+  } catch (e) { /* no skin: the default one stays */ }
+}
 function marker(name) {
   if (markers[name]) return markers[name];
   const c = new THREE.Color(playerColour(name));
@@ -734,6 +776,7 @@ function marker(name) {
   const F = playerFigure(name, c), mat = F.mat;
   group.add(F.fig);
   scene.add(group);
+  setTimeout(() => realSkin(name), 0);
   const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
   scene.add(trail);
   const label = document.createElement("div");

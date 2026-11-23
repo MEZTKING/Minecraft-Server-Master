@@ -4786,6 +4786,50 @@ class TestMoods(unittest.TestCase):
         self.assertEqual(moods.group_mood(group), "celebration")
 
 
+class TestSkins(unittest.TestCase):
+    """Players' real skins: looked up by UUID at Mojang, only from Mojang's texture server, kept and refreshed."""
+
+    def test_skin(self):
+        import base64
+        from mcsm import skins
+        tmp = tempfile.mkdtemp()
+        uuid = "c2e9a692-cc46-415a-bcbc-23639ba15d30"
+        calls = []
+
+        def prof(url, slim=True):
+            tex = {"textures": {"SKIN": {"url": url, **({"metadata": {"model": "slim"}} if slim else {})}}}
+            return json.dumps({"id": uuid.replace("-", ""), "properties": [
+                {"name": "textures", "value": base64.b64encode(json.dumps(tex).encode()).decode()}]}).encode()
+        png = b"\x89PNG\r\n\x1a\n" + b"x" * 50
+
+        def fetch(url, limit):
+            calls.append(url)
+            if "sessionserver" in url:
+                return prof("http://textures.minecraft.net/texture/abc123")
+            return png if url == "https://textures.minecraft.net/texture/abc123" else None
+        try:
+            s = skins.skin(uuid, tmp, fetch, now=1000.0)
+            self.assertTrue(s["slim"])
+            with open(s["file"], "rb") as fh:
+                self.assertEqual(fh.read(), png)
+            self.assertEqual(calls[0], skins.PROFILE_URL.format(uuid=uuid.replace("-", "")))   # only the UUID goes out
+            n = len(calls)
+            self.assertEqual(skins.skin(uuid, tmp, fetch, now=2000.0)["file"], s["file"])     # kept: no new lookup
+            self.assertEqual(len(calls), n)
+            skins.skin(uuid, tmp, fetch, now=1000.0 + skins.REFRESH_S + 1)                       # a week on: checked again
+            self.assertGreater(len(calls), n)
+            self.assertEqual(skins.skin_file(uuid, tmp), s["file"])
+            self.assertIsNone(skins.skin_file("../evil", tmp))
+            self.assertIsNone(skins.skin("not-a-uuid", tmp, fetch))
+            # a skin hosted anywhere else is refused; no skin -> None (the default skin is used)
+            other = "11111111222233334444555555555555"
+            self.assertIsNone(skins.skin(other, tmp, lambda url, limit: prof("https://evil.example/skin.png")
+                                         if "sessionserver" in url else png, now=1000.0))
+            self.assertIsNone(skins.skin("22222222222233334444555555555555", tmp, lambda url, limit: None, now=1000.0))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestVersionBand(unittest.TestCase):
     """The Minecraft version over time, from the backups and the recordings (the history's version band)."""
 

@@ -112,6 +112,7 @@ def history_payload(data: m.ServerData, title: str = "") -> dict:
         "range": [min(times), max(times)] if times else None,
         "players": sorted(p.name for p in data.players.values() if p.session_count or p.names_seen),
         "aliases": aliases,
+        "uuids": {p.name: p.uuid for p in data.players.values() if p.uuid},   # for the players' real skins
         "events": events,
         "sessions": sessions,
         "replays": replays,
@@ -383,6 +384,11 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
+            from . import skins
+            u = skins.clean_uuid(path[len("/api/skin/"):])
+            s = skins.skin(u) if u else None
+            return {"found": True, "url": f"/skin/{u}.png", "slim": s["slim"]} if s else {"found": False}
         if path.startswith("/api/blocktile/"):       # real blocks close up: /api/blocktile/<layer>/<dim>/<tx>/<tz>
             try:
                 layer, dim, tx, tz = path[len("/api/blocktile/"):].split("/")
@@ -469,6 +475,9 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.block_tile_file(key) if bw else None
+        if path.startswith("/skin/") and path.endswith(".png"):           # /skin/<uuid>.png (downloaded already)
+            from . import skins
+            return skins.skin_file(path[len("/skin/"):-4])
         if path.startswith("/blocktex/") and path.endswith(".png"):       # /blocktex/<layer>/<name>.png
             layer, _, name = path[len("/blocktex/"):-4].partition("/")
             try:
