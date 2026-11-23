@@ -1297,6 +1297,54 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_equipment(self):
+        """Held items and armour from set_equipment: slots, item names, the item_model and dye components,
+        and a component it can't read keeps what came before."""
+        import struct
+        from mcsm import paths, protocol
+        t = protocol.table(777)
+        items, comps = t["items"], t["components"]
+        it, ct = items.index, comps.index
+
+        def stack(name, *components):
+            return _vi(1) + _vi(it(name)) + _vi(len(components)) + _vi(0) + b"".join(components)
+
+        model = _vi(ct("item_model")) + _vi(len(b"hsj:aquatic_eye")) + b"hsj:aquatic_eye"
+        dye = _vi(ct("dyed_color")) + struct.pack(">i", 0x3366FF)
+        ench = _vi(ct("enchantments")) + _vi(2) + _vi(3) + _vi(1) + _vi(9) + _vi(5)    # two enchantments
+        body = (bytes([0x80]) + stack("diamond_pickaxe", ench, model)              # main hand, more follow
+                + bytes([0x80 | 4]) + stack("leather_chestplate", dye)            # chest
+                + bytes([0x80 | 1]) + _vi(0)                                       # off hand: empty
+                + bytes([5]) + stack("iron_helmet"))                               # head, the last
+        self.assertEqual(paths.equipment(body, 0, len(body), items, comps),
+                         [["mainhand", "diamond_pickaxe", "hsj:aquatic_eye", None],
+                          ["chest", "leather_chestplate", "", 0x3366FF],
+                          ["offhand", "", "", None], ["head", "iron_helmet", "", None]])
+        odd = bytes([0x80]) + stack("bow", _vi(ct("potion_contents")) + b"\x01\x02") + bytes([5]) + stack("iron_helmet")
+        self.assertEqual(paths.equipment(odd, 0, len(odd), items, comps), [["mainhand", "bow", "", None]])
+        # in a recording: the player's own equipment and another player's
+        eq = t["packets"]["set_equipment"]
+        recs = [("create_local_player", struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 0.0, 64.0, 0.0) + b"\0" * 40)]
+        for tick in range(10):
+            recs.append(("move_entities", _fb_move([(7, 0.0, 64.0, 0.0), (9, 3.0, 64.0, 0.0)])))
+            if tick == 1:
+                recs.append(("game_packet", _fb_add_player(9, ALEX, 3.0, 64.0, 0.0)))
+            if tick == 3:
+                recs.append(("game_packet", _vi(eq) + _vi(7) + bytes([0]) + stack("diamond_axe")))
+                recs.append(("game_packet", _vi(eq) + _vi(9) + bytes([2]) + stack("golden_boots")))
+            recs.append(("next_tick", b""))
+        tmp = tempfile.mkdtemp()
+        try:
+            z = os.path.join(tmp, "r.zip")
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3"}))
+                zf.writestr("c0.flashback", _fb_chunk(recs))
+            ex = paths.exact_rows(z, os.path.join(tmp, "cache"), {bytes.fromhex(ALEX.replace("-", "")): "Alex"})
+            self.assertIn([3, None, "eq", ["mainhand", "diamond_axe", "", None]], ex["events"])
+            self.assertIn([3, "Alex", "eq", ["feet", "golden_boots", "", None]], ex["events"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 class TestHistory(unittest.TestCase):
     """Player paths from Flashback recordings, and the history viewer's data and web server."""

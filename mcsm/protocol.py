@@ -19,6 +19,7 @@ import zipfile
 
 PACKETS = ("add_entity", "remove_entities", "set_entity_data", "animate", "set_time", "entity_event",
            "set_equipment", "set_passengers", "hurt_animation", "damage_event", "game_event")
+TABLE_VERSION = 2          # 2: item and data component names (held items and armour)
 BUNDLED = os.path.join(os.path.dirname(__file__), "assets", "protocols.json")
 _cache: dict[int, dict | None] = {}
 
@@ -37,9 +38,19 @@ def from_reports(folder: str, version: str, protocol: int) -> dict:
     types = [""] * (max(v["protocol_id"] for v in entries.values()) + 1)
     for name, v in entries.items():
         types[v["protocol_id"]] = name.split(":", 1)[-1]
+    with open(os.path.join(folder, "reports", "registries.json"), encoding="utf-8") as fh:
+        regs = json.load(fh)
+
+    def listed(reg: str) -> list[str]:          # a registry's names by network id
+        e = (regs.get(reg) or {}).get("entries") or {}
+        out = [""] * (max((v["protocol_id"] for v in e.values()), default=-1) + 1)
+        for name, v in e.items():
+            out[v["protocol_id"]] = name.split(":", 1)[-1]
+        return out
     return {"version": version, "protocol": protocol,
             "packets": {k: packets[f"minecraft:{k}"]["protocol_id"] for k in PACKETS if f"minecraft:{k}" in packets},
-            "entity_types": types}
+            "entity_types": types, "items": listed("minecraft:item"),
+            "components": listed("minecraft:data_component_type")}
 
 
 def _launcher_classpath(version: str) -> tuple[list[str], str | None]:
@@ -111,6 +122,8 @@ def table(protocol: int | None, version: str | None = None) -> dict | None:
                 t = json.load(fh)
         except (OSError, ValueError):
             t = None
+    if t is not None and "items" not in t and version:        # made by an older app: make it again
+        t = None
     if t is None and version:
         t = generate(version)
         if t is not None and t.get("protocol") != protocol:

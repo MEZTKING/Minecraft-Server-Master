@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -792,7 +792,7 @@ Design by Fable, 2026-11-23:
      `animate`.
    - Mobs from add-entity types: within 48 blocks of the recorded player, every 10 ticks, when moved 0.3 blocks.
    - Shown in exact playback (`exact2` cache).
-4. **Deferred.** Held items and armour (the item codec changes every version), mob metadata, and block changes from
+4. **Deferred.** Held items and armour (the item codec changes every version; built since: parity step 4), mob metadata, and block changes from
    recordings (the terrain stays the backup).
 
 Measured before the change: computed starts were typically 1.5–3 s after the file-name time, 90% within 7 s,
@@ -903,8 +903,19 @@ Fable's order, most visible per effort first:
    - The page shows a sitting pose.
    - States (flags, pose, hand use, riding) now come with their last value before the window, however long
      ago (`EXACT_SUFFIX` `.exact4`).
-4. **Held items and armour.** `set_equipment`, with item-stack component skippers; items and component types
-   from the reports.
+4. ✅ **Held items and armour.** Built 2026-11-23.
+   - `protocol.TABLE_VERSION` 2: tables also list `items` and `components` (from the reports' registries);
+     an older cached table is made again.
+   - `paths.equipment()` reads `set_equipment` (slot byte with 0x80 = more; item stack; components skipped by
+     name). At a component it can't read it keeps what came before (the main hand is first).
+   - `"eq"` events for the recorded player and other players; `history.exact()` turns them into one state per
+     slot (`eq:mainhand`, `eq:head`, ...) with the value from before the window, or (when none) the first one
+     after it. `EXACT_SUFFIX` `.exact5`.
+   - The page draws armour from `entity/equipment/humanoid[_leggings]/<material>` on enlarged player boxes
+     (leather tinted by its dye) and a held icon at the fist, slightly self-lit.
+   - Seen in the owner's recordings on 1.21.10 to 26.3: diamond armour and tools, bows, shields, leads,
+     fishing rods, and `hsj:` item models (shown as their base item: the server resource pack isn't on the PC).
+   - Not drawn: armour trims, elytra, mob equipment, enchantment glint.
 5. **Textured mobs.** Hand-made models with the jar's entity textures: humanoids reuse the player figure,
    then quadrupeds, chicken, creeper, spider, villager, horse, wolf and cat.
 6. **Blocks as they were at that moment.** The recording's chunk data plus block updates as a timeline over
@@ -1298,6 +1309,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Held items and armour in exact playback (parity step 4): `set_equipment` decoding,
+  per-version item and component lists in the protocol tables, armour shells and held icons on the figures.
 
 - **2026-11-23:** Riding in exact playback (parity step 3): sitting players in boats, on horses and on the sit
   datapack's seats; states known from any time before; `paths.EXACT_SUFFIX`.

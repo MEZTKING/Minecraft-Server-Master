@@ -1023,7 +1023,74 @@ function playerFigure(name, colour, real = null) {
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; fig.add(ring);
   return { fig, parts, mat, ring };
 }
+// ---------- held items and armour (from the recordings' equipment) ----------
+const gearTex = new Map();                               // texture path -> Promise<THREE.Texture | null>
+function texOnce(path) {
+  if (!gearTex.has(path)) gearTex.set(path, new Promise(res => new THREE.TextureLoader().load(`blocktex/0/${path}.png`, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; res(t);
+  }, undefined, () => res(null))));
+  return gearTex.get(path);
+}
+async function itemTexture(item) {                       // an item's icon; a block held shows its block texture
+  return (await texOnce(`item/${item}`)) || (await texOnce(`block/${item}`)) || null;
+}
+const ARMOUR = /^(leather|chainmail|iron|golden|diamond|netherite|copper|turtle)_(helmet|chestplate|leggings|boots)$/;
+function armourBoxes(slot, mat) {                        // the armour shell (the player model's boxes, a bit larger)
+  const a = mat.slim ? 3 : 4, grow = slot === "legs" ? 1 : 2;
+  const sb = (w, h, d, u, v) => {                        // armour textures are 64 x 32
+    const g = skinBox(w, h, d, u, v, grow), uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * 2);
+    return g;
+  };
+  if (slot === "head") return [["head", sb(8, 8, 8, 0, 0), 4]];
+  if (slot === "chest") return [["body", sb(8, 12, 4, 16, 16), -6], ["rarm", sb(4, 12, 4, 40, 16), -6], ["larm", sb(4, 12, 4, 40, 16), -6]];
+  if (slot === "legs") return [["body", sb(8, 12, 4, 16, 16), -6], ["rleg", sb(4, 12, 4, 0, 16), -6], ["lleg", sb(4, 12, 4, 0, 16), -6]];
+  return [["rleg", sb(4, 12, 4, 0, 16), -6], ["lleg", sb(4, 12, 4, 0, 16), -6]];   // boots
+}
+function gearKey(v) { return v ? `${v[0]}|${v[1] || ""}|${v[2] ?? ""}` : ""; }
+async function setGear(m, slot, v) {
+  const F = m.F, old = F.gear && F.gear[slot];
+  F.gear = F.gear || {}; F.tok = F.tok || {};
+  const mine = F.tok[slot] = (F.tok[slot] || 0) + 1;       // a later change wins over a slower texture load
+  if (old) { for (const o of old) o.parent && o.parent.remove(o); }
+  F.gear[slot] = [];
+  const item = v && v[0];
+  if (!item) return;
+  const objs = [];
+  if (slot === "mainhand" || slot === "offhand") {
+    const t = await itemTexture(item);
+    if (!t || m.F !== F || F.tok[slot] !== mine) return;
+    const g = new THREE.PlaneGeometry(10 * PX, 10 * PX).translate(3 * PX, 3 * PX, 0);   // the grip (an icon's lower left) at the fist
+    const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
+      emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // a flat icon: lit a little by itself so it never turns black edge-on
+    // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
+    q.position.set(0, -10 * PX, 1 * PX); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
+    (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
+  } else {
+    const mm = ARMOUR.exec(item); if (!mm) return;
+    const mat = { leather: "leather", chainmail: "chainmail", iron: "iron", golden: "gold", diamond: "diamond",
+      netherite: "netherite", copper: "copper", turtle: "turtle_scute" }[mm[1]];
+    const t = await texOnce(`entity/equipment/${slot === "legs" ? "humanoid_leggings" : "humanoid"}/${mat}`);
+    if (!t || m.F !== F || F.tok[slot] !== mine) return;
+    const col = mm[1] === "leather" ? new THREE.Color(v[2] != null ? v[2] : 0xA06540) : new THREE.Color(1, 1, 1);
+    const material = new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.1, color: col, transparent: false });
+    for (const [part, g, y] of armourBoxes(slot, { slim: false })) {
+      const o = new THREE.Mesh(g, material); o.position.y = y * PX; F.parts[part].add(o); objs.push(o);
+    }
+  }
+  F.gear[slot] = objs;
+}
+function updateGear(m) {
+  const exact = m.cur && m.cur.exact;
+  for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet"]) {
+    const v = exact ? stateAt(m.name, `eq:${slot}`, T, null) : null, key = gearKey(v);
+    m.gearKeys = m.gearKeys || {};
+    if (m.gearKeys[slot] !== key || (m.gearFig !== m.F)) { m.gearKeys[slot] = key; setGear(m, slot, v); }
+  }
+  m.gearFig = m.F;
+}
 function animateFigure(m, now) {
+  updateGear(m);
   // exact playback: body, head and look as recorded; otherwise face the way the player moves. Arms and legs swing
   // with their speed.
   const p = m.group.position, last = m.last || p.clone(), dt = Math.max(1, now - (m.lastT || now)) / 1000;

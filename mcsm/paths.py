@@ -168,6 +168,115 @@ def entity_data(b, k: int, end: int) -> dict[int, int | float]:
     return out
 
 
+# Held items and armour (set_equipment): entity id, then (slot byte, 0x80 = another follows; item stack) entries.
+# An item stack is VarInt count (0 = empty), VarInt item id, VarInt components added, VarInt removed, then each added
+# component (VarInt type, value) and each removed type. Component values differ by kind; the common ones are read
+# here by name (from the version's data_component_type registry). At an unknown kind the rest of that packet is
+# skipped (the main hand comes first, so what's held is always read).
+SLOTS = ("mainhand", "offhand", "feet", "legs", "chest", "head", "body", "saddle")
+_VARINT_COMPONENTS = {"max_stack_size", "max_damage", "damage", "rarity", "repair_cost", "enchantable", "map_id",
+                      "ominous_bottle_amplifier", "base_color"}
+_UNIT_COMPONENTS = {"unbreakable", "glider", "intangible_projectile", "creative_slot_lock"}
+
+
+def _nbt_skip(b, k: int) -> int:
+    """Skip a network NBT value (a type byte, then the payload without a name)."""
+    from . import terrain
+    t = b[k]
+    return k + 1 if t == 0 else terrain._skip(b, t, k + 1)
+
+
+def _string(b, k: int) -> tuple[str, int]:
+    n, k = _varint(b, k)
+    return b[k:k + n].decode("utf-8", "replace"), k + n
+
+
+def _component(name: str, b, k: int) -> tuple[int, object]:
+    """Skip one component value; returns (new position, something worth keeping or None). ValueError if unknown."""
+    if name in _VARINT_COMPONENTS:
+        return _varint(b, k)[1], None
+    if name in _UNIT_COMPONENTS:
+        return k, None
+    if name == "enchantment_glint_override":
+        return k + 1, None
+    if name in ("dyed_color", "map_color"):
+        return k + 4, struct.unpack_from(">i", b, k)[0] & 0xFFFFFF
+    if name in ("item_model", "tooltip_style"):
+        s, k = _string(b, k)
+        return k, s
+    if name in ("custom_name", "item_name", "custom_data"):
+        return _nbt_skip(b, k), None
+    if name == "lore":
+        n, k = _varint(b, k)
+        for _ in range(n):
+            k = _nbt_skip(b, k)
+        return k, None
+    if name in ("enchantments", "stored_enchantments"):
+        n, k = _varint(b, k)
+        for _ in range(n):
+            k = _varint(b, _varint(b, k)[1])[1]
+        return k, None
+    if name == "custom_model_data":                     # floats, flags, strings, colours
+        n, k = _varint(b, k)
+        k += 4 * n
+        n, k = _varint(b, k)
+        k += n
+        n, k = _varint(b, k)
+        for _ in range(n):
+            k = _string(b, k)[1]
+        n, k = _varint(b, k)
+        return k + 4 * n, None
+    if name == "tooltip_display":
+        n, k = _varint(b, k + 1)
+        for _ in range(n):
+            k = _varint(b, k)[1]
+        return k, None
+    if name == "trim":                                  # two registry holders (0 = written out in full: not read)
+        for _ in range(2):
+            h, k = _varint(b, k)
+            if h == 0:
+                raise ValueError("inline trim")
+        return k, None
+    raise ValueError(name)
+
+
+def equipment(b, k: int, end: int, items: list, comps: list) -> list[list]:
+    """``[[slot, item, item_model or "", dye colour or None], ...]`` from a set_equipment body (after the entity id);
+    an empty slot has item "". Stops (keeping what was read) at a component it can't read."""
+    out = []
+    more = True
+    while more and k < end:
+        slot = b[k]
+        more = bool(slot & 0x80)
+        k += 1
+        name = SLOTS[slot & 0x7F] if (slot & 0x7F) < len(SLOTS) else str(slot & 0x7F)
+        count, k = _varint(b, k)
+        if count <= 0:
+            out.append([name, "", "", None])
+            continue
+        iid, k = _varint(b, k)
+        item = items[iid] if 0 <= iid < len(items) else f"#{iid}"
+        add, k = _varint(b, k)
+        rem, k = _varint(b, k)
+        model, colour = "", None
+        try:
+            for _ in range(add):
+                ct, k = _varint(b, k)
+                cname = comps[ct] if 0 <= ct < len(comps) else ""
+                k, val = _component(cname, b, k)
+                if cname == "item_model" and val:
+                    model = val
+                elif cname == "dyed_color":
+                    colour = val
+            for _ in range(rem):
+                k = _varint(b, k)[1]
+        except (ValueError, IndexError, struct.error):
+            out.append([name, item, model, colour])
+            break
+        out.append([name, item, model, colour])
+    return out
+
+
 def _followed(kind: str) -> bool:
     return bool(kind) and kind not in SKIP_ENTITIES and not kind.endswith(("_display", "_arrow", "_potion"))
 
@@ -215,7 +324,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         stime_id = pk.get("set_time") if ex_on else None
         game_id = pk.get("game_event") if ex_on else None
         pass_id = pk.get("set_passengers") if ex_on else None
-        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id)
+        equip_id = pk.get("set_equipment") if ex_on and (tbl or {}).get("items") else None
+        items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
+        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -326,6 +437,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             eid, k = _varint(b, k)
                             if b[k] in (0, 3) and (eid == me or (eid in others and not others[eid].startswith("#"))):
                                 extras["events"].append([tick, None if eid == me else others[eid], "s", b[k]])
+                        elif pid == equip_id and size >= 3:   # held items and armour
+                            eid, k = _varint(b, k)
+                            if eid == me or (eid in others and not others[eid].startswith("#")):
+                                for slot in equipment(b, k, i + size, items_of, comps_of):
+                                    extras["events"].append([tick, None if eid == me else others[eid], "eq", slot])
                         elif pid == pass_id and size >= 3:    # set_passengers: vehicle, count, riders
                             veh, k = _varint(b, k)
                             n, k = _varint(b, k)
@@ -557,7 +673,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact4.json.gz"     # 4: riding events; states kept from any time before
+EXACT_SUFFIX = ".exact5.json.gz"     # 5: held items and armour ("eq"); 4: riding; states from any time before
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

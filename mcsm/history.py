@@ -516,6 +516,7 @@ class HistoryMap(TerrainServer):
         world: dict[str, dict] = {}                   # time / rain / thunder -> {t: [value, rate]}
         before: dict[str, tuple] = {}                 # the world's last state before t0
         state_before: dict[tuple, tuple] = {}         # (name, kind) -> the last state before t0, however long ago
+        state_after: dict[tuple, tuple] = {}          # equipment: the next one after t1, when nothing earlier is known
         for r in self.data.replays:
             if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note"):
                 continue
@@ -546,9 +547,14 @@ class HistoryMap(TerrainServer):
                 # states (flags, pose, hand use, riding): the last one before t0 however long ago, and changes;
                 # moments (swing, hurt, death) only in the window
                 name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
-                if kind in ("f", "p", "h", "r") and t < t0:
+                if kind == "eq":                          # one state per slot: "eq:mainhand", "eq:head", ...
+                    kind, value = f"eq:{value[0]}", value[1:]
+                if (kind in ("f", "p", "h", "r") or kind.startswith("eq:")) and t < t0:
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)
+                elif kind.startswith("eq:") and t > t1:
+                    if (name, kind) not in state_after or state_after[(name, kind)][0] > t:
+                        state_after[(name, kind)] = (t, value)
                 elif t0 <= t <= t1:
                     events.setdefault(name, {}).setdefault(kind, {})[t] = value
             for tick, kind, value, rate in data.get("world", []):
@@ -575,6 +581,11 @@ class HistoryMap(TerrainServer):
                     [t, row[3], row[4], row[5], data["dims"][row[2]], row[6], row[7], row[8]])
         for (name, kind), (t, value) in state_before.items():
             events.setdefault(name, {}).setdefault(kind, {}).setdefault(t, value)
+        # equipment seen only later in a recording (its own player's is listed every 5 minutes): assume it was worn
+        # from the start of the window (armour and tools rarely change without a new listing)
+        for (name, kind), (t, value) in state_after.items():
+            if (name, kind) not in state_before and not events.get(name, {}).get(kind):
+                events.setdefault(name, {}).setdefault(kind, {})[t0] = value
         out = {}
         for name in set(own) | set(seen):
             mine = sorted(own.get(name, []))

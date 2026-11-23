@@ -267,7 +267,14 @@ the invisible seats your sit datapack uses for chairs and stairs. Getting on and
 A pose, riding or flag keeps its last value from however long before, so someone who got in a boat ten minutes
 earlier is still sitting.
 
-Not shown yet: held items and armour, and the mobs' own textures and animations. The blocks are the
+Players wear their armour and hold what they held, as the recordings saw it: helmets, chestplates, leggings
+and boots in every material (leather in its dye colour; trims aren't drawn), and the item in each hand as a
+flat icon pointing forward from the fist, like Minecraft's own third-person view. A block held shows its
+texture. Items from the Hero's Journey datapack show as the plain item they're based on (their own pictures
+come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
+when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
+
+Not shown yet: the mobs' own textures and animations. The blocks are the
 backup saved after that time, not the world at that very moment.
 
 **Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:
