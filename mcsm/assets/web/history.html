@@ -617,7 +617,11 @@ async function realStep(now) {
 $("#realSkins").checked = store.get("mcsm-real-skins") !== "0";
 $("#realSkins").onchange = () => {
   store.set("mcsm-real-skins", $("#realSkins").checked ? "1" : "0");
-  for (const name of Object.keys(markers)) $("#realSkins").checked ? realSkin(name) : setFigure(name, null);
+  for (const [name, m] of Object.entries(markers)) {
+    m.skinKey = null;
+    if (!$("#realSkins").checked) setFigure(name, null);
+    else if (!(SKINLINE && (SKINLINE[name] || []).length)) realSkin(name);
+  }
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
@@ -757,9 +761,39 @@ function setFigure(name, real) {
   F.mat.opacity = old.mat.opacity; F.ring.material.opacity = old.ring.material.opacity;
   m.F = F; m.mat = F.mat;
 }
+// The skin each player had in their recordings ({name: [[t, hash, slim], ...]}): at any time, the one from their last
+// recording before it (before their first: that first one's). Players with no recording: their current skin.
+let SKINLINE = null;
+const skinTex = {};
+function skinFromHash(hash) {
+  if (!skinTex[hash]) skinTex[hash] = new Promise(res => new THREE.TextureLoader().load(`skintex/${hash}.png`, tex => {
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace; res(tex);
+  }, undefined, () => res(null)));
+  return skinTex[hash];
+}
+function skinAt(name, t) {
+  const line = SKINLINE && SKINLINE[name];
+  if (!line || !line.length) return null;
+  let k = 0;
+  while (k + 1 < line.length && line[k + 1][0] <= t) k++;
+  return line[k];
+}
+function updateSkin(name, m) {
+  if (!SKINLINE || !$("#realSkins").checked) return;
+  const s = skinAt(name, T);
+  if (!s || m.skinKey === s[1]) return;
+  m.skinKey = s[1];
+  skinFromHash(s[1]).then(tex => {
+    if (tex && m.skinKey === s[1] && $("#realSkins").checked) setFigure(name, { tex, slim: s[2], legacy: tex.image && tex.image.height === 32 });
+  });
+}
+async function loadSkinLine() {
+  try { SKINLINE = await (await fetch("api/skintimeline")).json(); } catch (e) { SKINLINE = {}; }
+  for (const [name, m] of Object.entries(markers)) { m.skinKey = null; if (!(SKINLINE[name] || []).length) realSkin(name); }
+}
 async function realSkin(name) {
   const uuid = H && H.uuids && H.uuids[name];
-  if (!uuid || !$("#realSkins").checked) return;
+  if (!uuid || !$("#realSkins").checked || (SKINLINE && (SKINLINE[name] || []).length)) return;
   try {
     const r = await (await fetch(`api/skin/${uuid.replace(/-/g, "")}`)).json();
     if (!r.found || !$("#realSkins").checked) return;
@@ -776,7 +810,7 @@ function marker(name) {
   const F = playerFigure(name, c), mat = F.mat;
   group.add(F.fig);
   scene.add(group);
-  setTimeout(() => realSkin(name), 0);
+  if (SKINLINE && !(SKINLINE[name] || []).length) setTimeout(() => realSkin(name), 0);
   const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.9 }));
   scene.add(trail);
   const label = document.createElement("div");
@@ -838,6 +872,7 @@ function update(now, force) {
     m.cur = shown ? { ...shown, stale, online: !!sess, recorded: !!live, by: live && live.by } : null;
     const vis = !!shown && shown.dim === d;
     m.group.visible = vis;
+    if (vis) updateSkin(name, m);
     if (vis) {
       m.group.position.set(shown.pos[0], shown.pos[1], shown.pos[2]);
       m.mat.opacity = stale ? 0.45 : 1; m.F.ring.material.opacity = stale ? 0.45 : 1;
@@ -1715,6 +1750,7 @@ async function loadPaths() {
 }
 async function init() {
   H = await (await fetch("api/history")).json();
+  loadSkinLine();                                      // skins from the recordings (read once, then kept)
   $("#title").textContent = H.title; document.title = `${H.title} – History`;
   if (!H.range) { toastStatus("No events, sessions or recordings found in this backup."); return; }
   $("#range").textContent = `${fmtShort(H.range[0])} → ${fmtShort(H.range[1])}`;

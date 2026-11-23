@@ -4829,6 +4829,43 @@ class TestSkins(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_skins_from_recordings(self):
+        """The skin a player had in each recording (from the profile the game sent), over time."""
+        import base64
+        from datetime import timedelta
+        from mcsm import skins
+        tmp = tempfile.mkdtemp()
+        uuid = "c2e9a692cc46415abcbc23639ba15d30"
+
+        def rec(name, skin_hash, slim):
+            tex = {"timestamp": 1, "profileId": uuid, "profileName": "OldName",
+                   "textures": {"SKIN": {"url": f"http://textures.minecraft.net/texture/{skin_hash}",
+                                         **({"metadata": {"model": "slim"}} if slim else {})}}}
+            value = base64.b64encode(json.dumps(tex).encode())
+            body = b"\xd7\x80\xe8\x84junk" + bytes([8]) + b"textures" + bytes([len(value) & 0x7f | 0x80, len(value) >> 7]) + value
+            path = os.path.join(tmp, name)
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("c0.flashback", body)
+            return path
+        try:
+            a, b, c = rec("a.zip", "aa11" * 8, False), rec("b.zip", "bb22" * 8, True), rec("c.zip", "bb22" * 8, True)
+            self.assertEqual(skins.recording_skins(a), [{"uuid": uuid, "name": "OldName", "hash": "aa11" * 8, "slim": False}])
+            t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            reps = [m.Replay(p, t0 + timedelta(days=i), 1000, format="flashback") for i, p in enumerate((a, b, c))]
+            cache = os.path.join(tmp, "cache")
+            line = skins.timeline(reps, lambda r: r.path, {uuid: "Steve"}.get, cache)
+            ms = int(t0.timestamp() * 1000)
+            self.assertEqual(line, {"Steve": [[ms, "aa11" * 8, False], [ms + 86_400_000, "bb22" * 8, True]]})   # same skin: once
+            self.assertTrue(os.path.isfile(os.path.join(cache, "recordings.json")))
+            self.assertEqual(skins.timeline(reps, lambda r: r.path, {uuid: "Steve"}.get, cache), line)       # from the cache
+            png = b"\x89PNG\r\n\x1a\n" + b"y" * 10
+            got = skins.texture("aa11" * 8, cache, lambda url, limit: png if url.endswith("aa11" * 8) else None)
+            with open(got, "rb") as fh:
+                self.assertEqual(fh.read(), png)
+            self.assertIsNone(skins.texture("../x", cache))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 class TestVersionBand(unittest.TestCase):
     """The Minecraft version over time, from the backups and the recordings (the history's version band)."""

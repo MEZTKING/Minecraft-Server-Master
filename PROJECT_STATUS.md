@@ -1164,6 +1164,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
   - Players are skinned figures that walk.
   - Real-block pieces now also load around every player.
   - Biome finds added as moments.
+  - Players' skins as recorded, after the owner said "please use whatever the recording had": `skins.timeline`
+    reads the profile textures from each recording's first 256 KB (2,446 recordings in about 3 s, then cached);
+    at a time T the figure wears the skin from the player's last recording before T.
   - Players' real skins from Mojang, after the owner said "Yes, real skins": `mcsm/skins.py`, kept in
     `%LOCALAPPDATA%\mcsm\skins`, refreshed weekly, with slim arms, the outer layer and old 64x32 skins handled,
     and a *Real skins* switch.

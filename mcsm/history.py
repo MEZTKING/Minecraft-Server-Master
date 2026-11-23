@@ -178,6 +178,7 @@ class HistoryMap(TerrainServer):
                  terrain_label: str = "", terrain_time: int | None = None):
         from . import highlights as hl
         self.data, self.replay_file = data, replay_file
+        self._skins, self._skin_lock = None, threading.Lock()
         if not highlights_file and data.library_world:      # a library world keeps its own highlights
             highlights_file = os.path.join(data.library_world, "highlights.json")
         self.highlights = hl.Store(highlights_file or hl.default_file(data.world.get("level_name") or title))
@@ -384,6 +385,8 @@ class HistoryMap(TerrainServer):
             return self.highlights_info()
         if path == "/api/moments":
             return self.moments()
+        if path == "/api/skintimeline":               # the skin each player had in each recording
+            return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
             from . import skins
             u = skins.clean_uuid(path[len("/api/skin/"):])
@@ -465,6 +468,21 @@ class HistoryMap(TerrainServer):
             cache[layer] = world3d.BuildWorld(found[0], found[1], mc=mc, label=str(layer)) if found else None
             return cache[layer]
 
+    def skin_timeline(self) -> dict:
+        """``{name: [[start_ms, hash, slim], ...]}``: each player's skin from their recordings (worked out once)."""
+        with self._skin_lock:
+            if self._skins is None:
+                from . import skins
+                if self.replay_file is None:
+                    self._skins = {}
+                else:
+                    by_uuid = {skins.clean_uuid(p.uuid): p.name for p in self.data.players.values() if p.uuid}
+                    try:
+                        self._skins = skins.timeline(self.data.replays, self.replay_file, by_uuid.get)
+                    except OSError:
+                        self._skins = {}
+            return self._skins
+
     def file_for(self, path: str) -> str | None:
         """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png;
         and the real blocks close up: /blocktile/<layer>/<key>.bin, /blocktex/<name>.png."""
@@ -475,6 +493,9 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.block_tile_file(key) if bw else None
+        if path.startswith("/skintex/") and path.endswith(".png"):        # /skintex/<hash>.png: a skin from a recording
+            from . import skins
+            return skins.texture(path[len("/skintex/"):-4])
         if path.startswith("/skin/") and path.endswith(".png"):           # /skin/<uuid>.png (downloaded already)
             from . import skins
             return skins.skin_file(path[len("/skin/"):-4])

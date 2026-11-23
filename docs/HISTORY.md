@@ -208,8 +208,14 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
 sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,
 faces the way they move, and swings their arms and legs as they walk.
 
-The skins come from Mojang, the same place the game gets them: the app sends only each player's UUID. Each skin
-is kept in `%LOCALAPPDATA%\mcsm\skins\` and checked again after a week, in case someone changed theirs. Untick
+Each player wears the skin they had at the time you're looking at. Every recording keeps the skins the game sent,
+so the figure uses the skin from the player's last recording before that moment; before their first recording,
+it uses that first one's. When a player changed skins, the figure changes too as the time slider passes that
+recording. The recordings are read once (a few seconds), and the result is kept.
+
+The skin pictures come from Mojang's texture server, the same place the game gets them. Players who have no
+recordings get their current skin: for those, the app sends only the player's UUID to Mojang. Skins are kept in
+`%LOCALAPPDATA%\mcsm\skins\`, and current skins are checked again after a week. Untick
 **Real skins** (next to *Event pins*) to use the game's default skins instead (Steve, Alex and the others, always
 the same one for a player). Default skins are also used when a player has no skin or there's no internet.
 
