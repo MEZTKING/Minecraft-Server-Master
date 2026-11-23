@@ -791,7 +791,12 @@ Design by Fable, 2026-11-23:
    recordings (the terrain stays the backup).
 
 Measured before the change: computed starts were typically 1.5–3 s after the file-name time, 90% within 7 s,
-independent of length. After it, recordings of the same moment share game time to the tick.
+independent of length.
+
+Checked on the owner's library after the change: 1,632 of 1,643 recordings carry the clock, 2 have pauses, and
+they form 717 stretches of play. Where one player appears in two recordings at the same moment (8,353 pairs),
+the positions agree: median 0.00 blocks, 90% 0.00, 99% 0.24. With the old timing the median was 0.69 blocks,
+90% 2.54 and 99% 40.
 
 ### 0w. End-of-year review for everyone and for each player (raised 2026-11-23, for the future)
 
