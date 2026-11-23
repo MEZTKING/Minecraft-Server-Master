@@ -85,6 +85,11 @@ shows the progress; the list updates by itself), such stretches are moments too:
   worked back and forth is **map art / flattening**.
 - **exploring / searching / a journey**: 30 minutes or more travelling into new ground; zig-zagging over an
   area is searching, going far in one direction a journey.
+- **builds damaged** (with a Ledger log): blocks a player placed, later lost to a creeper or other explosion
+  ("A creeper blew up 31 of Crow_Shroom's blocks", with who it was chasing), to fire, to lava, or to another
+  player ("D_HumanCrafter took down 80 of Crow_Shroom's blocks": often agreed, so it isn't called griefing).
+  Only placed blocks count, so a creeper crater in the wild is nothing; harvesting crops isn't damage.
+  Explosions, fire and lava are sad moments.
 - **AFK** doesn't count: idle minutes at the start or end of a build are cut off, and the score grows
   slowly with the time actually spent moving (3 active hours rank about like a PvP fight); the
   description says how much of it was active. Players working in the same area at the same time are
@@ -314,6 +319,7 @@ changed is estimated from around it, as Flashback keeps no light updates.
 - how everyone died (the top causes and the oddest one);
 - records: longest session, furthest travelled, most blocks mined and placed, most mobs killed;
 - the biggest builds of the year (with a Ledger log): who, the main blocks, how many and where;
+- disasters (with a Ledger log): how often a build was damaged, blocks lost, and the worst times;
 - the rarest advancements and who got them first;
 - a list of everyone who played.
 

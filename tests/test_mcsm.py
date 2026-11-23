@@ -5329,6 +5329,44 @@ class TestLedger(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_incidents(self):
+        """Builds damaged: placed blocks lost to a creeper or another player; crops harvested don't count."""
+        from datetime import datetime, timedelta, timezone
+        from mcsm import ledger
+        tmp = tempfile.mkdtemp()
+        try:
+            p = os.path.join(tmp, "ledger.sqlite")
+            self._db(p)
+            con = sqlite3.connect(p)
+            con.execute("create table players (id integer primary key, player_id blob, player_name text, first_join text, last_join text)")
+            con.execute("insert into players values (1, x'00', 'Alex', '', ''), (2, x'01', 'Steve', '', '')")
+            con.execute("create table sources (id integer primary key, name text)")
+            con.execute("insert into sources values (1, 'player'), (2, 'creeper')")
+            con.execute("insert into ObjectIdentifiers values (4, 'minecraft:oak_planks'), (5, 'minecraft:wheat')")
+            con.execute("delete from actions")
+            t0 = datetime(2026, 3, 2, 18, tzinfo=timezone.utc)
+            ts = lambda s: (t0 + timedelta(seconds=s)).strftime("%Y-%m-%d %H:%M:%S.000")
+            rows = []                                      # (action, time, x, y, z, object, old, source, player)
+            for i in range(10):                            # Alex builds a wall and plants wheat
+                rows.append((2, ts(i), 10 + i, 64, 10, 4, 1, 1, 1))
+                rows.append((2, ts(i), 50 + i, 64, 50, 5, 1, 1, 1))
+            for i in range(6):                             # a creeper chasing Alex blows up six of the planks
+                rows.append((1, ts(100 + i), 10 + i, 64, 10, 1, 4, 2, 1))
+            for i in range(10):                            # Steve harvests Alex's wheat: not damage
+                rows.append((1, ts(200 + i), 50 + i, 64, 50, 1, 5, 1, 2))
+            con.executemany("insert into actions (action_id, time, x, y, z, world_id, object_id, old_object_id, source,"
+                            " player_id, rolled_back) values (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 0)", rows)
+            con.commit()
+            con.close()
+            inc = ledger.find_incidents(ledger.Ledger(p))
+            self.assertEqual(len(inc), 1)
+            i = inc[0]
+            self.assertEqual((i["kind"], i["cause"], i["near"], i["blocks"], i["owners"]),
+                             ("explosion", "a creeper", "Alex", 6, {"Alex": 6}))
+            self.assertEqual(i["top"], [["oak_planks", 6]])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_patched_chunk(self):
         from mcsm import blockmesh as bm
 

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -839,6 +839,21 @@ logs end.
   at 4,732, 341 (23,005 blocks in 37 sessions, February–November). The top moment is D_HumanCrafter and
   Estproguy building at 1,270, -1,826.
 
+✅ **Use 4 built 2026-11-23** (owner: "Griefing finder").
+- `ledger.find_incidents()` goes through every block action in time order, remembering who placed each block
+  (not crops). Placed blocks later removed by an explosion source (creeper, TNT, explosion, fireball,
+  wither...), fire, a fluid or another player are damage.
+  - Grouped by cause and place: explosions within 20 s and 24 blocks (at least 5 blocks); fire and fluids
+    within 3 min and 48 blocks (10); another player within 10 min and 48 blocks (30).
+  - Ledger's `player_id` on creeper rows is who the creeper chased; on TNT, who lit it.
+  - About 3 s; kept in `ledger/incidents.json`. `/api/incidents`.
+- Moments (`_damage_moments`, weight `damage` x log2(1 + blocks)): explosions, fire and lava are sad moments;
+  another player's take-downs are worded neutrally (often agreed).
+- The year in review has a **Disasters** card.
+- On the owner's server: 13 incidents, 457 blocks. The worst was a fire that burned 145 blocks of
+  Crow_Shroom's oak house at -2,007, 1,838 on 10 April (4 recordings running); creepers repeatedly hit
+  Crow_Shroom's hut at -5,499, 3,116.
+
 ### 0ze. One combined recording of everyone (raised 2026-11-23)
 
 **The ask:** "is it not possible to just combine all the recordings as one and play that".
@@ -1462,6 +1477,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Griefing and accidents (Ledger)**: the moments list has the damage moments (e.g. the fire at Crow_Shroom's
+  house, 10 April); the year in review has **Disasters**. Are the "took down" ones agreed work or not?
 - **Who built what (Ledger)**: the moments list's building moments now name exact builders and blocks; the
   year in review has **Biggest builds** and a **Builds** card per player. Do they match what you remember?
 - **Blocks at any moment (Ledger)**: drag the time slider back to any day since 14 November 2025 and zoom in on a
@@ -1569,6 +1586,9 @@ Things built and checked here that need a look in the real game or by eye (newes
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Griefing and accident finder from the Ledger log (`ledger.find_incidents`): placed blocks lost to
+  explosions, fire, lava or another player, as moments and a year-in-review **Disasters** card.
 
 - **2026-11-23:** Who built what, from the Ledger log: builds per player (`ledger.find_builds`), building moments
   with exact builders and blocks, year-in-review **Biggest builds** and **Builds** cards.

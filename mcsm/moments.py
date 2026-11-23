@@ -23,6 +23,7 @@ from . import models as m
 from . import moods
 
 WEIGHTS = {
+    "damage": 2.0,               # a build damaged (Ledger): times log2(1 + blocks lost)
     "death_by_player": 6.0,      # killed by another player
     "death": 3.0,                # any other death
     "advancement_max": 5.0,      # an advancement scores 1 / share of regular players who got it, at most this
@@ -76,13 +77,14 @@ class _Spans:
 
 
 def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict | None = None,
-                 builds: list | None = None) -> list[dict]:
+                 builds: list | None = None, incidents: list | None = None) -> list[dict]:
     """The moments of *data*, best first: ``{id, start, end (ms, padded), score, title, kinds {kind: n},
     players, events [{t, kind, player, text, points}], online, recordings [{path, player}], why [text]}``.
     With *tracks* (players' positions from the recordings, see :mod:`mcsm.activity`) long stretches of
     building, map art and exploring are moments too (``mode``, ``area``, ``clip``: the best 3 minutes). With
     *builds* (from the server's Ledger log, :func:`mcsm.ledger.find_builds`: who placed which blocks, exactly)
-    those replace the building and map art guessed from movement."""
+    those replace the building and map art guessed from movement. *incidents* (:func:`mcsm.ledger.find_incidents`)
+    add builds damaged by explosions, fire, lava or another player."""
     w = {**WEIGHTS, **(weights or {})}
     names = {n.lower(): p.name for p in data.players.values() for n in p.names_seen + [p.name]}
     canon = lambda n: names.get((n or "").lower(), n)           # noqa: E731
@@ -193,6 +195,8 @@ def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict |
                     "mc": _version(recs), "why": why})
     if tracks or builds:
         out += _work_moments(data, tracks or {}, w, sessions, replays, canon, builds)
+    if incidents:
+        out += _damage_moments(incidents, w, sessions, replays, canon)
     out += moods.stat_moments(data, canon)              # records, firsts, binges between backups
     out.sort(key=lambda x: -x["score"])
     return out
@@ -265,6 +269,44 @@ def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans",
                     "recordings": [{"path": r.path, "player": r.recorded_player, "mc": r.mc_version} for r in recs],
                     "mc": _version(recs), "why": why,
                     "mode": kind, "area": area, "dim": lead["dim"], "y": lead["centre"][1], "clip": lead["clip"]})
+    return out
+
+
+def _damage_moments(incidents: list, w: dict, sessions: "_Spans", replays: "_Spans", canon) -> list[dict]:
+    """Builds damaged (from the Ledger log): a creeper's crater, a fire, lava, or another player taking blocks."""
+    import math
+    out = []
+    for i in incidents:
+        owners = [canon(o) for o in i["owners"]]
+        whose = " and ".join(owners[:2]) + (" and others" if len(owners) > 2 else "")
+        what = ", ".join(b.replace("_", " ") for b, _n in i["top"][:2])
+        if i["kind"] == "explosion":
+            title = f"{i['cause'][0].upper() + i['cause'][1:]} blew up {i['blocks']} of {whose}'s blocks"
+            mood, tag = "sad", "explosion"
+        elif i["kind"] == "fire":
+            title = f"Fire burned {i['blocks']} of {whose}'s blocks"
+            mood, tag = "sad", "fire"
+        elif i["kind"] == "fluid":
+            title = f"Lava or water took {i['blocks']} of {whose}'s blocks"
+            mood, tag = "sad", "accident"
+        else:
+            title = f"{canon(i['cause'])} took down {i['blocks']} of {whose}'s blocks"
+            mood, tag = None, "others' blocks"
+        title += f" at {round(i['centre'][0])}, {round(i['centre'][2])}"
+        start, end = i["start"] - PAD_BEFORE_MS, max(i["end"], i["start"] + 5_000) + 30_000
+        players = sorted(set(owners) | ({canon(i["cause"])} if i["kind"] == "player" else set())
+                         | ({canon(i["near"])} if i.get("near") else set()))
+        recs = replays.overlapping(start, end)
+        why = [f"{i['blocks']} placed blocks lost ({what})", "from the server's Ledger log"]
+        if i.get("near"):
+            why.insert(1, f"{i['cause']} {'chasing' if i['cause'] == 'a creeper' else 'by'} {canon(i['near'])}")
+        out.append({"id": hashlib.sha1(f"damage|{i['kind']}|{i['cause']}|{i['start']}".encode()).hexdigest()[:12],
+                    "start": start, "end": end, "score": round(w["damage"] * math.log2(1 + i["blocks"]), 1),
+                    "title": title, "kinds": {"damage": 1}, "players": players, "events": [],
+                    "online": sorted(set(sessions.overlapping(start, end))),
+                    "recordings": [{"path": r.path, "player": r.recorded_player, "mc": r.mc_version} for r in recs],
+                    "mc": _version(recs), "why": why, "tags": [tag], **({"mood": mood} if mood else {}),
+                    "area": i["area"], "dim": i["dim"], "y": i["centre"][1]})
     return out
 
 

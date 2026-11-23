@@ -201,7 +201,7 @@ def projects(builds: list[dict], start_ms: int, end_ms: int, names) -> list[dict
 
 
 def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None = None,
-          builds: list | None = None) -> dict:
+          builds: list | None = None, incidents: list | None = None) -> dict:
     """The review of *start* to *end* (aware datetimes): ``{"range", "tz", "server": {...}, "players":
     {name: {...}}, "order": [names by hours]}``."""
     tz, tz_name = local_tz(tz)
@@ -318,6 +318,14 @@ def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None 
     server["busiest_day"] = {"date": server["busiest_day"][0], "hours": round(server["busiest_day"][1] / 60, 1)}
     # builds from the server's Ledger log (who placed what, exactly), grouped by place into projects
     proj = projects(builds, int(start.timestamp() * 1000), int(end.timestamp() * 1000), names) if builds else []
+    s_ms, e_ms = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+    hits = sorted((i for i in (incidents or []) if s_ms <= i["start"] < e_ms), key=lambda i: -i["blocks"])
+    server["disasters"] = {"available": incidents is not None, "count": len(hits),
+                           "blocks": sum(i["blocks"] for i in hits),
+                           "worst": [{"kind": i["kind"], "cause": names(i["cause"]) if i["kind"] == "player" else i["cause"],
+                                      "owners": [names(o) or o for o in i["owners"]], "blocks": i["blocks"],
+                                      "date": _local_date(i["start"], tz),
+                                      "at": [round(i["centre"][0]), round(i["centre"][2])]} for i in hits[:5]]}
     server["builds"] = {"available": builds is not None, "count": sum(p["sessions"] for p in proj),
                         "projects": [{**p, "first": _local_date(p["first"], tz), "last": _local_date(p["last"], tz)}
                                      for p in proj[:6]]}

@@ -450,6 +450,8 @@ class HistoryMap(TerrainServer):
                     self._moment_why = None
             except ValueError:
                 return {"recordings": []}
+        if path == "/api/incidents":                  # builds damaged (Ledger): explosions, fire, lava, others
+            return {"incidents": self.incidents() or []}
         if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers
             lg = self.ledger()
             return {"available": bool(lg), "from": lg.first if lg else None, "to": lg.last if lg else None}
@@ -672,7 +674,7 @@ class HistoryMap(TerrainServer):
         cache = self.__dict__.setdefault("_reviews", {})
         if key not in cache:
             cache[key] = rv.build(self.data, start.astimezone(rv.timezone.utc), end.astimezone(rv.timezone.utc), tz,
-                                  builds=self.builds())
+                                  builds=self.builds(), incidents=self.incidents())
         return {**cache[key], "years": years, "key": key}
 
     # ---- blocks as they were at a moment (from the recordings' chunk data; see mcsm.moment) ----
@@ -747,6 +749,20 @@ class HistoryMap(TerrainServer):
             except Exception:                              # noqa: BLE001 -- builds are an extra
                 self._builds = []
         return self._builds
+
+    def incidents(self) -> list | None:
+        """Builds damaged, from the Ledger log (mcsm.ledger.find_incidents), worked out once; None without it."""
+        from . import ledger as ledger_mod
+        lg = self.ledger()
+        if lg is None:
+            return None
+        if getattr(self, "_incidents", None) is None:
+            cache = os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "ledger", "incidents.json")
+            try:
+                self._incidents = ledger_mod.find_incidents(lg, cache_file=cache)
+            except Exception:                              # noqa: BLE001 -- an extra
+                self._incidents = []
+        return self._incidents
 
     def layer_time(self, layer: int) -> int | None:
         """When terrain layer *layer*'s backup was saved (ms)."""
@@ -1153,7 +1169,8 @@ class HistoryMap(TerrainServer):
                     self.paths()                          # brings self._tracks up to date
                     _n, tracks = getattr(self, "_tracks", (0, {}))
                     builds = self.builds()                # exact builders, when the server has a Ledger log
-                    found = mo.find_moments(self.data, tracks=tracks or None, builds=builds)                         if tracks or builds else None
+                    incidents = self.incidents()          # and builds damaged (explosions, fire, others)
+                    found = mo.find_moments(self.data, tracks=tracks or None, builds=builds, incidents=incidents)                         if tracks or builds or incidents else None
                     with self._lock:
                         if found is not None:
                             self._moments = found

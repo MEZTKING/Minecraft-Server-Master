@@ -120,6 +120,11 @@ function serverCards() {
       `${Object.keys(p.players).slice(0, 2).join(" & ")}${Object.keys(p.players).length > 2 ? " & others" : ""}: ${p.top.map(t => t[0]).slice(0, 2).join(", ")}`,
       `${num(p.placed)} blocks · ${p.centre[0]}, ${p.centre[1]}`]),
     foot: `${num(B.count)} building sessions this year, from the server's Ledger log (blocks placed, by whom).` });
+  const DZ = S.disasters;
+  if (DZ && DZ.available) out.push({ title: "Disasters", bigs: [[num(DZ.count), "", "times a build was damaged"], [num(DZ.blocks), "", "blocks lost"]],
+    rows: DZ.worst.map(d => [d.kind === "player" ? `${d.cause} took down ${d.owners.join(" & ")}'s blocks`
+      : `${d.cause[0].toUpperCase() + d.cause.slice(1)} hit ${d.owners.join(" & ")}'s build`, `${num(d.blocks)} · ${day(d.date)}`]),
+    foot: "Placed blocks lost to explosions, fire, lava or another player (from the server's Ledger log)." });
   out.push({ title: "Rarest advancements", rows: S.advancements.rarest.map(a => [a.name,
     `${a.first}, ${day(a.date)}${a.holders === 1 ? " · the only one" : ` · ${a.holders} have it`}`]),
     foot: `${num(S.advancements.total)} advancements earned this year.` });
