@@ -601,7 +601,8 @@ class VideoEditor:
         return {"saved": True}
 
     # --- default looks for new texts (all videos, or just this one) ------------------------------------
-    STYLE_KEYS = ("animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "glow",
+    STYLE_KEYS = ("animation", "anim", "word_gap", "fade_out", "exit", "colour", "colour2", "halo", "border",
+                  "border_colour", "shadow", "glow",
                   "box", "style", "font", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "tilt",
                   "turn")
     PRESETS = ("title", "screen", "subtitle", "corner")

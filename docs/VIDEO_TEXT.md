@@ -96,10 +96,19 @@ Flashback saves exported videos to (the one you last chose on its export screen)
 - **Lines**, each with its own letter size, and a name.
 - **When:** *Appears at* (a second, *now* or *when the camera stops*), *Until* (a second, *now* or the
   end) or **Or lasts** a number of seconds, and **Follows** / **Gap** for chains.
-- **Animation:** appears at once, fades in, pops in, words one by one (instantly, fading or popping),
-  **rises into place**, **slams down** (comes in big and lands like a stamp); speed, time between words,
-  fade out at the end.
-- **Look:** **opacity** (see-through), colour, border and its colour, shadow, dark box, **3D depth**
+- **Animation (coming in):** appears at once, fades in, pops in, **rises into place**, **slams down**
+  (comes in big and lands like a stamp), **bounces in** (drops from above, lands a little low and springs
+  back), **flips up** (lying flat, swings up to face you), **shakes**; words one by one (instantly, fading or
+  popping); **letters one by one**: typewriter, fading, popping, or **dropping in** (each letter falls in and
+  bounces). **Speed** is how long one piece takes, **Between** the time between words or letters.
+- **Leaving:** **Leaving (s)** and **Leaves by** *fading out*, *shrinking away*, *falling away* or *rising
+  away* (0 s = it just goes).
+- On the video, letters can't move one by one, so *letters drop in* shows as letters popping in there
+  (in the world they really fall). In the world, animations run on the recording's own clock: under a
+  timelapse they play as fast as the timelapse.
+- **Look:** **opacity** (see-through), colour, **Gradient to** (the letters go from the colour to a second one,
+  left to right), **Glow halo** (a soft glow in the letters' colour; in the world: faint bigger copies behind
+  the letters, as Minecraft text has no real glow), border and its colour, shadow, dark box, **3D depth**
   (3D letters: darker layers behind and below the letters, in the world and on the video), **italic**,
   **underline**, always bright (in the world), letters with border or plain and a font (on the video).
 - **Turn:** **Rotate** turns the text in its own plane (degrees, clockwise; a text with several lines

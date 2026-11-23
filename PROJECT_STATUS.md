@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (transitions when joining videos, 0v step 1; year in review in the backlog).
+`CLAUDE.md`). Last updated: 2026-11-23 (title animations: letters, bounce, flip, shake, leaving, gradient, glow halo; 0v step 2).
 
 ## What this project is
 
@@ -752,8 +752,13 @@ B = an ffmpeg effect where exported clips are joined, C = guidance only.
 - ✅ **Step 1 done 2026-11-23** (owner: "Join transitions first"): `videojoin.TRANSITIONS` (13: cut,
   cross-fade, dip to black/white, whip blur, block wipe, wipes, slides, zoom, circle, dissolve) per cut,
   ffmpeg `xfade` chain with the sound cross-fading, lengths capped to the clips; the app's **Join videos…**
-  window (order, every cut / each cut, length, song); `--transition(s)`, `--transition-length`. Next: step 2,
-  the title animations.
+  window (order, every cut / each cut, length, song); `--transition(s)`, `--transition-length`.
+- ✅ **Step 2 done 2026-11-23** (owner: "Yes, title animations"): letters one by one (typewriter, fade, pop,
+  drop with bounce), bounce, flip-up, shake; leaving by fading, shrinking, falling or rising; colour gradient
+  (per-letter colours in one text component in the world, per-letter `\1c` on the video); glow halo (faint
+  bigger copies in the world, a blurred layer on the video); in the world, in the editor's preview and on the
+  video (where per-letter movement shows as popping). Letter texts get at most 4 3D layers (entity count).
+  Not yet seen in the real game (in-world packets checked by tests only). Next: step 3, shots and "Split here".
 
 ### 0u. Timelapse parts, own camera, ignored players (raised 2026-11-22)
 
@@ -974,6 +979,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Known gaps and unverified assumptions
 
+- **New in-world title animations not yet seen in Minecraft**: the gradient's text component (``extra`` list),
+  the flip's rotation interpolation and the halo copies are written as the game's network format says, checked
+  by tests, not yet watched in Flashback.
+
 - **Saved load results are pickles** of the app's own data in `%LOCALAPPDATA%\mcsm\loaded` (only ever read
   by the app that wrote them; a new app version reads everything again). Zips aren't remembered (they're
   unpacked to a temporary folder each time). The history viewer's own steps (positions, terrain, changes)
@@ -1048,6 +1057,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Title animations (0v step 2): letters one by one (typewriter, fading, popping, dropping in), bounce,
+  flip up, shake, ways of leaving (fade, shrink, fall, rise), colour gradient, glow halo; in the world, the editor
+  preview and on the video; saved with default looks too.
 
 - **2026-11-23:** Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten) in the
   editor and the history viewer (owner: "make it work with the scroll if you hold control … fine tuning them is a

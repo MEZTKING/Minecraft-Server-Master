@@ -442,14 +442,72 @@ class Title:
     italic: bool = False
     underline: bool = False
     org: tuple | None = None        # point it turns around (shares of width/height; None = its centre)
+    colour2: str = ""               # colour gradient to this colour across the letters ("" = one colour)
+    halo: bool = False              # a soft glow around the letters
+    exit: str = "fade"              # how it leaves over fade_out: fade, shrink, drop, rise
 
 
-TITLE_ANIMATIONS = ("none", "fade", "pop", "words", "words-fade", "words-pop", "rise", "slam")
+TITLE_ANIMATIONS = ("none", "fade", "pop", "words", "words-fade", "words-pop", "rise", "slam", "letters",
+                    "letters-fade", "letters-pop", "letters-drop", "bounce", "flip", "shake")
 
 
 def _alpha(opacity: float) -> int:
     """ASS alpha (0 = solid, 255 = invisible) for an opacity 0..1."""
     return 255 - int(round(255 * max(0.0, min(1.0, opacity))))
+
+
+def _rgb_of(colour: str) -> tuple[int, int, int]:
+    b = _bgr(colour)                                  # &HBBGGRR&
+    return int(b[6:8], 16), int(b[4:6], 16), int(b[2:4], 16)
+
+
+def _letter_body(t: Title) -> str:
+    """The line with a tag in front of each piece: its colour (gradient) and, for letter/word
+    animations, when it appears. The layout stays fixed (every piece is there, invisible until its moment);
+    only vertical growing (pop) is used, which doesn't move the other letters."""
+    bs = "\\"
+    anim, on = t.animation, f"{_alpha(t.opacity):02X}"
+    by_letter = anim.startswith("letters")
+    by_word = anim.startswith("words") and len(t.text.split()) > 1
+    if not (by_letter or by_word or (t.colour2 and t.colour2 != t.colour)):
+        return _ass_escape(t.text)
+    visible = [i for i, ch in enumerate(t.text) if not ch.isspace()]
+    cols = None
+    if t.colour2 and t.colour2 != t.colour:
+        a_, b_ = _rgb_of(t.colour), _rgb_of(t.colour2)
+        k = max(1, len(visible) - 1)
+        cols = {i: "&H%02X%02X%02X&" % tuple(round(a_[c] + (b_[c] - a_[c]) * (n / k)) for c in (2, 1, 0))
+                for n, i in enumerate(visible)}
+    # the piece number of each character (letters: each visible letter; words: each word)
+    piece, n, prev_space = {}, -1, True
+    for i, ch in enumerate(t.text):
+        if ch.isspace():
+            prev_space = True
+            continue
+        if by_letter or prev_space:
+            n += 1
+        piece[i] = n
+        prev_space = False
+    d = max(1, int(t.anim * 1000))
+    out, last_piece = [], None
+    for i, ch in enumerate(t.text):
+        tags = ""
+        if cols and i in cols:
+            tags += f"{bs}1c{cols[i]}"
+        p_ = piece.get(i)
+        if (by_letter or by_word) and p_ is not None and p_ != last_piece:
+            a = int(p_ * t.word_gap * 1000)
+            kind = anim.split("-", 1)[1] if "-" in anim else "none"
+            if kind == "none":
+                tags += f"{bs}alpha&HFF&{bs}t({a},{a + 1},{bs}alpha&H{on}&)"
+            elif kind == "fade":
+                tags += f"{bs}alpha&HFF&{bs}t({a},{a + d},{bs}alpha&H{on}&)"
+            else:                                       # pop / drop: grows up from the line, snappy
+                tags += (f"{bs}alpha&HFF&{bs}fscy0{bs}t({a},{a + 1},{bs}alpha&H{on}&)"
+                         f"{bs}t({a},{a + d},0.6,{bs}fscy100)")
+            last_piece = p_
+        out.append(("{" + tags + "}" if tags else "") + _ass_escape(ch))
+    return "".join(out)
 
 
 def _word_tags(t: Title, words: list[str]) -> str:
@@ -486,21 +544,52 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
             "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
     bs = "\\"
     lines, layer = [], 0
-    for t in titles:
+    for t0 in titles:
+        # leaving by shrinking, dropping or rising: the last *fade_out* seconds are a line of their own
+        parts = [(t0, "main")]
+        if t0.exit in ("shrink", "drop", "rise") and t0.fade_out > 0 and t0.end - t0.fade_out > t0.start:
+            parts = [(Title(**{**t0.__dict__, "end": t0.end - t0.fade_out, "fade_out": 0.0}), "main"),
+                     (Title(**{**t0.__dict__, "start": t0.end - t0.fade_out, "animation": "none",
+                               "colour2": t0.colour2}), "exit")]
+        for t, part in parts:
+            layer = _title_lines(t, part, t0, width, height, lines, layer)
+    return "\n".join(head + lines) + "\n"
+
+
+def _title_lines(t: Title, part: str, whole: Title, width: int, height: int, lines: list[str], layer: int) -> int:
+    """The Dialogue lines of one title (or of its leaving part); returns the next layer."""
+    bs = "\\"
+    if True:                                         # (one title's lines)
         px = max(10, int(t.size * height))
         cx, cy = int(t.x * width), int(t.y * height)
         span = f"{_ass_time(t.start)},{_ass_time(t.end)}"
         words = t.text.split()
-        by_word = t.animation.startswith("words") and len(words) > 1
+        by_word = (t.animation.startswith("words") and len(words) > 1) or t.animation.startswith("letters")
         anim = t.animation
-        fade_in = {"fade": t.fade_in, "pop": t.anim * 0.5, "slam": t.anim * 0.5, "rise": t.anim}.get(anim, 0.0)
-        fad = f"{bs}fad({int(fade_in * 1000)},{int(t.fade_out * 1000)})"
+        fade_in = {"fade": t.fade_in, "pop": t.anim * 0.5, "slam": t.anim * 0.5, "rise": t.anim, "bounce": t.anim * 0.5,
+                   "flip": t.anim * 0.5}.get(anim, 0.0)
+        fo = whole.fade_out if part == "exit" and whole.exit != "shrink" else (t.fade_out if part == "main" else 0.0)
+        fad = f"{bs}fad({int(fade_in * 1000)},{int(fo * 1000)})"
         pop = ""
         d = max(2, int(t.anim * 1000))
         if anim == "pop":
             pop = f"{bs}fscx0{bs}fscy0{bs}t(0,{d * 6 // 10},{bs}fscx118{bs}fscy118){bs}t({d * 6 // 10},{d},{bs}fscx100{bs}fscy100)"
         elif anim == "slam":
             pop = f"{bs}fscx260{bs}fscy260{bs}t(0,{d // 2},0.5,{bs}fscx100{bs}fscy100)"
+        elif anim == "bounce":                       # lands with a little squash, then springs back
+            f1, f2 = d * 7 // 10, d * 85 // 100
+            pop = (f"{bs}t({f1},{f2},{bs}fscx112{bs}fscy86){bs}t({f2},{d},{bs}fscx100{bs}fscy100)")
+        elif anim == "flip":                         # lying flat, swings up
+            pop = f"{bs}frx-90{bs}t(0,{d},0.7,{bs}frx{t.tilt:g})"
+        elif anim == "shake":
+            steps = 8
+            base = -t.roll
+            pop = f"{bs}frz{base:g}" + "".join(
+                f"{bs}t({d * k // steps},{d * (k + 1) // steps},{bs}frz{base + (4.0 * (1 - k / steps) * (1 if k % 2 == 0 else -1)):g})"
+                for k in range(steps)) + f"{bs}t({d},{d + 1},{bs}frz{base:g})"
+        if part == "exit" and whole.exit == "shrink":
+            m = max(1, int(whole.fade_out * 1000))
+            pop += f"{bs}t(0,{m},{bs}fscx0{bs}fscy0)"
         a = _alpha(t.opacity)
         alpha = f"{bs}alpha&H{a:02X}&" if a and not by_word else ""
         ox, oy = (int(t.org[0] * width), int(t.org[1] * height)) if t.org else (cx, cy)
@@ -513,14 +602,29 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
         look = (f"{bs}i1" if t.italic else "") + (f"{bs}u1" if t.underline else "")
 
         def place(dx: int = 0, dy: int = 0) -> str:
+            if part == "exit" and whole.exit in ("drop", "rise"):
+                m = max(1, int(whole.fade_out * 1000))
+                away = px * 9 // 10 * (1 if whole.exit == "drop" else -1)
+                return f"{bs}move({cx + dx},{cy + dy},{cx + dx},{cy + dy + away},0,{m})"
             if anim == "rise":                       # glides up into place
                 return f"{bs}move({cx + dx},{cy + dy + px * 6 // 10},{cx + dx},{cy + dy},0,{d})"
+            if anim == "bounce":                     # drops in from above
+                return f"{bs}move({cx + dx},{cy + dy - px * 9 // 10},{cx + dx},{cy + dy},0,{d * 7 // 10})"
             return f"{bs}pos({cx + dx},{cy + dy})"
 
-        body = _word_tags(t, words) if by_word else _ass_escape(t.text)
+        body = _letter_body(t) if (by_word or (t.colour2 and t.colour2 != t.colour)) else _ass_escape(t.text)
         if t.font:
             fad = f"{bs}fn{t.font}" + fad
-        tags = fad + pop + alpha + turn + look
+        if anim in ("flip", "shake"):                # their own turning tags come after the still ones
+            tags = fad + alpha + turn + look + pop
+        else:
+            tags = fad + pop + alpha + turn + look
+        if t.halo:                                   # a soft glow: only a blurred, see-through border
+            glow_px = max(3, px // 5)
+            # the same letters (and their timing), blurred, with a wide border in their colour
+            lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{tags}{bs}fs{px}{place()}{bs}1c{_bgr(t.colour)}"
+                         f"{bs}bord{glow_px}{bs}3c{_bgr(t.colour)}{bs}blur{max(2, px // 6)}{bs}shad0}}{body}")
+            layer += 1
         if t.box:
             pad = max(4, px // 6)
             box_a = 0x60 + (0xFF - 0x60) * a // 255
@@ -546,7 +650,7 @@ def titles_ass(titles: list[Title], width: int, height: int, font: str | None = 
             lines.append(f"Dialogue: {layer},{span},t,,0,0,0,,{{{tags}{bs}fs{px}{place()}{bs}1c{_bgr(t.colour)}"
                          f"{bs}bord{bord}{bs}3c{_bgr(t.border_colour)}{bs}shad{shad}{bs}4c&H000000&}}{body}")
         layer += 1
-    return "\n".join(head + lines) + "\n"
+    return layer
 
 
 def pick_encoder(ffmpeg: str) -> list[str]:
@@ -928,7 +1032,8 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
                 box: str = "", right: float = 0.0, up: float = 0.0, size_scale: float = 1.0,
                 spot: list[float] | None = None, follow: dict | None = None, *, opacity: float = 1.0,
                 roll: float = 0.0, facing: str = "auto", turn: float = 0.0, tilt: float = 0.0,
-                depth: float = 0.0, italic: bool = False, underline: bool = False):
+                depth: float = 0.0, italic: bool = False, underline: bool = False, colour2: str = "",
+                halo: bool = False, exit: str = "fade"):
     """The text displays for one text (one or more lines) and the video second it appears at.
     *follow* ``{"eid", "x", "y", "z"}``: the text rides on that player (above their head).
     *facing*: auto (turns to the camera; upright on a spot), camera, upright, fixed (stays as it
@@ -981,9 +1086,11 @@ def world_texts(match: dict, lines: list[tuple[str, float]], at_seconds: float |
                                   camera_yaw=(yaw + turn) if fixed else yaw,
                                   appear_tick=start, disappear_tick=gone, animation=animation,
                                   anim_ticks=max(1, int(anim * 20)), word_gap_ticks=max(1, int(word_gap * 20)),
-                                  fade_out_ticks=int(fade_out * 20), glow=glow, shadow=shadow, background=box_argb))
+                                  fade_out_ticks=int(fade_out * 20), glow=glow, shadow=shadow, background=box_argb,
+                                  colour2=colour2 if colour2 and colour2 != colour else "", halo=halo,
+                                  exit=exit if exit in wt.EXITS else "fade"))
         if start is not None and animation != "none":   # the next line starts when this one has appeared
-            n = len(text.split()) if animation.startswith("words") else 1
+            n = pieces_of(text, animation)
             start += (n - 1) * max(1, int(word_gap * 20)) + max(1, int(anim * 20))
     return texts, secs
 
@@ -1039,7 +1146,7 @@ ITEM_DEFAULTS = {"kind": "world", "lines": [], "start": None, "until": None, "an
                  "right": 0.0, "up": 0.0, "distance": 55.0, "size": 1.0, "x": 0.5, "y": 0.16, "spot": None,
                  "follow": None, "id": None, "after": None, "length": None, "opacity": 1.0, "roll": 0.0,
                  "facing": "auto", "turn": 0.0, "tilt": 0.0, "depth": 0.0, "italic": False, "underline": False,
-                 "file": "", "height": 0.25}
+                 "file": "", "height": 0.25, "colour2": "", "halo": False, "exit": "fade"}
 ITEM_KINDS = ("world", "screen", "image")
 
 
@@ -1053,6 +1160,15 @@ def _item(raw: dict) -> dict:
     return it
 
 
+def pieces_of(text: str, animation: str) -> int:
+    """How many pieces appear one after another: words, letters (spaces don't count) or the whole line."""
+    if animation.startswith("words"):
+        return max(1, len(text.split()))
+    if animation.startswith("letters"):
+        return max(1, sum(1 for ch in text if not ch.isspace()))
+    return 1
+
+
 def appear_time(it: dict) -> float:
     """Seconds until all of an item's lines (and words) have appeared."""
     a = it.get("animation", "none")
@@ -1060,7 +1176,7 @@ def appear_time(it: dict) -> float:
         return 0.0
     total = 0.0
     for text, _sz in it.get("lines") or [("", 0)]:
-        n = len(str(text).split()) if a.startswith("words") else 1
+        n = pieces_of(str(text), a)
         total += max(0, n - 1) * float(it.get("word_gap", 0.3)) + float(it.get("anim", 0.4))
     return total
 
@@ -1138,7 +1254,8 @@ def make_items_in_world(match: dict, items: list[dict], video: str | None = None
                                it["right"], it["up"], it["size"], it["spot"] or None, follow,
                                opacity=float(it["opacity"]), roll=float(it["roll"]), facing=it["facing"],
                                turn=float(it["turn"]), tilt=float(it["tilt"]), depth=float(it["depth"]),
-                               italic=bool(it["italic"]), underline=bool(it["underline"]))
+                               italic=bool(it["italic"]), underline=bool(it["underline"]),
+                               colour2=str(it["colour2"] or ""), halo=bool(it["halo"]), exit=str(it["exit"] or "fade"))
         texts += t
     markers, song, warning = None, None, ""
     if music and music.get("file"):
@@ -1188,7 +1305,8 @@ def make_items_on_screen(video: str, items: list[dict], duration: float, default
                                 "black" if it["box"] else "", it["x"], it["y"], opacity=float(it["opacity"]),
                                 roll=float(it["roll"]), tilt=float(it["tilt"]), turn=float(it["turn"]),
                                 depth=float(it["depth"]), italic=bool(it["italic"]),
-                                underline=bool(it["underline"])):
+                                underline=bool(it["underline"]), colour2=str(it["colour2"] or ""),
+                                halo=bool(it["halo"]), exit=str(it["exit"] or "fade")):
             ti.font = it["font"]
             titles.append(ti)
     if not titles and not images and not music:
@@ -1229,8 +1347,7 @@ def screen_titles(lines: list[tuple[str, float]], start: float, end: float, styl
                             border_colour=border_colour, shadow=shadow, box=box, x=x, **look))
         y += h * 1.25
         if animation != "none":
-            n = len(text.split()) if animation.startswith("words") else 1
-            t0 += (n - 1) * word_gap + anim
+            t0 += (pieces_of(text, animation) - 1) * word_gap + anim
     middle = (top + (y - (lines[-1][1] * 0.25 if lines else 0))) / 2
     for ti in titles:
         ti.org = (x, middle)

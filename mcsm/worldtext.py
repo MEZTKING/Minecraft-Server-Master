@@ -111,6 +111,10 @@ class WorldText:
     italic: bool = False
     underline: bool = False
     local: bool = False             # parts (border, words, 3D) placed with the offset, in its own space
+    colour2: str = ""               # colour gradient: the last letter's colour (empty = one colour)
+    halo: bool = False              # a soft glow around the letters (faint bigger copies behind)
+    exit: str = "fade"              # how it leaves over fade_out_ticks: fade, shrink, drop, rise
+    max_layers: int = 12            # most 3D layers (fewer for letter-by-letter texts: many entities)
 
 
 ANIMATIONS = {
@@ -122,7 +126,18 @@ ANIMATIONS = {
     "words-pop": "words pop in one by one",
     "rise": "rises into place while fading in",
     "slam": "comes down from big, like a stamp",
+    "letters": "letters appear one by one (typewriter)",
+    "letters-fade": "letters fade in one by one",
+    "letters-pop": "letters pop in one by one",
+    "letters-drop": "letters drop in one by one and bounce",
+    "bounce": "drops in from above and bounces",
+    "flip": "flips up from lying flat",
+    "shake": "appears and shakes",
 }
+EXITS = {"fade": "fades out", "shrink": "shrinks away", "drop": "falls and fades", "rise": "rises and fades"}
+# a piece of a split text (one word or letter) animates like this
+SINGLE = {"words": "none", "words-fade": "fade", "words-pop": "pop", "letters": "none", "letters-fade": "fade",
+          "letters-pop": "pop", "letters-drop": "bounce"}
 
 # Advance widths (pixels, 1/40 block at scale 1) of Minecraft's default font; others are 6.
 _GLYPH = {" ": 4, "!": 2, '"': 4, "'": 2, "(": 4, ")": 4, "*": 4, ",": 2, ".": 2, ":": 2, ";": 2, "<": 5,
@@ -164,10 +179,35 @@ def _nbt_str(s: str) -> bytes:
     return struct.pack(">H", len(raw)) + raw
 
 
+def gradient(colour: str, colour2: str, n: int) -> list[str]:
+    """*n* colours from *colour* to *colour2* (#rrggbb)."""
+    a, b = rgb_of(colour), rgb_of(colour2)
+    return ["#%02x%02x%02x" % tuple(round(a[c] + (b[c] - a[c]) * (i / max(1, n - 1))) for c in range(3)) for i in range(n)]
+
+
 def text_component(text: str, colour: str = "white", bold: bool = False, italic: bool = False,
-                   underline: bool = False) -> bytes:
+                   underline: bool = False, colour2: str = "") -> bytes:
     """A text component as network NBT (nameless root): a plain string tag when unstyled,
-    else a compound — exactly as the game writes it."""
+    else a compound — exactly as the game writes it. With *colour2* each letter gets its own colour
+    (a gradient), as children in ``extra``."""
+    if colour2 and len(text.strip()) > 1:
+        letters = [ch for ch in text]
+        visible = [i for i, ch in enumerate(letters) if not ch.isspace()]
+        cols = gradient(colour, colour2, len(visible))
+        col_of = {i: cols[k] for k, i in enumerate(visible)}
+        out = b"\x0a" + b"\x08" + _nbt_str("text") + _nbt_str("")
+        if bold:
+            out += b"\x01" + _nbt_str("bold") + b"\x01"
+        if italic:
+            out += b"\x01" + _nbt_str("italic") + b"\x01"
+        if underline:
+            out += b"\x01" + _nbt_str("underlined") + b"\x01"
+        out += b"\x09" + _nbt_str("extra") + b"\x0a" + struct.pack(">i", len(letters))
+        last = cols[0]
+        for i, ch in enumerate(letters):
+            last = col_of.get(i, last)
+            out += b"\x08" + _nbt_str("color") + _nbt_str(last) + b"\x08" + _nbt_str("text") + _nbt_str(ch) + b"\x00"
+        return out + b"\x00"
     if (not colour or colour == "white") and not (bold or italic or underline):
         return b"\x08" + _nbt_str(text)
     out = b"\x0a"
@@ -222,19 +262,32 @@ def translation_of(t: WorldText, extra=(0.0, 0.0, 0.0)) -> tuple[float, float, f
     return p[0] - rp[0] + ro[0], p[1] - rp[1] + ro[1], p[2] - rp[2] + ro[2]
 
 
-def quaternion_of(t: WorldText) -> tuple[float, float, float, float]:
+def quaternion_of(t: WorldText, flip: float = 0.0) -> tuple[float, float, float, float]:
+    """The text's turn (roll about its forward axis), after tipping it *flip* degrees about its own
+    left-right axis (the flip-in animation starts at 90: lying flat)."""
     a = math.radians(-t.roll) / 2
-    return 0.0, 0.0, math.sin(a), math.cos(a)
+    qz = (0.0, 0.0, math.sin(a), math.cos(a))
+    if not flip:
+        return qz
+    b = math.radians(-flip) / 2
+    qx = (math.sin(b), 0.0, 0.0, math.cos(b))
+    x1, y1, z1, w1 = qz
+    x2, y2, z2, w2 = qx
+    return (w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2, w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2, w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2)
 
 
-def transform_packet(entity_id: int, duration: int, translation=None, scale: float | None = None) -> bytes:
-    """Move and/or resize, animated smoothly by the game over *duration* ticks."""
+def transform_packet(entity_id: int, duration: int, translation=None, scale: float | None = None,
+                     rotation=None) -> bytes:
+    """Move, resize and/or turn, animated smoothly by the game over *duration* ticks."""
     out = (_varint(entity_id) + bytes([8]) + _varint(SER_INT) + _varint(0)
            + bytes([9]) + _varint(SER_INT) + _varint(max(0, duration)))
     if translation is not None:
         out += bytes([11]) + _varint(SER_VECTOR3) + struct.pack(">fff", *translation)
     if scale is not None:
         out += bytes([12]) + _varint(SER_VECTOR3) + struct.pack(">fff", scale, scale, scale)
+    if rotation is not None:
+        out += bytes([13]) + _varint(SER_QUATERNION) + struct.pack(">ffff", *rotation)
     return out + b"\xff"
 
 
@@ -242,7 +295,8 @@ def opacity_packet(entity_id: int, opacity: int) -> bytes:
     return _varint(entity_id) + bytes([26]) + _varint(SER_BYTE) + bytes([max(0, min(255, opacity)) & 0xFF]) + b"\xff"
 
 
-def text_data_packet(entity_id: int, t: WorldText, scale: float | None = None, extra=(0.0, 0.0, 0.0)) -> bytes:
+def text_data_packet(entity_id: int, t: WorldText, scale: float | None = None, extra=(0.0, 0.0, 0.0),
+                     flip: float = 0.0) -> bytes:
     scale = _scale_of(t) if scale is None else scale
     flags = 0x01 if t.shadow else 0
     out = _varint(entity_id)
@@ -250,13 +304,14 @@ def text_data_packet(entity_id: int, t: WorldText, scale: float | None = None, e
     tr = translation_of(t, extra)
     if any(tr):
         out += bytes([11]) + _varint(SER_VECTOR3) + struct.pack(">fff", *tr)
-    if t.roll:
-        out += bytes([13]) + _varint(SER_QUATERNION) + struct.pack(">ffff", *quaternion_of(t))
+    if t.roll or flip:
+        out += bytes([13]) + _varint(SER_QUATERNION) + struct.pack(">ffff", *quaternion_of(t, flip))
     out += bytes([15]) + _varint(SER_BYTE) + bytes([BILLBOARD.get(t.facing, 3)])
     if t.glow:
         out += bytes([16]) + _varint(SER_INT) + _varint(15 << 4 | 15 << 20)
     out += bytes([17]) + _varint(SER_FLOAT) + struct.pack(">f", t.view_range)
-    out += bytes([23]) + _varint(SER_COMPONENT) + text_component(t.text, t.colour, t.bold, t.italic, t.underline)
+    out += bytes([23]) + _varint(SER_COMPONENT) + text_component(t.text, t.colour, t.bold, t.italic, t.underline,
+                                                                 t.colour2)
     out += bytes([24]) + _varint(SER_INT) + _varint(t.line_width)
     out += bytes([25]) + _varint(SER_INT) + _varint(t.background)
     if t.opacity != 255:
@@ -375,33 +430,75 @@ def with_outline(t: WorldText) -> list[WorldText]:
 
 
 def split_words(t: WorldText) -> list[WorldText]:
-    """For word-by-word animations: one text per word, placed along the line (as seen from the
-    camera direction *camera_yaw*) so the line looks the same as one text; word i appears
-    *word_gap_ticks* after word i-1."""
-    if not t.animation.startswith("words"):
+    """For word-by-word and letter-by-letter animations: one text per word (or letter), placed along
+    the line (as seen from the camera direction *camera_yaw*) so the line looks the same as one
+    text; piece i appears *word_gap_ticks* after piece i-1. A colour gradient runs across the whole
+    line (each piece gets its part of it)."""
+    by_letter = t.animation.startswith("letters")
+    if not (t.animation.startswith("words") or by_letter):
         return [t]
-    words = t.text.split()
-    if len(words) < 2:
-        return [WorldText(**{**t.__dict__, "animation": t.animation.replace("words-", "").replace("words", "none")})]
+    # (start index in the text, piece) for each word, or each letter that isn't a space
+    if by_letter:
+        pieces = [(i, ch) for i, ch in enumerate(t.text) if not ch.isspace()]
+    else:
+        pieces, i = [], 0
+        for w in t.text.split():
+            i = t.text.index(w, i)
+            pieces.append((i, w))
+            i += len(w)
+    if len(pieces) < 2:
+        return [WorldText(**{**t.__dict__, "animation": SINGLE[t.animation]})]
     px = 0.025 * _scale_of(t)                                       # blocks per font pixel
     total = text_width_px(t.text, t.bold)
     yaw = math.radians(t.camera_yaw if t.camera_yaw is not None else t.yaw)
     rx, rz = -math.cos(yaw), -math.sin(yaw)                          # the camera's right
-    single = {"words": "none", "words-fade": "fade", "words-pop": "pop"}[t.animation]
-    out, left = [], 0
-    for i, w in enumerate(words):
+    single = SINGLE[t.animation]
+    visible = [i for i, ch in enumerate(t.text) if not ch.isspace()]
+    cols = gradient(t.colour, t.colour2, len(visible)) if t.colour2 else None
+    col_at = {i: k for k, i in enumerate(visible)}
+    out = []
+    for n, (start, w) in enumerate(pieces):
+        left = text_width_px(t.text[:start], t.bold)
         wpx = text_width_px(w, t.bold)
         centre = (left + wpx / 2 - total / 2) * px
-        appear = (t.appear_tick or 0) + i * t.word_gap_ticks if t.appear_tick is not None else None
+        appear = (t.appear_tick or 0) + n * t.word_gap_ticks if t.appear_tick is not None else None
+        look = {"text": w, "animation": single, "appear_tick": appear}
+        if cols:                                     # this piece's part of the gradient
+            a, b = cols[col_at[start]], cols[col_at[start + len(w) - 1]]
+            look.update({"colour": a, "colour2": b if b != a and len(w) > 1 else ""})
+        if by_letter:
+            look["max_layers"] = min(t.max_layers, 4)   # many letters x border x 3D layers: keep it light
         if t.ride is not None or t.local:            # riding / fixed: spread along the line with the offset
             ox, oy, oz = t.offset
-            out.append(WorldText(**{**t.__dict__, "text": w, "offset": (ox + centre, oy, oz),
-                                    "animation": single, "appear_tick": appear}))
+            out.append(WorldText(**{**t.__dict__, **look, "offset": (ox + centre, oy, oz)}))
         else:
             px_, py_, pz_ = t.pivot                  # it still turns around the middle of the whole line
-            out.append(WorldText(**{**t.__dict__, "text": w, "x": t.x + rx * centre, "z": t.z + rz * centre,
-                                    "animation": single, "appear_tick": appear, "pivot": (px_ - centre, py_, pz_)}))
-        left += wpx + text_width_px(" ", t.bold)
+            out.append(WorldText(**{**t.__dict__, **look, "x": t.x + rx * centre, "z": t.z + rz * centre,
+                                    "pivot": (px_ - centre, py_, pz_)}))
+    return out
+
+
+def with_halo(t: WorldText) -> list[WorldText]:
+    """A soft glow: two faint, slightly bigger copies of the text behind it (text displays have no real
+    glow), then the text. They grow around the letters' middle, so they're moved down by half the growth."""
+    if not t.halo:
+        return [t]
+    out = []
+    w = t.outline_width or max(0.04, t.size / 14.0)
+    for grow, op in ((1.22, 50), (1.1, 90)):
+        size = t.size * grow
+        down = (size - t.size) / 2
+        back = max(0.08, w * 0.6) * (2.2 if grow > 1.15 else 1.6) + (t.depth * t.size if t.depth else 0)
+        look = {"size": size, "opacity": max(26, op * t.opacity // 255), "outline": "", "shadow": False, "depth": 0.0,
+                "background": 0, "halo": False, "glow": True}
+        if t.ride is not None or t.local:
+            ox, oy, oz = t.offset
+            out.append(WorldText(**{**t.__dict__, **look, "offset": (ox, oy - down, oz - back)}))
+        else:
+            yaw = math.radians(t.camera_yaw if t.camera_yaw is not None else 0.0)
+            fx, fz = -math.sin(yaw), math.cos(yaw)
+            out.append(WorldText(**{**t.__dict__, **look, "x": t.x + fx * back, "y": t.y - down, "z": t.z + fz * back}))
+    out.append(WorldText(**{**t.__dict__, "halo": False}))
     return out
 
 
@@ -410,7 +507,7 @@ def with_depth(t: WorldText) -> list[WorldText]:
     block, then the text itself (which keeps its border). Behind = away from the camera."""
     if t.depth <= 0:
         return [t]
-    n = max(2, min(12, round(t.depth * 24)))
+    n = max(2, min(t.max_layers, 12, round(t.depth * 24)))
     step = t.depth * t.size / n
     w = t.outline_width or max(0.04, t.size / 14.0)
     start = max(0.05, w * 0.5) * 1.5 if t.outline else 0.03      # behind the border copies
@@ -485,12 +582,57 @@ def _plan_entity(eid: int, t: WorldText, add_id: int, data_id: int, type_id: int
             pk = _varint(data_id) + opacity_packet(eid, op)
             updates.append((a + k, pk, pk))
         settled = a + n + 2
+    elif a is not None and t.animation == "bounce":   # drops in from above, overshoots a little, settles
+        lo = 26
+        faint = WorldText(**{**t.__dict__, "opacity": lo})
+        start = [add, _varint(data_id) + text_data_packet(eid, faint, extra=(0.0, 0.9 * t.size, 0.0))]
+        fall = max(1, round(n * 0.65))
+        below = translation_of(t, (0.0, -0.12 * t.size, 0.0))
+        updates.append((a + 1, _varint(data_id) + transform_packet(eid, fall, translation=below),
+                        _varint(data_id) + transform_packet(eid, 0, translation=below)))
+        updates.append((a + 1 + fall, _varint(data_id) + transform_packet(eid, max(1, n - fall + 1), translation=translation_of(t)),
+                        _varint(data_id) + transform_packet(eid, 0, translation=translation_of(t))))
+        for k in range(1, fall + 1):
+            op = lo + (t.opacity - lo) * k // fall
+            pk = _varint(data_id) + opacity_packet(eid, op)
+            updates.append((a + k, pk, pk))
+        settled = a + n + 3
+    elif a is not None and t.animation == "flip":     # lies flat, swings up to face you
+        lo = 26
+        faint = WorldText(**{**t.__dict__, "opacity": lo})
+        start = [add, _varint(data_id) + text_data_packet(eid, faint, flip=90.0)]
+        upright = quaternion_of(t)
+        updates.append((a + 1, _varint(data_id) + transform_packet(eid, n, rotation=upright),
+                        _varint(data_id) + transform_packet(eid, 0, rotation=upright)))
+        m = max(1, n // 2)
+        for k in range(1, m + 1):
+            op = lo + (t.opacity - lo) * k // m
+            pk = _varint(data_id) + opacity_packet(eid, op)
+            updates.append((a + k, pk, pk))
+        settled = a + n + 2
+    elif a is not None and t.animation == "shake":    # there at once, then a short shake that calms down
+        amp = 0.08 * t.size
+        for k in range(n):
+            side = amp * (1 - k / n) * (1 if k % 2 == 0 else -1)
+            tr = translation_of(t, (side, 0.0, 0.0)) if k < n - 1 else translation_of(t)
+            updates.append((a + 1 + k, _varint(data_id) + transform_packet(eid, 1, translation=tr),
+                            _varint(data_id) + transform_packet(eid, 0, translation=tr)))
+        settled = a + n + 2
     if t.disappear_tick is not None and t.fade_out_ticks > 0:
         m = t.fade_out_ticks
-        for k in range(1, m + 1):
-            op = t.opacity - (t.opacity - 26) * k // m
-            pk = _varint(data_id) + opacity_packet(eid, op)
-            updates.append((t.disappear_tick - m + k - 1, pk, pk))
+        go = t.disappear_tick - m
+        if t.exit == "shrink":
+            updates.append((go, _varint(data_id) + scale_packet(eid, target * 0.02, m),
+                            _varint(data_id) + scale_packet(eid, target * 0.02, 0)))
+        elif t.exit in ("drop", "rise"):
+            away = translation_of(t, (0.0, (-0.9 if t.exit == "drop" else 0.9) * t.size, 0.0))
+            updates.append((go, _varint(data_id) + transform_packet(eid, m, translation=away),
+                            _varint(data_id) + transform_packet(eid, 0, translation=away)))
+        if t.exit != "shrink":
+            for k in range(1, m + 1):
+                op = t.opacity - (t.opacity - 26) * k // m
+                pk = _varint(data_id) + opacity_packet(eid, op)
+                updates.append((go + k - 1, pk, pk))
     return _Entity(eid, t.ride, a, t.disappear_tick, start, final, updates, settled)
 
 
@@ -518,7 +660,8 @@ def write_world_text_copy(src: str, dst: str, texts: list[WorldText], name_suffi
                              f"yet for in-world text (supported: {known} = 26.1.x, 26.2, 26.3)")
         add_id, data_id, type_id = PROTOCOLS[proto]
         texts_in = texts
-        texts = [part for t in texts_in for word in split_words(t) for layer in with_depth(word)
+        texts = [part for t in texts_in for word in split_words(t) for glow in with_halo(word)
+                 for layer in with_depth(glow)
                  for part in (with_outline(layer) if layer.depth == 0 and layer.outline else [layer])]
         # far above any entity id the server hands out, and different for every copy
         import random

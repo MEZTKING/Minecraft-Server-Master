@@ -4219,3 +4219,97 @@ class TestJoinTransitions(unittest.TestCase):
             self.assertAlmostEqual(video_duration(short), p2["seconds"], delta=0.15)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestTitleAnimations(unittest.TestCase):
+    """Letters one by one, bounce, flip, shake, ways of leaving, colour gradients and the glow halo."""
+
+    @staticmethod
+    def _nbt(b, i=0, tag=None):
+        """A tiny reader for the network NBT the app writes (just enough for text components)."""
+        def s(i):
+            n = struct.unpack_from(">H", b, i)[0]
+            return b[i + 2:i + 2 + n].decode("utf-8"), i + 2 + n
+
+        def val(t, i):
+            if t == 8:
+                return s(i)
+            if t == 1:
+                return b[i], i + 1
+            if t == 10:
+                out = {}
+                while b[i] != 0:
+                    tt = b[i]
+                    name, i = s(i + 1)
+                    out[name], i = val(tt, i)
+                return out, i + 1
+            if t == 9:
+                et, n = b[i], struct.unpack_from(">i", b, i + 1)[0]
+                i += 5
+                items = []
+                for _ in range(n):
+                    v, i = val(et, i)
+                    items.append(v)
+                return items, i
+            raise ValueError(t)
+        return val(b[0], 1)[0]
+
+    def test_gradient_component(self):
+        from mcsm import worldtext as wt
+        comp = self._nbt(wt.text_component("AB C", "gold", True, colour2="aqua"))
+        self.assertEqual(comp["text"], "")
+        self.assertEqual("".join(e["text"] for e in comp["extra"]), "AB C")
+        cols = [e["color"] for e in comp["extra"]]
+        self.assertEqual((cols[0], cols[-1]), ("#ffaa00", "#55ffff"))                  # gold ... aqua
+        self.assertEqual(self._nbt(wt.text_component("A", "gold", colour2="aqua")), {"color": "gold", "text": "A"})
+
+    def test_letters_split(self):
+        from mcsm import worldtext as wt
+        t = wt.WorldText("AB CD", 0, 64, 0, colour="gold", colour2="aqua", animation="letters-drop", appear_tick=10,
+                         word_gap_ticks=3, camera_yaw=0, depth=0.5)
+        parts = wt.split_words(t)
+        self.assertEqual([p.text for p in parts], ["A", "B", "C", "D"])
+        self.assertEqual([p.appear_tick for p in parts], [10, 13, 16, 19])
+        self.assertEqual({p.animation for p in parts}, {"bounce"})
+        self.assertEqual((parts[0].colour, parts[-1].colour), ("#ffaa00", "#55ffff"))
+        self.assertEqual(len(wt.with_depth(parts[0])), 5)                               # 4 layers at most, + the letter
+        xs = [p.x for p in parts]
+        self.assertEqual(xs, sorted(xs, reverse=True))                                  # left to right as seen (camera's right is -x)
+        words = wt.split_words(wt.WorldText("Big Fat", 0, 64, 0, colour="gold", colour2="aqua", animation="words", appear_tick=0))
+        self.assertEqual([(w.text, w.colour2 != "") for w in words], [("Big", True), ("Fat", True)])
+
+    def test_entrances_and_exits(self):
+        from mcsm import worldtext as wt
+        base = dict(x=0, y=64, z=0, appear_tick=100, disappear_tick=200, anim_ticks=10, fade_out_ticks=8)
+        for anim in ("bounce", "flip", "shake"):
+            e = wt._plan_entity(5, wt.WorldText("Hi", animation=anim, **base), 1, 99, 131)
+            self.assertTrue(e.updates, anim)
+            self.assertTrue(all(100 <= tick <= 200 for tick, _a, _b in e.updates), anim)
+            self.assertGreater(e.settled, 100)
+        flip = wt._plan_entity(5, wt.WorldText("Hi", animation="flip", **base), 1, 99, 131)
+        self.assertIn(bytes([13]), flip.start[1])                                        # starts turned (lying flat)
+        for exit_ in ("fade", "shrink", "drop", "rise"):
+            e = wt._plan_entity(5, wt.WorldText("Hi", exit=exit_, **base), 1, 99, 131)
+            leave = [tick for tick, _a, _b in e.updates if tick >= 192]
+            self.assertTrue(leave, exit_)
+        self.assertEqual(len(wt.with_halo(wt.WorldText("Hi", 0, 64, 0, halo=True))), 3)
+        self.assertEqual(len(wt.with_halo(wt.WorldText("Hi", 0, 64, 0))), 1)
+
+    def test_on_the_video(self):
+        from mcsm import videotext as vt
+        self.assertEqual(vt.pieces_of("Big Fat", "letters-fade"), 6)
+        self.assertEqual(vt.pieces_of("Big Fat", "words"), 2)
+        self.assertEqual(vt.pieces_of("Big Fat", "flip"), 1)
+        t = vt.Title("AB", 1.0, 5.0, colour="gold", colour2="aqua", animation="letters-pop", word_gap=0.2,
+                     halo=True, exit="drop", fade_out=0.5)
+        ass = vt.titles_ass([t], 1280, 720)
+        self.assertIn("\\1c&H00AAFF&", ass)                                                 # gold (BGR) on the first letter
+        self.assertIn("\\1c&HFFFF55&", ass)                                                 # aqua on the last
+        self.assertIn("\\blur", ass)                                                        # the halo
+        self.assertIn("0:00:04.50,0:00:05.00", ass)                                         # the leaving part on its own
+        self.assertIn("\\move(", ass)
+        flip = vt.titles_ass([vt.Title("Hi", 0, 3, animation="flip", anim=0.5)], 1280, 720)
+        self.assertIn("\\frx-90", flip)
+        items = vt.resolve_times([vt._item({"kind": "screen", "lines": [["Hello there", 2]], "start": 0,
+                                            "animation": "letters", "word_gap": 0.1, "anim": 0.2})], 10, lambda it: 0)
+        self.assertAlmostEqual(vt.appear_time(items[0]), 9 * 0.1 + 0.2)

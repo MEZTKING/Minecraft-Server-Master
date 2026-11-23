@@ -139,15 +139,26 @@ kbd { background:#2a2f37; border:1px solid var(--line); border-radius:3px; paddi
       <option value="none">Appears at once</option><option value="fade">Fades in</option><option value="pop">Pops in</option>
       <option value="words">Words one by one, instantly</option><option value="words-fade">Words one by one, fading</option>
       <option value="words-pop">Words one by one, popping</option><option value="rise">Rises into place</option>
-      <option value="slam">Slams down (from big)</option></select></label>
+      <option value="slam">Slams down (from big)</option>
+      <option value="bounce">Bounces in (drops from above)</option><option value="flip">Flips up (from lying flat)</option>
+      <option value="shake">Shakes</option>
+      <option value="letters">Letters one by one (typewriter)</option><option value="letters-fade">Letters one by one, fading</option>
+      <option value="letters-pop">Letters one by one, popping</option><option value="letters-drop">Letters drop in one by one</option></select></label>
     <label><span>Speed (s)</span><input id="anim" type="range" min="0.1" max="2" step="0.05"><span class="val" id="animV"></span></label>
     <label><span>Between words</span><input id="word_gap" type="range" min="0.05" max="1.5" step="0.05"><span class="val" id="word_gapV"></span></label>
-    <label><span>Fade out (s)</span><input id="fade_out" type="range" min="0" max="3" step="0.1"><span class="val" id="fade_outV"></span></label>
+    <label><span>Leaving (s)</span><input id="fade_out" type="range" min="0" max="3" step="0.1"><span class="val" id="fade_outV"></span></label>
+    <label><span>Leaves by</span><select id="exit" title="How it goes away over the Leaving seconds">
+      <option value="fade">fading out</option><option value="shrink">shrinking away</option>
+      <option value="drop">falling away</option><option value="rise">rising away</option></select></label>
 
     <h2>Look</h2>
     <label><span>Opacity</span><input id="opacity" type="range" min="0.1" max="1" step="0.05"><span class="val" id="opacityV"></span></label>
     <label class="textOnly"><span>Colour</span><select id="colour"><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option><option>red</option><option>gray</option></select></label>
     <label class="textOnly"><span>Border</span><input id="border" type="checkbox"><select id="border_colour"><option>black</option><option>dark_gray</option><option>gold</option><option>dark_blue</option><option>dark_red</option><option>white</option></select></label>
+    <label class="textOnly"><span>Gradient to</span><select id="colour2" title="The letters go from the colour above to this one, left to right">
+      <option value="">none (one colour)</option><option>white</option><option>gold</option><option>yellow</option><option>aqua</option><option>green</option>
+      <option>red</option><option>light_purple</option><option>blue</option><option>gray</option></select></label>
+    <label class="textOnly"><span>Glow halo</span><input id="halo" type="checkbox" title="A soft glow around the letters in their colour"></label>
     <label class="textOnly"><span>Shadow</span><input id="shadow" type="checkbox"></label>
     <label class="textOnly"><span>Dark box</span><input id="box" type="checkbox"></label>
     <label class="textOnly"><span>3D depth</span><input id="depth" type="range" min="0" max="0.6" step="0.02" title="3D letters: how thick (0 = flat)"><span class="val" id="depthV"></span></label>
@@ -293,17 +304,33 @@ const COLOURS = { white: "#ffffff", gold: "#ffaa00", yellow: "#ffff55", aqua: "#
 const DEFAULTS = { kind: "world", lines: [["Title", 5.5]], start: null, until: null, animation: "pop", anim: 0.4, word_gap: 0.3,
   fade_out: 0, colour: "white", border: true, border_colour: "black", shadow: false, glow: true, box: false, style: "outline",
   font: "", right: 0, up: 0, distance: 55, size: 1, x: 0.5, y: 0.16, opacity: 1, roll: 0, facing: "auto", turn: 0, tilt: 0,
-  depth: 0, italic: false, underline: false, after: null, length: null, file: "", height: 0.25, aspect: 1 };
+  depth: 0, italic: false, underline: false, after: null, length: null, file: "", height: 0.25, aspect: 1,
+  colour2: "", halo: false, exit: "fade" };
 const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 const rad = d => d * Math.PI / 180;
 const stillFrom = () => { const m = INFO && INFO.matches[MATCH]; return m && m.still_from != null ? m.still_from : null; };
 // when an item shows: its own start (empty = when the camera stops), or a gap after the item it follows
 // (chains of any length; mirrors videotext.resolve_times)
+// the pieces that appear one after another: words, letters (not spaces), or the whole line ({t, i: index in the line})
+function piecesOf(text, anim) {
+  text = String(text);
+  if (anim.startsWith("letters")) return [...text].map((t, i) => ({ t, i })).filter(p => p.t.trim());
+  if (anim.startsWith("words")) { const out = []; const re = /\S+/g; let m; while ((m = re.exec(text))) out.push({ t: m[0], i: m.index }); return out; }
+  return [{ t: text, i: 0 }];
+}
+// a colour gradient across the line's letters: the first and last colour of each piece
+function hexOf(c) { const h = (COLOURS[c] || c || "#ffffff").replace("#", ""); return [0, 2, 4].map(k => parseInt(h.substr(k, 2), 16)); }
+function gradientOf(it, text, pieces) {
+  if (!it.colour2 || it.colour2 === it.colour) return pieces.map(() => null);
+  text = String(text);
+  const vis = [...text].map((c, i) => c.trim() ? i : -1).filter(i => i >= 0), a = hexOf(it.colour), b = hexOf(it.colour2);
+  const at = i => { const k = vis.indexOf(i) / Math.max(1, vis.length - 1); return "#" + a.map((v, c) => Math.round(v + (b[c] - v) * k).toString(16).padStart(2, "0")).join(""); };
+  return pieces.map(p => { const last = p.i + p.t.length - 1; return [at(p.i), at(vis.includes(last) ? last : p.i)]; });
+}
 function appearTime(it) {
   if (it.animation === "none") return 0;
   if (!it.lines.length) return +it.anim;
-  return it.lines.reduce((a, l) => a + (it.animation.startsWith("words") ?
-    Math.max(0, String(l[0]).split(/\s+/).filter(Boolean).length - 1) * it.word_gap : 0) + +it.anim, 0);
+  return it.lines.reduce((a, l) => a + Math.max(0, piecesOf(l[0], it.animation).length - 1) * it.word_gap + +it.anim, 0);
 }
 function times(it, seen = new Set()) {
   let s = it.start != null ? it.start : (stillFrom() != null ? stillFrom() + (it.kind === "world" ? 0.1 : 0.2) : Math.max(0, INFO.duration - 4));
@@ -337,7 +364,8 @@ function project(cam, p, W, H) {
   const x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2], y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2], focal = (H / 2) / Math.tan(rad(cam.fov) / 2);
   return [W / 2 + x / z * focal, H / 2 - y / z * focal, focal / z];
 }
-const singleOf = a => ({ "words": "none", "words-fade": "fade", "words-pop": "pop" }[a] || a);
+const singleOf = a => ({ "words": "none", "words-fade": "fade", "words-pop": "pop", "letters": "none", "letters-fade": "fade",
+  "letters-pop": "pop", "letters-drop": "bounce" }[a] || a);
 function followPieces(it, t) {
   const pos = trackAt(it.follow, t); if (!pos) return [];
   const sizes = it.lines.filter(l => String(l[0]).trim()).map(l => l[1] * it.size), out = [];
@@ -365,14 +393,13 @@ function worldPieces(it) {
   for (const [text, s0] of it.lines) {
     if (!String(text).trim()) continue;
     const size = s0 * it.size, ty = top - size; top = ty - size * 0.25;
-    const words = String(text).split(/\s+/).filter(Boolean), byWord = it.animation.startsWith("words") && words.length > 1, px = 0.1 * size;
-    if (byWord) {
-      const total = widthPx(text, true), rx = -Math.cos(ry), rz = -Math.sin(ry); let left = 0;
-      words.forEach((w, i) => { const wpx = widthPx(w, true), c = (left + wpx / 2 - total / 2) * px;
-        out.push({ text: w, x: cx + rx * c, y: ty, z: cz + rz * c, size, wpx, appear: start + i * gapT, anim: singleOf(it.animation), animT });
-        left += wpx + widthPx(" ", true); });
-    } else out.push({ text, x: cx, y: ty, z: cz, size, wpx: widthPx(text, true), appear: start, anim: singleOf(it.animation), animT });
-    if (it.animation !== "none") start += (byWord ? (words.length - 1) * gapT : 0) + animT;
+    const pieces = piecesOf(text, it.animation), byPiece = pieces.length > 1, px = 0.1 * size, cols = gradientOf(it, text, pieces);
+    if (byPiece) {
+      const total = widthPx(text, true), rx = -Math.cos(ry), rz = -Math.sin(ry);
+      pieces.forEach((pc, i) => { const wpx = widthPx(pc.t, true), c = (widthPx(String(text).slice(0, pc.i), true) + wpx / 2 - total / 2) * px;
+        out.push({ text: pc.t, x: cx + rx * c, y: ty, z: cz + rz * c, size, wpx, appear: start + i * gapT, anim: singleOf(it.animation), animT, cols: cols[i] }); });
+    } else out.push({ text, x: cx, y: ty, z: cz, size, wpx: widthPx(text, true), appear: start, anim: singleOf(it.animation), animT, cols: cols[0] });
+    if (it.animation !== "none") start += (byPiece ? (pieces.length - 1) * gapT : 0) + animT;
   }
   return out;
 }
@@ -383,9 +410,29 @@ function animState(kind, t, start, dur) {
   if (kind === "pop") return { alpha: 1, scale: Math.max(0.02, k < 0.6 ? (k / 0.6) * 1.18 : 1.18 - 0.18 * ((k - 0.6) / 0.4)) };
   if (kind === "rise") return { alpha: 0.1 + 0.9 * k, scale: 1, dy: 0.6 * (1 - k) * (1 - k) };
   if (kind === "slam") { const h = Math.min(1, (t - start) / Math.max(0.001, dur / 2)); return { alpha: 0.1 + 0.9 * h, scale: 1 + 1.6 * (1 - h) * (1 - h) }; }
+  if (kind === "bounce") {                         // falls from above, a little past its place, then settles
+    const f = 0.65, dy = k < f ? -0.9 + 1.02 * (k / f) * (k / f) : 0.12 * (1 - (k - f) / (1 - f));
+    return { alpha: 0.1 + 0.9 * Math.min(1, k / f), scale: 1, dy };
+  }
+  if (kind === "flip") { const e = 1 - (1 - k) * (1 - k); return { alpha: 0.1 + 0.9 * Math.min(1, 2 * k), scale: 1, sy: Math.max(0.03, Math.sin(e * Math.PI / 2)) }; }
+  if (kind === "shake") return { alpha: 1, scale: 1, dx: k >= 1 ? 0 : 0.08 * (1 - k) * Math.sin(k * Math.PI * 9) };
   return { alpha: 1, scale: 1 };
 }
-const fadeOut = (it, t) => (it.until == null || !it.fade_out) ? 1 : Math.max(0, Math.min(1, (it.until - t) / it.fade_out));
+// leaving over the last fade_out seconds: fading, shrinking, falling or rising away (alpha, scale, dy)
+function leaving(it, t) {
+  if (it.until == null || !it.fade_out) return { alpha: 1, scale: 1, dy: 0 };
+  const k = 1 - Math.max(0, Math.min(1, (it.until - t) / it.fade_out));        // 0 = not leaving yet, 1 = gone
+  if (it.exit === "shrink") return { alpha: 1, scale: Math.max(0.02, 1 - k), dy: 0 };
+  if (it.exit === "drop" || it.exit === "rise") return { alpha: 1 - k, scale: 1, dy: (it.exit === "drop" ? 0.9 : -0.9) * k * k };
+  return { alpha: 1 - k, scale: 1, dy: 0 };
+}
+const fadeOut = (it, t) => leaving(it, t).alpha;
+function withLeaving(a, it, t) {
+  if (!a) return a;
+  const l = leaving(it, t);
+  a.alpha *= l.alpha; a.scale *= l.scale; a.dy = (a.dy || 0) + l.dy;
+  return a;
+}
 
 // --- drawing ---------------------------------------------------------------------------------
 const HITS = [];      // [item, x0, y0, x1, y1, pixels-per-block] from the last frame, for clicking/dragging
@@ -398,7 +445,7 @@ function drawText(it, text, x, y, hPx, wPx, a, fontName, org) {
   const o = org || [x, y], turned = it.roll || it.turn || it.tilt;
   if (turned) { ctx.translate(o[0], o[1]); ctx.rotate(rad(it.roll || 0));
     ctx.scale(Math.max(0.05, Math.abs(Math.cos(rad(it.turn || 0)))), Math.max(0.05, Math.abs(Math.cos(rad(it.tilt || 0))))); ctx.translate(-o[0], -o[1]); }
-  ctx.translate(x, y + (a.dy || 0) * hPx); ctx.scale(a.scale, a.scale);
+  ctx.translate(x + (a.dx || 0) * hPx, y + (a.dy || 0) * hPx); ctx.scale(a.scale, a.scale * (a.sy ?? 1));
   ctx.font = `${it.italic ? "italic " : ""}bold ${hPx}px ${fontName}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const natural = ctx.measureText(text).width || 1, sx = wPx ? wPx / natural : 1;
   ctx.scale(sx, 1);
@@ -409,8 +456,17 @@ function drawText(it, text, x, y, hPx, wPx, a, fontName, org) {
       ctx.fillStyle = shadeOf(it.colour, 0.55 - 0.3 * k / n); ctx.fillText(text, world ? 0 : dy / 3 / sx, dy); }
   }
   if (it.shadow) { ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(text, hPx * 0.08, hPx * 0.08); }
+  let fill = COLOURS[it.colour] || it.colour || "#fff";
+  if (a.cols) {                                              // a colour gradient across the letters
+    if (a.cols[0] === a.cols[1]) fill = a.cols[0];
+    else { fill = ctx.createLinearGradient(-natural / 2, 0, natural / 2, 0); fill.addColorStop(0, a.cols[0]); fill.addColorStop(1, a.cols[1]); }
+  }
+  if (it.halo) {                                             // a soft glow in the letters' colour
+    ctx.save(); ctx.shadowColor = a.cols ? a.cols[0] : (COLOURS[it.colour] || it.colour || "#fff"); ctx.shadowBlur = hPx * 0.6;
+    ctx.fillStyle = fill; ctx.globalAlpha *= 0.9; ctx.fillText(text, 0, 0); ctx.fillText(text, 0, 0); ctx.restore();
+  }
   if (it.border) { ctx.lineJoin = "round"; ctx.lineWidth = Math.max(2, hPx / 7); ctx.strokeStyle = COLOURS[it.border_colour] || "#000"; ctx.strokeText(text, 0, 0); }
-  ctx.fillStyle = COLOURS[it.colour] || "#fff"; ctx.fillText(text, 0, 0);
+  ctx.fillStyle = fill; ctx.fillText(text, 0, 0);
   if (it.underline) ctx.fillRect(-natural / 2, hPx * 0.42, natural, Math.max(1, hPx / 12));
   ctx.restore();
   const w = natural * sx * a.scale, h = hPx * a.scale;
@@ -473,7 +529,7 @@ function draw() {
                                 pieces.reduce((a, p) => a + p.z, 0) / pieces.length], W, H);
       if (mid && pieces[0].dx) mid[0] += pieces[0].dx * mid[2];
       for (const p of pieces) {
-        const a = animState(p.anim, t, p.appear, p.animT); if (!a) continue; a.alpha *= fo;
+        const a = withLeaving(animState(p.anim, t, p.appear, p.animT), it, t); if (!a) continue; a.cols = p.cols;
         const pr = project(cam, [p.x, p.y + p.size * 0.5, p.z], W, H); if (!pr) continue;
         if (p.dx) pr[0] += p.dx * pr[2];                       // riding: "right" moves it beside the head
         const r = drawText(it, p.text, pr[0], pr[1], p.size * pr[2], p.wpx * 0.1 * p.size * pr[2], a, `"Minecraft", monospace`, mid);
@@ -485,21 +541,22 @@ function draw() {
       const org = [it.x * W, (it.y + tot / 2) * H];
       for (const [text, s0] of it.lines) {
         if (!String(text).trim()) continue;
-        const h = s0 * it.size / 40, hPx = h * H, words = String(text).split(/\s+/).filter(Boolean);
-        const byWord = it.animation.startsWith("words") && words.length > 1, font = screenFont(it);
-        if (!byWord) {
-          const a = animState(singleOf(it.animation), t, start, it.anim);
-          if (a) { a.alpha *= fo; const r = drawText(it, text, it.x * W, (y + h / 2) * H, hPx, 0, a, font, org); if (r) HITS.push([it, ...r, 0]); }
+        const h = s0 * it.size / 40, hPx = h * H, pieces = piecesOf(text, it.animation), cols = gradientOf(it, text, pieces);
+        const byPiece = pieces.length > 1, font = screenFont(it);
+        if (!byPiece) {
+          const a = withLeaving(animState(singleOf(it.animation), t, start, it.anim), it, t);
+          if (a) { a.cols = cols[0]; const r = drawText(it, text, it.x * W, (y + h / 2) * H, hPx, 0, a, font, org); if (r) HITS.push([it, ...r, 0]); }
         } else {
-          ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const full = ctx.measureText(text).width, sp = ctx.measureText(" ").width; ctx.restore();
-          let x = it.x * W - full / 2;
-          words.forEach((w, i) => { ctx.save(); ctx.font = `bold ${hPx}px ${font}`; const ww = ctx.measureText(w).width; ctx.restore();
-            const a = animState(singleOf(it.animation), t, start + i * it.word_gap, it.anim);
-            if (a) { a.alpha *= fo; const r = drawText(it, w, x + ww / 2, (y + h / 2) * H, hPx, 0, a, font, org); if (r) HITS.push([it, ...r, 0]); }
-            x += ww + sp; });
+          ctx.save(); ctx.font = `${it.italic ? "italic " : ""}bold ${hPx}px ${font}`;
+          const full = ctx.measureText(text).width, lefts = pieces.map(pc => ctx.measureText(String(text).slice(0, pc.i)).width),
+                widths = pieces.map(pc => ctx.measureText(pc.t).width); ctx.restore();
+          pieces.forEach((pc, i) => {
+            const a = withLeaving(animState(singleOf(it.animation), t, start + i * it.word_gap, it.anim), it, t);
+            if (a) { a.cols = cols[i]; const r = drawText(it, pc.t, it.x * W - full / 2 + lefts[i] + widths[i] / 2, (y + h / 2) * H, hPx, 0, a, font, org);
+                     if (r) HITS.push([it, ...r, 0]); } });
         }
         y += h * 1.25;
-        if (it.animation !== "none") start += (byWord ? (words.length - 1) * it.word_gap : 0) + it.anim;
+        if (it.animation !== "none") start += (byPiece ? (pieces.length - 1) * it.word_gap : 0) + it.anim;
       }
     }
   }
@@ -712,7 +769,7 @@ function renderList() {
   const need = Math.max(110, TL.top + ITEMS.length * TL.rowH + 8);    // one row per text
   if (Math.abs(tl.clientHeight - need) > 1) { tl.style.height = need + "px"; fit(); }
 }
-const FIELDS = ["animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "box", "glow", "style", "font",
+const FIELDS = ["animation", "anim", "word_gap", "fade_out", "exit", "colour", "colour2", "halo", "border", "border_colour", "shadow", "box", "glow", "style", "font",
   "right", "up", "distance", "x", "y", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "turn", "tilt", "height"];
 const DEC = { x: 2, y: 2, size: 2, opacity: 2, depth: 2, height: 2, roll: 0, turn: 0, tilt: 0 };
 const showVal = (f, v) => (+v).toFixed(DEC[f] ?? 1) + (["roll", "turn", "tilt"].includes(f) ? "°" : "");
@@ -836,7 +893,7 @@ $("#addLine").onclick = () => { if (!SEL) return; snapshot(); SEL.lines.push(["N
 let nextId = 1;
 // default looks for new texts, per kind of text: this video's first, then all videos' (GET /api/styles)
 let STYLES = { all: {}, video: {} };
-const STYLE_KEYS = ["animation", "anim", "word_gap", "fade_out", "colour", "border", "border_colour", "shadow", "glow", "box",
+const STYLE_KEYS = ["animation", "anim", "word_gap", "fade_out", "exit", "colour", "colour2", "halo", "border", "border_colour", "shadow", "glow", "box",
   "style", "font", "size", "opacity", "depth", "italic", "underline", "roll", "facing", "tilt", "turn"];
 const PRESET_NAME = { title: "titles in the world", screen: "titles on the video", subtitle: "subtitles", corner: "corner labels" };
 function presetOf(it) {                            // which "+ …" button a text is like
