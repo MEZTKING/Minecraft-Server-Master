@@ -1058,6 +1058,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 
 ## Changelog
 
+- **2026-11-23:** Owner: "wheres my original edits". Their edits were intact in Flashback 26.1.2's editor_states,
+  but the recordings were only in the library, so Flashback didn't list them. Copied (owner: "Yes, copy them") the
+  four with camera keyframes back into its replays folder (Meeting Room 2026-05-24--18-49-45, Fishinand chasing
+  2026-05-24--19-45-40, the welcome intro 2026-06-06--19-55-14, D_HumanCrafter 2026-05-24--15-25-52; ~1.5 GB),
+  checked (size, zip, uuid = edit). Library copies unchanged. Idea: a right-click "Put the recording back in
+  Flashback" in the edit picker.
+
 - **2026-11-23:** Copies get a findable name in Flashback's list (owner: "i cant find the meeting room recording in
   flashback"): a recording that never got a name was listed as "Unnamed (text)"; now `flashback.copy_name` uses the
   recording's file name (its date) and, for text copies, the scene's name: "Meeting Room – 2026-05-24--18-49-45 (text)".
