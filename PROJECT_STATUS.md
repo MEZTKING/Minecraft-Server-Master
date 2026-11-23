@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -916,8 +916,24 @@ Fable's order, most visible per effort first:
    - Seen in the owner's recordings on 1.21.10 to 26.3: diamond armour and tools, bows, shields, leads,
      fishing rods, and `hsj:` item models (shown as their base item: the server resource pack isn't on the PC).
    - Not drawn: armour trims, elytra, mob equipment, enchantment glint.
-5. **Textured mobs.** Hand-made models with the jar's entity textures: humanoids reuse the player figure,
-   then quadrupeds, chicken, creeper, spider, villager, horse, wolf and cat.
+5. ✅ **Textured mobs.** Built 2026-11-23.
+   - The models aren't hand-made. `mcsm/mobmodels.py` runs the game's own model code
+     (`LayerDefinitions.createRoots()`), from the newest readable client jar (26.1 and later aren't
+     obfuscated). It is a small JVM bytecode interpreter that knows the model builder classes (CubeListBuilder,
+     PartPose, PartDefinition, MeshDefinition, LayerDefinition, CubeDeformation, MeshTransformer), string joins
+     (`"tentacle" + i`) and static tables, and treats everything else as unknown.
+   - On 26.3 it reads 262 layers in under a second; they are cached per jar as JSON (`mobs/` cache).
+   - Guardian spikes are placed as the game's animation leaves them at rest.
+   - Nothing of the game is bundled: models and textures (`/mobtex/`) come from the jar on the PC.
+   - The page builds each mob from its layer:
+     - shared geometry per cube and shared materials per texture (normal, hurt, burning);
+     - variants picked per mob;
+     - extra layers: sheep wool, drowned, stray and bogged outer layers, slime's see-through outside;
+     - size scales for wither skeletons, ghasts, elder guardians and others.
+   - Walk cycles from the speed, zombie arms, fish tails, squid tentacles, bat wings and spider legs.
+   - Yaw now turns the short way between rows.
+   - Dev: `__history.mobGallery()` lines up one of each kind in the sky.
+   - Not done: babies (no flag recorded), variants from entity data, chests on chest minecarts, bats hanging.
 6. **Blocks as they were at that moment.** The recording's chunk data plus block updates as a timeline over
    the backup mesh. About a week of work; the biggest gain in fidelity.
 7. **Dropped items.**
@@ -1214,6 +1230,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 | 2026-11-22 | Turned texts in the world turn about the middle of the whole text: translation = P - R(P) + R(offset) | The display's own pivot is the text's foot; a multi-line title must turn as one |
 | 2026-11-22 | No companion mod inside Flashback for now; music via Flashback's own AUDIO track + beat markers proposed instead | Flashback has no add-on API and a hard-coded keyframe format (from its source) |
 | 2026-11-19 | Options that take negative values (`--area`, `--camera`, `--music-start`...) are rewritten to `--opt=value` before argparse | `--area -100,...` was mistaken for an option |
+| 2026-11-23 | Mob models are read from the installed client jar's model code by a bytecode interpreter, not hand-made or bundled | Exact for every mob and version, no Mojang code or assets shipped; 26.1+ jars aren't obfuscated |
 
 ## Known gaps and unverified assumptions
 
@@ -1309,6 +1326,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Textured mobs (parity step 5): `mcsm/mobmodels.py` reads every mob model from the installed
+  game's own code; `/api/mobmodels`, `/mobtex/`; animated models in exact playback, boxes as the fallback.
 
 - **2026-11-23:** Held items and armour in exact playback (parity step 4): `set_equipment` decoding,
   per-version item and component lists in the protocol tables, armour shells and held icons on the figures.

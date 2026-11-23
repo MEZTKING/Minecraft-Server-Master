@@ -238,8 +238,14 @@ Movement between recorded positions is smoothed like the game smooths other play
 until shortly before the next recorded position, then glides into it, so steps up and jumps don't snap. Legs
 swing with the recorded speed. In that view the players also sneak (the game's pose: bent from the neck, head
 and arms lower, legs back), sprint, swim and fly with elytra (lying forward), and swing their arms
-when they did. Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player show as boxes,
-sized and coloured by kind, a couple of times a second. Dropped items, arrows and other things that fly past
+when they did. Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player are shown, a
+couple of times a second, with the game's own models and textures: creepers, skeletons, zombies, spiders, fish,
+squid, bats, farm animals, villagers, horses, boats and the rest. They walk (legs and arms swing with their
+speed), zombies hold their arms out, fish swish their tails, squid move their tentacles and bats flap. The
+models are read from the newest Minecraft 26.x game installed on this PC (older versions' games can't be read);
+without one, mobs show as boxes sized and coloured by kind. What the recordings don't say is picked once per mob:
+a horse's coat, a cat's or parrot's colours, a tropical fish's colour, and farm animals are their temperate kind.
+Babies show adult-sized. Dropped items, arrows and other things that fly past
 aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
 that can take up to a minute, and later views are quick.
 
@@ -274,7 +280,7 @@ texture. Items from the Hero's Journey datapack show as the plain item they're b
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
 
-Not shown yet: the mobs' own textures and animations. The blocks are the
+The blocks are the
 backup saved after that time, not the world at that very moment.
 
 **Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:

@@ -5148,6 +5148,112 @@ class TestMoods(unittest.TestCase):
         self.assertEqual(moods.group_mood(group), "celebration")
 
 
+def _class_file(name: str, methods: dict) -> bytes:
+    """A minimal Java class file: *methods* maps (name, descriptor) to (max_locals, code built by a function that
+    takes the constant-pool helper ``cp`` with .utf/.cls/.str/.flt/.mref/.fref and returns bytes)."""
+    import struct
+    pool, index = [], {}
+
+    def add(key, data, slots=1):
+        if key not in index:
+            index[key] = len(pool) + 1 + sum(1 for k in pool if k[1] == 2)
+            pool.append((data, slots))
+        return index[key]
+
+    class CP:
+        def utf(self, v):
+            b = v.encode()
+            return add(("u", v), b"\x01" + struct.pack(">H", len(b)) + b)
+
+        def cls(self, v):
+            return add(("c", v), b"\x07" + struct.pack(">H", self.utf(v)))
+
+        def str(self, v):
+            return add(("s", v), b"\x08" + struct.pack(">H", self.utf(v)))
+
+        def flt(self, v):
+            return add(("f", v), b"\x04" + struct.pack(">f", v))
+
+        def nat(self, n, d):
+            return add(("n", n, d), b"\x0c" + struct.pack(">HH", self.utf(n), self.utf(d)))
+
+        def mref(self, c, n, d):
+            return add(("m", c, n, d), bytes([10]) + struct.pack(">HH", self.cls(c), self.nat(n, d)))
+
+        def fref(self, c, n, d):
+            return add(("F", c, n, d), b"\x09" + struct.pack(">HH", self.cls(c), self.nat(n, d)))
+
+    cp = CP()
+    this = cp.cls(name)
+    sup = cp.cls("java/lang/Object")
+    code_name = cp.utf("Code")
+    body = b""
+    for (mn, md), (locals_, build) in methods.items():
+        code = build(cp)
+        attr = struct.pack(">HHI", 10, locals_, len(code)) + code + struct.pack(">HH", 0, 0)
+        body += struct.pack(">HHHH", 0x0009, cp.utf(mn), cp.utf(md), 1) + struct.pack(">HI", code_name, len(attr)) + attr
+    head = b"\xca\xfe\xba\xbe" + struct.pack(">HHH", 0, 65, len(pool) + 1) + b"".join(d for d, _s in pool)
+    return head + struct.pack(">HHHHH", 0x21, this, sup, 0, 0) + struct.pack(">H", len(methods)) + body + struct.pack(">H", 0)
+
+
+class TestMobModels(unittest.TestCase):
+    """Mob models read from the client jar's model code by a small bytecode interpreter."""
+
+    def test_layer_from_bytecode(self):
+        import struct
+        from mcsm import mobmodels
+        G = "net/minecraft/client/model/geom/"
+        B = G + "builders/"
+
+        def roots(cp):
+            def inv(op, c, n, d):
+                return bytes([op]) + struct.pack(">H", cp.mref(c, n, d))
+            ldcf = lambda v: b"\x13" + struct.pack(">H", cp.flt(v))     # ldc_w
+            return b"".join([
+                inv(0xB8, "com/google/common/collect/ImmutableMap", "builder", "()Lcom/google/common/collect/ImmutableMap$Builder;"),
+                bytes([0x4B]),                                          # astore_0
+                bytes([0xBB]) + struct.pack(">H", cp.cls(B + "MeshDefinition")), bytes([0x59]),   # new, dup
+                inv(0xB7, B + "MeshDefinition", "<init>", "()V"), bytes([0x4C]),                  # astore_1
+                bytes([0x2B]), inv(0xB6, B + "MeshDefinition", "getRoot", f"()L{B}PartDefinition;"),
+                bytes([0x13]) + struct.pack(">H", cp.str("head")),
+                inv(0xB8, B + "CubeListBuilder", "create", f"()L{B}CubeListBuilder;"),
+                bytes([0x03, 0x10, 16]),                                # 0, 16
+                inv(0xB6, B + "CubeListBuilder", "texOffs", f"(II)L{B}CubeListBuilder;"),
+                ldcf(-4.0), ldcf(-8.0), ldcf(-4.0), ldcf(4.0), ldcf(2.0), bytes([0x6A]),   # 4 x 2 = 8 (fmul)
+                ldcf(8.0), ldcf(8.0),
+                inv(0xB6, B + "CubeListBuilder", "addBox", f"(FFFFFF)L{B}CubeListBuilder;"),
+                bytes([0x0B]), ldcf(6.0), bytes([0x0B]),                # 0, 6, 0
+                inv(0xB8, G + "PartPose", "offset", f"(FFF)L{G}PartPose;"),
+                inv(0xB6, B + "PartDefinition", "addOrReplaceChild",
+                    f"(Ljava/lang/String;L{B}CubeListBuilder;L{G}PartPose;)L{B}PartDefinition;"),
+                bytes([0x57]),                                          # pop
+                bytes([0x2A, 0xB2]) + struct.pack(">H", cp.fref(G + "ModelLayers", "TEST", f"L{G}ModelLayerLocation;")),
+                bytes([0x2B, 0x10, 64, 0x10, 32]),                      # mesh, 64, 32
+                inv(0xB8, B + "LayerDefinition", "create", f"(L{B}MeshDefinition;II)L{B}LayerDefinition;"),
+                inv(0xB6, "com/google/common/collect/ImmutableMap$Builder", "put",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)Lcom/google/common/collect/ImmutableMap$Builder;"),
+                bytes([0x57, 0x01, 0xB0]),                              # pop, null, areturn
+            ])
+
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "minecraft-99.1-client.jar")
+            with zipfile.ZipFile(jar, "w") as z:
+                z.writestr(mobmodels._ROOTS + ".class",
+                           _class_file(mobmodels._ROOTS, {("createRoots", "()Ljava/util/Map;"): (4, roots)}))
+            out = mobmodels.extract(jar)
+            lay = out["layers"]["TEST"]
+            self.assertEqual((lay["tw"], lay["th"], lay["scale"]), (64, 32, 1.0))
+            head = lay["root"]["children"]["head"]
+            self.assertEqual(head["pose"][:3], [0.0, 6.0, 0.0])
+            self.assertEqual(head["cubes"], [[0, 16, -4.0, -8.0, -4.0, 8.0, 8.0, 8.0, 0.0, 0.0, 0.0, False]])
+            with zipfile.ZipFile(os.path.join(tmp, "old.jar"), "w") as z:        # an obfuscated jar: not readable
+                z.writestr("abc.class", b"")
+            self.assertEqual(mobmodels.extract(os.path.join(tmp, "old.jar"))["layers"], {})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestSkins(unittest.TestCase):
     """Players' real skins: looked up by UUID at Mojang, only from Mojang's texture server, kept and refreshed."""
 

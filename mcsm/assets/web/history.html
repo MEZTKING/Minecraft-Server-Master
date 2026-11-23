@@ -775,7 +775,8 @@ $("#realSkins").onchange = () => {
 };
 $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1" : "0"); if (!$("#realOn").checked) { realClear(); REAL.key = ""; } };
 $("#realOn").checked = store.get("mcsm-real") !== "0";
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; } };   // for checking the view
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; },
+  mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
 let H = null;                 // /api/history
@@ -891,6 +892,121 @@ const MOB_COLOUR = { zombie: 0x4a8f3c, creeper: 0x3fbf3f, skeleton: 0xd8d8d8, sp
   slime: 0x70c050, blaze: 0xf0b020, witch: 0x503070, drowned: 0x3a8a8a, husk: 0xb09060, piglin: 0xe0a080 };
 const mobGroup = new THREE.Group(); scene.add(mobGroup); mobGroup.visible = SHOW.mobs;
 const mobMeshes = new Map();
+// ---------- textured mobs: the game's own models, read from the newest readable Minecraft jar on this PC
+// (/api/mobmodels: Minecraft's model space, pixels, y down, the front is -z), textures from the same jar.
+// Until a mob's model and texture are ready (or when there is none) it stays a coloured box.
+const MPX = 1 / 16;
+let MOBM = null;
+fetch("api/mobmodels").then(r => r.json()).then(d => { MOBM = d.layers || {}; }).catch(() => { MOBM = {}; });
+// texture per kind (under entity/; a list = variants, one picked per mob and kept); default <kind>/<kind>
+const MOB_TEX = {
+  chicken: "chicken/chicken_temperate", cow: "cow/cow_temperate", pig: "pig/pig_temperate", mooshroom: "cow/mooshroom_red",
+  cod: "fish/cod", salmon: "fish/salmon", pufferfish: "fish/pufferfish", tropical_fish: "fish/tropical_a",
+  glow_squid: "squid/glow_squid", husk: "zombie/husk", drowned: "zombie/drowned", stray: "skeleton/stray",
+  wither_skeleton: "skeleton/wither_skeleton", bogged: "skeleton/bogged", parched: "skeleton/parched",
+  cave_spider: "spider/cave_spider", ocelot: "cat/ocelot", donkey: "horse/donkey", mule: "horse/mule",
+  skeleton_horse: "horse/horse_skeleton", zombie_horse: "horse/horse_zombie", elder_guardian: "guardian/guardian_elder",
+  magma_cube: "slime/magmacube", polar_bear: "bear/polarbear", pillager: "illager/pillager", vindicator: "illager/vindicator",
+  evoker: "illager/evoker", illusioner: "illager/illusioner", vex: "illager/vex", happy_ghast: "ghast/happy_ghast",
+  zombified_piglin: "piglin/zombified_piglin", piglin_brute: "piglin/piglin_brute", zoglin: "hoglin/zoglin",
+  minecart: "minecart/minecart", chest_minecart: "minecart/minecart", hopper_minecart: "minecart/minecart",
+  furnace_minecart: "minecart/minecart", tnt_minecart: "minecart/minecart", spawner_minecart: "minecart/minecart",
+  command_block_minecart: "minecart/minecart", sniffer: "sniffer/sniffer", zombie_nautilus: "nautilus/zombie_nautilus",
+  axolotl: ["axolotl/axolotl_lucy", "axolotl/axolotl_wild", "axolotl/axolotl_gold", "axolotl/axolotl_cyan"],
+  parrot: ["parrot/parrot_red_blue", "parrot/parrot_blue", "parrot/parrot_green", "parrot/parrot_yellow_blue", "parrot/parrot_grey"],
+  horse: ["horse/horse_brown", "horse/horse_chestnut", "horse/horse_creamy", "horse/horse_darkbrown", "horse/horse_gray", "horse/horse_white", "horse/horse_black"],
+  cat: ["cat/cat_tabby", "cat/cat_black", "cat/cat_red", "cat/cat_siamese", "cat/cat_british_shorthair", "cat/cat_calico", "cat/cat_ragdoll"],
+  llama: ["llama/llama_creamy", "llama/llama_white", "llama/llama_brown", "llama/llama_gray"],
+  trader_llama: ["llama/llama_creamy", "llama/llama_white", "llama/llama_brown", "llama/llama_gray"],
+  rabbit: ["rabbit/rabbit_brown", "rabbit/rabbit_white", "rabbit/rabbit_black", "rabbit/rabbit_gold", "rabbit/rabbit_salt"],
+  frog: "frog/frog_temperate", fox: "fox/fox", panda: "panda/panda", wolf: "wolf/wolf", strider: "strider/strider",
+  villager: "villager/villager", zombie_villager: "zombie_villager/zombie_villager", camel: "camel/camel",
+  copper_golem: "copper_golem/copper_golem", cushion: "cushion/white_cushion",
+};
+const MOB_LAYER = { pufferfish: "PUFFERFISH_SMALL", tropical_fish: "TROPICAL_FISH_SMALL", bamboo_raft: "BAMBOO_RAFT" };
+const MOB_EXTRA = {                                      // extra layers drawn over the model
+  sheep: [["SHEEP_WOOL", "sheep/sheep_wool"]], drowned: [["DROWNED_OUTER_LAYER", "zombie/drowned_outer_layer"]],
+  stray: [["STRAY_OUTER_LAYER", "skeleton/stray_overlay"]], bogged: [["BOGGED_OUTER_LAYER", "skeleton/bogged_overlay"]],
+  slime: [["SLIME_OUTER", "slime/slime", true]],
+};
+const MOB_SCALE = { wither_skeleton: 1.2, ghast: 4.5, happy_ghast: 4, elder_guardian: 2.35, giant: 6, slime: 2, magma_cube: 2,
+  horse: 1.1, donkey: 0.87, mule: 0.92, skeleton_horse: 1.1, zombie_horse: 1.1, polar_bear: 1.2, cave_spider: 0.7 };
+const UNDEAD_ARMS = new Set(["zombie", "husk", "drowned", "zombie_villager", "zombified_piglin", "giant"]);
+function mobLayerAndTex(kind, label) {
+  let layer = MOB_LAYER[kind] || kind.toUpperCase(), tex = MOB_TEX[kind] || `${kind}/${kind}`;
+  const boat = /^(.*?)_(chest_)?(boat|raft)$/.exec(kind);
+  if (boat && !MOB_TEX[kind]) tex = `${boat[2] ? "chest_boat" : "boat"}/${boat[1]}`;
+  if (Array.isArray(tex)) { let h = 0; for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) | 0; tex = tex[Math.abs(h) % tex.length]; }
+  return [layer, tex];
+}
+const mobTexMap = new Map();
+function mobTexture(path) {
+  if (!mobTexMap.has(path)) mobTexMap.set(path, new Promise(res => new THREE.TextureLoader().load(`mobtex/entity/${path}.png`, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; res(t);
+  }, undefined, () => res(null))));
+  return mobTexMap.get(path);
+}
+const mobGeoCache = new Map();                           // one geometry per cube of a layer, shared by every mob
+function cubeGeo(key, c, tw, th) {
+  if (mobGeoCache.has(key)) return mobGeoCache.get(key);
+  const [u, v, x, y, z, w, h, d, gx, gy, gz, mirror] = c;
+  const g = new THREE.BoxGeometry(Math.max(w + 2 * gx, 0.01) * MPX, Math.max(h + 2 * gy, 0.01) * MPX, Math.max(d + 2 * gz, 0.01) * MPX);
+  // the faces as skinBox (+x, -x, +y, -y, +z = the front, -z), Minecraft's box unwrap; a mirrored box swaps the sides
+  let rects = [[u + d + w, v + d, d, h], [u, v + d, d, h], [u + d, v, w, d], [u + d + w, v, w, d], [u + d, v + d, w, h], [u + 2 * d + w, v + d, w, h]];
+  if (mirror) rects = [rects[1], rects[0], ...rects.slice(2)].map(([x0, y0, ww, hh]) => [x0 + ww, y0, -ww, hh]);
+  const uv = g.attributes.uv;
+  rects.forEach(([x0, y0, ww, hh], f) => {
+    const cs = [[x0, y0], [x0 + ww, y0], [x0, y0 + hh], [x0 + ww, y0 + hh]];
+    for (let k = 0; k < 4; k++) uv.setXY(f * 4 + k, cs[k][0] / tw, 1 - cs[k][1] / th);
+  });
+  g.translate((x + w / 2) * MPX, -(y + h / 2) * MPX, -(z + d / 2) * MPX);
+  mobGeoCache.set(key, g);
+  return g;
+}
+const mobMats = new Map();                               // texture path -> {n, hurt, burn}: shared by every mob using it
+function mobMaterials(path, t, glass) {
+  const key = path + (glass ? "|glass" : "");
+  if (!mobMats.has(key)) {
+    const mk = col => new THREE.MeshLambertMaterial({ map: t, color: col, alphaTest: glass ? 0.02 : 0.1,
+      transparent: !!glass, opacity: glass ? 0.75 : 1, depthWrite: !glass, side: THREE.DoubleSide });
+    mobMats.set(key, { n: mk(0xffffff), hurt: mk(0xff5959), burn: mk(0xffb060) });
+  }
+  return mobMats.get(key);
+}
+function buildPart(json, layerKey, path, tw, th, mats, parts, name) {
+  const grp = new THREE.Group(), [x, y, z, xr, yr, zr, sx, sy, sz] = json.pose;
+  grp.position.set(x * MPX, -y * MPX, -z * MPX);
+  grp.rotation.set(xr, -yr, -zr, "ZYX");               // y and z turn the other way in our axes (y up, front +z)
+  grp.scale.set(sx || 1, sy || 1, sz || 1);
+  json.cubes.forEach((c, i) => { const m = new THREE.Mesh(cubeGeo(`${layerKey}|${path}|${i}`, c, tw, th), mats.n); m.userData.mobMats = mats; grp.add(m); });
+  for (const [cn, cj] of Object.entries(json.children)) grp.add(buildPart(cj, layerKey, `${path}/${cn}`, tw, th, mats, parts, cn));
+  if (name && !parts[name]) parts[name] = { g: grp, x: grp.rotation.x, y: grp.rotation.y, z: grp.rotation.z };
+  return grp;
+}
+async function buildMob(o, label, kind) {
+  if (!MOBM) return;                                   // models not loaded yet: try again next frame
+  o.building = true;
+  const [layer, tex] = mobLayerAndTex(kind, label), L = MOBM[layer];
+  if (!L) return;                                      // no model: stays a box
+  const t = await mobTexture(tex);
+  if (!t || !mobMeshes.has(label)) return;
+  const inner = new THREE.Group(), parts = {};
+  inner.position.y = 24 * MPX;                         // the model's y = 24 is the ground
+  inner.add(buildPart(L.root, layer, "", L.tw, L.th, mobMaterials(tex, t), parts, ""));
+  for (const [xl, xt, glass] of (MOB_EXTRA[kind] || [])) {
+    const XL = MOBM[xl], t2 = XL && await mobTexture(xt);
+    if (XL && t2) inner.add(buildPart(XL.root, xl, "", XL.tw, XL.th, mobMaterials(xt, t2, glass), {}, ""));
+  }
+  if (kind === "tropical_fish") {                      // its colours come from the variant (not recorded): one per fish
+    let h = 0; for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) | 0;
+    const col = new THREE.Color().setHSL((Math.abs(h) % 360) / 360, 0.75, 0.6);
+    inner.traverse(m => { if (m.isMesh) { const ms = m.userData.mobMats;
+      const own = { n: ms.n.clone(), hurt: ms.hurt, burn: ms.burn }; own.n.color = col; m.material = own.n; m.userData.mobMats = own; } });
+  }
+  const s = (L.scale || 1) * (MOB_SCALE[kind] || 1);
+  const model = new THREE.Group(); model.add(inner); model.scale.setScalar(s);
+  o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.state = "n";
+}
 function mobMesh(label, kind) {
   let o = mobMeshes.get(label);
   if (!o) {
@@ -898,11 +1014,61 @@ function mobMesh(label, kind) {
     const [w, h] = MOB_SIZE[kind] || MOB_SIZE[base] || [0.6, 0.9];
     let col = MOB_COLOUR[kind] || MOB_COLOUR[base];
     if (col === undefined) { let x = 0; for (const ch of kind) x = (x * 31 + ch.charCodeAt(0)) | 0; col = new THREE.Color().setHSL((Math.abs(x) % 360) / 360, 0.45, 0.5).getHex(); }
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshLambertMaterial({ color: col }));
-    m.geometry.translate(0, h / 2, 0);
-    o = { mesh: m, kind }; mobGroup.add(m); mobMeshes.set(label, o);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshLambertMaterial({ color: col }));
+    box.geometry.translate(0, h / 2, 0);
+    const g = new THREE.Group(); g.add(box);
+    o = { mesh: g, box, kind, dist: 0, last: null }; mobGroup.add(g); mobMeshes.set(label, o);
   }
+  if (!o.building && MOBM) buildMob(o, label, kind);
   return o;
+}
+function animateMob(o, label, speed) {                   // speed: blocks per second
+  const P = o.parts; if (!P) return;
+  const amp = Math.min(1, speed / 5), ph = o.dist * 2.66, tk = T / 50;   // Minecraft: cos(walk * 0.6662), walk += 4 x blocks a tick
+  const swing = (name, off, k = 1.4) => { const q = P[name]; if (q) q.g.rotation.x = q.x + Math.cos(ph + off) * k * amp; };
+  swing("right_hind_leg", 0); swing("left_front_leg", 0); swing("left_hind_leg", Math.PI); swing("right_front_leg", Math.PI);
+  swing("right_leg", 0); swing("left_leg", Math.PI);
+  if (UNDEAD_ARMS.has(o.kind)) {
+    for (const n of ["right_arm", "left_arm"]) { const q = P[n]; if (q) q.g.rotation.x = -Math.PI / 2 + Math.sin(tk * 0.067) * 0.05; }
+  } else { swing("right_arm", Math.PI, 1); swing("left_arm", 0, 1); }
+  for (const [n, q] of Object.entries(P)) {
+    if (/_leg$/.test(n) && /middle|hind|front/.test(n) && o.kind.includes("spider")) {   // spiders scuttle sideways
+      const i = ["hind", "middle_hind", "middle_front", "front"].findIndex(s => n.includes(s + "_leg"));
+      q.g.rotation.x = q.x; q.g.rotation.y = q.y + (n.startsWith("right") ? 1 : -1) * Math.cos(ph * 2 + i * Math.PI / 2) * 0.4 * amp;
+    } else if (/^(tail|tail_fin|back_fin)$/.test(n)) q.g.rotation.y = q.y + Math.sin(tk * 0.6) * 0.45;   // fish swim
+    else if (/^tentacle\d$/.test(n)) q.g.rotation.x = q.x + Math.sin(tk * 0.2 + +n.slice(-1)) * 0.25;
+    else if (/^(right|left)_wing(_tip)?$/.test(n) && o.kind === "bat") {
+      const f = Math.cos(tk * 1.4) * 0.9 * (n.endsWith("_tip") ? 0.6 : 1);
+      q.g.rotation.y = q.y + (n.startsWith("right") ? f : -f);
+    } else if (/^(right|left)_wing$/.test(n) && (o.kind === "chicken" || o.kind === "parrot") && speed > 3) {
+      q.g.rotation.z = q.z + (n.startsWith("right") ? 1 : -1) * Math.abs(Math.sin(tk * 2)) * 1.2;
+    }
+  }
+}
+// dev: one mob of each kind in a row in the open sky above the camera, to check the models (mobGallery() again: gone)
+let GALLERY = null;
+function mobGallery(kinds, at) {
+  if (GALLERY) { scene.remove(GALLERY.g); for (const l of GALLERY.labels) mobMeshes.delete(l); GALLERY = null; if (!kinds) return; }
+  kinds = kinds || ["creeper", "skeleton", "zombie", "spider", "enderman", "bat", "cod", "salmon", "tropical_fish", "squid",
+    "glow_squid", "axolotl", "chicken", "cow", "pig", "sheep", "drowned", "guardian", "ocelot", "bee", "parrot", "turtle",
+    "witch", "villager", "horse", "dolphin", "wolf", "iron_golem", "slime", "cat", "nautilus", "pufferfish"];
+  const g = new THREE.Group(), labels = [];
+  const c = at || [camera.position.x, camera.position.y + 40, camera.position.z];
+  kinds.forEach((k, i) => {
+    const label = `#gallery#${k}`, o = mobMesh(label, k);
+    mobGroup.remove(o.mesh); g.add(o.mesh); labels.push(label);
+    o.mesh.position.set(c[0] + (i % 8) * 3, c[1] + Math.floor(i / 8) * 3, c[2]); o.mesh.visible = true;
+  });
+  scene.add(g); GALLERY = { g, labels, at: c };
+  return c;
+}
+function mobTint(o, label) {                             // red when hurt, orange when burning (swaps shared materials)
+  const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01;
+  const st = h !== null && h < 450 ? "hurt" : burn ? "burn" : "n";
+  if (!o.model) { o.base = o.base || o.box.material.color.clone(); hurtTint(o.box.material, label, o.base); return; }
+  if (st === o.state) return;
+  o.state = st;
+  o.model.traverse(m => { if (m.isMesh && m.userData.mobMats) m.material = m.userData.mobMats[st]; });
 }
 function updateMobs() {
   const d = $("#dim").value, shown = new Set();
@@ -912,18 +1078,28 @@ function updateMobs() {
       const i = lower(rows, T, r => r[0]), a = rows[i - 1] || rows[0], b = rows[i];
       if (T - a[0] > 16_000 || a[4] !== d) continue;           // left view (or not here)
       const o = mobMesh(label, mob.type);
-      let x = a[1], y = a[2], z = a[3];
-      if (b && b[0] - a[0] <= 700 && b[4] === a[4]) { const f = (T - a[0]) / Math.max(1, b[0] - a[0]); x += (b[1] - a[1]) * f; y += (b[2] - a[2]) * f; z += (b[3] - a[3]) * f; }
-      o.mesh.position.set(x, y, z); o.mesh.rotation.y = -a[5] * Math.PI / 180; o.mesh.visible = true; shown.add(label);
+      let x = a[1], y = a[2], z = a[3], yaw = a[5], speed = 0;
+      if (b && b[0] - a[0] <= 700 && b[4] === a[4]) {
+        const f = (T - a[0]) / Math.max(1, b[0] - a[0]);
+        x += (b[1] - a[1]) * f; y += (b[2] - a[2]) * f; z += (b[3] - a[3]) * f;
+        yaw += ((((b[5] - a[5]) % 360) + 540) % 360 - 180) * f;   // the short way round
+        speed = Math.hypot(b[1] - a[1], b[3] - a[3]) / Math.max(0.05, (b[0] - a[0]) / 1000);
+      }
+      if (o.last) { const dd = Math.hypot(x - o.last[0], z - o.last[1]); if (dd < 2) o.dist += dd; }
+      o.last = [x, z];
+      o.mesh.position.set(x, y, z); o.mesh.rotation.y = -yaw * Math.PI / 180; o.mesh.visible = true; shown.add(label);
       const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1500);
       o.mesh.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;
       if (died !== null && died > 1500) { o.mesh.visible = false; continue; }               // gone after the death
-      o.base = o.base || o.mesh.material.color.clone(); hurtTint(o.mesh.material, label, o.base);
+      animateMob(o, label, speed);
+      mobTint(o, label);
     }
   }
   for (const [label, o] of mobMeshes) if (!shown.has(label)) {
-    if (mobMeshes.size > 600) { mobGroup.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); mobMeshes.delete(label); }
-    else o.mesh.visible = false;
+    if (label.startsWith("#gallery#")) { animateMob(o, label, 2); continue; }
+    if (mobMeshes.size > 600) {                          // only the box is the mob's own: models share geometry
+      mobGroup.remove(o.mesh); o.box.geometry.dispose(); o.box.material.dispose(); mobMeshes.delete(label);
+    } else o.mesh.visible = false;
   }
 }
 function positionAt(name, t) {

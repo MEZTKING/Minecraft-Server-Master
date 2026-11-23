@@ -409,6 +409,10 @@ class HistoryMap(TerrainServer):
             return self.exact(a, b)
         if path == "/api/prepare":
             return self._prep_view()
+        if path == "/api/mobmodels":                  # mob models read from the newest readable Minecraft jar here
+            from . import mobmodels
+            m = mobmodels.cached_models()
+            return {"jar": m.get("jar"), "layers": m.get("layers", {})}
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
@@ -820,6 +824,9 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.block_tile_file(key) if bw else None
+        if path.startswith("/mobtex/") and path.endswith(".png"):         # /mobtex/entity/<...>.png: from the models' jar
+            from . import mobmodels
+            return mobmodels.texture(path[len("/mobtex/"):-4])
         if path.startswith("/skintex/") and path.endswith(".png"):        # /skintex/<hash>.png: a skin from a recording
             from . import skins
             return skins.texture(path[len("/skintex/"):-4])
