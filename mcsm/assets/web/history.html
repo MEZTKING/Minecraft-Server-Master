@@ -183,6 +183,7 @@ ul { list-style: none; margin: 0; padding: 0; }
       <label for="lSun" title="0: Minecraft's fixed shading of block sides; 100: sides shaded by where the sun is">Sun shading</label><input id="lSun" type="range" min="0" max="1" step="0.05" value="0.35"><span id="lSunV"></span>
       <label for="lAO" title="The soft shadows in corners and under overhangs (Minecraft's smooth lighting)">Soft shadows</label><input id="lAO" type="range" min="0" max="1" step="0.05" value="1"><span id="lAOV"></span>
     </div>
+    <label title="Close up at 1x / 10x: the time of day, rain and thunder as they were in the recording (they set Time of day)"><input type="checkbox" id="lFollow" checked> Time and weather from the recording</label>
     <div class="row"><button id="lReset" type="button">Reset</button><span class="meta">Hold Ctrl and scroll over a slider for fine steps.</span></div>
   </details>
   <div id="chgBox" hidden>
@@ -398,7 +399,10 @@ function applySky() {
   const dark = isDark(), d = $("#dim").value;
   const sky = d === "minecraft:the_nether" ? (dark ? 0x2a0d0d : 0x6b2a22) : d === "minecraft:the_end" ? (dark ? 0x0d0a17 : 0x2b2440) : (dark ? 0x101820 : 0xcfe3f5);
   const c = new THREE.Color(sky);
-  if (d === "minecraft:overworld") c.lerp(new THREE.Color(0x0b1020), 1 - LIGHTS.day);   // night sky
+  if (d === "minecraft:overworld") {
+    c.lerp(new THREE.Color(0x6a7078), Math.min(1, (LIGHTS.rain || 0) * 0.7 + (LIGHTS.thunder || 0) * 0.3));   // grey when it rains
+    c.lerp(new THREE.Color(0x0b1020), 1 - LIGHTS.day);                                  // night sky
+  }
   scene.background = c; scene.fog = new THREE.Fog(c, 800, 6000);
 }
 // ---------- light (Minecraft's light levels on the real blocks; the map and players follow the time of day) ----------
@@ -409,6 +413,7 @@ function applyLight(save = true) {
   const L = LIGHTS, a = (L.time - 6) / 24 * Math.PI * 2, h = Math.sin(a);           // sunrise 6:00, noon 12:00, sunset 18:00
   const sm = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
   L.day = 0.2 + 0.8 * sm((h + 0.2) / 0.45);                                          // Minecraft's night is about 1/5 of day
+  L.day *= (1 - 0.31 * (L.rain || 0)) * (1 - 0.31 * (L.thunder || 0));                // rain and thunder darken the sky (the game: 5/16 each)
   const dir = new THREE.Vector3(Math.cos(a), Math.max(0.05, h), 0.3).normalize();
   setLight({ day: L.day, torch: L.torch, bright: L.bright, exposure: L.exposure, sunMix: L.sun, ao: L.ao, sunDir: dir });
   sun.position.copy(dir); sun.intensity = 1.6 * L.day * L.exposure; hemi.intensity = (0.35 + 0.75 * L.day) * L.exposure;
@@ -695,7 +700,7 @@ function onlineAt(name, t) {
 // Interpolated position at t, or the last point if it is recent; {pos, dim, fresh}.
 // Exact playback: close to the players at 1x or 10x (or paused), every recorded movement and turn (up to 20 a second)
 // for the time around you, on the world clock; elsewhere the lighter overview paths.
-const EXACT = { lo: 0, hi: 0, rows: {}, flags: {}, swings: {}, mobs: {}, busy: false, last: 0, on: false };
+const EXACT = { lo: 0, hi: 0, rows: {}, ev: {}, world: {}, mobs: {}, busy: false, last: 0, on: false };
 function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
   return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || camera.position.distanceTo(controls.target) < 600);
 }
@@ -703,7 +708,7 @@ async function exactStep(now) {
   EXACT.on = exactWanted();
   if (!EXACT.on || EXACT.busy || now - EXACT.last < 400) return;
   const ahead = Math.max(60_000, 30_000 * +$("#speed").value);
-  if (T >= EXACT.lo + 5_000 && T <= EXACT.hi - ahead / 3) return;          // still covered
+  if (!EXACT.retry && T >= EXACT.lo + 5_000 && T <= EXACT.hi - ahead / 3) return;   // still covered
   EXACT.busy = true; EXACT.last = now;
   const from = Math.round(T - 10_000), to = Math.round(T + ahead);
   const slow = setTimeout(() => toastStatus("Reading the recordings of this moment in full detail (the first time can take a minute)…"), 1500);
@@ -711,12 +716,17 @@ async function exactStep(now) {
     const t0 = performance.now();
     const r = await (await fetch(`api/exact/${from}/${to}`)).json();
     DEV.exactMs = Math.round(performance.now() - t0);
-    clearTimeout(slow); if ($("#status").textContent.startsWith("Reading the recordings")) toastStatus("");
+    clearTimeout(slow); if ($("#status").textContent.startsWith("Reading") && !r.pending) toastStatus("");
     EXACT.rows = r.players || {}; EXACT.lo = from; EXACT.hi = to;
-    EXACT.flags = r.flags || {}; EXACT.swings = r.swings || {}; EXACT.mobs = r.mobs || {};
+    EXACT.ev = r.events || {}; EXACT.world = r.world || {}; EXACT.mobs = r.mobs || {};
+    EXACT.pending = r.pending || 0; EXACT.retry = false;
+    if (EXACT.pending) {                               // some recordings are still being read: ask again soon
+      EXACT.retry = true; EXACT.last = now + 2500;
+      toastStatus(`Reading ${EXACT.pending} recording${EXACT.pending > 1 ? "s" : ""} of this moment in full detail…`);
+    }
     EXACT.busy = false;
     update(performance.now(), true);                   // show them where they really were (also when paused)
-  } catch (e) { /* the overview paths stay */ }
+  } catch (e) { EXACT.last = now + 5000; clearTimeout(slow); }   // the overview paths stay; try again in a few seconds
   finally { EXACT.busy = false; }
 }
 function exactAt(name, t) {
@@ -737,17 +747,36 @@ function exactAt(name, t) {
   return { pos, dim: a[4], fresh: true, exact: true, yaw, pitch, head, speed };
 }
 // A player's flags at t (0x02 sneaking, 0x08 sprinting, 0x10 swimming, 0x80 elytra) and their last arm swing.
-function flagsAt(name, t) {
-  const f = EXACT.on && EXACT.flags[name];
-  if (!f || !f.length) return 0;
+// From the recording, per player or mob: states ("f" flags 0x01 burning 0x02 sneaking 0x08 sprinting 0x10 swimming
+// 0x80 elytra; "p" pose 1 elytra 2 sleeping 3 swimming 5 crouching 7 dying; "h" using an item) and moments
+// ("s" arm swing, "hurt", "d" died).
+function stateAt(name, kind, t, none = 0) {
+  const f = EXACT.on && EXACT.ev[name] && EXACT.ev[name][kind];
+  if (!f || !f.length) return none;
   const i = lower(f, t, r => r[0]);
-  return i ? f[i - 1][1] : 0;
+  return i ? f[i - 1][1] : none;
 }
-function swingAt(name, t) {
-  const sw = EXACT.on && EXACT.swings[name];
-  if (!sw || !sw.length) return null;
-  const i = lower(sw, t, v => v);
-  return i ? t - sw[i - 1] : null;
+function sinceLast(name, kind, t) {                    // ms since the last such moment (null: none in view)
+  const f = EXACT.on && EXACT.ev[name] && EXACT.ev[name][kind];
+  if (!f || !f.length) return null;
+  const i = lower(f, t, r => r[0]);
+  return i ? t - f[i - 1][0] : null;
+}
+const flagsAt = (name, t) => stateAt(name, "f", t);
+const swingAt = (name, t) => sinceLast(name, "s", t);
+// the time of day and weather from the recording (when "From the recording" is on in Light)
+function worldAt(kind, t) {
+  const f = EXACT.on && EXACT.world[kind];
+  if (!f || !f.length) return null;
+  const i = Math.max(1, lower(f, t, r => r[0])), a = f[i - 1];
+  return kind === "time" ? a[1] + (a[2] || 0) * Math.max(0, t - a[0]) / 50 : a[1];
+}
+function hurtTint(mat, name, base) {                   // red when hurt, orange flicker when burning
+  const h = sinceLast(name, "hurt", T), burn = flagsAt(name, T) & 0x01;
+  const c = mat.color;
+  if (h !== null && h < 450) c.setRGB(1, 0.35, 0.35);
+  else if (burn) c.setRGB(1, 0.62 + 0.15 * Math.sin(performance.now() / 60), 0.35);
+  else c.copy(base);
 }
 // ---------- mobs and pets (exact playback only): boxes sized and coloured by kind ----------
 const MOB_SIZE = { zombie: [0.6, 1.95], husk: [0.6, 1.95], drowned: [0.6, 1.95], skeleton: [0.6, 1.99], stray: [0.6, 1.99],
@@ -791,6 +820,10 @@ function updateMobs() {
       let x = a[1], y = a[2], z = a[3];
       if (b && b[0] - a[0] <= 700 && b[4] === a[4]) { const f = (T - a[0]) / Math.max(1, b[0] - a[0]); x += (b[1] - a[1]) * f; y += (b[2] - a[2]) * f; z += (b[3] - a[3]) * f; }
       o.mesh.position.set(x, y, z); o.mesh.rotation.y = -a[5] * Math.PI / 180; o.mesh.visible = true; shown.add(label);
+      const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1500);
+      o.mesh.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;
+      if (died !== null && died > 1500) { o.mesh.visible = false; continue; }               // gone after the death
+      o.base = o.base || o.mesh.material.color.clone(); hurtTint(o.mesh.material, label, o.base);
     }
   }
   for (const [label, o] of mobMeshes) if (!shown.has(label)) {
@@ -842,7 +875,8 @@ function skinTexture(skin) {
   }
   return skinTextures[skin];
 }
-const PX = 0.9375 / 16;                                // a skin pixel in blocks (the player is 1.8 blocks tall)
+const PX = 0.9375 / 16;
+const WHITE = new THREE.Color(1, 1, 1);                                // a skin pixel in blocks (the player is 1.8 blocks tall)
 function skinBox(w, h, d, u, v, grow = 0) {
   // a box mapped like Minecraft's player model: [u, v] is the top-left of the box's unfolded skin area
   const g = new THREE.BoxGeometry((w + grow) * PX, (h + grow) * PX, (d + grow) * PX);
@@ -900,10 +934,17 @@ function animateFigure(m, now) {
   const dx = p.x - last.x, dz = p.z - last.z, sp = Math.hypot(dx, dz) / dt;
   const c = m.cur, P0 = m.F.parts;
   // poses from the recording: sneaking, swimming / elytra flight (lying forward), sprinting, arm swings
-  const fl = c && c.exact ? flagsAt(m.name, T) : 0, flat = (fl & 0x10) || (fl & 0x80), sneak = !flat && (fl & 0x02);
+  const fl = c && c.exact ? flagsAt(m.name, T) : 0, pose = c && c.exact ? stateAt(m.name, "p", T, -1) : -1;
+  const flat = pose === 1 || pose === 3 || (pose < 0 && ((fl & 0x10) || (fl & 0x80)));
+  const sneak = !flat && (pose === 5 || (pose < 0 && (fl & 0x02)));
+  const sleeping = pose === 2, died = c && c.exact ? sinceLast(m.name, "d", T) : null;
+  const dying = pose === 7 || (died !== null && died < 1500);
   m.F.fig.rotation.order = "YXZ";
-  m.F.fig.rotation.x += ((flat ? Math.PI / 2 : 0) - m.F.fig.rotation.x) * Math.min(1, dt * 10);
-  m.F.fig.position.y = flat ? 0.3 : sneak ? -0.125 : 0;
+  const rx = flat ? Math.PI / 2 : sleeping ? -Math.PI / 2 : 0;
+  m.F.fig.rotation.x += (rx - m.F.fig.rotation.x) * Math.min(1, dt * 10);
+  m.F.fig.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;   // the game's death: fall sideways
+  m.F.fig.position.y = flat ? 0.3 : sleeping ? 0.6 : sneak ? -0.125 : 0;
+  hurtTint(m.F.mat, m.name, WHITE);
   // the game's sneaking pose: body 0.5 rad forward from the neck, head 4.2 px and body/arms 3.2 px lower,
   // legs 4 px back
   P0.body.rotation.x = sneak ? 0.5 : 0;
@@ -912,6 +953,7 @@ function animateFigure(m, now) {
   P0.rleg.position.z = P0.lleg.position.z = sneak ? -4 * PX : 0;
   P0.rleg.position.y = P0.lleg.position.y = (sneak ? 12 - 0.2 : 12) * PX;
   m.sprint = !!(fl & 0x08);
+  m.using = c && c.exact ? !!(stateAt(m.name, "h", T) & 0x01) : false;                  // eating, drawing a bow, a shield
   const sw = c && c.exact ? swingAt(m.name, T) : null;
   m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
   if (c && c.exact && c.yaw !== undefined) {
@@ -932,7 +974,7 @@ function animateFigure(m, now) {
   const s = Math.sin(m.phase) * 0.9 * m.speed * (m.sprint ? 1.35 : 1), P = m.F.parts;
   const lean = P.body.rotation.x ? 0.4 : 0;             // sneaking: the arms follow the body (the game's +0.4)
   P.rleg.rotation.x = s; P.lleg.rotation.x = -s;
-  P.rarm.rotation.x = -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
+  P.rarm.rotation.x = m.using ? -1.1 : -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
   m.last = p.clone(); m.lastT = now;
 }
 // A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
@@ -1834,8 +1876,47 @@ function devState() {
     exact: { on: EXACT.on, from: EXACT.lo ? new Date(EXACT.lo).toISOString() : null, to: EXACT.hi ? new Date(EXACT.hi).toISOString() : null,
       players: Object.keys(EXACT.rows).length, mobs: Object.keys(EXACT.mobs).length, busy: EXACT.busy, fetch_ms: DEV.exactMs },
     render: { fps: DEV.fps, draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+    world: { day_time: worldAt("time", T) !== null ? Math.round(worldAt("time", T) % 24000) : null, light_time: LIGHTS.time,
+      rain: worldAt("rain", T), thunder: worldAt("thunder", T) },
     block_under_mouse: DEV.block, players,
   };
+}
+// rain around the camera, and the recording's time of day and weather
+const RAIN = (() => {
+  const n = 1800, g = new THREE.BufferGeometry(), p = new Float32Array(n * 6);
+  for (let i = 0; i < n; i++) { const x = (Math.random() - 0.5) * 60, y = Math.random() * 40, z = (Math.random() - 0.5) * 60;
+    p.set([x, y, z, x, y - 0.7, z], i * 6); }
+  g.setAttribute("position", new THREE.BufferAttribute(p, 3));
+  const o = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x9fb4c8, transparent: true, opacity: 0.45 }));
+  o.visible = false; o.frustumCulled = false; scene.add(o); return o;
+})();
+let lastWorld = 0;
+function worldStep(now, dt) {
+  const follow = $("#lFollow").checked && EXACT.on;
+  const thunder = follow ? (worldAt("thunder", T) ?? 0) : 0;
+  const rain = follow ? Math.max(worldAt("rain", T) ?? 0, thunder) : 0;     // thunder only comes with rain
+  RAIN.visible = rain > 0.05 && $("#dim").value === "minecraft:overworld";
+  if (RAIN.visible) {
+    RAIN.position.set(camera.position.x, camera.position.y - 20, camera.position.z);
+    const pa = RAIN.geometry.attributes.position, fall = dt / 1000 * 22;
+    for (let i = 0; i < pa.count; i += 2) {
+      let y = pa.getY(i) - fall; if (y < 0) y += 40;
+      pa.setY(i, y); pa.setY(i + 1, y - 0.7);
+    }
+    pa.needsUpdate = true; RAIN.material.opacity = 0.2 + 0.4 * rain;
+  }
+  if (!follow || now - lastWorld < 500) return;
+  lastWorld = now;
+  const dtime = worldAt("time", T);
+  let changed = false;
+  if (dtime !== null) {
+    const hours = ((((dtime % 24000) + 24000) % 24000) / 1000 + 6) % 24;    // day time 0 = 6:00, 6000 = noon
+    if (Math.abs(hours - LIGHTS.time) > 0.01) { LIGHTS.time = Math.round(hours * 100) / 100; changed = true; }
+  }
+  if (Math.abs(rain - (LIGHTS.rain || 0)) > 0.01 || Math.abs(thunder - (LIGHTS.thunder || 0)) > 0.01) {
+    LIGHTS.rain = rain; LIGHTS.thunder = thunder; changed = true;
+  }
+  if (changed) applyLight(false);
 }
 function devUpdate(now) {
   DEV.frames++;
@@ -1849,6 +1930,7 @@ function devUpdate(now) {
     `${st.dimension}  backup layer ${st.terrain_layer}  ·  real blocks: ${st.real_blocks.pieces} pieces${st.real_blocks.busy ? ", loading" : ""}${st.real_blocks.failed ? `, ${st.real_blocks.failed} failed` : ""}`,
     `exact: ${st.exact.on ? "on" : "off"}  ${st.exact.players} players, ${st.exact.mobs} mobs${st.exact.busy ? "  (fetching…)" : ""}  last fetch ${st.exact.fetch_ms} ms`,
     `${st.render.fps} fps  ${st.render.draw_calls} draw calls  ${st.render.triangles.toLocaleString()} triangles`,
+    `recording's day time ${st.world.day_time ?? "-"} (light ${st.world.light_time}:00 h)  rain ${st.world.rain ?? "-"}  thunder ${st.world.thunder ?? "-"}`,
     b ? `block ${b.x} ${b.y} ${b.z}: ${b.state || b.message || "?"}${b.biome ? `  biome ${b.biome.replace("minecraft:", "")}` : ""}${b.sky_light !== undefined ? `  light sky ${b.sky_light} block ${b.block_light}` : ""}` : "block: point at a real block",
     "", ...Object.entries(st.players).map(([n, p]) => `${n}: ${p.pos.join(", ")} ${p.dim} · ${p.source}${p.by ? ` (seen by ${p.by})` : ""}${p.yaw !== undefined ? ` · yaw ${p.yaw}` : ""}${p.flags ? ` · flags ${p.flags}` : ""}`),
   ];
@@ -2049,6 +2131,7 @@ function frame(now) {
   }
   if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
   devUpdate(now);
+  worldStep(now, dt);
   renderer.render(scene, camera);
 }
 

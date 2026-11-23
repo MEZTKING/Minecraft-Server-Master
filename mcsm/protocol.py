@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 
 PACKETS = ("add_entity", "remove_entities", "set_entity_data", "animate", "set_time", "entity_event",
-           "set_equipment", "set_passengers")
+           "set_equipment", "set_passengers", "hurt_animation", "damage_event", "game_event")
 BUNDLED = os.path.join(os.path.dirname(__file__), "assets", "protocols.json")
 _cache: dict[int, dict | None] = {}
 

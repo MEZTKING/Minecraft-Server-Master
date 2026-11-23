@@ -120,6 +120,54 @@ MOB_RADIUS = 48               # ...within this many blocks of the recorded playe
 MOB_MIN_MOVE = 0.3            # ...and only when they moved this much
 
 
+def _varlong(b, i: int) -> tuple[int, int]:
+    out = shift = 0
+    while True:
+        x = b[i]
+        i += 1
+        out |= (x & 0x7F) << shift
+        if not x & 0x80:
+            return out, i
+        shift += 7
+
+
+# Entity data (set_entity_data): entries (u8 index, VarInt serializer, value) until 0xFF. Serializer numbers differ
+# between versions for most kinds, but these low ones have stayed put; the pose's is learned from index 6.
+SER_BYTE, SER_VARINT, SER_VARLONG, SER_FLOAT, SER_BOOL, SER_OPT_BLOCK_POS = 0, 1, 2, 3, 8, 11
+
+
+def entity_data(b, k: int, end: int) -> dict[int, int | float]:
+    """``{index: value}`` for the entries of an entity-data packet body we can read (from *k*, after the entity
+    id): flags (0), pose (6), living flags / hand use (8), health (9). Stops at the first unknown kind."""
+    out: dict[int, int | float] = {}
+    last = -1
+    while k < end:
+        idx = b[k]
+        if idx == 0xFF or idx <= last or idx > 60:
+            break
+        last = idx
+        ser, k = _varint(b, k + 1)
+        if ser == SER_BYTE:
+            out[idx] = b[k]
+            k += 1
+        elif ser == SER_FLOAT:
+            out[idx] = struct.unpack_from(">f", b, k)[0]
+            k += 4
+        elif ser == SER_BOOL:
+            k += 1
+        elif ser == SER_VARINT or idx == 6:               # index 6 is the pose (a VarInt) in every version
+            v, k = _varint(b, k)
+            if idx == 6:
+                out[idx] = v
+        elif ser == SER_VARLONG:
+            _v, k = _varlong(b, k)
+        elif ser == SER_OPT_BLOCK_POS:
+            k += 9 if b[k] else 1
+        else:
+            break
+    return out
+
+
 def _followed(kind: str) -> bool:
     return bool(kind) and kind not in SKIP_ENTITIES and not kind.endswith(("_display", "_arrow", "_potion"))
 
@@ -159,12 +207,18 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         types = (tbl or {}).get("entity_types") or []
         add_id = pk.get("add_entity", ADD_ENTITY.get(proto, DEFAULT_ADD_ENTITY))
         remove_id = pk.get("remove_entities", REMOVE_ENTITIES.get(proto))
-        data_id = pk.get("set_entity_data") if extras is not None else None
-        anim_id = pk.get("animate") if extras is not None else None
-        watch = {x for x in (add_id, remove_id, data_id, anim_id) if x is not None}
-        if extras is not None:
+        ex_on = extras is not None
+        data_id = pk.get("set_entity_data") if ex_on else None
+        anim_id = pk.get("animate") if ex_on else None
+        hurt_ids = {pk.get("damage_event"), pk.get("hurt_animation")} - {None} if ex_on else set()
+        event_id = pk.get("entity_event") if ex_on else None
+        stime_id = pk.get("set_time") if ex_on else None
+        game_id = pk.get("game_event") if ex_on else None
+        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id) if x is not None} | hurt_ids
+        if ex_on:
             extras.setdefault("events", [])
             extras.setdefault("mobs", {})
+            extras.setdefault("world", [])
         tick = 0
         me: int | None = None
         local: tuple[float, float, float] | None = None
@@ -230,14 +284,37 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 others[eid] = name
                                 cur[eid] = {"dim": dim_now, "x": x, "y": y, "z": zz, "yaw": 0.0, "pitch": 0.0, "name": name}
                                 last_move[eid] = tick
-                        elif pid == data_id and size > 4:     # entity id, then (index, serializer, value)...; index 0 = flags
+                        elif pid == data_id and size > 4:     # entity id, then (index, serializer, value)...
                             eid, k = _varint(b, k)
-                            if b[k] == 0 and (eid == me or eid in others):
-                                ser, k = _varint(b, k + 1)
-                                if ser == 0:
-                                    who = None if eid == me else others[eid]
-                                    if who is None or not who.startswith("#"):
-                                        extras["events"].append([tick, who, "f", b[k]])
+                            if eid == me or eid in others:
+                                who = None if eid == me else others[eid]
+                                d = entity_data(b, k, i + size)
+                                if 0 in d:
+                                    extras["events"].append([tick, who, "f", d[0]])    # sneak, sprint, swim, elytra, fire
+                                if 6 in d:
+                                    extras["events"].append([tick, who, "p", d[6]])    # pose: sleeping, dying, ...
+                                if isinstance(d.get(8), int):
+                                    extras["events"].append([tick, who, "h", d[8]])    # using an item (eat, bow, shield)
+                                if isinstance(d.get(9), float) and d[9] <= 0:
+                                    extras["events"].append([tick, who, "d", 1])       # health 0: dying
+                        elif pid in hurt_ids and size > 2:    # damage_event / hurt_animation: entity id first
+                            eid, k = _varint(b, k)
+                            if eid == me or eid in others:
+                                extras["events"].append([tick, None if eid == me else others[eid], "hurt", 1])
+                        elif pid == event_id and size >= 6:   # entity_event: i32 entity id, status (3 = died)
+                            eid = struct.unpack_from(">i", b, k)[0]
+                            if b[k + 4] == 3 and (eid == me or eid in others):
+                                extras["events"].append([tick, None if eid == me else others[eid], "d", 1])
+                        elif pid == stime_id and size >= 9:   # the time of day (two layouts, see _day_time)
+                            dt = _day_time(b, k, i + size)
+                            if dt is not None:
+                                extras["world"].append([tick, "time", dt[0], dt[1]])
+                        elif pid == game_id and size >= 6:    # weather: 1 rain starts, 2 stops, 7 rain level, 8 thunder level
+                            ev, val = b[k], struct.unpack_from(">f", b, k + 1)[0]
+                            if ev in (1, 2):
+                                extras["world"].append([tick, "rain", 1.0 if ev == 1 else 0.0, 0])
+                            elif ev in (7, 8):
+                                extras["world"].append([tick, "rain" if ev == 7 else "thunder", round(val, 3), 0])
                         elif pid == anim_id and size >= 3:    # entity id, action (0 main hand, 3 off hand swing)
                             eid, k = _varint(b, k)
                             if b[k] in (0, 3) and (eid == me or (eid in others and not others[eid].startswith("#"))):
@@ -307,6 +384,28 @@ def _find_clock(probe: dict, clock_point) -> int | None:
     for t, g in probe[best_pid]:
         clock_point(t, g)
     return best_pid
+
+
+def _day_time(b, k: int, end: int) -> tuple[int, float] | None:
+    """``(day time in ticks, rate)`` from a set_time body, or None when it carries no day time. Up to 1.21.11: i64
+    game time, i64 day time, bool ticking. From 26.1: i64 game time, then a list of world clocks (VarInt count; each
+    VarInt clock id, VarLong total ticks, f32 partial tick, f32 rate); clock 0 is the overworld's day (seen in the
+    owner's recordings: it jumps to a whole day when someone sleeps)."""
+    n = end - k
+    if n == 17:
+        return struct.unpack_from(">q", b, k + 8)[0], 1.0 if b[k + 16] else 0.0
+    if n >= 9:
+        count, j = _varint(b, k + 8)
+        for _ in range(min(count, 16)):
+            if j >= end:
+                break
+            cid, j = _varint(b, j)
+            ticks, j = _varlong(b, j)
+            _partial, rate = struct.unpack_from(">ff", b, j)
+            j += 8
+            if cid == 0:
+                return ticks, round(rate, 3)
+    return None
 
 
 def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE, full=False):
@@ -435,19 +534,23 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None) -> dict:
+def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,
+               build: bool = True) -> dict | None:
     """Every recorded position of a recording, for exact playback: whenever someone moved or turned (up to 20 a
     second; at least every 15 s): ``{"who": [names, None = the recorded player, "#type#id" = a mob], "dims": [...],
     "rows": [[tick, who index, dim index, x, y, z, yaw, pitch, head yaw], ...], "events": [[tick, who, "f" flags |
-    "s" swing, value]], "mobs": {"#type#id": type}}``. Worked out once, kept as ``<key>.exact2.json.gz``."""
+    "s" swing / "p" pose / "h" hand use / "hurt" / "d" died, value]], "mobs": {"#type#id": type}, "world": [[tick,
+    "time" | "rain" | "thunder", value, rate]]}``. Worked out once, kept as ``<key>.exact3.json.gz``; with
+    *build* False, None when it hasn't been worked out yet."""
     import gzip
     cache_dir = cache_dir or default_cache_dir()
-    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact2.json.gz")
+    out = os.path.join(cache_dir, _cache_key(zip_path, players) + ".exact3.json.gz")
     try:
         with gzip.open(out, "rt", encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, ValueError, EOFError):
-        pass
+        if not build:
+            return None
     who: list = []
     dims: list = []
     rows = []
@@ -460,7 +563,8 @@ def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] |
             dims.append(dim)
         rows.append([tick, who.index(w), dims.index(dim), round(x, 3), round(y, 3), round(z, 3),
                      round(yaw, 1), round(pitch, 1), round(head if head is not None else yaw, 1)])
-    data = {"who": who, "dims": dims, "rows": rows, "events": extras.get("events", []), "mobs": extras.get("mobs", {})}
+    data = {"who": who, "dims": dims, "rows": rows, "events": extras.get("events", []), "mobs": extras.get("mobs", {}),
+            "world": extras.get("world", [])}
     os.makedirs(cache_dir, exist_ok=True)
     with gzip.open(out + ".part", "wt", encoding="utf-8") as fh:
         json.dump(data, fh, separators=(",", ":"))

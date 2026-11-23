@@ -230,7 +230,26 @@ sized and coloured by kind, a couple of times a second. Dropped items, arrows an
 aren't shown. The first time you watch a stretch, the status line says the recordings are being read in full;
 that can take up to a minute, and later views are quick.
 
-Not shown yet: sleeping, held items and armour, and the mobs' own textures and animations. The blocks are the
+What the recordings say about each player and mob is shown too:
+
+- **Sleeping:** lying on their back.
+- **Dying:** falling over sideways; mobs disappear after their death.
+- **Using an item:** the arm raised (eating, drawing a bow, holding up a shield).
+- **Hurt:** a short red flash.
+- **Burning:** an orange flicker.
+
+The pose comes from the game's own pose value when the recording has one, otherwise from the flags.
+
+**Time and weather from the recording.** With **Time and weather from the recording** ticked in **Light** (on
+at first), close-up playback takes the time of day from the recording. When someone sleeps through the night,
+the morning comes as it did in the game. Rain and thunder darken the sky as in the game, and rain falls around
+the camera. Untick it to set the time yourself.
+
+The first time a stretch is watched, its recordings are read in full in the background, three at a time. The
+viewer shows what's ready straight away and fills in the rest as it arrives; the status line says how many are
+still being read.
+
+Not shown yet: riding, held items and armour, and the mobs' own textures and animations. The blocks are the
 backup saved after that time, not the world at that very moment.
 
 **Show.** Open **Show** (under *Terrain*) to turn things on or off. Your choice is remembered:

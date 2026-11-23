@@ -1188,6 +1188,49 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_entity_data_time_weather(self):
+        """The entity-data walker (flags, pose, hand use, health), the two layouts of the time of day, weather,
+        hurt and death events."""
+        import struct
+        from mcsm import paths
+        # index 0 byte flags (sneaking), 1 varint air, 6 pose (serializer learned: 20 here) crouching, 8 hand use,
+        # 9 health 0, then something unknown (stops there)
+        body = (bytes([0]) + _vi(0) + bytes([2]) + bytes([1]) + _vi(1) + _vi(300) + bytes([6]) + _vi(20) + _vi(5)
+                + bytes([8]) + _vi(0) + bytes([1]) + bytes([9]) + _vi(3) + struct.pack(">f", 0.0)
+                + bytes([10]) + _vi(99) + b"junk" + b"\xff")
+        self.assertEqual(paths.entity_data(body, 0, len(body)), {0: 2, 6: 5, 8: 1, 9: 0.0})
+        old = struct.pack(">qq?", 1000, 18_000, True)                          # 1.21.x: game time, day time, ticking
+        self.assertEqual(paths._day_time(old, 0, len(old)), (18_000, 1.0))
+        new = struct.pack(">q", 1000) + _vi(2) + _vi(1) + _vi(5) + struct.pack(">ff", 0, 1) + _vi(0) + _vi(99_384_000) \
+            + struct.pack(">ff", 0, 1)                                         # 26.x: world clocks, the overworld's is 0
+        self.assertEqual(paths._day_time(new, 0, len(new)), (99_384_000, 1.0))
+        self.assertIsNone(paths._day_time(struct.pack(">q", 1000) + _vi(0), 0, 9))   # no clocks in this one
+        recs = [("create_local_player", struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 0.0, 64.0, 0.0) + b"\0" * 40)]
+        for t in range(30):
+            recs.append(("move_entities", _fb_move([(7, t / 20, 64.0, 0.0)])))
+            if t == 2:
+                recs.append(("game_packet", _vi(115) + new))                    # set time (26.3)
+                recs.append(("game_packet", _vi(39) + bytes([7]) + struct.pack(">f", 0.8)))   # rain level 0.8
+            if t == 5:
+                recs.append(("game_packet", _vi(25) + _vi(7) + _vi(1) + _vi(0) + _vi(0) + b"\0"))   # damage event
+                recs.append(("game_packet", _vi(101) + _vi(7) + bytes([6]) + _vi(20) + _vi(7) + b"\xff"))   # pose: dying
+                recs.append(("game_packet", _vi(34) + struct.pack(">i", 7) + bytes([3])))   # entity event 3: died
+            recs.append(("next_tick", b""))
+        tmp = tempfile.mkdtemp()
+        try:
+            z = os.path.join(tmp, "r.zip")
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3"}))
+                zf.writestr("c0.flashback", _fb_chunk(recs))
+            ex = paths.exact_rows(z, os.path.join(tmp, "cache"))
+            self.assertIn([2, "time", 99_384_000, 1.0], ex["world"])
+            self.assertIn([2, "rain", 0.8, 0], ex["world"])
+            self.assertIn([5, None, "hurt", 1], ex["events"])
+            self.assertIn([5, None, "p", 7], ex["events"])
+            self.assertIn([5, None, "d", 1], ex["events"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 class TestHistory(unittest.TestCase):
     """Player paths from Flashback recordings, and the history viewer's data and web server."""
@@ -1307,6 +1350,16 @@ class TestHistory(unittest.TestCase):
                 _time.sleep(0.05)
             p = get("api/paths")
             self.assertGreater(len(p["players"]["Steve"]), 50)
+            # exact playback of a stretch: every recorded movement, with the events and world state keys
+            rec = next(r for r in self.data.replays if "2024-05-03--20-30-00" in r.path)
+            t0 = int(rec.start.timestamp() * 1000)
+            for _ in range(200):                                                 # read in the background first
+                ex = get(f"api/exact/{t0}/{t0 + 30_000}")
+                if not ex["pending"]:
+                    break
+                _time.sleep(0.05)
+            self.assertGreater(len(ex["players"]["Steve"]), 500)               # 20 a second (he walks each tick)
+            self.assertEqual(set(ex) >= {"players", "events", "world", "mobs"}, True)
             page = urllib.request.urlopen(url, timeout=10).read().decode()
             self.assertIn("api/history", page)
         finally:

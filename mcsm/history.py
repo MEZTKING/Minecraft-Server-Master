@@ -182,6 +182,9 @@ class HistoryMap(TerrainServer):
         self.data, self.replay_file = data, replay_file
         self._metas, self._offsets, self._loaded_off = {}, {}, {}
         self._exact_lock = threading.Lock()
+        self._exact_jobs: set[str] = set()
+        self._exact_slots = threading.Semaphore(3)
+        self._exact_mem: dict[str, dict] = {}
         self._skins, self._skin_lock = None, threading.Lock()
         if not highlights_file and data.library_world:      # a library world keeps its own highlights
             highlights_file = os.path.join(data.library_world, "highlights.json")
@@ -504,9 +507,11 @@ class HistoryMap(TerrainServer):
         ignored = set(self.data.ignored or [])
         own: dict[str, list] = {}
         seen: dict[str, list] = {}
+        pending = 0
         mobs: dict[str, dict] = {}
-        flags: dict[str, list] = {}
-        swings: dict[str, list] = {}
+        events: dict[str, dict[str, dict]] = {}       # name -> kind -> {t: value} (de-duplicated across recordings)
+        world: dict[str, dict] = {}                   # time / rain / thunder -> {t: [value, rate]}
+        before: dict[str, tuple] = {}                 # the world's last state before t0
         for r in self.data.replays:
             if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note"):
                 continue
@@ -516,8 +521,15 @@ class HistoryMap(TerrainServer):
             try:
                 zp = self.replay_file(r)
                 track = os.path.join(self.cache_dir or paths_mod.default_cache_dir(), paths_mod._cache_key(zp, players) + ".jsonl")
-                with self._exact_lock:
-                    data = paths_mod.exact_rows(zp, self.cache_dir, players)
+                data = self._exact_mem.get(zp) or paths_mod.exact_rows(zp, self.cache_dir, players, build=False)
+                if data is not None:                   # keep the last dozen in memory (a slider moves a lot)
+                    self._exact_mem[zp] = self._exact_mem.pop(zp, data)
+                    while len(self._exact_mem) > 12:
+                        self._exact_mem.pop(next(iter(self._exact_mem)))
+                if data is None:                       # not read in full yet: in the background, a few at a time
+                    pending += 1
+                    self._exact_build(zp, players)
+                    continue
             except (OSError, ValueError, zipfile.BadZipFile, struct.error, IndexError):
                 continue
             off = self._offsets.get(track)
@@ -527,12 +539,17 @@ class HistoryMap(TerrainServer):
                 return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
             for tick, w, kind, value in data.get("events", []):
                 t = when(tick)
-                if t0 - 60_000 <= t <= t1:                # flags: from a minute before, to know the state at t0
-                    name = aliases.get(w or r.recorded_player, w or r.recorded_player)
-                    if kind == "f":
-                        flags.setdefault(name, []).append([t, value])
-                    elif t >= t0:
-                        swings.setdefault(name, []).append(t)
+                # states (flags, pose, hand use) from a minute before, to know them at t0; moments (swing, hurt, death)
+                if (t0 - 60_000 if kind in ("f", "p", "h") else t0) <= t <= t1:
+                    name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
+                    events.setdefault(name, {}).setdefault(kind, {})[t] = value
+            for tick, kind, value, rate in data.get("world", []):
+                t = when(tick)
+                if t < t0:
+                    if kind not in before or before[kind][0] < t:
+                        before[kind] = (t, value, rate)
+                elif t <= t1:
+                    world.setdefault(kind, {})[t] = [value, rate]
             for row in data["rows"]:
                 tick = row[0]
                 t = when(tick)
@@ -563,9 +580,29 @@ class HistoryMap(TerrainServer):
                         keep.append(p)
                 others = keep
             out[name] = sorted(mine + others)
-        return {"players": out, "from": t0, "to": t1,
-                "flags": {n: sorted(v) for n, v in flags.items()}, "swings": {n: sorted(set(v)) for n, v in swings.items()},
+        return {"players": out, "from": t0, "to": t1, "pending": pending,
+                "events": {n: {k: sorted([t, v] for t, v in d.items()) for k, d in kinds.items()} for n, kinds in events.items()},
+                "world": {k: sorted(([list(before[k])] if k in before else [])        # the state just before, then changes
+                                    + [[t, v[0], v[1]] for t, v in world.get(k, {}).items()])
+                          for k in set(world) | set(before)},
                 "mobs": {k: {"type": v["type"], "rows": [v["rows"][t] for t in sorted(v["rows"])]} for k, v in mobs.items()}}
+
+    def _exact_build(self, zp: str, players) -> None:
+        """Read a recording in full for exact playback in the background (three at a time; each once)."""
+        with self._exact_lock:
+            if zp in self._exact_jobs:
+                return
+            self._exact_jobs.add(zp)
+
+        def work():
+            with self._exact_slots:
+                try:
+                    paths_mod.exact_rows(zp, self.cache_dir, players)
+                except (OSError, ValueError, zipfile.BadZipFile, struct.error, IndexError):
+                    pass
+            with self._exact_lock:
+                self._exact_jobs.discard(zp)
+        threading.Thread(target=work, daemon=True).start()
 
     def skin_timeline(self) -> dict:
         """``{name: [[start_ms, hash, slim], ...]}``: each player's skin from their recordings (worked out once)."""

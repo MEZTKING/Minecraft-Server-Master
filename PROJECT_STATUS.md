@@ -834,14 +834,23 @@ Owner: "i assume you should finish the parity for the viewer first, im not sure 
 
 Fable's order, most visible per effort first:
 
-1. **Entity data.** A generic entity-data reader (skip by serializer, learn serializer ids from the recording:
-   the one at index 6 is Pose, etc.). Then:
+1. ✅ **Entity data.** Built 2026-11-23 (owner: "Parity, Fable's order").
+   - `paths.entity_data` walks entries by index, with the stable low serializer ids (byte, varint, varlong,
+     float, bool, optional block pos); index 6 is always the pose.
+   - From the owner's 24 May recording: 169 mob deaths, 597 hurts, 96 player pose changes and 690 hand uses.
+
+   Fable's original plan for this step: a generic entity-data reader (skip by serializer, learn serializer ids
+   from the recording: the one at index 6 is Pose, etc.). Then:
    - pose: sleeping, dying;
    - hand use: eating, bow, shield;
    - hurt flash (`hurt_animation` / `damage_event`) and death fall-over (`entity_event` 3);
    - flags and pose for mobs too.
-2. **Time and weather from the recording.** dayTime is the second i64 of `set_time`; check it on 26.1+.
-   Rain and thunder come from `game_event`; they would drive the Light panel.
+2. ✅ **Time and weather from the recording.** Built 2026-11-23.
+   - 1.21.x: dayTime is the second i64 of `set_time`.
+   - 26.1+: the packet carries a list of world clocks. Clock 0 is the overworld (VarInt id, VarLong ticks, f32
+     partial, f32 rate); it jumps to a whole day when someone sleeps.
+   - Rain and thunder come from `game_event` 1, 2, 7 and 8. Thunder counts as rain.
+   - On 24 May the owner's recordings show a midday thunderstorm around 21:18 real time.
 3. **Riding.** `set_passengers` and a sitting pose; boats and minecarts.
 4. **Held items and armour.** `set_equipment`, with item-stack component skippers; items and component types
    from the reports.
@@ -1238,6 +1247,14 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Viewer parity, steps 1 and 2 (Fable's plan).
+  - Pose, hand use, hurt, death and burning for players and mobs.
+  - The recording's time of day (both formats) and weather drive the light, with rain around the camera.
+  - New packet ids in `protocols.json`: hurt_animation, damage_event, game_event.
+  - The `exact3` cache.
+  - Recordings for exact playback are read in the background (three at a time); the API returns `pending` and
+    keeps the last 12 in memory.
 
 - **2026-11-23:** History viewer, after the owner's test at spawn on 24 May.
   - New: Show panel, free camera, spectate (first person / behind), dev mode (`/api/blockat`, view links).
