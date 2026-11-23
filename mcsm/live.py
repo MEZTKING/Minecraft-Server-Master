@@ -640,7 +640,7 @@ def _make_handler(live: LiveMap):
                      ".webm": "video/webm", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                      ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".mp3": "audio/mpeg",
                      ".ogg": "audio/ogg", ".wav": "audio/wav", ".flac": "audio/flac", ".opus": "audio/ogg",
-                     ".m4a": "audio/mp4", ".aac": "audio/aac"}.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+                     ".m4a": "audio/mp4", ".aac": "audio/aac", ".html": "text/html; charset=utf-8"}.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
             start, end, code = 0, size - 1, 200
             rng = self.headers.get("Range", "")
             if rng.startswith("bytes="):

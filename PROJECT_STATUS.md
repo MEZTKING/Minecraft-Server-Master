@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1061,8 +1061,18 @@ Each player:
 - A path heatmap over the map is a cheap later addition.
 
 **Build order.**
-1. `review.py` and the JSON; server cards 1, 2, 3, 6, 7, 8; player cards 1 to 8; live pages; boundary
-   labels. Logs, statistics and advancements only: no recordings.
+1. ✅ `review.py` and the JSON; server cards 1, 2, 3, 6, 7, 8; player cards 1 to 8; live pages; boundary
+   labels. Logs, statistics and advancements only: no recordings. **Built 2026-11-23** (owner: "Yes, build v1"
+   with the suggested defaults).
+   - `mcsm/review.py` `build()` makes the cards' JSON.
+   - Each backup's snapshot in `player_history` now keeps the statistic groups (custom travel and counts,
+     mined, used, killed, killed_by); `loadcache.CACHE_VERSION` is 3.
+   - Placed = `used` of items that are blocks (the newest protocol table's block list).
+   - Sessions with no end stop at the next server start or the last log line.
+   - Pages: `/review[/<year>[/<player>]]` (`review.html`) and `/api/review/<year>` or `<from>_<to>`.
+     There's a **Year in review** button in the viewer.
+   - Checked on the library: 2026 has 7 players, 1,022 h, 186 days and 276 deaths. D_HumanCrafter's hours
+     from the logs (481.2) match the game's own play time (481.2).
 2. Share pictures (canvas) and the filtered export.
 3. Moments, before/after maps, builds, played-with.
 4. Heatmaps from recordings; a video version.
@@ -1443,6 +1453,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Year in review v1: the server's year and each player's as cards (`mcsm/review.py`,
+  `/review`), statistics compared between backups, a **Year in review** button in the history viewer.
 
 - **2026-11-23:** Year-in-review design written (backlog 0w, reviewed with Fable): cards, boundaries,
   privacy, build order and open questions.

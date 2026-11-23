@@ -293,6 +293,34 @@ recording had the chunks loaded, the backup's blocks stay. Building a piece take
 a recording is used, a little longer while the app notes where its chunks are kept). Light where a block was
 changed is estimated from around it, as Flashback keeps no light updates.
 
+**Year in review.** The **Year in review** button (top left) opens the server's year as cards in a new tab
+(the address is `/review/<year>`):
+- the year in numbers;
+- players and hours by month;
+- when the server was busiest (a weekday x hour heatmap, and the busiest day);
+- how everyone died (the top causes and the oddest one);
+- records: longest session, furthest travelled, most blocks mined and placed, most mobs killed;
+- the rarest advancements and who got them first;
+- a list of everyone who played.
+
+Each name opens that player's year (`/review/<year>/<name>`):
+- hours, days and rank;
+- hours by month, and their favourite hour and day;
+- firsts: first time online, first advancement, first death;
+- how far they travelled and how (walking, flying, by boat, on horses...);
+- blocks mined and placed, with their top three;
+- mobs killed and what killed them;
+- deaths: how many, the most common cause, the worst day;
+- advancements earned, and the rarest.
+
+Pick another year at the top. Where the numbers come from:
+- **Hours, days, deaths and chat** come from the server logs, so days with no log are missing (a player's card
+  says so when the game's own play time disagrees).
+- **Travel, blocks and mobs** come from Minecraft's statistics in the backups: the newest backup before the
+  year minus the newest at its end. The card says which backups it spans.
+- **Times** are in this PC's time zone, with summer time.
+- **Ignored players** are left out. Renamed players count once, under their current name.
+
 **Shot for Flashback.** Plan a camera shot here and let Flashback film it at full game quality:
 
 1. Put the camera where you want it (**Free cam**, **Spectate**, or orbiting) at the right moment, and press

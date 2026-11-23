@@ -5233,6 +5233,66 @@ def _chunk_packet(cx: int, cz: int, ids: dict, two_counts: bool = True, mask_byt
     return p
 
 
+class TestReview(unittest.TestCase):
+    """The year in review: hours from sessions, statistics between backups, deaths, advancements."""
+
+    def test_build(self):
+        from datetime import datetime, timezone
+        from mcsm import models as m, review
+        U = timezone.utc
+        d = m.ServerData(root=".")
+        d.world = {"level_name": "Test"}
+        alex = m.PlayerProfile(uuid="00000000-0000-4000-8000-000000000001", name="Alex", names_seen=["Alex", "OldAlex"])
+        alex.advancements = {"minecraft:story/mine_stone": {"done": True, "completed": "2026-03-01T10:00:00Z"},
+                             "minecraft:nether/distract_piglin": {"done": True, "completed": "2026-04-02T10:00:00Z"},
+                             "minecraft:story/root": {"done": True, "completed": "2025-12-01T10:00:00Z"}}
+        steve = m.PlayerProfile(uuid="00000000-0000-4000-8000-000000000002", name="Steve", names_seen=["Steve"])
+        steve.advancements = {"minecraft:story/mine_stone": {"done": True, "completed": "2026-02-01T10:00:00Z"}}
+        d.players = {"alex": alex, "steve": steve}
+        d.sessions = [m.Session("OldAlex", datetime(2025, 12, 30, 20, tzinfo=U), datetime(2025, 12, 30, 21, tzinfo=U)),
+                      m.Session("Alex", datetime(2026, 3, 1, 20, tzinfo=U), datetime(2026, 3, 1, 23, tzinfo=U)),
+                      m.Session("Steve", datetime(2026, 3, 1, 21, tzinfo=U), datetime(2026, 3, 1, 22, tzinfo=U)),
+                      m.Session("Steve", datetime(2026, 12, 31, 23, 30, tzinfo=U), datetime(2027, 1, 1, 0, 30, tzinfo=U))]
+        d.events = [m.Event(datetime(2026, 3, 1, 22, tzinfo=U), m.EV_DEATH, "OldAlex", "OldAlex was shot by Skeleton"),
+                    m.Event(datetime(2026, 3, 1, 22, 5, tzinfo=U), m.EV_DEATH, "Alex", "Alex was shot by Skeleton"),
+                    m.Event(datetime(2026, 3, 1, 22, 6, tzinfo=U), m.EV_CHAT, "Steve", "hi")]
+
+        def snap(t, walk, dirt, zombies, play):
+            return {"backup": t.date().isoformat(), "time": t,
+                    "stats": {"custom": {"walk_one_cm": walk, "fall_one_cm": 999_999_999, "play_time": play},
+                              "mined": {"minecraft:stone": dirt}, "used": {"minecraft:dirt": dirt, "minecraft:diamond_pickaxe": 5},
+                              "killed": {"minecraft:zombie": zombies}, "killed_by": {}}}
+        d.player_history = {"Alex": [snap(datetime(2025, 12, 31, tzinfo=U), 100_000, 10, 1, 0),
+                                     snap(datetime(2026, 6, 1, tzinfo=U), 600_000, 110, 4, 3 * 3600 * 20)],
+                            "Steve": [snap(datetime(2026, 6, 1, tzinfo=U), 200_000, 50, 0, 3600 * 20)]}
+        a, b = review.year_range(2026, U)
+        r = review.build(d, a, b, U)
+        self.assertEqual(r["order"], ["Alex", "Steve"])                   # OldAlex counts as Alex; 2025 left out
+        A, S = r["players"]["Alex"], r["players"]["Steve"]
+        self.assertEqual((A["headline"]["hours"], A["headline"]["days"], A["headline"]["rank"]), (3.0, 1, 1))
+        self.assertEqual(S["headline"]["hours"], 1.5)                       # cut at the year's end
+        self.assertEqual(A["travel"]["km"], 5.0)                            # walked 500,000 cm; falling isn't travel
+        self.assertEqual(A["blocks"]["placed_top"], [["dirt", 100]])        # a pickaxe isn't a block
+        self.assertEqual(A["mobs"]["top"], [["zombie", 3]])
+        self.assertEqual(A["deaths"]["count"], 2)
+        self.assertEqual(A["deaths"]["top_cause"], [("shot by Skeleton", 2)])
+        self.assertEqual(A["firsts"]["death"]["text"], "shot by Skeleton")
+        self.assertFalse(A["firsts"]["new_this_year"])
+        self.assertEqual(A["advancements"]["count"], 2)                    # the 2025 one isn't this year's
+        self.assertEqual(A["advancements"]["rarest"]["name"], "distract piglin")
+        self.assertFalse(A["stats_span"]["partial"])
+        self.assertTrue(S["firsts"]["new_this_year"])
+        self.assertTrue(S["stats_span"]["available"])                      # new this year: from zero
+        s = r["server"]
+        self.assertEqual(s["numbers"]["players"], 2)
+        self.assertEqual(s["numbers"]["chat_lines"], 1)
+        self.assertEqual(s["records"]["longest_session"]["player"], "Alex")
+        self.assertEqual(s["advancements"]["rarest"][0]["first"], "Alex")
+        self.assertEqual(len(s["months"]), 12)
+        self.assertEqual(r["uuids"]["Alex"], alex.uuid)
+        self.assertEqual(review.death_cause("Bob was slain by Zombie using [Sword]", "Bob"), "slain by Zombie")
+
+
 class TestMoment(unittest.TestCase):
     """Blocks as they were at a moment: chunk packets, block changes and the world from several recordings."""
 

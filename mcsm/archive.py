@@ -258,6 +258,10 @@ def merge(parts: list[tuple[str, str, str, m.ServerData]], tz=None, samples=None
                     "used": sum(prof.stats.get("used", {}).values()),
                     "used_by_item": dict(sorted(prof.stats.get("used", {}).items(), key=lambda kv: -kv[1])[:12]),
                     "advancements": sum(1 for a in prof.advancements.values() if a.get("done")),
+                    # the year in review (mcsm.review): the statistics it compares between backups
+                    "stats": {cat: dict(prof.stats.get(cat) or {}) for cat in ("mined", "used", "killed", "killed_by")}
+                    | {"custom": {k: v for k, v in c.items() if k.endswith("_one_cm") or k in (
+                        "play_time", "play_one_minute", "deaths", "mob_kills", "player_kills", "jump")}},
                     # for celebrations and sad moments between backups (mcsm.moments)
                     "dragons": prof.stats.get("killed", {}).get("ender_dragon", 0),
                     "withers": prof.stats.get("killed", {}).get("wither", 0),

@@ -409,6 +409,8 @@ class HistoryMap(TerrainServer):
             return self.exact(a, b)
         if path == "/api/prepare":
             return self._prep_view()
+        if path == "/api/review" or path.startswith("/api/review/"):   # the year in review: /api/review[/<year>]
+            return self.review(path[len("/api/review/"):] if path.startswith("/api/review/") else "")
         if path == "/api/mobmodels":                  # mob models read from the newest readable Minecraft jar here
             from . import mobmodels
             m = mobmodels.cached_models()
@@ -640,6 +642,33 @@ class HistoryMap(TerrainServer):
                                     + [[t, v[0], v[1]] for t, v in world.get(k, {}).items()])
                           for k in set(world) | set(before)},
                 "mobs": {k: {"type": v["type"], "rows": [v["rows"][t] for t in sorted(v["rows"])]} for k, v in mobs.items()}}
+
+    # ---- the year in review (mcsm.review) ----
+    def review(self, which: str) -> dict:
+        """``which``: a year (default: the year of the newest data), or ``<from>_<to>`` (YYYY-MM-DD, local).
+        Also lists the years there is data for."""
+        from datetime import datetime as dt, timedelta
+        from . import review as rv
+        tz, _name = rv.local_tz()
+        times = [s.start for s in self.data.sessions if s.start]
+        years = sorted({t.astimezone(tz).year for t in times}) or [dt.now().year]
+        try:
+            if "_" in which:
+                a, b = which.split("_")
+                start = dt.fromisoformat(a).astimezone() if tz is None else dt.fromisoformat(a).replace(tzinfo=tz)
+                end = (dt.fromisoformat(b) + timedelta(days=1))
+                end = end.astimezone() if tz is None else end.replace(tzinfo=tz)
+                key = which
+            else:
+                year = int(which) if which else years[-1]
+                start, end = rv.year_range(year, tz)
+                key = str(year)
+        except ValueError:
+            return {"error": f"not a year or range: {which}"}
+        cache = self.__dict__.setdefault("_reviews", {})
+        if key not in cache:
+            cache[key] = rv.build(self.data, start.astimezone(rv.timezone.utc), end.astimezone(rv.timezone.utc), tz)
+        return {**cache[key], "years": years, "key": key}
 
     # ---- blocks as they were at a moment (from the recordings' chunk data; see mcsm.moment) ----
     def recordings_at(self, t: int) -> list[dict]:
@@ -950,7 +979,10 @@ class HistoryMap(TerrainServer):
 
     def file_for(self, path: str) -> str | None:
         """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png;
-        and the real blocks close up: /blocktile/<layer>/<key>.bin, /blocktex/<name>.png."""
+        and the real blocks close up: /blocktile/<layer>/<key>.bin, /blocktex/<name>.png; the year in review's
+        page: /review, /review/<year>, /review/<year>/<player>."""
+        if path == "/review" or path.startswith("/review/"):
+            return os.path.join(os.path.dirname(__file__), "assets", "web", "review.html")
         if path.startswith("/blocktile/") and path.endswith(".bin"):
             try:
                 layer, key = path[len("/blocktile/"):-4].split("/")
