@@ -120,3 +120,116 @@ def open_ledger(path: str | None) -> Ledger | None:
         except (sqlite3.Error, OSError, ValueError):
             _OPEN[path] = None
     return _OPEN[path]
+
+
+# ---------------------------------------------------------------- who built what
+BUILD_LIMITS = {
+    "gap_ms": 10 * 60_000,         # placements further apart than this end a build
+    "reach": 32,                   # a placement belongs to the build if this close to its area so far ...
+    "max_size": 192,               # ... and the area stays at most this wide
+    "min_placed": 200,             # blocks placed for it to count as a build
+    "min_minutes": 10,             # minutes with placements
+    "mapart_size": 64,             # map art: at least this wide ...
+    "mapart_flat": 0.7,            # ... with this share of the blocks within 3 heights of each other
+}
+
+
+# replanting a farm, saplings and buckets of water aren't building
+FARMED = {"wheat", "carrots", "potatoes", "beetroots", "nether_wart", "sugar_cane", "cocoa", "kelp", "kelp_plant",
+          "sweet_berry_bush", "pumpkin_stem", "melon_stem", "torchflower_crop", "pitcher_crop", "bamboo", "cactus",
+          "water", "lava", "seagrass", "fire", "farmland", "cave_vines", "twisting_vines", "weeping_vines",
+          "powder_snow"}
+
+
+def _built(identifier: str) -> bool:
+    n = identifier.split(":")[-1]
+    return n not in FARMED and not n.endswith(("_sapling", "_propagule")) and n != "mangrove_propagule"
+
+
+def find_builds(lg: Ledger, limits: dict | None = None, cache_file: str | None = None) -> list[dict]:
+    """Every player's builds from the blocks they placed: ``{player, kind ("building"/"map_art"), start, end,
+    minutes, active_minutes, dim, centre [x, y, z], area [x0, z0, x1, z1], y_range, y_usual, km, placed, broken,
+    top [[block, n], ...], clip, source "ledger"}``, oldest first. Kept in *cache_file* (made again when the
+    database changes)."""
+    import json
+    L = {**BUILD_LIMITS, **(limits or {})}
+    stamp = None
+    if cache_file:
+        st = os.stat(lg.path)
+        stamp = [st.st_size, int(st.st_mtime), sorted(L.items())]
+        try:
+            with open(cache_file, encoding="utf-8") as fh:
+                d = json.load(fh)
+            if d.get("stamp") == json.loads(json.dumps(stamp)):
+                return d["builds"]
+        except (OSError, ValueError, KeyError):
+            pass
+    place, brk = lg.actions.get("block-place"), lg.actions.get("block-break")
+    names = dict(lg._con().execute("select id, player_name from players"))
+    worlds = {i: n for n, i in lg.worlds.items()}
+    rows = lg._con().execute(
+        "select player_id, world_id, time, x, y, z, action_id, object_id from actions "
+        "where player_id is not null and rolled_back = 0 and action_id in (?, ?) order by player_id, world_id, time",
+        (place, brk))
+    out: list[dict] = []
+    run: list[tuple] = []
+    box = [0, 0, 0, 0]
+    key = None
+
+    def close():
+        placed = [r for r in run if r[3] == place and _built(lg.objects.get(r[5], ""))]
+        if len(placed) < L["min_placed"]:
+            return
+        minutes = {r[0] // 60_000 for r in placed}
+        if len(minutes) < L["min_minutes"]:
+            return
+        xs, ys, zs = sorted(r[1] for r in placed), sorted(r[2] for r in placed), sorted(r[4] for r in placed)
+        cut = lambda v, q: v[min(len(v) - 1, int(q * len(v)))]
+        area = [cut(xs, 0.02), cut(zs, 0.02), cut(xs, 0.98), cut(zs, 0.98)]
+        y_mid = cut(ys, 0.5)
+        flat = sum(1 for y in ys if abs(y - y_mid) <= 1) / len(ys)
+        kind = "map_art" if min(area[2] - area[0], area[3] - area[1]) >= L["mapart_size"] and flat >= L["mapart_flat"] \
+            else "building"
+        top = {}
+        for r in placed:
+            top[r[5]] = top.get(r[5], 0) + 1
+        start, end = run[0][0], run[-1][0] + 1000
+        out.append({"player": names.get(key[0], "?"), "kind": kind, "start": start, "end": end,
+                    "minutes": round((end - start) / 60_000), "active_minutes": len(minutes),
+                    "dim": worlds.get(key[1], "minecraft:overworld"),
+                    "centre": [round(sum(xs) / len(xs), 1), y_mid, round(sum(zs) / len(zs), 1)],
+                    "area": area, "y_range": [ys[0], ys[-1]], "y_usual": [cut(ys, 0.1), cut(ys, 0.9)], "km": 0,
+                    "placed": len(placed), "broken": len(run) - len(placed),
+                    "top": [[lg.objects.get(o, "?").split(":")[-1], n] for o, n in
+                            sorted(top.items(), key=lambda kv: -kv[1])[:3]],
+                    "clip": [max(start, end - 3 * 60_000), end], "source": "ledger"})
+
+    reach, size = L["reach"], L["max_size"]
+    for pid, wid, t, x, y, z, aid, obj in rows:
+        ms = _ms(t)
+        if key != (pid, wid) or not run or ms - run[-1][0] > L["gap_ms"]:
+            if run:
+                close()
+            run, key, box = [], (pid, wid), [x, z, x, z]
+        inside = (box[0] - reach <= x <= box[2] + reach and box[1] - reach <= z <= box[3] + reach
+                  and max(box[2], x) - min(box[0], x) <= size and max(box[3], z) - min(box[1], z) <= size)
+        if not inside:
+            if aid != place or not _built(lg.objects.get(obj, "")):   # mining or farming elsewhere: not part of it
+                continue
+            close()
+            run, box = [], [x, z, x, z]
+        run.append((ms, x, y, aid, z, obj))
+        if aid == place and _built(lg.objects.get(obj, "")):
+            box = [min(box[0], x), min(box[1], z), max(box[2], x), max(box[3], z)]
+    if run:
+        close()
+    out.sort(key=lambda b: b["start"])
+    if cache_file:
+        try:
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file + ".part", "w", encoding="utf-8") as fh:
+                json.dump({"stamp": stamp, "builds": out}, fh, separators=(",", ":"))
+            os.replace(cache_file + ".part", cache_file)
+        except OSError:
+            pass
+    return out

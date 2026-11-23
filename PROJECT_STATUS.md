@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-23 (who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -824,6 +824,21 @@ logs end.
 - Checked: Vakirath's ship at 3,886, 266 on 7 November 21:00 UTC (no recording near), with 2,806 blocks set
   back. Only the bottom of the hull shows, against the finished ship in the 20 November backup.
 
+✅ **Use 2 built 2026-11-23** (owner: "Yes, who built what").
+- `ledger.find_builds()` takes each player's block-place/break rows (in order, per world).
+  - A build grows while placements stay within 32 blocks of its area (at most 192 wide) and less than
+    10 minutes apart; 200 or more placed blocks over 10 or more minutes counts.
+  - Map art: 64 or more wide, with 70% of the blocks within 3 heights.
+  - Not building: crops, saplings, fluids, fire (`FARMED`).
+  - About 4 s for 1.4 M rows; kept in `ledger/builds.json`.
+- `moments.find_moments(builds=...)` replaces the movement-guessed building/map art with these (exact
+  players, "placed N blocks (mostly ...)"). Timelapse orders follow moments.
+- `review.projects()` groups builds by place into projects (overlapping areas, any players, any days).
+  Server card **Biggest builds**; player card **Builds** (blocks in builds, their projects, with whom).
+- On the owner's server: 166 builds by 8 players; 164 building moments. The biggest project is Vakirath's base
+  at 4,732, 341 (23,005 blocks in 37 sessions, February–November). The top moment is D_HumanCrafter and
+  Estproguy building at 1,270, -1,826.
+
 ### 0ze. One combined recording of everyone (raised 2026-11-23)
 
 **The ask:** "is it not possible to just combine all the recordings as one and play that".
@@ -1447,6 +1462,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Who built what (Ledger)**: the moments list's building moments now name exact builders and blocks; the
+  year in review has **Biggest builds** and a **Builds** card per player. Do they match what you remember?
 - **Blocks at any moment (Ledger)**: drag the time slider back to any day since 14 November 2025 and zoom in on a
   build; it should look as it was then (e.g. Vakirath's ship at 3886, 266 on 7 November 2026, 21:00 UTC: only
   the bottom of the hull).
@@ -1552,6 +1569,9 @@ Things built and checked here that need a look in the real game or by eye (newes
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-23:** Who built what, from the Ledger log: builds per player (`ledger.find_builds`), building moments
+  with exact builders and blocks, year-in-review **Biggest builds** and **Builds** cards.
 
 - **2026-11-23:** Blocks at any moment from the server's Ledger log (`mcsm/ledger.py`): the backup with the
   logged changes undone or replayed, wherever no recording had the chunks; live changes include Ledger's.

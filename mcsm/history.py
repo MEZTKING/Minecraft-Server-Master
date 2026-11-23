@@ -671,7 +671,8 @@ class HistoryMap(TerrainServer):
             return {"error": f"not a year or range: {which}"}
         cache = self.__dict__.setdefault("_reviews", {})
         if key not in cache:
-            cache[key] = rv.build(self.data, start.astimezone(rv.timezone.utc), end.astimezone(rv.timezone.utc), tz)
+            cache[key] = rv.build(self.data, start.astimezone(rv.timezone.utc), end.astimezone(rv.timezone.utc), tz,
+                                  builds=self.builds())
         return {**cache[key], "years": years, "key": key}
 
     # ---- blocks as they were at a moment (from the recordings' chunk data; see mcsm.moment) ----
@@ -732,6 +733,20 @@ class HistoryMap(TerrainServer):
         """The Ledger mod's block log of the newest backup (mcsm.ledger), or None."""
         from . import ledger as ledger_mod
         return ledger_mod.open_ledger(ledger_mod.find(self.root, self.world))
+
+    def builds(self) -> list | None:
+        """Every build from the Ledger log (mcsm.ledger.find_builds), worked out once and kept; None without it."""
+        from . import ledger as ledger_mod
+        lg = self.ledger()
+        if lg is None:
+            return None
+        if getattr(self, "_builds", None) is None:
+            cache = os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "ledger", "builds.json")
+            try:
+                self._builds = ledger_mod.find_builds(lg, cache_file=cache)
+            except Exception:                              # noqa: BLE001 -- builds are an extra
+                self._builds = []
+        return self._builds
 
     def layer_time(self, layer: int) -> int | None:
         """When terrain layer *layer*'s backup was saved (ms)."""
@@ -1137,7 +1152,8 @@ class HistoryMap(TerrainServer):
                 try:
                     self.paths()                          # brings self._tracks up to date
                     _n, tracks = getattr(self, "_tracks", (0, {}))
-                    found = mo.find_moments(self.data, tracks=tracks or None) if tracks else None
+                    builds = self.builds()                # exact builders, when the server has a Ledger log
+                    found = mo.find_moments(self.data, tracks=tracks or None, builds=builds)                         if tracks or builds else None
                     with self._lock:
                         if found is not None:
                             self._moments = found

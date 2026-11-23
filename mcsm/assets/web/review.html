@@ -115,6 +115,11 @@ function serverCards() {
   if (rec.most_placed) rr.push(["Most blocks placed", `${rec.most_placed.player}, ${num(rec.most_placed.value)}`]);
   if (rec.most_mobs) rr.push(["Most mobs killed", `${rec.most_mobs.player}, ${num(rec.most_mobs.value)}`]);
   out.push({ title: "Records", rows: rr, foot: "Travel, mining, placing and mobs come from the backups' statistics." });
+  const B = S.builds;
+  if (B && B.available) out.push({ title: "Biggest builds", rows: B.projects.slice(0, 5).map(p => [
+      `${Object.keys(p.players).slice(0, 2).join(" & ")}${Object.keys(p.players).length > 2 ? " & others" : ""}: ${p.top.map(t => t[0]).slice(0, 2).join(", ")}`,
+      `${num(p.placed)} blocks · ${p.centre[0]}, ${p.centre[1]}`]),
+    foot: `${num(B.count)} building sessions this year, from the server's Ledger log (blocks placed, by whom).` });
   out.push({ title: "Rarest advancements", rows: S.advancements.rarest.map(a => [a.name,
     `${a.first}, ${day(a.date)}${a.holders === 1 ? " · the only one" : ` · ${a.holders} have it`}`]),
     foot: `${num(S.advancements.total)} advancements earned this year.` });
@@ -140,6 +145,11 @@ function playerCards(name) {
     rows: P.travel.by.slice(0, 6).map(([k, v]) => [k, `${num(v, 1)} km`]) } : { lines: ["No statistics for this year."] }), ...span(st) });
   out.push({ title: "Blocks", bigs: [[num(P.blocks.mined), "", "mined"], [num(P.blocks.placed), "", "placed"]],
     rows: [...P.blocks.mined_top.map(([k, v]) => [`mined ${k}`, num(v)]), ...P.blocks.placed_top.map(([k, v]) => [`placed ${k}`, num(v)])], ...span(st) });
+  const PB = P.builds;
+  if (PB && PB.available) out.push({ title: "Builds", bigs: [[num(PB.placed), "", "blocks placed in builds"]],
+    rows: PB.projects.map(p => [`${p.top.map(t => t[0]).slice(0, 2).join(", ")} at ${p.centre[0]}, ${p.centre[1]}`
+      + (p.with.length ? ` (with ${p.with.join(", ")})` : ""), `${num(p.placed)} · ${day(p.first)}${p.last !== p.first ? "–" + day(p.last) : ""}`]),
+    foot: "From the server's Ledger log: the blocks they placed, grouped by place." });
   out.push({ title: "Mobs", bigs: [[num(P.mobs.killed), "", "killed"]],
     rows: [...P.mobs.top.map(([k, v]) => [k, num(v)]), ...P.mobs.killed_by.map(([k, v]) => [`killed by ${k}`, `${num(v)}×`])], ...span(st) });
   const d = P.deaths;

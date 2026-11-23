@@ -75,11 +75,14 @@ class _Spans:
         return [x[2] for x in self.items[lo:hi] if x[1] >= start]
 
 
-def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict | None = None) -> list[dict]:
+def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict | None = None,
+                 builds: list | None = None) -> list[dict]:
     """The moments of *data*, best first: ``{id, start, end (ms, padded), score, title, kinds {kind: n},
     players, events [{t, kind, player, text, points}], online, recordings [{path, player}], why [text]}``.
     With *tracks* (players' positions from the recordings, see :mod:`mcsm.activity`) long stretches of
-    building, map art and exploring are moments too (``mode``, ``area``, ``clip``: the best 3 minutes)."""
+    building, map art and exploring are moments too (``mode``, ``area``, ``clip``: the best 3 minutes). With
+    *builds* (from the server's Ledger log, :func:`mcsm.ledger.find_builds`: who placed which blocks, exactly)
+    those replace the building and map art guessed from movement."""
     w = {**WEIGHTS, **(weights or {})}
     names = {n.lower(): p.name for p in data.players.values() for n in p.names_seen + [p.name]}
     canon = lambda n: names.get((n or "").lower(), n)           # noqa: E731
@@ -188,19 +191,23 @@ def find_moments(data: m.ServerData, weights: dict | None = None, tracks: dict |
                     "online": online, "recordings": [{"path": r.path, "player": r.recorded_player,
                                                       "mc": r.mc_version} for r in recs],
                     "mc": _version(recs), "why": why})
-    if tracks:
-        out += _work_moments(data, tracks, w, sessions, replays, canon)
+    if tracks or builds:
+        out += _work_moments(data, tracks or {}, w, sessions, replays, canon, builds)
     out += moods.stat_moments(data, canon)              # records, firsts, binges between backups
     out.sort(key=lambda x: -x["score"])
     return out
 
 
-def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans", replays: "_Spans", canon) -> list[dict]:
+def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans", replays: "_Spans", canon,
+                  builds: list | None = None) -> list[dict]:
     """Building / map art / exploring stretches as moments; players working together in one area (or
     travelling at the same time) are one moment."""
     import math
     from . import activity
-    stretches = activity.find_stretches({canon(n): p for n, p in tracks.items()})
+    stretches = activity.find_stretches({canon(n): p for n, p in tracks.items()}) if tracks else []
+    if builds is not None:                                 # exact builders from the Ledger log
+        stretches = [s for s in stretches if s["kind"] not in ("building", "map_art")]             + [{**b, "player": canon(b["player"])} for b in builds]
+        stretches.sort(key=lambda s: s["start"])
     groups: list[list[dict]] = []
     for s in stretches:                                   # sorted by start
         family = "build" if s["kind"] in ("building", "map_art") else "travel"
@@ -234,6 +241,14 @@ def _work_moments(data: m.ServerData, tracks: dict, w: dict, sessions: "_Spans",
         where = f"at {round(lead['centre'][0])}, {round(lead['centre'][2])}" if kind in ("building", "map_art") \
             else f"{sum(s['km'] for s in g):.1f} km"
         stats = _stats_note(data, players, start)
+        placed = sum(s.get("placed") or 0 for s in g)
+        if placed:                                       # from the Ledger log: exactly what was placed
+            tops: dict[str, int] = {}
+            for s in g:
+                for b, n in s.get("top") or []:
+                    tops[b] = tops.get(b, 0) + n
+            main = ", ".join(b.replace("_", " ") for b, _n in sorted(tops.items(), key=lambda kv: -kv[1])[:2])
+            stats = f"placed {placed:,} blocks (mostly {main})" + (f"; {stats}" if stats else "")
         why = [f"{WORK_LABEL[kind]} for {length}", f"{round(active_h * 60)} min of it active",
                f"{len(players)} player{'s' if len(players) > 1 else ''}"]
         if stats:

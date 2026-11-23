@@ -52,6 +52,10 @@ def _short(name: str) -> str:
     return name.split(":", 1)[-1].replace("_", " ")
 
 
+def _local_date(ms: int, tz: tzinfo | None) -> str:
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone(tz).date().isoformat()
+
+
 def death_cause(text: str, player: str | None) -> str:
     """'D_Human was slain by Zombie using [Sword]' -> 'slain by Zombie'."""
     t = text
@@ -161,7 +165,43 @@ def _top(d: dict, n: int = 3) -> list[list]:
     return [[_short(k), v] for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:n]]
 
 
-def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None = None) -> dict:
+def projects(builds: list[dict], start_ms: int, end_ms: int, names) -> list[dict]:
+    """Builds in the range grouped by place (overlapping areas in one dimension, any players, any days):
+    ``{centre, area, dim, placed, players {name: placed}, first, last, sessions, top [[block, n], ...]}``,
+    biggest first."""
+    groups: list[dict] = []
+    for b in sorted((b for b in builds if start_ms <= b["start"] < end_ms), key=lambda b: b["start"]):
+        a = b["area"]
+        for g in groups:
+            ga = g["area"]
+            if g["dim"] == b["dim"] and a[0] <= ga[2] + 8 and ga[0] <= a[2] + 8 and a[1] <= ga[3] + 8 and ga[1] <= a[3] + 8:
+                g["area"] = [min(ga[0], a[0]), min(ga[1], a[1]), max(ga[2], a[2]), max(ga[3], a[3])]
+                break
+        else:
+            g = {"dim": b["dim"], "area": list(a), "placed": 0, "players": Counter(), "first": b["start"],
+                 "last": b["end"], "sessions": 0, "top": Counter(), "sx": 0.0, "sz": 0.0}
+            groups.append(g)
+        n = names(b["player"]) or b["player"]
+        g["placed"] += b["placed"]
+        g["players"][n] += b["placed"]
+        g["last"] = max(g["last"], b["end"])
+        g["sessions"] += 1
+        g["sx"] += b["centre"][0] * b["placed"]
+        g["sz"] += b["centre"][2] * b["placed"]
+        for blk, k in b.get("top") or []:
+            g["top"][blk] += k
+    out = []
+    for g in groups:
+        out.append({"centre": [round(g["sx"] / g["placed"]), round(g["sz"] / g["placed"])], "area": g["area"],
+                    "dim": g["dim"], "placed": g["placed"], "players": dict(g["players"].most_common()),
+                    "first": g["first"], "last": g["last"], "sessions": g["sessions"],
+                    "top": [[_short(k), v] for k, v in g["top"].most_common(3)]})
+    out.sort(key=lambda g: -g["placed"])
+    return out
+
+
+def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None = None,
+          builds: list | None = None) -> dict:
     """The review of *start* to *end* (aware datetimes): ``{"range", "tz", "server": {...}, "players":
     {name: {...}}, "order": [names by hours]}``."""
     tz, tz_name = local_tz(tz)
@@ -276,6 +316,11 @@ def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None 
                                     for a in rarest]},
     }
     server["busiest_day"] = {"date": server["busiest_day"][0], "hours": round(server["busiest_day"][1] / 60, 1)}
+    # builds from the server's Ledger log (who placed what, exactly), grouped by place into projects
+    proj = projects(builds, int(start.timestamp() * 1000), int(end.timestamp() * 1000), names) if builds else []
+    server["builds"] = {"available": builds is not None, "count": sum(p["sessions"] for p in proj),
+                        "projects": [{**p, "first": _local_date(p["first"], tz), "last": _local_date(p["last"], tz)}
+                                     for p in proj[:6]]}
 
     # ---- each player
     out_players = {}
@@ -318,6 +363,12 @@ def build(data: m.ServerData, start: datetime, end: datetime, tz: tzinfo | None 
                              "rarest": (lambda a: {"name": _short(a.split("/")[-1]), "holders": holders[a]} if a else None)(
                                  min((aid for _w, aid in adv_by.get(n, [])), key=lambda a: holders[a], default=None))},
             "stats_span": {k: st.get(k) for k in ("available", "partial", "reset", "from", "to", "from_label", "to_label")},
+            "builds": {"available": builds is not None,
+                       "placed": sum(p["players"].get(n, 0) for p in proj),
+                       "projects": [{"centre": p["centre"], "dim": p["dim"], "placed": p["players"][n],
+                                     "total": p["placed"], "with": [o for o in p["players"] if o != n][:3],
+                                     "first": _local_date(p["first"], tz), "last": _local_date(p["last"], tz),
+                                     "top": p["top"]} for p in proj if n in p["players"]][:4]},
         }
     uuids = {}
     for p in data.players.values():

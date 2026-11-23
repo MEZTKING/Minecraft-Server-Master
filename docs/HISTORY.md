@@ -76,8 +76,13 @@ number of players whose recordings show it (points of view). Hover a moment to s
 nothing in the logs. Once the players' positions have been read from the recordings (the status line
 shows the progress; the list updates by itself), such stretches are moments too:
 
-- **building**: 45 minutes or more in one area (within about 64 blocks), really moving around in it;
-  standing still (AFK) is ignored. A large flat area worked back and forth is **map art / flattening**.
+- **building**: with the server's Ledger log (see *Blocks as at that moment*), exactly who built what. A build is
+  one player placing 200 blocks or more in one area within 10 minutes of each other, over at least 10 minutes.
+  The moment says what they placed ("placed 1,703 blocks (mostly spruce planks, stripped spruce log)"), and
+  players building in one place at the same time are one moment. Replanting a farm, saplings and buckets of
+  water don't count. Without a Ledger log, building is guessed from movement: 45 minutes or more in one area
+  (within about 64 blocks), really moving around in it, with standing still (AFK) ignored. A large flat area
+  worked back and forth is **map art / flattening**.
 - **exploring / searching / a journey**: 30 minutes or more travelling into new ground; zig-zagging over an
   area is searching, going far in one direction a journey.
 - **AFK** doesn't count: idle minutes at the start or end of a build are cut off, and the score grows
@@ -308,6 +313,7 @@ changed is estimated from around it, as Flashback keeps no light updates.
 - when the server was busiest (a weekday x hour heatmap, and the busiest day);
 - how everyone died (the top causes and the oddest one);
 - records: longest session, furthest travelled, most blocks mined and placed, most mobs killed;
+- the biggest builds of the year (with a Ledger log): who, the main blocks, how many and where;
 - the rarest advancements and who got them first;
 - a list of everyone who played.
 
@@ -316,6 +322,8 @@ Each name opens that player's year (`/review/<year>/<name>`):
 - hours by month, and their favourite hour and day;
 - firsts: first time online, first advancement, first death;
 - how far they travelled and how (walking, flying, by boat, on horses...);
+- **builds** (with a Ledger log): blocks placed in builds and their biggest projects (a project is one place
+  built on over one or more evenings), with the main blocks, where, when, and who helped;
 - blocks mined and placed, with their top three;
 - mobs killed and what killed them;
 - deaths: how many, the most common cause, the worst day;

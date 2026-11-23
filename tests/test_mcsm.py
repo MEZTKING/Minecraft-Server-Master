@@ -5290,6 +5290,45 @@ class TestLedger(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_builds(self):
+        """Who built what: each player's placed blocks grouped into builds; farming isn't building."""
+        from datetime import datetime, timedelta, timezone
+        from mcsm import ledger, review
+        tmp = tempfile.mkdtemp()
+        try:
+            p = os.path.join(tmp, "ledger.sqlite")
+            self._db(p)
+            con = sqlite3.connect(p)
+            con.execute("create table players (id integer primary key, player_id blob, player_name text, first_join text, last_join text)")
+            con.execute("insert into players values (1, x'00', 'Alex', '', ''), (2, x'01', 'Steve', '', '')")
+            con.execute("insert into ObjectIdentifiers values (4, 'minecraft:oak_planks'), (5, 'minecraft:wheat')")
+            t0 = datetime(2026, 3, 2, 18, tzinfo=timezone.utc)
+            rows = []
+            for i in range(300):                         # Alex builds for 20 minutes at (100, 100)
+                t = t0 + timedelta(seconds=i * 4)
+                rows.append((2, t.strftime("%Y-%m-%d %H:%M:%S.000"), 100 + i % 10, 64 + i // 100, 100 + (i // 10) % 10, 4, 1, 1))
+            for i in range(400):                         # Steve replants a wheat farm: not a build
+                t = t0 + timedelta(seconds=i * 3)
+                rows.append((2, t.strftime("%Y-%m-%d %H:%M:%S.000"), 500 + i % 20, 64, 500 + i // 20, 5, 1, 2))
+            con.executemany("insert into actions (action_id, time, x, y, z, world_id, object_id, old_object_id, source,"
+                            " player_id, rolled_back) values (?, ?, ?, ?, ?, 1, ?, ?, 1, ?, 0)", rows)
+            con.commit()
+            con.close()
+            builds = ledger.find_builds(ledger.Ledger(p), cache_file=os.path.join(tmp, "builds.json"))
+            self.assertEqual(len(builds), 1)
+            b = builds[0]
+            self.assertEqual((b["player"], b["kind"], b["placed"], b["top"]), ("Alex", "building", 300, [["oak_planks", 300]]))
+            self.assertEqual(b["dim"], "minecraft:overworld")
+            self.assertTrue(95 <= b["centre"][0] <= 110 and 95 <= b["centre"][2] <= 110)
+            self.assertEqual(ledger.find_builds(ledger.Ledger(p), cache_file=os.path.join(tmp, "builds.json")), builds)
+            # the year in review groups builds by place (two evenings on one house = one project)
+            later = {**b, "start": b["start"] + 86_400_000, "end": b["end"] + 86_400_000, "player": "Steve"}
+            proj = review.projects([b, later], 0, 10 ** 13, lambda n: n)
+            self.assertEqual(len(proj), 1)
+            self.assertEqual((proj[0]["placed"], proj[0]["players"], proj[0]["sessions"]), (600, {"Alex": 300, "Steve": 300}, 2))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_patched_chunk(self):
         from mcsm import blockmesh as bm
 
