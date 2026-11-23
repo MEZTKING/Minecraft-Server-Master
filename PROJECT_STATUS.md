@@ -1487,8 +1487,6 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
-- **Activity heatmap (Ledger)**: open **Activity heatmap** under *Show*, tick it, and try the kinds and spans
-  (zoom out to see a whole base).
 - **Griefing and accidents (Ledger)**: the moments list has the damage moments (e.g. the fire at Crow_Shroom's
   house, 10 April); the year in review has **Disasters**. Are the "took down" ones agreed work or not?
 - **Who built what (Ledger)**: the moments list's building moments now name exact builders and blocks; the
@@ -1503,6 +1501,9 @@ Things built and checked here that need a look in the real game or by eye (newes
   2026, 17:18 UTC at 379, -2296) and watch blocks appear.
 - **Shot for Flashback**: plan a shot in the viewer, send it, render it in Flashback.
 - **Title animations in the world** (backlog 0v step 2): not yet seen in the real game.
+
+Confirmed by the owner:
+- **Activity heatmap (Ledger)**: "looking goood" (2026-11-23, in Firefox, whole log, everything).
 
 ## Known gaps and unverified assumptions
 
