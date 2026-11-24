@@ -825,6 +825,34 @@ to improve on my side on the server so mapping data and more information is easi
 - Optional: a lightweight player-position logger (a datapack or plugin writing positions every few seconds) for
   times nobody's recording; a live map (BlueMap / squaremap) for a public view.
 
+**The owner's setup (2026-11-24, their words, then checked in the 20 Nov backup's configs):**
+1. "server replay is currently set to record people, whenever they join and stops recording when they leave".
+   `config/server-replay/config.json`: `automatically_record: true`, `player_predicate: all`, Flashback format,
+   `record_hotbar: true`, no size or length limit, never deletes (`delete_replays_after_duration: 0s`), chat and
+   custom payloads kept, sounds, light updates and scoreboards left out; no chunk (area) recordings.
+2. "ledger is also always storing any changes": `config/ledger.toml`: `autoPurgeDays = -1` (never purged), nothing
+   blacklisted (all action types, worlds, objects, sources).
+3. "i mostly make backups after an important event or after a month which comes first."
+4. "logs is never touched."
+5. "player are nearly always recorded unless i havent added the sever replay mod at that moment, it should be
+   mentiond in the timeline." The timeline shows it: online rows without a recording row.
+
+**Verdict: nothing needs changing for what the viewer uses.** Optional extras, in order of value:
+- **A daily copy of `Main_world/players/` only** (stats, advancements, playerdata: a few MB). Inventories,
+  armour, ender chests and statistics are only as fresh as the last backup (the 24 May inventory came from a
+  5-day-old backup); a daily copy makes them exact to the day. A full backup monthly stays as it is.
+- **A chunk (area) recording of spawn or the main base** (`/replay chunks start ...`): records that area whatever
+  the players' view, for filming builds from any side. Bigger files.
+- `record_voice_chat: true` (Simple Voice Chat is installed): voices in the recordings, only with everyone's
+  agreement; the viewer doesn't play them yet.
+- Keep `ignore_light_packets` and `ignore_sound_packets` as they are (the viewer takes light from the blocks and
+  plays no sound).
+
+**Found in the backups, not used yet (ideas):** 457 maps in `Main_world/data/minecraft/maps` (the pictures of map
+art, items in frames and explored maps; could be shown in the viewer and the year in review);
+`Main_world/data/DistantHorizons.sqlite` (5 GB, last written April 2026: far terrain in detail);
+`scoreboard.dat`.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
