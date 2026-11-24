@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-23 (activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1487,6 +1487,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Go to a day and time**: the **Go to** box in the bottom bar (try `24 May 2026 8:31pm`, `yesterday 9pm`, a day
+  alone, or `x y z`), and the calendar button next to it.
 - **Griefing and accidents (Ledger)**: the moments list has the damage moments (e.g. the fire at Crow_Shroom's
   house, 10 April); the year in review has **Disasters**. Are the "took down" ones agreed work or not?
 - **Who built what (Ledger)**: the moments list's building moments now name exact builders and blocks; the
@@ -1599,6 +1601,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Go to a day and time in the history viewer (owner: "you should be able to search by day and
+  exact time etc"): a **Go to** box with flexible dates (day first, month names, ISO, a time alone, today,
+  yesterday), a calendar picker, a day alone jumps to its first activity, and places (x y z).
 
 - **2026-11-23:** Activity heatmap from the Ledger log (`ledger.heat`, `/api/heatmap`): where players built,
   mined, fought or used chests, by day, week, month or all.

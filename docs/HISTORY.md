@@ -292,6 +292,16 @@ texture. Items from the Hero's Journey datapack show as the plain item they're b
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
 
+**Go to a day and time.** The **Go to** box in the bottom bar (after the date; clicking the date jumps to it)
+takes a day and an exact time, in your time zone, in the forms you'd naturally type:
+- `24 May 2026 20:31:09`, `2026-05-24 20:31`, `24/05/2026 8:31pm` (day first), `May 24 20:31`, `24.05.26`;
+- a time alone (`20:31`, `8pm`) on the day shown; `today` or `yesterday` with or without a time;
+- a day alone goes to the first time anyone was online that day;
+- a place (`x y z` or `x z`) moves the camera there.
+
+The calendar button next to it opens your browser's date and time picker. Press Enter to go. A time outside
+the history goes to its nearest end and says so.
+
 **Activity heatmap.** With the server's Ledger log, the **Activity heatmap** box (under *Show*) colours the
 map by how much players did there: pale yellow for a little, red for a lot, in squares of 16 x 16 blocks.
 - **What:** everything, building (blocks placed), mining (broken), fighting (mobs killed), or chests and storage.

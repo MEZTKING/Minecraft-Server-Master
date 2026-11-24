@@ -365,7 +365,10 @@ ul { list-style: none; margin: 0; padding: 0; }
       <option value="86400000" selected>1 day</option>
       <option value="7200000">2 hours</option>
     </select></label>
-    <span id="clock"></span><span id="chapter"></span>
+    <span id="clock" title="Click to type a day and time to go to"></span><span id="chapter"></span>
+    <input id="goTo" type="search" size="22" placeholder="Go to: 24 May 2026 20:31:09"
+      title="Go to a day and time (24 May 2026 20:31:09, 2026-05-24 20:31, 24/05 8:31pm, 20:31 on the day shown, yesterday...), or a place (x y z or x z). A day alone goes to the first time someone was online that day.">
+    <input id="goPick" type="datetime-local" step="1" title="Pick a day and time">
   </div>
   <div id="canvasWrap"><canvas id="tl"></canvas><div id="cursor"></div><div id="hoverTip" hidden></div></div>
   <div class="legend">
@@ -2664,6 +2667,83 @@ $("#devLink").onclick = () => copyText(viewLink(), "View link");
 $("#devCopy").onclick = () => copyText(viewLink() + "\n" + JSON.stringify(devState(), null, 1), "Debug info");
 $("#devReal").onclick = () => { realClear(); REAL.key = ""; toastStatus("Reloading the real blocks…"); };
 $("#devExact").onclick = () => { EXACT.lo = EXACT.hi = 0; EXACT.last = 0; };
+// ---------- go to a day and time (or a place) ----------
+const MONTHS_IN = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function parseWhen(text) {
+  // returns {t, dayOnly} in local time, or null. Days first (24/05/2026), month names, ISO, a time alone, today...
+  let s = text.trim().toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ");
+  if (!s) return null;
+  const base = new Date(T || Date.now());
+  let y = null, mo = null, d = null;
+  const take = re => { const m = s.match(re); if (m) s = (s.slice(0, m.index) + " " + s.slice(m.index + m[0].length)).trim(); return m; };
+  // the time: 20:31, 20:31:09, 8:31pm, 8pm
+  let hh = null, mm = 0, ss = 0;
+  const tm = take(/\b(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)\b|\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/);
+  if (tm) {
+    if (tm[4]) { hh = (+tm[1] % 12) + (tm[4] === "pm" ? 12 : 0); mm = +(tm[2] || 0); ss = +(tm[3] || 0); }
+    else { hh = +tm[5]; mm = +tm[6]; ss = +(tm[7] || 0); }
+  }
+  let m;
+  if (take(/\btoday\b/)) { y = base.getFullYear(); mo = base.getMonth(); d = base.getDate(); }
+  else if (take(/\byesterday\b/)) { const b = new Date(base); b.setDate(b.getDate() - 1); y = b.getFullYear(); mo = b.getMonth(); d = b.getDate(); }
+  else if ((m = take(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/))) { y = +m[1]; mo = +m[2] - 1; d = +m[3]; }
+  else if ((m = take(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/))) {
+    d = +m[1]; mo = +m[2] - 1; if (m[3]) y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+  } else {
+    const mn = take(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
+    if (mn) {
+      mo = MONTHS_IN.indexOf(mn[1]);
+      const dm = take(/\b(\d{1,2})(?:st|nd|rd|th)?\b(?!\d)/); if (dm) d = +dm[1];
+      const yy = take(/\b(\d{4})\b/); if (yy) y = +yy[1];
+      if (d == null) d = 1;
+    }
+  }
+  if (s.replace(/\b(at|on|the|of)\b/g, "").trim()) return null;          // something left we didn't understand
+  if (mo == null && hh == null) return null;
+  if (mo == null) { y = base.getFullYear(); mo = base.getMonth(); d = base.getDate(); }   // a time alone: the day shown
+  if (y == null) {                                       // no year: the one that falls in the history (latest first)
+    y = base.getFullYear();
+    if (H && H.range) for (const yy of [y, y - 1, y + 1]) {
+      const t = new Date(yy, mo, d).getTime();
+      if (t >= H.range[0] - 86_400_000 && t <= H.range[1]) { y = yy; break; }
+    }
+  }
+  const dt = new Date(y, mo, d, hh ?? 0, mm, ss);
+  if (dt.getMonth() !== mo || !Number.isFinite(dt.getTime())) return null;   // e.g. 31 February
+  return { t: dt.getTime(), dayOnly: hh == null };
+}
+function goPlace(n) {
+  if (FREE.on || SPEC.name) { setSpec(""); if (FREE.on) setFree(false); }
+  const [x, y, z] = n.length === 3 ? n : [n[0], 70, n[1]];
+  controls.target.set(x, y, z); camera.position.set(x + 30, y + 40, z + 30); controls.update();
+}
+function goTo(text) {
+  const n = text.trim().split(/[\s,]+/).map(Number);
+  if ((n.length === 3 || n.length === 2) && n.every(Number.isFinite) && !/[:\/]/.test(text)) {
+    goPlace(n); toastStatus(`Looking at ${n.join(", ")}.`); return true;
+  }
+  const w = parseWhen(text);
+  if (!w) { toastStatus("Go to: type a day and time like 24 May 2026 20:31:09 (or 2026-05-24 20:31, 24/05 8:31pm, 20:31), or a place: x y z."); return false; }
+  let t = w.t, note = "";
+  if (w.dayOnly) {                                       // a day: the first time anyone was online then
+    const end = t + 86_400_000, first = H.sessions.map(x => x.start).filter(x => x >= t && x < end).sort((a, b) => a - b)[0];
+    if (first) { t = first; note = " (the first time someone was online that day)"; }
+    else note = " (nobody was online that day)";
+  }
+  if (H && H.range && (t < H.range[0] || t > H.range[1])) {
+    toastStatus(`${new Date(t).toLocaleString()} is outside the history (${new Date(H.range[0]).toLocaleDateString()} to ${new Date(H.range[1]).toLocaleDateString()}).`);
+    t = Math.min(Math.max(t, H.range[0]), H.range[1]);
+  } else toastStatus(`Gone to ${new Date(t).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}${note}.`);
+  seek(t);
+  return true;
+}
+$("#goTo").addEventListener("keydown", e => { if (e.key === "Enter" && goTo($("#goTo").value)) $("#goTo").blur(); });
+$("#goPick").addEventListener("change", () => { const v = $("#goPick").value; if (v) goTo(v.replace("T", " ")); });
+$("#goPick").addEventListener("focus", () => {          // the picker opens on the time shown
+  const d = new Date(T), p = v => String(v).padStart(2, "0");
+  $("#goPick").value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+});
+$("#clock").addEventListener("click", () => { $("#goTo").focus(); $("#goTo").select(); });
 $("#devGoBtn").onclick = () => {
   const v = $("#devGo").value.trim(), n = v.split(/[\s,]+/).map(Number);
   if (n.length === 3 && n.every(Number.isFinite)) {
