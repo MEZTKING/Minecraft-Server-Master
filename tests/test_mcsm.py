@@ -3702,6 +3702,31 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_item_texture(self):
+        """Hotbar pictures: the item's own picture, else its item definition's model (through a select to its
+        fallback) and that model's texture; drawn-by-code items (special) have none."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            A = "assets/minecraft/"
+            with zipfile.ZipFile(jar, "w") as z:
+                for t in ("item/potion", "block/oak_log", "block/crafting_table_front", "item/compass_16"):
+                    z.writestr(f"{A}textures/{t}.png", b"png")
+                z.writestr(f"{A}items/oak_log.json", json.dumps({"model": {"type": "minecraft:model", "model": "minecraft:block/oak_log"}}))
+                z.writestr(f"{A}models/block/oak_log.json", json.dumps({"textures": {"side": "minecraft:block/oak_log", "particle": "x"}}))
+                z.writestr(f"{A}items/crafting_table.json", json.dumps({"model": {"type": "minecraft:model", "model": "block/crafting_table"}}))
+                z.writestr(f"{A}models/block/crafting_table.json", json.dumps({"textures": {"front": "block/crafting_table_front"}}))
+                z.writestr(f"{A}items/compass.json", json.dumps({"model": {"type": "minecraft:select", "cases": [],
+                           "fallback": {"type": "minecraft:model", "model": "item/compass_16"}}}))
+                z.writestr(f"{A}models/item/compass_16.json", json.dumps({"textures": {"layer0": "item/compass_16"}}))
+                z.writestr(f"{A}items/shield.json", json.dumps({"model": {"type": "minecraft:special", "base": "item/shield"}}))
+            look = bm.Look(jar)
+            self.assertEqual([look.item_texture(i) for i in ("potion", "oak_log", "crafting_table", "compass", "shield", "nothing", "../x")],
+                             ["item/potion", "block/oak_log", "block/crafting_table_front", "item/compass_16", None, None, None])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_caves(self):
         """build(slab=...): the walls of a sealed tunnel are drawn, the open surface above isn't."""
         from mcsm import blockmesh as bm

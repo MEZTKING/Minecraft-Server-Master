@@ -87,7 +87,8 @@ body.relive #hotbar { bottom: calc(9vh + 54px); }
 #invBox .grid.hb { margin-top: 6px; }
 .slot { width: 40px; height: 40px; background: rgba(40,40,40,.62); border: 2px solid rgba(255,255,255,.18); position: relative;
   image-rendering: pixelated; box-sizing: border-box; }
-.slot img { width: 32px; height: 32px; margin: 2px; image-rendering: pixelated; }
+.slot .ic { width: 32px; height: 32px; margin: 2px; overflow: hidden; }
+.slot img { width: 32px; height: auto; display: block; image-rendering: pixelated; }
 .slot .n { position: absolute; right: 2px; bottom: 0; color: #fff; font-size: 12px; font-weight: 700; text-shadow: 1px 1px 0 #3f3f3f; }
 .slot.sel { border-color: #fff; box-shadow: 0 0 0 1px #000; }
 .slot.exact::after { content: ""; position: absolute; left: 2px; top: 2px; width: 5px; height: 5px; border-radius: 50%; background: #4ac26b; }
@@ -181,7 +182,7 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div></div>
-  <div class="hint">Esc to leave</div></div>
+  <div class="hint" id="rlHint">V: change view · Esc to leave</div></div>
 
 <aside id="panel" class="card">
   <div class="head row" style="margin-top:0;justify-content:space-between">
@@ -791,7 +792,7 @@ function fillTerrainMenu() {
 $("#terrainSel").onchange = () => { terrainMode = $("#terrainSel").value; loadTerrain($("#dim").value); };
 
 // ---------- real blocks close up: 128 x 128 pieces of the backup shown, loaded around where you look ----------
-const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map(), failed: new Set(), wait: new Map() };
+const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map(), failed: new Set(), wait: new Map(), mfail: new Map() };
 // blocks at the moment (exact playback): the nearest pieces come from the recordings' chunk data at a time rounded
 // to MOMENT_STEP, so a piece is rebuilt every 30 s of playback (and when you jump)
 const MOMENT_STEP = 30_000, MOMENT_TILES = 9;
@@ -872,6 +873,7 @@ function realClip() {                               // cut the smooth map away u
     if (REAL.tiles.has(`${x},${z}`) || REAL.failed.has(`${key}|${x},${z}`)) continue;
     CLIP.load[k++].set(x * REAL_TILE, z * REAL_TILE, (x + 1) * REAL_TILE, (z + 1) * REAL_TILE);
   }
+  if (RELIVE.on) k = 0;                                // no loading grid in a memory
   CLIP.nLoad = k; if (CLIP.uniforms) CLIP.uniforms.uLoadN.value = k;
 }
 function realWanted() {
@@ -908,7 +910,10 @@ async function realStep(now) {
     REAL.tiles.delete(id);
   }
   const mt = momentTime(), mtOf = i => (mt !== null && i < MOMENT_TILES ? mt : null);
-  const wantMt = new Map(want.map(([x, z], i) => [`${x},${z}`, mtOf(i)]));
+  // a moment piece that failed (the server busy, say) shows the backup's blocks for now and is asked again later
+  const wantMt = new Map(want.map(([x, z], i) => { let m = mtOf(i);
+    if (m !== null && (REAL.mfail.get(`${x},${z}|${m}`) || 0) > now) m = null;
+    return [`${x},${z}`, m]; }));
   let next = want.find(([x, z]) => !REAL.tiles.has(`${x},${z}`) && !REAL.failed.has(`${key}|${x},${z}`));
   if (!next) next = want.find(([x, z]) => {                 // a piece shown at another moment (or the backup's)
     const id = `${x},${z}`, T0 = REAL.tiles.get(id), w = wantMt.get(id);
@@ -936,10 +941,10 @@ async function realStep(now) {
       T.meshes = blockMeshes(info, buf, atlas);                // in the current graphics mode
       for (const m of T.meshes) { if (!m.isPoints) m.material.map = atlas.tex; scene.add(m); }
       if (!old && !RELIVE.on && $("#buildIn").checked) revealIn(T.meshes);   // new here: it builds in (not a moment update)
-    } else if (info.message) REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`);
+    } else if (info.message) { if (mtx === null) REAL.failed.add(`${key}|${id}`); else REAL.mfail.set(`${id}|${mtx}`, now + 20_000); }
     if (old && old !== T) for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.set(id, T); realClip();
-  } catch (e) { REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`); }
+  } catch (e) { if (mtx === null) REAL.failed.add(`${key}|${id}`); else REAL.mfail.set(`${id}|${mtx}`, now + 20_000); }
   finally { REAL.busy = false; }
 }
 // ---------- live block changes (exact playback, blocks as at the moment) ----------
@@ -1037,7 +1042,8 @@ async function caveStep(now) {
       .then(r => { CAVE.top = typeof r.top === "number" ? r.top : null; CAVE.topAt = [x, z, dim]; })
       .catch(() => {}).finally(() => { CAVE.asking = false; });
   }
-  CAVE.under = on && CAVE.top != null && cam.y < CAVE.top - 1;
+  // only the free camera goes underground (a player under a tree or an overhang is not in a cave)
+  CAVE.under = on && FREE.on && CAVE.top != null && cam.y < CAVE.top - 1;
   const band = Math.floor(cam.y / 32), key = `${dim}|${layer}|${band}`;
   for (const [id, t] of CAVE.tiles) for (const m of t.meshes) m.visible = CAVE.under && t.key === key && (!m.isPoints || GFX.mode !== "off");
   if (!CAVE.under || CAVE.busy) return;
@@ -1559,8 +1565,14 @@ function texOnce(path) {
   }, undefined, () => res(null))));
   return gearTex.get(path);
 }
-async function itemTexture(item) {                       // an item's icon; a block held shows its block texture
-  return (await texOnce(`item/${item}`)) || (await texOnce(`block/${item}`)) || null;
+const itemTex = new Map();
+function itemTexture(item) {                            // an item's picture as the hotbar shows it (from the game's item models)
+  if (!itemTex.has(item)) itemTex.set(item, new Promise(res => new THREE.TextureLoader().load(`itemtex/0/${item}.png`, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    if (t.image && t.image.height > t.image.width) { t.repeat.set(1, t.image.width / t.image.height); t.offset.set(0, 1 - t.repeat.y); }   // animated: the first frame
+    res(t);
+  }, undefined, () => res(null))));
+  return itemTex.get(item);
 }
 const ARMOUR = /^(leather|chainmail|iron|golden|diamond|netherite|copper|turtle)_(helmet|chestplate|leggings|boots)$/;
 function armourBoxes(slot, mat) {                        // the armour shell (the player model's boxes, a bit larger)
@@ -1624,7 +1636,12 @@ async function setGear(m, slot, v) {
 function updateGear(m) {
   const exact = m.cur && m.cur.exact;
   for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet"]) {
-    const v = exact ? stateAt(m.name, `eq:${slot}`, T, null) : null, key = gearKey(v);
+    let v = exact ? stateAt(m.name, `eq:${slot}`, T, null) : null;
+    if (exact && slot === "mainhand") {
+      const sel = stateAt(m.name, "hs", T, null), hv = sel !== null ? stateAt(m.name, `hb:${sel}`, T, null) : null;
+      if (sel !== null && EXACT.ev[m.name] && EXACT.ev[m.name][`hb:${sel}`]) v = hv && hv[0] ? hv : null;
+    }
+    const key = gearKey(v);
     m.gearKeys = m.gearKeys || {};
     if (m.gearKeys[slot] !== key || (m.gearFig !== m.F)) { m.gearKeys[slot] = key; setGear(m, slot, v); }
   }
@@ -3007,13 +3024,13 @@ function relive(name, start, end, key = null) {
     cam: camera.position.clone(), target: controls.target.clone(), near: camera.near };
   if (SPEC.name) setSpec(""); if (FREE.on) setFree(false); if (DEV.on) setDev(false);
   Object.assign(RELIVE, { on: true, name, start, end, key, phase: "load", since: performance.now(), e: 0,
-    pos: null, look: null });
+    eye: null, fogObj: null, fog0: null, wall: Infinity, wallS: undefined, rayT: 0 });
+  reliveView($("#specMode").value === "first" ? "first" : "behind");
   setPlaying(false); $("#speed").value = "1"; seek(start, false);
   controls.enabled = false; camera.near = 0.05; camera.updateProjectionMatrix();
   document.body.classList.add("relive"); $("#relive").hidden = false;
   $("#rlWhite").style.opacity = 1; $("#rlCap").style.opacity = 1; $("#rlSub").replaceChildren();
   reliveCaption(key ?? start);
-  renderer.domElement.style.filter = "saturate(.82) sepia(.12) brightness(1.04) contrast(.96)";
 }
 function reliveCaption(t) {
   const m = markers[RELIVE.name], c = m && m.cur;
@@ -3038,15 +3055,21 @@ function reliveExit() {
   for (const o of allPathObjs) o.visible = true;
   applySky(); applyShow();
 }
-function reliveReady() {
-  const r = EXACT.rows && EXACT.rows[RELIVE.name];
-  return EXACT.on && !EXACT.busy && r && !REAL.busy;
+function reliveReady() {                               // their recording, and the real blocks around them
+  const r = EXACT.rows && EXACT.rows[RELIVE.name], m = markers[RELIVE.name], c = m && m.cur;
+  if (!(EXACT.on && !EXACT.busy && r && c)) return false;
+  const tx = Math.floor(c.pos[0] / REAL_TILE), tz = Math.floor(c.pos[2] / REAL_TILE);
+  const fx = c.pos[0] / REAL_TILE - tx, fz = c.pos[2] / REAL_TILE - tz;
+  const need = [[tx, tz]];                              // their piece, and the neighbour they're near
+  if (fx < 0.25) need.push([tx - 1, tz]); else if (fx > 0.75) need.push([tx + 1, tz]);
+  if (fz < 0.25) need.push([tx, tz - 1]); else if (fz > 0.75) need.push([tx, tz + 1]);
+  return need.every(([x, z]) => REAL.tiles.has(`${x},${z}`));
 }
 // the clock while reliving: 1x, slowed to a third around the key moment, stopped at the end
 function reliveTick(now, dt) {
   const R = RELIVE, age = (now - R.since) / 1000;
   if (R.phase === "load") {
-    if (reliveReady() || age > 15) { R.phase = "in"; R.since = now; R.pos = null; }
+    if (reliveReady() || age > 30) { R.phase = "in"; R.since = now; }   // at most 30 s (a recording read for the first time)
     update(now, false); return;
   }
   if (R.phase === "in" || R.phase === "play") {
@@ -3058,7 +3081,7 @@ function reliveTick(now, dt) {
   } else if (R.phase === "out") {
     const f = Math.min(1, age / 2.5);
     $("#rlWhite").style.opacity = f; $("#rlCap").style.opacity = Math.max(0, (age - 1) / 1.5);
-    renderer.domElement.style.filter = `saturate(${0.82 * (1 - f)}) sepia(.12) brightness(${1.04 + f * 0.3}) contrast(.96)`;
+    renderer.domElement.style.filter = `saturate(${0.82 * (1 - f)}) sepia(.12) brightness(${1.04 + f * 0.3})`;
     if (age > 6) { reliveExit(); return; }
   }
   if (T > view[1] || T < view[0]) setView();
@@ -3079,34 +3102,90 @@ function reliveTick(now, dt) {
   }
 }
 const smooth01 = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+// Views while reliving (V or F5 switches, as in the game): their eyes, over the shoulder, or facing them. The camera
+// sits at a distance and angle around their (smoothed) eyes and swings round to a new view, never through them.
+const RL_VIEWS = { first: { d: 0.05, az: Math.PI, el: 0 }, behind: { d: 4.2, az: Math.PI - 0.16, el: 0.3 },
+  front: { d: 3.6, az: 0.25, el: 0.1 } };
+const RL_ORDER = ["first", "behind", "front"], RL_NAMES = { first: "their eyes", behind: "over the shoulder", front: "facing them" };
+function reliveView(next) {
+  const R = RELIVE;
+  R.view = next || RL_ORDER[(RL_ORDER.indexOf(R.view) + 1) % RL_ORDER.length];
+  $("#rlHint").textContent = `V: change view (${RL_NAMES[R.view]}) · Esc to leave`;
+}
+const RL_RAY = new THREE.Raycaster();
+const angLerp = (a, b, k) => a + ((((b - a) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI) * k;
+// how strong the memory look is (white haze, vignette, warm tint): full while it opens, gone a few seconds in so
+// the rest plays like a video, back for the ending
+function reliveHaze(R) {
+  if (R.phase === "load" || R.phase === "in") return 1;
+  if (R.phase === "out") return 1;
+  return 1 - smooth01((R.e - 3) / 3);                   // fades between 3 and 6 seconds in
+}
 function reliveStep(dt) {
   const R = RELIVE, m = markers[R.name], c = m && m.cur;
-  // a warm haze closes in: the edges of the memory fade out (and hide what hasn't loaded)
-  if (scene.fog) { scene.fog.near = 26; scene.fog.far = 90; scene.fog.color.lerp(new THREE.Color(1, 0.97, 0.92), 0.6); }
-  scene.background = scene.fog ? scene.fog.color : scene.background;
+  // the world's own haze, as the sky set it (taken again whenever the sky makes a new one)
+  if (scene.fog && scene.fog !== R.fogObj) { R.fogObj = scene.fog; R.fog0 = { near: scene.fog.near, far: scene.fog.far, color: scene.fog.color.clone() }; }
+  const h = reliveHaze(R);
+  if (scene.fog && R.fog0) {
+    scene.fog.near = R.fog0.near + (26 - R.fog0.near) * h; scene.fog.far = R.fog0.far + (90 - R.fog0.far) * h;
+    scene.fog.color.copy(R.fog0.color).lerp(new THREE.Color(1, 0.97, 0.92), h);
+    scene.background = scene.fog.color;
+  }
+  $("#relive .vig").style.opacity = h;
+  if (R.phase !== "out") renderer.domElement.style.filter = h > 0.01 ? `saturate(${1 - 0.18 * h}) sepia(${0.12 * h}) brightness(${1 + 0.04 * h})` : "";
   // only the world and the people in it: no trails, pins, rings, outlines or heat
   for (const o of Object.values(markers)) { o.trail.visible = false; o.F.ring.visible = false; }
   for (const o of [pinGroup, chgGroup, grid, HEAT.group, typeof areaLine !== "undefined" ? areaLine : null, ...allPathObjs]) if (o) o.visible = false;
   if (!c) return;
-  const r = d => d * Math.PI / 180;
-  // their look, softened: the pitch counts for less (a memory looks ahead, not at the feet)
-  const yaw = c.exact ? r(c.head ?? c.yaw) : -m.F.fig.rotation.y, pitch = c.exact ? r(c.pitch) * 0.35 : 0;
+  const rad = d => d * Math.PI / 180;
+  const yaw = c.exact ? rad(c.head ?? c.yaw) : -m.F.fig.rotation.y, pitch = c.exact ? rad(c.pitch) : 0;
   const sneak = c.exact && (flagsAt(R.name, T) & 0x02);
   const eye = new THREE.Vector3(c.pos[0], c.pos[1] + (sneak ? 1.27 : 1.62), c.pos[2]);
-  const fwd = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-  const right = new THREE.Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
-  const first = $("#specMode").value === "first";
-  const k = smooth01(R.e / 4);                          // the push-in, over the first four seconds
-  const back = first ? 9 * (1 - k) + 0.05 * k : 9 - 5.2 * k, up = first ? 4.5 * (1 - k) : 4.5 - 3.7 * k, side = first ? 0 : 0.55 * k;
-  const want = eye.clone().addScaledVector(fwd, -back).add(new THREE.Vector3(0, up, 0)).addScaledVector(right, side);
-  const wantLook = eye.clone().addScaledVector(fwd, 10);
-  const a = 1 - Math.exp(-dt / (first && k > 0.95 ? 120 : 380));   // critically damped-ish: slow, soft, never jumpy
-  if (!R.pos) { R.pos = want.clone(); R.look = wantLook.clone(); }
-  R.pos.lerp(want, a); R.look.lerp(wantLook, a);
-  const t = performance.now() / 1000;                   // a slight handheld sway
-  camera.position.copy(R.pos).add(new THREE.Vector3(Math.sin(t * 0.7) * 0.04, Math.sin(t * 1.1) * 0.03, Math.cos(t * 0.6) * 0.04));
-  camera.lookAt(R.look);
-  m.F.fig.visible = camera.position.distanceTo(eye) > 0.6;
+  const ms = Math.min(dt, 100);
+  const k = tau => 1 - Math.exp(-ms / tau);
+  if (!R.eye) { R.eye = eye.clone(); R.yaw = yaw; R.pitch = pitch; R.d = 9; R.az = Math.PI; R.el = 0.55; }
+  // the eyes follow quickly (steps and jumps stay smooth), the look a little slower: no recorded jitter
+  if (R.eye.distanceTo(eye) > 12) R.eye.copy(eye); else R.eye.lerp(eye, k(90));
+  const firstNow = R.view === "first" && R.d < 0.5;
+  R.yaw = angLerp(R.yaw, yaw, k(firstNow ? 110 : 320)); R.pitch += (pitch - R.pitch) * k(firstNow ? 110 : 320);
+  // where the camera wants to be: the view, after a push-in over the first four seconds
+  const v = RL_VIEWS[R.view] || RL_VIEWS.behind, p = smooth01(R.e / 4);
+  const wd = 9 + (v.d - 9) * p, wel = 0.55 + (v.el - 0.55) * p;
+  R.d += (wd - R.d) * k(380); R.az = angLerp(R.az, v.az, k(450)); R.el += (wel - R.el) * k(380);
+  const el = R.el + (R.view === "first" ? 0 : Math.max(-0.35, Math.min(0.35, -R.pitch * 0.35)));   // looking down lifts the camera
+  const ya = R.yaw + R.az;                              // the camera's direction from the eyes
+  const off = new THREE.Vector3(-Math.sin(ya) * Math.cos(el), Math.sin(el), Math.cos(ya) * Math.cos(el)).multiplyScalar(R.d);
+  const fwd = new THREE.Vector3(-Math.sin(R.yaw) * Math.cos(R.pitch), -Math.sin(R.pitch), Math.cos(R.yaw) * Math.cos(R.pitch));
+  // like the game's third-person camera: it stops in front of a wall between it and the player (a ray through
+  // the real blocks around them, a few times a second; closing in is quick, backing out again slow)
+  let dd = R.d;
+  if (R.d > 0.6) {
+    const now = performance.now();
+    if (!R.rayT || now - R.rayT > 120) {
+      R.rayT = now;
+      const dir = off.clone().normalize(), near = [];
+      for (const t of REAL.tiles.values()) if (R.eye.x > t.x0 - 16 && R.eye.x < t.x0 + REAL_TILE + 16 && R.eye.z > t.z0 - 16 && R.eye.z < t.z0 + REAL_TILE + 16)
+        for (const mm of t.meshes) if (!mm.isPoints && mm.userData.kind !== "water" && mm.visible) near.push(mm);
+      RL_RAY.set(R.eye, dir); RL_RAY.far = R.d + 0.3;
+      const hit = near.length ? RL_RAY.intersectObjects(near, false)[0] : null;
+      R.wall = hit ? Math.max(0.35, hit.distance - 0.35) : Infinity;
+    }
+    if (R.wallS === undefined || !isFinite(R.wallS)) R.wallS = R.wall;
+    else R.wallS += ((isFinite(R.wall) ? R.wall : R.d) - R.wallS) * k(R.wall < R.wallS ? 60 : 500);
+    if (isFinite(R.wallS)) dd = Math.min(R.d, R.wallS);
+  }
+  camera.position.copy(R.eye).addScaledVector(off, dd / Math.max(R.d, 1e-3));
+  // looking: their way through their eyes; from behind a little ahead of them; from the front at their face
+  const ahead = Math.max(0, -Math.cos(R.az));           // 1 behind, 0 facing them
+  // 1 in their eyes; a wall that pushes the camera right up to them counts too (there's no room to see them)
+  const f = Math.max(0, Math.min(1, 1 - (dd - 0.05) / 1.2));
+  if (dd < 1.25) camera.position.lerp(R.eye, f);        // so it looks out from their eyes, not from inside their head
+  const lookOther = R.eye.clone().addScaledVector(fwd, 3 * ahead);
+  const lookFirst = R.eye.clone().addScaledVector(fwd, 10);
+  const t = performance.now() / 1000;                   // a very slight handheld sway, less when close
+  camera.position.add(new THREE.Vector3(Math.sin(t * 0.7), Math.sin(t * 1.1) * 0.7, Math.cos(t * 0.6)).multiplyScalar(0.015 * (1 - f)));
+  camera.lookAt(lookOther.lerp(lookFirst, f));
+  m.F.fig.visible = dd > 1.0;
 }
 $("#reliveBtn").onclick = () => {
   let who = $("#spec").value;
@@ -3123,11 +3202,13 @@ $("#reliveBtn").onclick = () => {
 // library backup saved at or before the time shown (playerdata), labelled with how old it is.
 const INV = { who: "", tab: "inv", backup: {}, want: "", busy: false, last: 0, open: false };
 function itemImg(item) {                                // the item's icon from the game, or its block's texture
-  const im = document.createElement("img"); im.alt = im.title = item.replace(/_/g, " ");
-  im.src = `blocktex/0/item/${item}.png`;
-  im.onerror = () => { if (!im.dataset.b) { im.dataset.b = 1; im.src = `blocktex/0/block/${item}.png`; } else {   // no flat picture (a block with sides): its name, short
-    const l = document.createElement("span"); l.className = "lbl"; l.style.color = "#fff"; l.textContent = item.replace(/_/g, " ").slice(0, 10); im.replaceWith(l); } };
-  return im;
+  const box = document.createElement("div"); box.className = "ic"; box.title = item.replace(/_/g, " ");
+  const im = document.createElement("img"); im.alt = box.title;
+  im.src = `itemtex/0/${item}.png`;                     // as the game's hotbar shows it (animated ones: the first frame)
+  im.onerror = () => {                                  // drawn by the game's code (shields, beds, heads): its name
+    const l = document.createElement("span"); l.className = "lbl"; l.style.color = "#fff"; l.textContent = item.replace(/_/g, " ").slice(0, 12); box.replaceWith(l); };
+  box.append(im);
+  return box;
 }
 function slotEl(v, opts = {}) {                         // v: [item, count] or null
   const d = document.createElement("div"); d.className = "slot" + (opts.sel ? " sel" : "") + (opts.exact ? " exact" : "");
@@ -3166,7 +3247,7 @@ function backupNote(b) {
 async function invStep(now) {
   if (now - INV.last < 250) return; INV.last = now;
   const who = invWho(), hb = $("#hotbar");
-  hb.hidden = !who;
+  hb.hidden = !who || (RELIVE.on && RELIVE.phase === "load");
   if (!who) { if (INV.open) $("#invBox").hidden = true; return; }
   const ex = exactHotbar(who), b = await invBackup(who, T);
   const bs = b && b.available ? b.slots : {};
@@ -3252,6 +3333,7 @@ addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
   if (e.code === "Backquote") { setDev(!DEV.on); return; }
   if (e.code === "Escape" && RELIVE.on) { reliveExit(); return; }
+  if (RELIVE.on && (e.code === "KeyV" || e.code === "F5")) { e.preventDefault(); reliveView(); return; }
   if (RELIVE.on && e.code !== "Backquote") return;                         // a memory plays on its own
   if (e.code === "Escape" && SHOT.preview) { SHOT.preview = false; setPlaying(false); controls.enabled = true; toastStatus("Preview stopped."); return; }
   if (e.code === "Escape" && SPEC.name) { setSpec(""); for (const m of Object.values(markers)) m.F.fig.visible = true; return; }

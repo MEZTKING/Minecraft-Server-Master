@@ -311,7 +311,10 @@ spectate (or the one nearest the view) carries. While you spectate or relive som
 shown above the timeline, with the slot they hold outlined:
 
 - **The hotbar is exact** when the player's own recording covers the time: the recordings keep every hotbar
-  slot when they start and whenever one changes, and which slot is held. Exact slots have a green dot.
+  slot when they start and whenever one changes, and which slot is held. Exact slots have a green dot. What
+  they hold in their hand is then the selected slot's item too.
+- Items look as in the game's hotbar (read from the game's item models: block items show their block).
+  Shields, beds, chests and heads, which the game draws with its own code, show their name.
 - **Everything else comes from a backup**: the main inventory, armour, off hand and the **Ender chest** tab,
   from the player's save in the library backup taken at or before the time shown. The panel says which backup
   and how long before it was, and the health, food and level saved then.
@@ -451,11 +454,17 @@ Spectating switches to exact playback (1×). **Esc** stops.
 *Spectate*, for the next minute of the player you spectate or the one nearest the view) replays it as if you
 were there again:
 
-- The screen goes white with when, where and who was there, while the recordings and blocks load.
+- The screen goes white with when, where and who was there, while their recording and the blocks around them
+  load (up to 30 seconds the first time).
 - The camera drifts down from above and behind into the player's eyes (with *First person*) or over their
-  shoulder (with *Behind*), soft and a little handheld.
-- No panels: a letterbox, a warm haze closing in at the edges, and what anyone near says as subtitles with
-  their name. Only the names of people close by are shown.
+  shoulder (with *Behind*). Their position and look are smoothed, so it plays like a video.
+- **V** (or **F5**, as in the game) switches the view: their eyes, over the shoulder, or facing them. The camera
+  swings round to the new view, and like the game's own camera it stops in front of a wall between it and the
+  player (with no room at all, it looks out from their eyes).
+- It opens with a memory look (a warm haze closing in, a soft vignette, warmer colours) that fades away a few
+  seconds in, so the rest plays as it was; it comes back for the ending.
+- No panels: a letterbox, their hotbar, and what anyone near says as subtitles with their name. Only the names
+  of people close by are shown.
 - On a moment, time slows to a third for a few seconds around its key event (a death, an advancement, a first).
 - At the end it fades back to white with the caption, then puts the viewer back as it was. **Esc** leaves any
   time.

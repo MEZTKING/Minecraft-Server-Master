@@ -606,6 +606,45 @@ class Look:
         self.infos.append(info)
         return self.index[state]
 
+    def item_texture(self, item: str) -> str | None:
+        """The picture the game shows for *item* in a hotbar: its item definition (``items/<id>.json``, 1.21.4+:
+        the first plain model, through selects and conditions to their fallback) or the older ``models/item/<id>``,
+        then that model's ``layer0``; a block item takes its block's side (or only) texture."""
+        item = item.replace("minecraft:", "")
+        if not item or not all(c.isalnum() or c in "_-." for c in item):
+            return None
+
+        def first_model(d, depth=0):
+            if not isinstance(d, dict) or depth > 8:
+                return None
+            if d.get("type", "").endswith("model") and isinstance(d.get("model"), str):
+                return d["model"]
+            if d.get("type", "").endswith("special"):          # drawn by the game's code (shield, bed, chest, head)
+                return "#special"
+            for k in ("fallback", "on_false", "on_true", "model"):
+                m = first_model(d.get(k), depth + 1)
+                if m:
+                    return m
+            for key in ("cases", "entries", "models"):
+                for c in d.get(key) or []:
+                    m = first_model(c.get("model") if isinstance(c, dict) and "model" in c and isinstance(c.get("model"), dict) else c, depth + 1)
+                    if m:
+                        return m
+            return None
+        if self.has_texture(f"item/{item}"):                 # most items: their own picture
+            return f"item/{item}"
+        d = self._json(f"assets/minecraft/items/{item}.json")
+        name = first_model(d.get("model")) if d else None
+        if name == "#special":
+            return None
+        name = (name or f"item/{item}").replace("minecraft:", "")
+        tx = self._model(name)["textures"]
+        for key in ("layer0", "side", "all", "texture", "front", "top", "end", "cross"):   # not "particle" (beds: planks)
+            t = self._tex(tx, tx.get(key)) if key in tx else None
+            if t and self.has_texture(t.replace("minecraft:", "")):
+                return t.replace("minecraft:", "")
+        return f"block/{item}" if self.has_texture(f"block/{item}") else None
+
     def texture_png(self, tex: str) -> bytes | None:
         if not self.zf:
             return None

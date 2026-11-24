@@ -1543,8 +1543,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
-- **Relive**: **Relive** on a moment in the list (e.g. one of the 24 May ones), and the **Relive** button by
-  Spectate. Try both *First person* and *Behind*. Does it feel like a memory?
+- **Relive** (reworked 2026-11-24): **Relive** on a moment, or the **Relive** button by Spectate (e.g. Vakirath,
+  24 May 16:02). Press **V** (or F5) to switch views; the memory look should fade after a few seconds; the camera
+  shouldn't go through him or into walls; the hotbar and what he holds should match.
 - **Build-in effect**: zoom in somewhere new and watch the grid, then the blocks rising.
 - **Inventory**: spectate someone and press **E** (or **Inventory**); the hotbar above the timeline. Try the
   ender chest tab. Do they match what you remember having?
@@ -1667,6 +1668,17 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Relive, after the owner's first look ("how to switch perspective in memory ... camera angle is a
+  bit off aswell as some inventory items and even what hes holding ... play more like a video then a
+  reconstruction"; "make the memory effect fade after a few seconds"): a camera rig that smooths the eyes and look
+  and places the camera by distance and angle (it swings round, never through the player); **V** / **F5** views
+  (eyes, over the shoulder, facing); the camera stops at walls (a ray through the real blocks); the memory look
+  fades between 3 and 6 s and comes back for the end; Relive waits until the blocks around the player are loaded;
+  no loading grid in a memory; caves only with the free camera (a player under a tree was taken as underground).
+  Held item = the selected hotbar slot when the hotbar is recorded. Item icons from the game's item models
+  (`Look.item_texture`, `/itemtex/<layer>/<item>.png`). A moment piece that fails is asked again after 20 s and
+  shows the backup's blocks meanwhile (it used to stay missing).
 
 - **2026-11-24:** Relive a moment as a memory (owner: "replay the moment as if you were there again like a memory
   scene"); the build-in effect for real blocks and the loading grid (owner: "make the loading of terrain very cool

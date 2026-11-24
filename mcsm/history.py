@@ -1145,6 +1145,14 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.texture(name) if bw else None
+        if path.startswith("/itemtex/") and path.endswith(".png"):        # /itemtex/<layer>/<item>.png: as in the hotbar
+            layer, _, item = path[len("/itemtex/"):-4].partition("/")
+            try:
+                bw = self.layer_world(int(layer))
+            except ValueError:
+                return None
+            tex = bw.look().item_texture(item) if bw else None
+            return bw.texture(tex) if tex else None
         if not path.startswith("/tl3d/"):
             return None
         mid, _, rest = path[len("/tl3d/"):].partition("/")
