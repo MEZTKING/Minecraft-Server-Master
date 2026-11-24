@@ -619,6 +619,17 @@ class Look:
         icon = self.item_icon(item)
         return icon["tex"] if icon else None
 
+    def _display(self, name: str, depth: int = 0) -> dict | None:
+        """How the game holds an item model in a right hand in third person: ``{rotation, translation, scale}`` from
+        the model's ``display.thirdperson_righthand`` (or its parents'); None when no model says."""
+        if depth > 10 or not name:
+            return None
+        m = self._json(f"assets/minecraft/models/{name.replace('minecraft:', '')}.json") or {}
+        disp = (m.get("display") or {}).get("thirdperson_righthand")
+        if isinstance(disp, dict):
+            return {k: disp.get(k, d) for k, d in (("rotation", [0, 0, 0]), ("translation", [0, 0, 0]), ("scale", [1, 1, 1]))}
+        return self._display(m["parent"], depth + 1) if isinstance(m.get("parent"), str) else None
+
     def item_icon(self, item: str) -> dict | None:
         """The picture the game shows for *item* in a hotbar: its item definition (``items/<id>.json``, 1.21.4+:
         the first plain model, through selects and conditions to their fallback) or the older ``models/item/<id>``,
@@ -644,10 +655,11 @@ class Look:
                     if m:
                         return m
             return None
-        if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            return {"tex": f"item/{item}", "cube": False}
         d = self._json(f"assets/minecraft/items/{item}.json")
         name = first_model(d.get("model")) if d else None
+        hand = self._display(name if name and name != "#special" else f"item/{item}")
+        if self.has_texture(f"item/{item}"):                 # most items: their own picture
+            return {"tex": f"item/{item}", "cube": False, "hand": hand}
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")
@@ -665,10 +677,10 @@ class Look:
             side = pick("side", "all", "north", "front", "texture", "end", "top")
             if side:
                 return {"tex": side, "cube": True, "top": pick("top", "up", "end", "all") or side,
-                        "bottom": pick("bottom", "down", "end", "all") or side}
+                        "bottom": pick("bottom", "down", "end", "all") or side, "hand": hand}
         t = pick("layer0", "side", "all", "texture", "front", "top", "end", "cross")   # not "particle" (beds: planks)
         if t:
-            return {"tex": t, "cube": False}
+            return {"tex": t, "cube": False, "hand": hand}
         return {"tex": f"block/{item}", "cube": False} if self.has_texture(f"block/{item}") else None
 
     def texture_png(self, tex: str) -> bytes | None:

@@ -178,6 +178,13 @@ body.relive #relive .sub { display: none; }
 #clock { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 190px; }
 #canvasWrap { position: relative; margin-top: 8px; height: 92px; cursor: crosshair; touch-action: none; }
 #tl { width: 100%; height: 100%; display: block; }
+#fineRow { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+#fineStrip { position: relative; flex: 1; height: 30px; border-radius: 6px; background: var(--track); cursor: ew-resize;
+  touch-action: none; overflow: hidden; }
+#fineCv { width: 100%; height: 100%; display: block; }
+#fineMid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+#fineLbl { position: absolute; left: 50%; top: 2px; transform: translateX(6px); font-size: 11px; color: var(--text-2);
+  pointer-events: none; font-variant-numeric: tabular-nums; }
 #cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
 #hoverTip { position: absolute; top: -26px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border);
   border-radius: 6px; padding: 2px 6px; font-size: 11px; pointer-events: none; white-space: nowrap; }
@@ -200,6 +207,16 @@ body.relive #relive .sub { display: none; }
 #lightBox .lgrid span { font-variant-numeric: tabular-nums; color: var(--text-2); text-align: right; }
 #chgList li:hover { background: var(--chip); }
 #chgList .sw { align-self: center; }
+/* Activity: everything loading or being made, each with what it's doing and how far */
+#jobs { position: fixed; right: 12px; bottom: 196px; width: 300px; z-index: 9; padding: 8px 10px; font-size: 12px; }
+#jobs .h { font-weight: 600; margin-bottom: 4px; }
+#jobs .job { margin: 6px 0; }
+#jobs .job .bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 3px; }
+#jobs .job .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+#jobs .job .bar.busy i { width: 35% !important; animation: jobSlide 1.2s ease-in-out infinite; }
+@keyframes jobSlide { from { margin-left: -35%; } to { margin-left: 100%; } }
+#jobs .meta { color: var(--text-2); }
+body.relive #jobs, body.clean #jobs { display: none !important; }
 #loadCard { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
   padding: 10px 12px; z-index: 6; }
 #loadCard h3 { margin: 0 0 6px; font-size: 13px; }
@@ -252,6 +269,7 @@ body.relive #relive .sub { display: none; }
   <h4 style="margin:12px 0 6px">Every map</h4>
   <div class="all" id="mapAll"></div>
 </div>
+<div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
 <div id="mcHud" hidden></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
@@ -519,6 +537,14 @@ body.relive #relive .sub { display: none; }
     <input id="goPick" type="datetime-local" step="1" title="Pick a day and time">
   </div>
   <div id="canvasWrap"><canvas id="tl"></canvas><div id="cursor"></div><div id="hoverTip" hidden></div></div>
+  <div id="fineRow" title="Fine scrubbing: drag along this strip to move time slowly (the strip spans the time chosen on the right); the buttons step a second or a single game tick">
+    <button type="button" id="fsBack1" title="One second back (Shift+,)">◀◀ 1 s</button>
+    <button type="button" id="fsBackT" title="One game tick back (,)">◀ tick</button>
+    <div id="fineStrip"><canvas id="fineCv"></canvas><div id="fineMid"></div><span id="fineLbl"></span></div>
+    <button type="button" id="fsFwdT" title="One game tick on (.)">tick ▶</button>
+    <button type="button" id="fsFwd1" title="One second on (Shift+.)">1 s ▶▶</button>
+    <select id="fineSpan" title="How much time the strip spans"><option value="10000">10 s</option><option value="60000" selected>1 min</option><option value="300000">5 min</option></select>
+  </div>
   <div class="legend">
     <span><i style="background:var(--accent);opacity:.35"></i>online (from logs)</span>
     <span><i style="background:var(--accent)"></i>recording (one row per player, in their colour)</span>
@@ -1837,7 +1863,7 @@ function extrudedGeometry(t, size) {
   extruded.set(key, g);
   return g;
 }
-async function heldItem(item, px, look = null) {
+async function heldItem(item, px, look = null, opts = {}) {
   if (/_banner$/.test(item)) {                          // a banner held: a small flag on its pole, its patterns painted
     const base = item.replace(/_banner$/, "");
     const g = new THREE.Group();
@@ -1864,29 +1890,47 @@ async function heldItem(item, px, look = null) {
     return hold;
   }
   const ic = await itemInfo(item);
-  if (ic && ic.cube) {
+  let obj;
+  if (ic && ic.cube) {                                  // a block: the block, at the model's size
     const [side, top, bottom] = await Promise.all([texOnce(ic.tex), texOnce(ic.top || ic.tex), texOnce(ic.bottom || ic.tex)]);
     if (!side) return null;
     const mat = (t, tint) => new THREE.MeshLambertMaterial({ map: t || side, alphaTest: 0.3, color: tint || 0xffffff,
       emissive: 0xffffff, emissiveMap: t || side, emissiveIntensity: 0.3 });
     const grass = /grass_block_top|leaves/.test(ic.top || "") ? 0x7cbd6b : null;
     const sm = mat(side);
-    const b = new THREE.Mesh(new THREE.BoxGeometry(6 * px, 6 * px, 6 * px), [sm, sm, mat(top, grass), mat(bottom), sm, sm]);
-    const g = new THREE.Group(); g.add(b);
-    b.rotation.set(0.35, Math.PI / 4, 0);               // a little tilted, a corner forward, like the game
-    g.position.set(0, -10 * px, 3 * px);
-    return g;
+    obj = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [sm, sm, mat(top, grass), mat(bottom), sm, sm]);
+  } else {
+    // the picture made solid like the game's item models: front and back, and an edge on every pixel that borders
+    // an empty one; a bow or crossbow being drawn shows the game's pulling picture
+    const t = opts.tex ? (await texOnce(opts.tex)) || (await itemTexture(item)) : await itemTexture(item);
+    if (!t) return null;
+    obj = new THREE.Mesh(extrudedGeometry(t, 1), new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
+      emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // lit a little by itself: never black edge-on
   }
-  const t = await itemTexture(item);
-  if (!t) return null;
-  // the picture made solid like the game's item models: front and back, and an edge on every pixel that borders an
-  // empty one (a spyglass, sword or bow is then a thin solid, not a card)
-  const g = extrudedGeometry(t, 10 * px).translate(3 * px, 3 * px, 0);   // the grip (an icon's lower left) at the fist
-  const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
-    emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // lit a little by itself so it never turns black edge-on
-  // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
-  q.position.set(0, -10 * px, 1 * px); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
-  return q;
+  obj.matrixAutoUpdate = false;
+  obj.matrix.copy(handMatrix((ic && ic.hand) || { rotation: [0, 0, 0], translation: [0, 3, 1], scale: [0.55, 0.55, 0.55] },
+    px, !!opts.left, opts.pivot || 0));
+  return obj;
+}
+// Where the game puts an item in a hand in third person (ItemInHandLayer, then the model's thirdperson_righthand
+// display transform, mirrored for the left hand), worked out in the game's model space (y down, front -z, 16 units a
+// block) and turned into ours (y up, front +z). *pivot*: how far our arm's pivot is from the game's, in pixels
+// (players: the arm's middle vs the shoulder joint); the item model is centred (the game's -0.5 offset).
+function handMatrix(d, px, left, pivot) {
+  const D = Math.PI / 180, flip = left ? -1 : 1, M = new THREE.Matrix4(), T = new THREE.Matrix4();
+  M.makeRotationX(-90 * D);
+  M.multiply(T.makeRotationY(180 * D));
+  M.multiply(T.makeTranslation(flip / 16, 0.125, -0.625));
+  const tr = d.translation || [0, 0, 0], ro = d.rotation || [0, 0, 0], sc = d.scale || [1, 1, 1];
+  M.multiply(T.makeTranslation(flip * tr[0] / 16, tr[1] / 16, tr[2] / 16));
+  M.multiply(T.makeRotationFromEuler(new THREE.Euler(ro[0] * D, flip * ro[1] * D, flip * ro[2] * D, "XYZ")));
+  M.multiply(T.makeScale(sc[0], sc[1], sc[2]));
+  // into ours: the game's units (a block) to our pixels, y and z turned round, and the pivot difference
+  const out = new THREE.Matrix4().makeTranslation(flip * pivot * px, -2 * px * (pivot ? 1 : 0), 0);
+  out.multiply(T.makeScale(16 * px, 16 * px, 16 * px));
+  out.multiply(T.makeRotationX(Math.PI));             // (x, y, z) -> (x, -y, -z)
+  out.multiply(M);
+  return out;
 }
 const ARMOUR = /^(leather|chainmail|iron|golden|diamond|netherite|copper|turtle)_(helmet|chestplate|leggings|boots)$/;
 function armourBoxes(slot, mat) {                        // the armour shell (the player model's boxes, a bit larger)
@@ -1912,7 +1956,8 @@ async function setGear(m, slot, v) {
   if (!item) return;
   const objs = [];
   if (slot === "mainhand" || slot === "offhand") {
-    const q = await heldItem(item, PX, v[3] || null);
+    const aw = m.F.slim ? 3 : 4;                          // our arm's pivot is its middle; the game's is 1 px further in
+    const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: aw / 2 - 1 + 0.0001, tex: v[4] || null });
     if (!q || m.F !== F || F.tok[slot] !== mine) return;
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
   } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
@@ -1947,6 +1992,16 @@ async function setGear(m, slot, v) {
   }
   F.gear[slot] = objs;
 }
+// how far a bow (20 ticks to full) or crossbow (25) has been drawn: the game's picture 0, 1 or 2, or null (not drawing)
+function pullStage(name, item) {
+  const f = EXACT.on && EXACT.ev[name] && EXACT.ev[name].h;
+  if (!f || !f.length) return null;
+  let i = lower(f, T, r => r[0]) - 1;
+  if (i < 0 || !(f[i][1] & 1)) return null;
+  while (i > 0 && (f[i - 1][1] & 1)) i--;                 // when they started using it
+  const pull = (T - f[i][0]) / 50 / (item === "bow" ? 20 : 25);
+  return item === "bow" ? (pull < 0.65 ? 0 : pull < 0.9 ? 1 : 2) : (pull < 0.58 ? 0 : pull < 1 ? 1 : 2);
+}
 function updateGear(m) {
   const exact = m.cur && m.cur.exact;
   for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet"]) {
@@ -1955,7 +2010,11 @@ function updateGear(m) {
       const sel = stateAt(m.name, "hs", T, null), hv = sel !== null ? stateAt(m.name, `hb:${sel}`, T, null) : null;
       if (sel !== null && EXACT.ev[m.name] && EXACT.ev[m.name][`hb:${sel}`]) v = hv && hv[0] ? hv : null;
     }
-    const key = gearKey(v);
+    if (exact && slot === "mainhand" && v && /^(bow|crossbow)$/.test(v[0])) {   // drawing a bow: the game's pulling picture
+      const st = pullStage(m.name, v[0]);
+      if (st !== null) v = [v[0], v[1], v[2], v[3], `item/${v[0]}_pulling_${st}`];
+    }
+    const key = gearKey(v) + (v && v[4] ? "|" + v[4] : "");
     m.gearKeys = m.gearKeys || {};
     if (m.gearKeys[slot] !== key || (m.gearFig !== m.F)) { m.gearKeys[slot] = key; setGear(m, slot, v); }
   }
@@ -1975,7 +2034,7 @@ async function setMobGear(o, slot, v) {
   const item = v && v[0], P = o.parts; if (!item || !P) return;
   if (slot === "mainhand" || slot === "offhand") {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
-    const q = await heldItem(item, MPX, v[3] || null); if (!q || o.gtok[slot] !== mine) return;
+    const q = await heldItem(item, MPX, v[3] || null, { left: slot === "offhand" }); if (!q || o.gtok[slot] !== mine) return;
     arm.g.add(q); o.gear[slot].push(q); return;
   }
   if (slot === "head" && /_banner$/.test(item) && P.head) {
@@ -2469,6 +2528,36 @@ wrap.addEventListener("pointerdown", e => {
   DRAG.x = e.clientX; DRAG.t = T;
   if (!(e.shiftKey || e.ctrlKey)) seek(timeAtX(e.clientX), false);   // a fine drag starts from where you are
 });
+// the fine strip: the time around now, with a mark each second (each tick when it spans 10 s); dragging it moves the
+// time by as much as the strip shows (so 1 min across the strip: a few pixels are a fraction of a second)
+const FINE = { drag: false, x: 0, t: 0, lastT: -1, lastW: 0 };
+function drawFine() {
+  const cvf = $("#fineCv"), r = cvf.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  if (!r.width) return;
+  if (cvf.width !== Math.round(r.width * dpr)) { cvf.width = Math.round(r.width * dpr); cvf.height = Math.round(r.height * dpr); }
+  const span = +$("#fineSpan").value, W = cvf.width, Hh = cvf.height, g = cvf.getContext("2d");
+  g.clearRect(0, 0, W, Hh);
+  const a = T - span / 2, step = span <= 10_000 ? 50 : span <= 60_000 ? 1000 : 5000, big = span <= 10_000 ? 1000 : span <= 60_000 ? 10_000 : 60_000;
+  g.fillStyle = css("--text-2");
+  for (let t = Math.ceil(a / step) * step; t <= a + span; t += step) {
+    const x = (t - a) / span * W, major = t % big === 0;
+    g.globalAlpha = major ? 0.9 : 0.35; g.fillRect(Math.round(x), major ? Hh * 0.35 : Hh * 0.6, dpr, Hh);
+  }
+  g.globalAlpha = 1;
+  $("#fineLbl").textContent = new Date(T).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    + "." + String(Math.floor(T % 1000)).padStart(3, "0");
+}
+const fineEl = $("#fineStrip");
+fineEl.addEventListener("pointerdown", e => { FINE.drag = true; FINE.x = e.clientX; FINE.t = T; setPlaying(false); fineEl.setPointerCapture(e.pointerId); });
+fineEl.addEventListener("pointermove", e => {
+  if (!FINE.drag) return;
+  const w = fineEl.getBoundingClientRect().width, span = +$("#fineSpan").value;
+  seek(FINE.t - (e.clientX - FINE.x) / w * span, false);   // drag the strip like film: right goes back in time
+});
+fineEl.addEventListener("pointerup", () => { FINE.drag = false; });
+fineEl.addEventListener("wheel", e => { e.preventDefault(); setPlaying(false); seek(T + Math.sign(e.deltaY) * (e.shiftKey ? 1000 : 50), false); }, { passive: false });
+const stepBy = ms => () => { setPlaying(false); seek(T + ms, false); };
+$("#fsBack1").onclick = stepBy(-1000); $("#fsBackT").onclick = stepBy(-50); $("#fsFwdT").onclick = stepBy(50); $("#fsFwd1").onclick = stepBy(1000);
 // fine scrubbing: Shift (or Ctrl) held while dragging moves the time 20 times slower than the pointer
 const DRAG = { x: 0, t: 0 };
 wrap.addEventListener("pointermove", e => {
@@ -2700,7 +2789,8 @@ $("#hlExport").onclick = async () => {
     $("#hlProgText").textContent = j.running
       ? `${Math.round(pc)}% · ${mb(j.done)} of ${mb(j.total)} MB${j.left_s != null ? ` · about ${hms(j.left_s * 1000)} left` : ""} · ${j.message || ""}`
       : "";
-    if (j.running) { setTimeout(tick, 700); return; }
+    if (j.running) { job("export", "Exporting highlights", j.total ? j.done / j.total : null, j.message || ""); setTimeout(tick, 700); return; }
+    job("export");
     $("#hlProg").hidden = true; $("#hlExport").disabled = !HL.highlights.length;
     if (j.error) { $("#hlStatus").textContent = `Export failed: ${j.error}`; return; }
     showCopies(j.result);
@@ -3694,6 +3784,35 @@ $("#invClose").onclick = () => invToggle(false);
 $("#invTabInv").onclick = () => { INV.tab = "inv"; INV.invKey = ""; };
 $("#invTabEnder").onclick = () => { INV.tab = "ender"; INV.invKey = ""; };
 
+// ---------- Activity: everything working in the background, in one card ----------
+// Anything long calls job(id, title, fraction or null (busy), detail) while it runs and job(id) when it's done.
+const JOBS = new Map();
+function job(id, title, frac, detail = "") {
+  if (title === undefined) JOBS.delete(id); else JOBS.set(id, { title, frac, detail });
+  const list = $("#jobList"); $("#jobs").hidden = !JOBS.size;
+  list.replaceChildren(...[...JOBS.values()].map(j => {
+    const d = document.createElement("div"); d.className = "job";
+    const t = document.createElement("div"); t.textContent = j.title + (j.frac != null ? ` · ${Math.round(100 * j.frac)}%` : "");
+    const b = document.createElement("div"); b.className = "bar" + (j.frac == null ? " busy" : "");
+    const i = document.createElement("i"); i.style.width = `${Math.round(100 * (j.frac || 0))}%`; b.append(i);
+    const m = document.createElement("div"); m.className = "meta"; m.textContent = j.detail;
+    d.append(t, b, m); return d;
+  }));
+}
+// the steady ones, looked at a few times a second: recordings being read, real blocks being built, maps being found
+let jobsLast = 0;
+function jobsStep(now) {
+  if (now - jobsLast < 400) return; jobsLast = now;
+  if (EXACT.busy || EXACT.pending) job("exact", "Reading the recordings of this moment", null,
+    EXACT.pending ? `${EXACT.pending} still being read in full (the first time takes a while)` : "");
+  else job("exact");
+  const want = realWanted().length, have = realWanted().filter(([x, z]) => REAL.tiles.has(`${x},${z}`)).length;
+  if ($("#realOn").checked && (REAL.busy || have < want) && want) job("real", "Building real blocks", want ? have / want : null, `${have} of ${want} pieces here`);
+  else job("real");
+  if (MAPS.data && !MAPS.data.ready) job("maps", "Finding the maps on walls", null, "about half a minute the first time");
+  else job("maps");
+}
+
 // ---------- a clean view (F1) and pictures (F2), as in the game ----------
 function setClean(on = !document.body.classList.contains("clean")) {
   document.body.classList.toggle("clean", on);
@@ -3720,16 +3839,18 @@ $("#watchFbBtn").onclick = async () => {
   if (!who) { let best = 1e9; const f = FREE.on ? camera.position : controls.target;
     for (const [n, o] of Object.entries(markers)) if (o.group.visible) { const d = o.group.position.distanceTo(f); if (d < best) { best = d; who = n; } } }
   const b = $("#watchFbBtn"); b.disabled = true;
+  job("watch", "Watch in Flashback", null, `Finding ${who || "the"} recording…`);
   try { await post("api/flashback/watch", { t: Math.round(T), player: who }); }
-  catch (e) { toastStatus(`Couldn't: ${e.message}`); b.disabled = false; return; }
+  catch (e) { toastStatus(`Couldn't: ${e.message}`); job("watch"); b.disabled = false; return; }
   const tick = async () => {
     let j; try { j = await (await fetch("api/highlights/export/job")).json(); } catch (e) { setTimeout(tick, 1500); return; }
     if (j.running) {
       const pc = j.total ? Math.round(100 * j.done / j.total) : 0;
       toastStatus(`Watch in Flashback: ${j.message || ""} ${pc}%${j.left_s != null ? ` · about ${hms(j.left_s * 1000)} left` : ""}`);
+      job("watch", "Watch in Flashback", j.total ? j.done / j.total : null, `${j.message || ""}${j.left_s != null ? ` · about ${hms(j.left_s * 1000)} left` : ""}`);
       setTimeout(tick, 600); return;
     }
-    b.disabled = false;
+    job("watch"); b.disabled = false;
     if (j.error) { toastStatus(`Watch in Flashback: ${j.error}`); return; }
     const r = j.result;
     toastStatus(r.installed
@@ -4267,6 +4388,8 @@ function frame(now) {
   worldStep(now, dt);
   if (RELIVE.on) reliveStep(dt);
   invStep(now);                                        // the hotbar and inventory of who you watch
+  jobsStep(now);                                       // the Activity card
+  if (T !== FINE.lastT || now - FINE.lastW > 1000) { FINE.lastT = T; FINE.lastW = now; drawFine(); }   // the fine strip
   hudStep(now);                                        // reliving: the game's own HUD
   explStep(now);                                       // explosions (from the Ledger log)
   mapsStep(now);                                       // maps on their item frames

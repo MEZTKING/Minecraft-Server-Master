@@ -1378,7 +1378,8 @@ class TestPosesAndMobs(unittest.TestCase):
             fb = os.path.join(tmp, "flashback")
             fake = types.SimpleNamespace(data=types.SimpleNamespace(replays=reps), replay_file=lambda r: r.path,
                                          flashback_pick=lambda r: fb, flashback_dir=None,
-                                         highlights=types.SimpleNamespace(path=os.path.join(tmp, "h.json")))
+                                         highlights=types.SimpleNamespace(path=os.path.join(tmp, "h.json")),
+                                         what_happened=lambda t, w: "Steve was shot by Skeleton")
             t = int((start + timedelta(minutes=7)).timestamp() * 1000)     # tick 8400: in part 1
             job = {"done": 0, "total": 0}
             r = history.HistoryMap.watch_in_flashback(fake, t, "Steve", job)
@@ -1387,7 +1388,7 @@ class TestPosesAndMobs(unittest.TestCase):
                 meta = json.loads(z.read("metadata.json"))
             self.assertEqual(sorted(meta["chunks"]), ["c0.flashback"])   # only part 1 (6 to 9 minutes in), renumbered
             self.assertEqual(list(meta["markers"]), [str(8400 - 6000)])              # the marker at that moment
-            self.assertTrue(meta["name"].startswith("Steve at "))
+            self.assertTrue(meta["name"].startswith("Steve at ") and meta["name"].endswith(": Steve was shot by Skeleton"))
             self.assertTrue(os.path.isfile(os.path.join(fb, "editor_states", f"{meta['uuid']}.json")))
             self.assertEqual(job["done"], job["total"])
         finally:

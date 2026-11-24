@@ -1525,6 +1525,29 @@ class HistoryMap(TerrainServer):
             return {"message": fbm.launch_instance(pick["name"])}
         return None
 
+    def what_happened(self, t: int, who: str | None = None, around_ms: int = 90_000) -> str:
+        """A few words on what happened near *t*: the nearest death, then advancement, then other notable event
+        (theirs first), else who was there; for names of copies."""
+        from . import models as m
+        rank = {m.EV_DEATH: 0, m.EV_ADVANCEMENT: 1, m.EV_SERVER_CHAT: 2, m.EV_ME: 3, m.EV_CHAT: 4, m.EV_JOIN: 5, m.EV_LEAVE: 5}
+        best = None
+        for e in self.data.events:
+            if e.type not in rank or e.time is None:
+                continue
+            d = abs(e.time.timestamp() * 1000 - t)
+            if d > around_ms:
+                continue
+            key = (rank[e.type], e.player != who, d)
+            if best is None or key < best[0]:
+                best = (key, e)
+        if best:
+            e = best[1]
+            text = (e.text or "").strip()
+            if e.type == m.EV_CHAT and e.player:
+                text = f'{e.player}: "{text}"'
+            return text[:70] + ("…" if len(text) > 70 else "")
+        return ""
+
     def watch_in_flashback(self, t: int, who: str, job: dict) -> dict:
         """A short copy of the recording at *t* (the one *who* made, else one that covers it), from a minute before
         to two after, with a marker at t, in the Flashback of its Minecraft version; then that Minecraft is started."""
@@ -1540,7 +1563,8 @@ class HistoryMap(TerrainServer):
         total = int(r.raw_meta.get("total_ticks") or 0) or int(r.duration_ms / 50)
         at = max(0, min(total, round((t - r0) / 50)))
         when = datetime.fromtimestamp(t / 1000).strftime("%d %b %H.%M.%S")
-        shown = f"{r.recorded_player or 'recording'} at {when}"
+        what = self.what_happened(t, r.recorded_player)
+        shown = f"{r.recorded_player or 'recording'} at {when}" + (f": {what}" if what else "")
         os.makedirs(os.path.join(fb, "replays"), exist_ok=True)
         dst = os.path.join(fb, "replays", hl._safe(shown) + " (watch).zip")
         n = 2
