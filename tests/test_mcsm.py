@@ -3702,6 +3702,79 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_maps(self):
+        """Maps: the colour bytes with the game's shades, a PNG, both file layouts, and maps in item frames
+        (26.x components and the older tag) found in an entities region."""
+        import zlib
+        from mcsm import mapart, nbt, terrain
+        tmp = tempfile.mkdtemp()
+        try:
+            world = os.path.join(tmp, "world")
+            cols = bytes([0] * 100 + [1 * 4 + 2] * 16284)           # see-through, then grass at full shade
+            os.makedirs(os.path.join(world, "data", "minecraft", "maps"))
+            with open(os.path.join(world, "data", "minecraft", "maps", "7.dat"), "wb") as fh:
+                fh.write(nbt.dumps({"data": {"colors": nbt.Typed(nbt.TAG_BYTE_ARRAY, list(cols)), "xCenter": 64, "zCenter": -64, "scale": 1,
+                                             "dimension": "minecraft:overworld", "locked": 1}}))
+            with open(os.path.join(world, "data", "map_3.dat"), "wb") as fh:
+                fh.write(nbt.dumps({"data": {"colors": nbt.Typed(nbt.TAG_BYTE_ARRAY, list(cols)), "xCenter": 0, "zCenter": 0, "dimension": 0}}))
+            self.assertEqual(sorted(mapart.map_files(world)), [3, 7])
+            m = mapart.read_map(mapart.map_files(world)[7])
+            self.assertEqual((m["x"], m["z"], m["scale"], m["locked"], m["colors"][100]), (64, -64, 1, True, 6))
+            table = [[0, 0, 0, 0]] * 4 + [[0x7F * s // 255, 0xB2 * s // 255, 0x38 * s // 255, 255] for s in mapart.SHADES] + [[0, 0, 0, 0]] * 248
+            png = mapart.png(m["colors"], table)
+            self.assertTrue(png.startswith(b"\x89PNG") and b"IHDR" in png and b"IEND" in png)
+            raw = zlib.decompress(png[png.index(b"IDAT") + 4:png.index(b"IEND") - 8])
+            self.assertEqual(raw[1 + 100 * 4:1 + 101 * 4], bytes([0x7F, 0xB2, 0x38, 255]))   # row 0, pixel 100: grass
+            self.assertEqual(raw[1:5], bytes([0, 0, 0, 0]))                                     # see-through
+            ent = os.path.join(world, "entities", "r.0.0.mca")
+            terrain.write_region(ent, {(0, 0): {"Entities": [
+                {"id": "minecraft:glow_item_frame", "TileX": 5, "TileY": 70, "TileZ": 6, "Facing": 3, "ItemRotation": 1,
+                 "Item": {"id": "minecraft:filled_map", "count": 1, "components": {"minecraft:map_id": 7}}},
+                {"id": "minecraft:item_frame", "TileX": 6, "TileY": 70, "TileZ": 6, "Facing": 3,
+                 "Item": {"id": "minecraft:filled_map", "Count": 1, "tag": {"map": 3}}},
+                {"id": "minecraft:item_frame", "TileX": 7, "TileY": 70, "TileZ": 6, "Facing": 3,
+                 "Item": {"id": "minecraft:diamond", "count": 1}},
+                {"id": "minecraft:cow", "Pos": [1.0, 64.0, 1.0]}]}})
+            self.assertEqual(mapart.entity_regions(world, "minecraft:overworld"), [ent])
+            self.assertEqual(mapart.frames_in_region(ent),
+                             [{"map": 7, "x": 5, "y": 70, "z": 6, "facing": 3, "rot": 1, "glow": True},
+                              {"map": 3, "x": 6, "y": 70, "z": 6, "facing": 3, "rot": 0, "glow": False}])
+            d = mapart.world_maps(world, os.path.join(tmp, "cache"))
+            self.assertEqual(([m["id"] for m in d["maps"]], len(d["frames"])), ([7, 3], 2))
+            self.assertEqual(mapart.world_maps(world, os.path.join(tmp, "cache"))["stamp"], d["stamp"])   # kept
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_map_palette_from_class(self):
+        """The map colours from MapColor's static initialiser: new MapColor(id, rgb) for each colour."""
+        import struct as st
+        from mcsm import mapart
+        # a minimal class file: constants, then <clinit> doing new MapColor(1, 0x7FB238) ... for 31 colours
+        def utf(s):
+            b = s.encode()
+            return b"\x01" + st.pack(">H", len(b)) + b
+        cp = [utf("net/minecraft/world/level/material/MapColor"), b"\x07\x00\x01",            # 1, 2: class
+              utf("<init>"), utf("(II)V"), b"\x0c\x00\x03\x00\x04",                          # 3, 4, 5: name and type
+              b"\x0a\x00\x02\x00\x05", utf("<clinit>"), utf("()V"), utf("Code"),             # 6: method ref; 7, 8, 9
+              b"\x03" + st.pack(">i", 0x7FB238), utf("java/lang/Object"), b"\x07\x00\x0b"]  # 10: int; 11, 12
+        code = b""
+        for i in range(1, 32):
+            code += b"\xbb\x00\x02\x59" + b"\x10" + bytes([i]) + (b"\x12\x0a" if i == 1 else b"\x11" + st.pack(">h", i * 100)) + b"\xb7\x00\x06\x57"
+        code += b"\xb1"
+        attr = st.pack(">HHI", 2, 0, len(code)) + code + st.pack(">HH", 0, 0)
+        data = (b"\xca\xfe\xba\xbe" + st.pack(">HHH", 0, 52, len(cp) + 1) + b"".join(cp)
+                + st.pack(">HHHH", 0x21, 2, 12, 0) + st.pack(">H", 0)
+                + st.pack(">H", 1) + st.pack(">HHHH", 8, 7, 8, 1) + st.pack(">HI", 9, len(attr)) + attr + st.pack(">H", 0))
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            with zipfile.ZipFile(jar, "w") as z:
+                z.writestr("net/minecraft/world/level/material/MapColor.class", data)
+            p = mapart.palette_from_jar(jar)
+            self.assertEqual((len(p), p[1], p[2], p[31]), (31, 0x7FB238, 200, 3100))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_item_texture(self):
         """Hotbar pictures: the item's own picture, else its item definition's model (through a select to its
         fallback) and that model's texture; drawn-by-code items (special) have none."""

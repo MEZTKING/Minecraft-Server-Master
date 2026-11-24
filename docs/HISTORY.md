@@ -306,6 +306,20 @@ when it changes or every few minutes; until the first listing in a recording, th
 An elytra worn shows as folded wings on the back. Mobs hold and wear what they had too: a zombie's sword or
 helmet, a skeleton's bow, a piglin's golden sword, a drowned's trident.
 
+**Maps and map art.** Maps hang in the world where they hang in the game: every map in an item frame (or glow
+item frame) is drawn on its wall, floor or ceiling, turned as it was, close up where the real blocks are shown.
+**Maps** (next to *Inventory*) opens a gallery:
+
+- **Walls of maps**, each put together as it hangs (a wall of 3 x 3 maps is one picture), biggest first. Click
+  one to go and look at it.
+- **Every map** the backup has, newest first, with its scale (1:1 to 1:16). Click one to look down on the area
+  it shows.
+- **On walls in the world** turns the framed maps in the world on and off.
+
+The maps and frames come from the backup of the terrain shown (as the time slider moves, another backup's maps).
+The pictures are the maps' own saved colours, in the game's map colours read from the Minecraft installed on
+this PC. Finding the framed maps reads every entities file of the backup once (about half a minute; then kept).
+
 **Inventory and hotbar.** **Inventory** (next to *Relive*, or the **E** key) shows what the player you
 spectate (or the one nearest the view) carries. While you spectate or relive someone, their hotbar is also
 shown above the timeline, with the slot they hold outlined:

@@ -97,6 +97,21 @@ body.relive #hotbar { bottom: calc(9vh + 54px); }
 #invBox { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 22; padding: 12px; }
 #invBox .src { color: var(--text-2); text-shadow: none; }
 body.relive #invBox { display: none !important; }
+/* maps: a gallery of every map, walls of framed maps as they hang */
+#mapBox { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 22; padding: 12px;
+  width: min(940px, calc(100% - 32px)); max-height: 82vh; overflow: auto; }
+#mapBox .src { color: var(--text-2); font-size: 12px; margin: 4px 0 8px; }
+#mapWalls { display: flex; flex-wrap: wrap; gap: 14px; }
+.mwall { border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; }
+.mwall:hover { border-color: var(--accent); }
+.mwall .pic { position: relative; background: #6b5a45; }
+.mwall .pic img, #mapAll img { position: absolute; image-rendering: pixelated; }
+.mwall .cap, #mapAll .cap { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+#mapAll { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+#mapAll > div { cursor: pointer; }
+#mapAll .pic { position: relative; width: 92px; height: 92px; }
+#mapAll img { width: 92px; height: 92px; position: static; }
+body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.relive #panel, body.relive #timeline, body.relive #help, body.relive #dev, body.relive #storyCard,
 body.relive #loadCard, body.relive #tlv { display: none !important; }
@@ -179,6 +194,15 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
   <div class="gear" id="invGear"></div><div class="grid" id="invMain"></div><div class="grid hb" id="invHot"></div>
   <div class="src" id="invStats"></div>
 </div>
+<div id="mapBox" class="card" hidden>
+  <div class="row" style="margin-top:0;justify-content:space-between"><b>Maps</b>
+    <span><label title="Draw the maps on their item frames in the world (close up, where the real blocks are)"><input type="checkbox" id="mapFrames" checked> On walls in the world</label>
+    <button type="button" id="mapClose">✕</button></span></div>
+  <div class="src" id="mapSrc"></div>
+  <div id="mapWalls"></div>
+  <h4 style="margin:12px 0 6px">Every map</h4>
+  <div class="all" id="mapAll"></div>
+</div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div></div>
@@ -201,6 +225,7 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
     <select id="specMode" title="First person: through their eyes · Behind: a few blocks behind them"><option value="first">First person</option><option value="third">Behind</option></select>
     <button id="freeCam" type="button" title="Fly around like Flashback's free camera: hold a mouse button and drag to look, WASD to move, Space up, Shift down, Ctrl faster, scroll for speed (key F)">Free cam</button>
     <button id="theme" type="button">Theme</button>
+    <button id="mapBtn" type="button" title="Every map in the backup shown, and the walls of maps in item frames (also drawn on the walls in the world)">Maps</button>
     <button id="invBtn" type="button" title="What the spectated (or nearest) player carries: the hotbar exactly from their own recording, the rest from the nearest backup (E)">Inventory</button>
     <button id="reliveBtn" type="button" title="Relive the next minute through the chosen player's eyes, like a memory (Spectate picks who; Esc leaves)">Relive</button>
     <button id="reviewBtn" type="button" title="The server's year and each player's, as cards (opens in a new tab)" onclick="window.open('/review', '_blank')">Year in review</button>
@@ -1086,7 +1111,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -3289,6 +3314,141 @@ $("#invClose").onclick = () => invToggle(false);
 $("#invTabInv").onclick = () => { INV.tab = "inv"; INV.invKey = ""; };
 $("#invTabEnder").onclick = () => { INV.tab = "ender"; INV.invKey = ""; };
 
+// ---------- maps: every map of the backup shown, and maps on their item frames ----------
+// The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
+// background). In the world, each framed map is a picture on its wall where the real blocks are loaded; the
+// gallery shows every wall of framed maps put together as it hangs, and every map.
+const MAPS = { layer: null, data: null, asking: false, group: new THREE.Group(), meshes: new Map(), tex: new Map(), last: 0, open: false };
+scene.add(MAPS.group);
+const MAP_GEO = new THREE.PlaneGeometry(1, 1);
+const FACE = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];   // the frame's facing: down, up, north, south, west, east
+function mapTexture(layer, id) {
+  const k = `${layer}|${id}`;
+  if (!MAPS.tex.has(k)) {
+    const t = new THREE.TextureLoader().load(`maptex/${layer}/${id}.png`);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    MAPS.tex.set(k, t);
+  }
+  return MAPS.tex.get(k);
+}
+function mapFrameMesh(layer, f) {                       // the map's face, on the wall side of the frame's block
+  const n = FACE[f.facing] || FACE[3];
+  const m = new THREE.Mesh(MAP_GEO, new THREE.MeshBasicMaterial({ map: mapTexture(layer, f.map), transparent: true, alphaTest: 0.05,
+    color: f.glow ? 0xffffff : 0xdedede, side: THREE.FrontSide }));
+  const off = 0.5 - 1 / 16 - 0.003;                     // the frame is a pixel thick against the wall
+  m.position.set(f.x + 0.5 - n[0] * off, f.y + 0.5 - n[1] * off, f.z + 0.5 - n[2] * off);
+  if (f.facing === 1) m.rotation.set(-Math.PI / 2, 0, 0);
+  else if (f.facing === 0) m.rotation.set(Math.PI / 2, 0, 0);
+  else m.rotation.set(0, { 2: Math.PI, 3: 0, 4: -Math.PI / 2, 5: Math.PI / 2 }[f.facing], 0);
+  m.rotateZ(-(f.rot || 0) * Math.PI / 2);               // the map turned in its frame, a quarter at a time
+  m.renderOrder = 2;
+  return m;
+}
+async function mapsStep(now) {
+  if (now - MAPS.last < 700) return; MAPS.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0;
+  if (MAPS.layer !== layer) { MAPS.layer = layer; MAPS.data = null; for (const m of MAPS.meshes.values()) { MAPS.group.remove(m); m.material.dispose(); } MAPS.meshes.clear(); }
+  if ((!MAPS.data || !MAPS.data.ready) && !MAPS.asking) {
+    MAPS.asking = true;
+    try { const d = await (await fetch(`api/maps/${layer}`)).json(); if (MAPS.layer === layer) { MAPS.data = d; if (MAPS.open) mapGallery(); } }
+    catch (e) {} finally { MAPS.asking = false; }
+  }
+  const frames = MAPS.data && MAPS.data.frames || [];
+  const on = $("#mapFrames").checked && $("#realOn").checked;
+  for (const f of frames) {                             // only where the real blocks around are shown
+    const k = `${f.dim}|${f.x},${f.y},${f.z}|${f.facing}`;
+    const want = on && f.dim === dim && REAL.tiles.has(`${Math.floor(f.x / REAL_TILE)},${Math.floor(f.z / REAL_TILE)}`);
+    let m = MAPS.meshes.get(k);
+    if (want && !m) { m = mapFrameMesh(layer, f); MAPS.meshes.set(k, m); MAPS.group.add(m); }
+    if (m) m.visible = want;
+  }
+}
+// walls: framed maps next to each other on one plane, put together as they hang (u right, v down as you face it)
+function mapWalls(frames) {
+  const uv = f => {
+    switch (f.facing) {
+      case 3: return [f.x, -f.y, f.z]; case 2: return [-f.x, -f.y, f.z];
+      case 5: return [-f.z, -f.y, f.x]; case 4: return [f.z, -f.y, f.x];
+      default: return [f.x, f.z, f.y];
+    }
+  };
+  const groups = new Map();
+  for (const f of frames) { const [u, v, w] = uv(f); const k = `${f.dim}|${f.facing}|${w}`;
+    if (!groups.has(k)) groups.set(k, []); groups.get(k).push({ ...f, u, v }); }
+  const walls = [];
+  for (const list of groups.values()) {                 // split each plane into touching pieces
+    const left = new Set(list);
+    while (left.size) {
+      const first = left.values().next().value, wall = [first]; left.delete(first);
+      for (let i = 0; i < wall.length; i++) for (const o of [...left])
+        if (Math.abs(o.u - wall[i].u) <= 1 && Math.abs(o.v - wall[i].v) <= 1) { wall.push(o); left.delete(o); }
+      walls.push(wall);
+    }
+  }
+  return walls.sort((a, b) => b.length - a.length);
+}
+function goToMapWall(w) {
+  const f = w[0], n = FACE[f.facing] || FACE[3];
+  const cx = w.reduce((a, o) => a + o.x, 0) / w.length + 0.5, cy = w.reduce((a, o) => a + o.y, 0) / w.length + 0.5, cz = w.reduce((a, o) => a + o.z, 0) / w.length + 0.5;
+  const size = Math.max(4, Math.sqrt(w.length) * 2.2);
+  if (FREE.on) setFree(false); if (SPEC.name) setSpec("");
+  if ($("#dim").value !== f.dim) { $("#dim").value = f.dim; $("#dim").dispatchEvent(new Event("change")); }
+  // stand back from the wall far enough to see it whole, but not through a ceiling or the wall opposite: a ray
+  // through the real blocks stops the camera in front of the first one (once they're loaded: asked again below)
+  const place = () => {
+    const c = new THREE.Vector3(cx, cy, cz), dir = new THREE.Vector3(n[0], n[1] + (n[1] ? 0 : 0.18), n[2] + (n[1] ? 0.3 : 0)).normalize();
+    const near = [];
+    for (const t of REAL.tiles.values()) if (cx > t.x0 - 16 && cx < t.x0 + REAL_TILE + 16 && cz > t.z0 - 16 && cz < t.z0 + REAL_TILE + 16)
+      for (const mm of t.meshes) if (!mm.isPoints && mm.userData.kind !== "water") near.push(mm);
+    RL_RAY.set(c.clone().addScaledVector(dir, 0.2), dir); RL_RAY.far = size;
+    const hit = near.length ? RL_RAY.intersectObjects(near, false)[0] : null;
+    const d = hit ? Math.max(1.2, hit.distance - 0.3) : size;
+    controls.target.copy(c); camera.position.copy(c).addScaledVector(dir, d); controls.update();
+  };
+  place(); setTimeout(place, 2500); setTimeout(place, 6000);   // again when the blocks there have come
+  mapToggle(false);
+}
+function mapGallery() {
+  const d = MAPS.data, layer = MAPS.layer;
+  if (!d) { $("#mapSrc").textContent = "Reading the maps…"; return; }
+  const L = typeof layerOf === "function" ? layerOf(layer) : null;
+  $("#mapSrc").textContent = (d.ready ? `${d.maps.length} maps, ${d.frames.length} on walls` : "Finding the maps on walls (about half a minute the first time)…")
+    + ` · from the backup ${L ? layerName(L) : "shown"}${d.message ? " · " + d.message : ""}. Click a wall to go there.`;
+  const walls = mapWalls(d.frames || []);
+  $("#mapWalls").replaceChildren(...walls.map(w => {
+    const u0 = Math.min(...w.map(o => o.u)), v0 = Math.min(...w.map(o => o.v));
+    const cols = Math.max(...w.map(o => o.u)) - u0 + 1, rows = Math.max(...w.map(o => o.v)) - v0 + 1;
+    const px = Math.max(20, Math.min(64, Math.floor(420 / Math.max(cols, rows))));
+    const card = document.createElement("div"); card.className = "mwall";
+    const pic = document.createElement("div"); pic.className = "pic"; pic.style.width = `${cols * px}px`; pic.style.height = `${rows * px}px`;
+    for (const o of w) { const im = document.createElement("img"); im.src = `maptex/${layer}/${o.map}.png`; im.width = im.height = px;
+      im.style.left = `${(o.u - u0) * px}px`; im.style.top = `${(o.v - v0) * px}px`;
+      if (o.rot) im.style.transform = `rotate(${o.rot * 90}deg)`; im.title = `map #${o.map}`; pic.append(im); }
+    const cap = document.createElement("div"); cap.className = "cap";
+    const f = w[0];
+    cap.textContent = `${w.length} map${w.length > 1 ? "s" : ""} · ${f.x}, ${f.y}, ${f.z}${f.dim !== "minecraft:overworld" ? " · " + f.dim.replace("minecraft:", "") : ""}`;
+    card.append(pic, cap); card.onclick = () => goToMapWall(w);
+    return card;
+  }));
+  const framed = new Set((d.frames || []).map(f => f.map));
+  $("#mapAll").replaceChildren(...(d.maps || []).map(m => {
+    const el = document.createElement("div"); el.title = `map #${m.id} · centre ${m.x}, ${m.z} · 1:${2 ** m.scale}${framed.has(m.id) ? " · on a wall" : ""}`;
+    const im = document.createElement("img"); im.loading = "lazy"; im.src = `maptex/${layer}/${m.id}.png`;
+    const cap = document.createElement("div"); cap.className = "cap"; cap.textContent = `#${m.id} · 1:${2 ** m.scale}${framed.has(m.id) ? " · wall" : ""}`;
+    el.append(im, cap);
+    el.onclick = () => {                                // where it was drawn: the middle of its area, from above
+      if (FREE.on) setFree(false); if (SPEC.name) setSpec("");
+      const span = 128 * 2 ** m.scale;
+      controls.target.set(m.x, 64, m.z); camera.position.set(m.x, 64 + span * 1.1, m.z + span * 0.35); controls.update(); mapToggle(false);
+    };
+    return el;
+  }));
+}
+function mapToggle(on = !MAPS.open) { MAPS.open = on; $("#mapBox").hidden = !on; if (on) { MAPS.last = 0; mapGallery(); } }
+$("#mapBtn").onclick = () => mapToggle();
+$("#mapClose").onclick = () => mapToggle(false);
+$("#mapFrames").onchange = () => { MAPS.last = 0; };
+
 // ---------- free camera (like Flashback's): look with the mouse, fly with WASD / Space / Shift ----------
 const FREE = { on: false, keys: new Set(), yaw: 0, pitch: 0, speed: 10, drag: false, lx: 0, ly: 0 };
 function setFree(on) {
@@ -3408,6 +3568,7 @@ function frame(now) {
   worldStep(now, dt);
   if (RELIVE.on) reliveStep(dt);
   invStep(now);                                        // the hotbar and inventory of who you watch
+  mapsStep(now);                                       // maps on their item frames
   gfxStep(now);
   renderer.render(scene, camera);
 }

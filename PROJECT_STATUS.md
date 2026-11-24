@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -848,8 +848,8 @@ to improve on my side on the server so mapping data and more information is easi
 - Keep `ignore_light_packets` and `ignore_sound_packets` as they are (the viewer takes light from the blocks and
   plays no sound).
 
-**Found in the backups, not used yet (ideas):** 457 maps in `Main_world/data/minecraft/maps` (the pictures of map
-art, items in frames and explored maps; could be shown in the viewer and the year in review);
+**Found in the backups, not used yet (ideas):** ~~457 maps~~ (✅ shown in the viewer since 2026-11-24; not yet in
+the year in review);
 `Main_world/data/DistantHorizons.sqlite` (5 GB, last written April 2026: far terrain in detail);
 `scoreboard.dat`.
 
@@ -1571,6 +1571,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Maps**: the **Maps** button: the walls of framed maps (e.g. the 3 x 3 at Vakirath's base, 4730, 118, 356)
+  and every map; click a wall to go there; framed maps on the walls in the world. Note: the 5 x 5 map floor at
+  258, 69, -2505 is covered by blocks in the 8 June backup (is it under a floor on purpose?).
 - **Relive** (reworked 2026-11-24): **Relive** on a moment, or the **Relive** button by Spectate (e.g. Vakirath,
   24 May 16:02). Press **V** (or F5) to switch views; the memory look should fade after a few seconds; the camera
   shouldn't go through him or into walls; the hotbar and what he holds should match.
@@ -1696,6 +1699,15 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Maps in the history viewer (owner: "yes show the map art in the viewer"): `mcsm/mapart.py` reads
+  a backup's maps (`data/minecraft/maps/<id>.dat` or `data/map_<id>.dat`), colours them with the game's map colours
+  (read from `MapColor`'s static initialiser in the installed 26.x jar: 62 colours x 4 shades) and finds maps in
+  item frames in every entities region (26.x components or the older tag). `/api/maps/<layer>` (worked out in the
+  background, kept per backup), `/maptex/<layer>/<id>.png`. The page draws framed maps on their walls where real
+  blocks are shown, and a **Maps** gallery (walls put together as they hang; every map). On the 8 June backup: 203
+  maps, 39 framed in 4 walls; on 20 Nov: 456 maps, 192 framed. There are no locked maps, so "map art" can't be told
+  apart from explored maps: all are shown.
 
 - **2026-11-24:** Relive, after the owner's first look ("how to switch perspective in memory ... camera angle is a
   bit off aswell as some inventory items and even what hes holding ... play more like a video then a

@@ -496,6 +496,11 @@ class HistoryMap(TerrainServer):
                 while len(cache) > 40:
                     cache.pop(next(iter(cache)))
             return {"cells": cache[key], "cell": 16, "available": True}
+        if path.startswith("/api/maps/"):            # a backup's maps and the item frames they hang in: /api/maps/<layer>
+            try:
+                return self.maps(int(path[len("/api/maps/"):]))
+            except ValueError:
+                return {"ready": False, "maps": [], "frames": []}
         if path.startswith("/api/inventory/"):       # a player's inventory from the backups: /api/inventory/<name>/<t ms>
             try:
                 name, t = path[len("/api/inventory/"):].rsplit("/", 1)
@@ -784,6 +789,33 @@ class HistoryMap(TerrainServer):
             out += [[ms, x, y, z] for ms, x, y, z, _new, _old in lg.changes(dim, -far, -far, far, far, t0, t1)]
         out.sort()
         return {"changes": out}
+
+    def _maps_dir(self) -> str:
+        return os.path.join(os.path.dirname(self.cache_dir or paths_mod.default_cache_dir()), "maps")
+
+    def maps(self, layer: int) -> dict:
+        """The maps of terrain layer *layer*'s backup (mcsm.mapart.world_maps): worked out in the background the
+        first time (the item frames are in every entities region: about half a minute), ``ready`` once done."""
+        import threading
+        from . import mapart
+        jobs = self.__dict__.setdefault("_map_jobs", {})
+        job = jobs.get(layer)
+        if job is None:
+            bw = self.layer_world(layer)
+            if bw is None:
+                return {"ready": True, "maps": [], "frames": []}
+            job = jobs[layer] = {"result": None}
+
+            def run():
+                try:
+                    job["result"] = mapart.world_maps(bw.world, self._maps_dir())
+                except Exception as exc:                  # noqa: BLE001 -- maps are an extra
+                    job["result"] = {"maps": [], "frames": [], "message": str(exc)}
+            threading.Thread(target=run, daemon=True).start()
+        r = job["result"]
+        if r is None:
+            return {"ready": False, "maps": [], "frames": []}
+        return {"ready": True, "maps": r.get("maps", []), "frames": r.get("frames", []), "message": r.get("message")}
 
     def inventory(self, name: str, t: int) -> dict:
         """*name*'s inventory and ender chest as saved in the library backup at or before *t* (else the first after),
@@ -1145,6 +1177,14 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.texture(name) if bw else None
+        if path.startswith("/maptex/") and path.endswith(".png"):         # /maptex/<layer>/<map id>.png
+            from . import mapart
+            layer, _, mid = path[len("/maptex/"):-4].partition("/")
+            try:
+                bw = self.layer_world(int(layer))
+                return mapart.map_png_file(bw.world, int(mid), self._maps_dir()) if bw else None
+            except (ValueError, OSError):
+                return None
         if path.startswith("/itemtex/") and path.endswith(".png"):        # /itemtex/<layer>/<item>.png: as in the hotbar
             layer, _, item = path[len("/itemtex/"):-4].partition("/")
             try:
