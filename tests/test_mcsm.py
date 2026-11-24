@@ -3720,7 +3720,7 @@ class TestRealBlocks(unittest.TestCase):
         ox, oz = r["origin"]
         out = []
         for i in range(0, len(r["faces"]), bm.RECORD.size):
-            x, y, z, d, k, ex, tint = bm.RECORD.unpack_from(r["faces"], i)
+            x, y, z, d, k, ex, tint, _l0, _l1 = bm.RECORD.unpack_from(r["faces"], i)
             out.append((x + ox, y, z + oz, d, r["infos"][k]["name"], ex, tint))
         return out
 
@@ -3898,6 +3898,37 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(paths.mob_details("arrow", paths.entity_data_all(body, 0, len(body)), True), [["ig", 1]])
         finally:
             paths.REGISTRIES.clear(); paths.REGISTRIES.update(old)
+
+    def test_placed_light_and_smooth_corners(self):
+        """A torch placed after the backup (a patch) lights the floor around it, less a level a step; each corner of
+        a face gets the game's smooth light (the 4 cells round it averaged), so a face near the torch is brighter
+        on its torch side."""
+        from mcsm import blockmesh as bm
+        self.assertEqual((bm.emission("minecraft:torch"), bm.emission("minecraft:redstone_lamp[lit=false]"),
+                          bm.emission("minecraft:candle[candles=3,lit=true]")), (14, 0, 9))
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+            world = self._world(tmp, lambda x, y, z: "minecraft:stone" if y <= 64 else None)
+            look = bm.Look(jar)
+            r = bm.build(os.path.join(tmp, "srv"), world, [], look, only={(0, 0)},
+                         patches={(0, 0): {(8, 65, 8): "minecraft:torch"}})
+            ox, oz = r["origin"]
+            top = {}
+            for i in range(0, len(r["faces"]), bm.RECORD.size):
+                x, y, z, d, k, ex, tint, l0, l1 = bm.RECORD.unpack_from(r["faces"], i)
+                if d == 0 and y == 64:
+                    sm = l0 | (l1 << 32)
+                    top[(x + ox, z + oz)] = ((ex >> 8) & 15, [((sm >> (12 * c)) >> 6) & 63 for c in range(4)])
+            self.assertEqual(top[(10, 8)][0], 12)                 # two steps from the torch: 14 - 2
+            self.assertEqual(top[(15, 8)][0], 7)
+            self.assertEqual(top[(3, 3)][0], 4)                   # 10 steps round (5 + 5)
+            corners = top[(10, 8)][1]
+            self.assertGreater(max(corners), min(corners))        # smooth: brighter towards the torch
+            self.assertEqual(sorted(corners), [44, 44, 48, 48])   # away: 11 + 11 + 10 + 12; towards: 13 + 11 + 12 + 12
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_water_shape(self):
         """Water shaped as the game does: a source 8/9 high, flowing water lower by level, corners averaged over the

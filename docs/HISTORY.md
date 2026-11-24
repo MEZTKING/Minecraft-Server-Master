@@ -247,7 +247,11 @@ They come from the backup shown (`tiles-caves` in the cache) and go away when yo
 
 **Light.** The real blocks are lit the way the game lights them: each face gets the sky light and the light from
 torches, lanterns, glowstone and so on that the backup stores for that spot, with Minecraft's soft shadows in
-corners. Like the game's own light map, sky light and torch light are added together (not the brighter of the
+corners. Like the game's **smooth lighting**, each corner of a block face takes the light of the four spaces
+around it, so light fades evenly across floors and walls instead of in block-sized steps. Light from torches,
+lanterns and other light blocks **placed after the backup** (during a recording, or from the Ledger log) is worked
+out too: it spreads as in the game, one level less each block, around corners but not through solid blocks.
+Like the game's own light map, sky light and torch light are added together (not the brighter of the
 two) and go through the game's brightness curve, so rooms lit by torches are as bright as in the game. With
 graphics Fancy, torch light isn't darkened by the sun's shadows (a lit room under a roof stays lit). Open **Light** (under *Terrain*) to change it; your settings are remembered:
 

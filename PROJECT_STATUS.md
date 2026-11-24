@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -954,8 +954,15 @@ flight, in the ground (`in_ground`, index 10) at the recorded spot; arrows in pl
 body, head and arms (`EXACT_SUFFIX` `.exact13`). Not seen in the sampled recordings (unchecked by eye): arrows in
 flight, arrows in bodies, armour stands.
 
-Still different (worst first): smooth lighting per corner; light from torches placed during a recording (needs a
-light flood fill); sign text, heads, chest lids, pistons, copper golems; eating and drinking (the game's arm bob in
+**Round 5 (2026-11-24, owner: "continue").** Smooth lighting: each face record carries its 4 corners' light
+(`blockmesh.RECORD` now 20 bytes: 12 bits a corner, sky and block light each the sum of the 4 cells the game's
+AmbientOcclusionFace averages; dark solid cells count as the face's own cell; the diagonal only past an open side).
+Light from blocks placed since the backup: every edited block that gives off light (`blockmesh.emission`, the game's
+values; lit-only blocks only when lit, candles 3 each) spreads through the chunks being built, a level less a step,
+not through solid blocks (`blockmesh.VERSION` 10). Not yet: darkness where a light block was removed.
+
+Still different (worst first): sign text, heads, chest lids, pistons, copper golems; darkness where a light block
+was broken during a recording; eating and drinking (the game's arm bob in
 first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
 action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
 
@@ -1677,6 +1684,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 5**: rooms lit by torches and lanterns (e.g. the village houses near D_HumanCrafter, 26 May
+  19:53): light should fade smoothly across floors and walls as in the game, and a torch someone put up during a
+  recording should light the blocks around it. The real blocks are built again once for this (a few minutes).
 - **Parity round 4**: 26 May 19:53 in the village near D_HumanCrafter: villagers in their job outfits (the farmer's
   straw hat, librarians, clerics) with level badges; cold cows and chickens around 19:46; cats in their real
   colours. Please also look out for arrows (they should point along their flight and stay stuck where they land)
@@ -1843,6 +1853,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "continue". Parity round 5 (backlog 0zh): the game's smooth lighting per face corner, and
+  light from torches and other light blocks placed after the backup (recordings, Ledger), spread as the game does.
+  Tests: `test_placed_light_and_smooth_corners`.
 
 - **2026-11-24:** Owner: "Yes, next batch". Parity round 4 (backlog 0zh): mob variants from the recording's own
   registries (cats, wolves, cows, pigs, chickens, frogs; cold/warm models), villagers' outfits, jobs and level

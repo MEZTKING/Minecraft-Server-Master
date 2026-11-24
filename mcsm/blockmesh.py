@@ -35,10 +35,12 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 9                     # bump when the output changes (cached tiles are built again); 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 10                    # bump when the output changes (cached tiles are built again); 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
-RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
+# x, y, z, dir, look, light/shading, tint (RGB565), then the smooth light of the face's 4 corners: 12 bits each
+# (sky and block light, each the sum of the 4 cells the game averages: 0..60), the low 32 bits and the high 16
+RECORD = struct.Struct("<5hHHIH")
 
 CAVE_LIGHT = 6                    # caves (build(slab=...)): the least light a face gets, so tunnels aren't black
 AIR = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air", "minecraft:light", "minecraft:barrier",
@@ -927,6 +929,56 @@ class PatchedChunk:
         return max(0, sky), max(0, blk)
 
 
+# light given off by blocks (the game's light emission), for blocks placed after the backup's light was worked out
+EMIT = {"torch": 14, "wall_torch": 14, "soul_torch": 10, "soul_wall_torch": 10, "redstone_torch": 7,
+        "redstone_wall_torch": 7, "lantern": 15, "soul_lantern": 10, "glowstone": 15, "sea_lantern": 15,
+        "jack_o_lantern": 15, "shroomlight": 15, "ochre_froglight": 15, "verdant_froglight": 15,
+        "pearlescent_froglight": 15, "end_rod": 14, "campfire": 15, "soul_campfire": 10, "lava": 15, "fire": 15,
+        "soul_fire": 10, "beacon": 15, "conduit": 15, "redstone_lamp": 15, "glow_lichen": 7, "magma_block": 3,
+        "crying_obsidian": 10, "respawn_anchor": 15, "copper_torch": 14, "copper_wall_torch": 14,
+        "copper_lantern": 15, "end_portal": 15, "nether_portal": 11, "light": 15, "furnace": 13, "blast_furnace": 13,
+        "smoker": 13, "brewing_stand": 1, "enchanting_table": 7, "ender_chest": 7, "sculk_catalyst": 6,
+        "amethyst_cluster": 5, "large_amethyst_bud": 4, "medium_amethyst_bud": 2, "small_amethyst_bud": 1}
+_NEEDS_LIT = {"redstone_torch", "redstone_wall_torch", "campfire", "soul_campfire", "redstone_lamp", "furnace",
+              "blast_furnace", "smoker", "copper_bulb"}
+
+
+def emission(state: str) -> int:
+    """How much light a block state gives off (0: none), as the game: lit ones only when lit, candles 3 a candle."""
+    name, _, props = state.partition("[")
+    name = name.split(":", 1)[-1]
+    lit = "lit=true" in props
+    if name.endswith("candle") or name.endswith("candle_cake"):
+        if not lit:
+            return 0
+        n = 1
+        for kv in props.rstrip("]").split(","):
+            if kv.startswith("candles="):
+                n = int(kv[8:] or 1)
+        return 3 * n
+    if name.endswith("copper_bulb"):
+        return 15 if lit else 0
+    if name.endswith("_lantern") and "copper" in name:
+        return 15
+    if name.endswith("copper_torch"):
+        return 14
+    lv = EMIT.get(name, 0)
+    if lv and name in _NEEDS_LIT and not lit:
+        return 0
+    if name == "respawn_anchor":
+        for kv in props.rstrip("]").split(","):
+            if kv.startswith("charges="):
+                return {0: 0, 1: 3, 2: 7, 3: 11, 4: 15}.get(int(kv[8:] or 0), 0)
+    return lv
+
+
+def _flat4(lt: int) -> tuple[int, int]:
+    """The 4 corners' light (see :data:`RECORD`) all the same: a face's own light *lt* ((sky << 4) | block)."""
+    f = ((lt >> 4) * 4) | (((lt & 15) * 4) << 6)
+    sm = f | (f << 12) | (f << 24) | (f << 36)
+    return sm & 0xFFFFFFFF, sm >> 32
+
+
 def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[int, int]]:
     out = set()
     r = int(math.ceil(radius / 16)) + 1
@@ -1129,11 +1181,40 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
             v = tint_cache[key] = rgb565(tuple(a // max(1, n) for a in acc))
         return v
 
+    # light from blocks placed since the backup's light was worked out (torches put up during a recording, Ledger
+    # changes): spread out as the game does, one level less a step, through anything that isn't solid
+    placed: dict[tuple[int, int, int], int] = {}
+    q = deque()
+    for (cx, cz), c in chunks.items():
+        for (lx, y, lz) in list(getattr(c, "edits", None) or {}):
+            st = c.state(lx, y, lz)                       # (recordings' chunks keep state ids)
+            lv = emission(st) if st else 0
+            p = ((cx << 4) + lx, y, (cz << 4) + lz)
+            if lv > placed.get(p, 0):
+                placed[p] = lv
+                q.append(p)
+    while q:
+        x, y, z = q.popleft()
+        lv = placed[(x, y, z)] - 1
+        if lv <= 0:
+            continue
+        for dx, dy, dz in DIRS:
+            p = (x + dx, y + dy, z + dz)
+            if (p[0] >> 4, p[2] >> 4) not in chunks or placed.get(p, 0) >= lv:
+                continue
+            i = block(*p)
+            if i is not None and infos[i]["opaque"]:
+                continue
+            placed[p] = lv
+            q.append(p)
+
     def light(x: int, y: int, z: int) -> int:
         c = chunks.get((x >> 4, z >> 4))
         if c is None:
             return 15 << 4
         sky, blk = c.light(x & 15, y, z & 15)
+        if placed:
+            blk = max(blk, placed.get((x, y, z), 0))
         if slab is not None:                         # caves: a little light everywhere, so they can be seen
             blk = max(blk, CAVE_LIGHT)
         return (sky << 4) | blk
@@ -1188,7 +1269,7 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 if opaque(x + dx, y + dy, z + dz):
                     mask |= 1 << d
             lt = max(light(x, y, z), light(x, y + 1, z), key=lambda v: (v >> 4) + (v & 15))
-            faces += pack(x - x0, y, z - z0, 7, i, mask | (lt << 8), tint(x, y, z, info["tint"]))
+            faces += pack(x - x0, y, z - z0, 7, i, mask | (lt << 8), tint(x, y, z, info["tint"]), *_flat4(lt))
             if info["water"]:                               # waterlogged: the water around it too
                 w = look.info("minecraft:water")
                 for d, (dx, dy, dz) in enumerate(DIRS):
@@ -1198,7 +1279,8 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                     n = block(nx, ny, nz)
                     if n is not None and (infos[n]["opaque"] or infos[n]["kind"] == "water" or infos[n]["water"]):
                         continue
-                    faces += pack(x - x0, y, z - z0, d, w, light(nx, ny, nz) << 8, tint(x, y, z, "water"))
+                    lw = light(nx, ny, nz)
+                    faces += pack(x - x0, y, z - z0, d, w, lw << 8, tint(x, y, z, "water"), *_flat4(lw))
             continue
         draw = i
         if kind in ("water", "lava"):                       # the game's fluid shape: corner heights from the cells round it
@@ -1232,6 +1314,8 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
             if infos[draw]["quads"][d] is None:
                 continue
             ao = 0
+            lc = light(nx, ny, nz)
+            sm = 0
             if kind == "cube" and not info["cutout"]:
                 face = FACE_NAMES[d]
                 axes = [a for a in range(3) if DIRS[d][a] == 0]
@@ -1248,7 +1332,17 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                     oc = opaque(nx + s[0], ny + s[1], nz + s[2])
                     occ = 3 if (o1 and o2) else (o1 + o2 + oc)
                     ao |= occ << (2 * k)
-            faces += pack(x - x0, y, z - z0, d, draw, ao | (light(nx, ny, nz) << 8), tint(x, y, z, info["tint"]))
+                    # smooth light (the game's AmbientOcclusionFace): the cell in front and the 3 round this corner
+                    # (the diagonal one only past an open side); a dark solid cell counts as the one in front
+                    l1 = 0 if o1 else light(nx + s1[0], ny + s1[1], nz + s1[2])
+                    l2 = 0 if o2 else light(nx + s2[0], ny + s2[1], nz + s2[2])
+                    l3 = (0 if oc else light(nx + s[0], ny + s[1], nz + s[2])) if (not o1 or not o2) else l1
+                    vals = (l1 or lc, l2 or lc, l3 or lc, lc)
+                    sm |= (sum(v >> 4 for v in vals) | (sum(v & 15 for v in vals) << 6)) << (12 * k)
+            else:
+                flat = ((lc >> 4) * 4) | (((lc & 15) * 4) << 6)
+                sm = flat | (flat << 12) | (flat << 24) | (flat << 36)
+            faces += pack(x - x0, y, z - z0, d, draw, ao | (lc << 8), tint(x, y, z, info["tint"]), sm & 0xFFFFFFFF, sm >> 32)
     return {"origin": [x0, z0], "infos": infos, "textures": look.textures, "faces": bytes(faces),
             "chunks": len(chunks), "open": len(seen)}
 

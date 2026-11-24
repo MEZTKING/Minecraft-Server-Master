@@ -334,7 +334,8 @@ const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
 // The real blocks of a block list (``info`` from the server, ``buf`` its records: int16 x, y, z, dir, look; uint16
 // extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
 function blockMeshes(info, buf, atlas) {
-  const dv = new DataView(buf), n = buf.byteLength / 14, [ox, oz] = info.origin, N = atlas.N;
+  const REC = 20;                                       // bytes a face (blockmesh.RECORD)
+  const dv = new DataView(buf), n = buf.byteLength / REC, [ox, oz] = info.origin, N = atlas.N;
   const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], c: [], i: [] });
   const half = 0.5 / (N * (atlas.C || 16));                 // half a texel: the cell's edge, see lightShader
   const geo = { solid: G(), water: G(), glass: G() };
@@ -358,17 +359,18 @@ function blockMeshes(info, buf, atlas) {
       Gr.p.push(p[0], p[1], p[2]); Gr.n.push(nx, ny, nz); Gr.ln.push(lx, ly, lz);
       const u = Math.min(1 - e, Math.max(e, q[15 + k * 2])), v = Math.min(1 - e, Math.max(e, q[16 + k * 2]));
       Gr.u.push((col + u) / N, 1 - (row + v) / N);
-      Gr.l.push(sky, blk, AO_LEVEL[(ao >> (2 * k)) & 3]);
+      Gr.l.push(typeof sky === "number" ? sky : sky[k], typeof blk === "number" ? blk : blk[k], AO_LEVEL[(ao >> (2 * k)) & 3]);
       Gr.t.push(tint[0], tint[1], tint[2], mode);
       Gr.c.push(col / N + half, 1 - (row + 1) / N + half, (col + 1) / N - half, 1 - row / N - half);
     }
     Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   const tints = new Map();                               // RGB565 -> linear colour
+  const CS = [0, 0, 0, 0], CB = [0, 0, 0, 0];            // a face's 4 corners' sky and block light
   const glows = [];                                      // light sources: a glow each (Fancy)
   // faces grouped by chunk, so one chunk's faces can be hidden later (a live block change drawn over it):
   // each geometry remembers where each chunk's indices are ("cx,cz" -> [start, end])
-  const ck = k => `${(dv.getInt16(k * 14, true) + ox) >> 4},${(dv.getInt16(k * 14 + 4, true) + oz) >> 4}`;
+  const ck = k => `${(dv.getInt16(k * REC, true) + ox) >> 4},${(dv.getInt16(k * REC + 4, true) + oz) >> 4}`;
   const keys = new Array(n);
   for (let k = 0; k < n; k++) keys[k] = ck(k);
   const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => (keys[a] < keys[b] ? -1 : keys[a] > keys[b] ? 1 : a - b));
@@ -381,13 +383,17 @@ function blockMeshes(info, buf, atlas) {
       close(); curKey = keys[k];
       for (const Gr of [geo.solid, geo.water, geo.glass]) Gr.ranges.set(curKey, [Gr.i.length, Gr.i.length]);
     }
-    const o = k * 14, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
+    const o = k * REC, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
     const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
     const t5 = dv.getUint16(o + 12, true);
     if (!b) continue;
     let tint = tints.get(t5);
     if (!tint) { tint = [lin(((t5 >> 11) & 31) / 31), lin(((t5 >> 5) & 63) / 63), lin((t5 & 31) / 31)]; tints.set(t5, tint); }
     const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
+    // smooth light: each corner's sky and block light (sums of 4 cells, 0..60), 12 bits a corner in 48 bits
+    const lo = dv.getUint32(o + 14, true), hi = dv.getUint16(o + 18, true);
+    const cw = [lo & 0xfff, (lo >>> 12) & 0xfff, ((lo >>> 24) | (hi << 8)) & 0xfff, (hi >>> 4) & 0xfff];
+    for (let c = 0; c < 4; c++) { CS[c] = (cw[c] & 63) / 60; CB[c] = (cw[c] >> 6) / 60; }
     const Gr = b.kind === "water" ? geo.water : b.translucent ? geo.glass : geo.solid;
     if (GLOW.test(b.name) && (d === 7 || d === 0)) {
       const soul = b.name.startsWith("soul_");
@@ -396,7 +402,7 @@ function blockMeshes(info, buf, atlas) {
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
-    } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, sky, blk, ex & 255, tint);
+    } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, CS, CB, ex & 255, tint);
   }
   close();
   const mesh = (Gr, mat) => {
