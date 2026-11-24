@@ -115,6 +115,14 @@ SKIP_ENTITIES = {"item", "experience_orb", "arrow", "spectral_arrow", "trident",
                  "eye_of_ender", "fireball", "small_fireball", "dragon_fireball", "wither_skull", "shulker_bullet",
                  "llama_spit", "evoker_fangs", "wind_charge", "breeze_wind_charge", "leash_knot", "painting",
                  "item_frame", "glow_item_frame", "armor_stand", "ominous_item_spawner", "end_crystal"}
+# things thrown or shot, followed every tick of their short flight (and shown as their item): entity -> item
+PROJECTILES = {"egg": "egg", "snowball": "snowball", "ender_pearl": "ender_pearl", "arrow": "arrow",
+               "spectral_arrow": "spectral_arrow", "trident": "trident", "experience_bottle": "experience_bottle",
+               "splash_potion": "splash_potion", "lingering_potion": "lingering_potion", "potion": "splash_potion",
+               "fireball": "fire_charge", "small_fireball": "fire_charge", "wind_charge": "wind_charge",
+               "breeze_wind_charge": "wind_charge", "firework_rocket": "firework_rocket", "eye_of_ender": "ender_eye",
+               "dragon_fireball": "dragon_breath", "wither_skull": "wither_skeleton_skull", "llama_spit": "",
+               "shulker_bullet": "", "fishing_bobber": ""}
 MOB_EVERY = 10                # mobs: at most 2 positions a second (players: every one)...
 MOB_RADIUS = 48               # ...within this many blocks of the recorded player
 MOB_MIN_MOVE = 0.3            # ...and only when they moved this much
@@ -367,7 +375,7 @@ def dropped_item(b, k: int, end: int, items: list, comps: list) -> str | None:
 
 
 def _followed(kind: str) -> bool:
-    if kind == "item":                                 # dropped items (what they are: from their entity data)
+    if kind == "item" or kind in PROJECTILES:          # dropped items (their item: entity data), things thrown
         return True
     return bool(kind) and kind not in SKIP_ENTITIES and not kind.endswith(("_display", "_arrow", "_potion"))
 
@@ -502,6 +510,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if name and eid != me:
                                 _t, k2 = _varint(b, k + 16)
                                 x, y, zz = _XYZ.unpack_from(b, k2)
+                                if name.startswith("#") and name.split("#")[1] in PROJECTILES:   # its launch speed
+                                    try:
+                                        vel = (lp_vec3(b, k2 + 24)[0] if proto is None or proto >= 773
+                                               else _old_velocity(b, k2 + 24))
+                                        extras["events"].append([tick, name, "v", [round(v, 4) for v in vel]])
+                                    except (IndexError, struct.error):
+                                        pass
                                 others[eid] = name
                                 cur[eid] = {"dim": dim_now, "x": x, "y": y, "z": zz, "yaw": 0.0, "pitch": 0.0, "name": name}
                                 last_move[eid] = tick
@@ -675,6 +690,32 @@ def _day_time(b, k: int, end: int) -> tuple[int, float] | None:
     return None
 
 
+def lp_vec3(b, k: int) -> tuple[tuple[float, float, float], int]:
+    """A velocity in the compact form of 1.21.9+ (blocks a tick): one 0 byte for none; else 6 bytes (2 bits of
+    scale, a flag for more scale as a VarInt, then three 15-bit values from -1 to 1), times the scale."""
+    first = b[k]
+    if first == 0:
+        return (0.0, 0.0, 0.0), k + 1
+    second = b[k + 1]
+    rest = struct.unpack_from(">I", b, k + 2)[0]
+    packed = (rest << 16) | (second << 8) | first
+    scale = first & 3
+    k += 6
+    if first & 4:
+        more, k = _varint(b, k)
+        scale |= (more & 0xFFFFFFFF) << 2
+
+    def unpack(v):
+        return min(float(v & 32767), 32766.0) * 2.0 / 32766.0 - 1.0
+    return (unpack(packed >> 3) * scale, unpack(packed >> 18) * scale, unpack(packed >> 33) * scale), k
+
+
+def _old_velocity(b, k: int) -> tuple[float, float, float]:
+    """Before 1.21.9: pitch, yaw, head yaw (bytes), data (VarInt), then the velocity as three shorts / 8000."""
+    _d, k = _varint(b, k + 3)
+    return tuple(v / 8000 for v in struct.unpack_from(">hhh", b, k))
+
+
 def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE, full=False):
     for key, c in sorted(cur.items(), key=lambda kv: kv[0] is not None):    # the recorded player first
         if key is not None:
@@ -682,7 +723,8 @@ def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE
                 continue
             if others[key].startswith("#"):          # mobs: near the player, a couple of times a second
                 me_c = cur.get(None)
-                if tick % MOB_EVERY or me_c is None or me_c["dim"] != c["dim"]                         or abs(me_c["x"] - c["x"]) > MOB_RADIUS or abs(me_c["z"] - c["z"]) > MOB_RADIUS:
+                flying = others[key].split("#")[1] in PROJECTILES    # things thrown: every tick
+                if (tick % MOB_EVERY and not flying) or me_c is None or me_c["dim"] != c["dim"]                         or abs(me_c["x"] - c["x"]) > MOB_RADIUS or abs(me_c["z"] - c["z"]) > MOB_RADIUS:
                     continue
                 lo = last_out.get(key)
                 if lo is not None and abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) < MOB_MIN_MOVE                         and tick - lo[0] < KEEPALIVE_TICKS:
@@ -801,7 +843,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact9.json.gz"     # 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact10.json.gz"    # 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

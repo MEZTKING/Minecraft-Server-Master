@@ -1474,9 +1474,23 @@ function mobMesh(label, kind) {
     o = { mesh: g, box, kind, dist: 0, last: null }; mobGroup.add(g); mobMeshes.set(label, o);
   }
   if (kind === "item") { if (!o.icon) itemIcon(o); return o; }
+  if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
+    if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]); }
+    return o;
+  }
   if (!o.building && MOBM) buildMob(o, label, kind);
   return o;
 }
+// things thrown or shot (entity -> the item drawn; "": not drawn) and their physics per tick: [gravity, drag, at most
+// ticks of flight followed (then it stays where it is, e.g. an arrow stuck in the ground)]
+const PROJ = { egg: "egg", snowball: "snowball", ender_pearl: "ender_pearl", arrow: "arrow", spectral_arrow: "spectral_arrow",
+  trident: "trident", experience_bottle: "experience_bottle", splash_potion: "splash_potion", lingering_potion: "lingering_potion",
+  potion: "splash_potion", fireball: "fire_charge", small_fireball: "fire_charge", wind_charge: "wind_charge",
+  breeze_wind_charge: "wind_charge", firework_rocket: "firework_rocket", eye_of_ender: "ender_eye", dragon_fireball: "",
+  wither_skull: "", llama_spit: "", shulker_bullet: "", fishing_bobber: "" };
+const PROJ_PHYS = { arrow: [0.05, 0.99, 60], spectral_arrow: [0.05, 0.99, 60], trident: [0.05, 0.99, 60],
+  splash_potion: [0.05, 0.99], lingering_potion: [0.05, 0.99], potion: [0.05, 0.99], experience_bottle: [0.07, 0.99],
+  fireball: [0, 1], small_fireball: [0, 1], wind_charge: [0, 1], breeze_wind_charge: [0, 1], firework_rocket: [-0.04, 1, 40] };
 // dropped items: the item's icon, turning and bobbing like in the game (a block shows its texture)
 const ITEM_GEO = new THREE.PlaneGeometry(0.42, 0.42);
 function itemIcon(o) {
@@ -1487,11 +1501,40 @@ function itemIcon(o) {
 }
 async function setItemIcon(o, item) {
   o.itemName = item;
+  if (o.proj === undefined) return setDroppedModel(o, item);   // dropped: a 3D model; thrown: a flat picture facing you
   const t = item ? await itemTexture(item) : null;
   if (o.itemName !== item) return;                       // changed meanwhile
   o.icon.material.map = t; o.icon.material.emissiveMap = t; o.icon.material.needsUpdate = true;
   o.icon.visible = !!t;
   if (!t) o.box.visible = false;
+}
+// a dropped item as the game draws it on the ground: a block as a small block (a quarter of one), anything else as
+// its picture made solid (half a block across); it turns and bobs like the flat icon did
+async function setDroppedModel(o, item) {
+  const ic = item ? await itemInfo(item) : null;
+  if (o.itemName !== item) return;
+  if (o.model3) { o.icon.remove(o.model3); o.model3 = null; }
+  let m = null;
+  if (ic && ic.cube) {
+    const [side, top, bottom] = await Promise.all([texOnce(ic.tex), texOnce(ic.top || ic.tex), texOnce(ic.bottom || ic.tex)]);
+    if (side && o.itemName === item) {
+      const mat = (t, tint) => new THREE.MeshLambertMaterial({ map: t || side, alphaTest: 0.3, color: tint || 0xffffff,
+        emissive: 0xffffff, emissiveMap: t || side, emissiveIntensity: 0.25 });
+      const sm = mat(side), grass = /grass_block_top|leaves/.test(ic.top || "") ? 0x7cbd6b : null;
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), [sm, sm, mat(top, grass), mat(bottom), sm, sm]);
+    }
+  } else if (item === "shield" || /_banner$/.test(item)) {
+    m = await heldItem(item, 1 / 32);                   // drawn by the game's code: the held model, half size
+  } else if (item) {
+    const t = await itemTexture(item);
+    if (t && o.itemName === item) {
+      m = new THREE.Mesh(extrudedGeometry(t, 0.5), new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3,
+        side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.3 }));
+    }
+  }
+  if (!m || o.itemName !== item) { o.icon.visible = false; return; }
+  o.icon.material.visible = false;                      // the flat card stays only as the holder
+  o.icon.add(m); o.model3 = m; o.icon.visible = true;
 }
 function animateMob(o, label, speed) {                   // speed: blocks per second
   const P = o.parts; if (!P) return;
@@ -1565,6 +1608,18 @@ function updateMobs() {
       if (died === null) {                                   // picked up, despawned, killed: gone at once
         const gone = sinceLast(label, "gone", T);
         if (gone !== null && T - gone >= a[0]) { o.mesh.visible = false; continue; }
+      }
+      if (o.proj !== undefined) {                    // thrown or shot: flown from its launch with the game's physics
+        const v = stateAt(label, "v", T, null), ph = PROJ_PHYS[mob.type] || [0.03, 0.99];
+        if (v && a) {
+          const ticks = Math.min((T - rows[0][0]) / 50, ph[2] || 200);
+          let px = rows[0][1], py = rows[0][2], pz = rows[0][3], vx = v[0], vy = v[1], vz = v[2];
+          for (let n = 0; n < Math.floor(ticks); n++) { px += vx; py += vy; pz += vz; vx *= ph[1]; vy = vy * ph[1] - ph[0]; vz *= ph[1]; }
+          const fr = ticks % 1; px += vx * fr; py += vy * fr; pz += vz * fr;
+          o.mesh.position.set(px, py, pz);
+        }
+        o.icon.visible = !!o.proj; o.icon.lookAt(camera.position);   // facing you, as the game draws thrown items
+        continue;
       }
       if (o.icon) {
         const it = stateAt(label, "it", T, null);
@@ -1752,6 +1807,36 @@ function shieldTexture(look) {
   })();
   return t;
 }
+const extruded = new Map();
+function extrudedGeometry(t, size) {
+  const im = t.image, key = (im && im.src) + "|" + size;
+  if (extruded.has(key)) return extruded.get(key);
+  const w = im.width, h = Math.min(im.height, im.width);  // animated pictures: the first frame
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const cx = cv.getContext("2d"); cx.drawImage(im, 0, 0, w, h, 0, 0, w, h);
+  let a; try { a = cx.getImageData(0, 0, w, h).data; } catch (e) { a = null; }
+  const pos = [], uv = [], nor = [], s = size / w, d = s / 2, vy = 1;   // one pixel thick; uv in the first frame (the texture's offset)
+  const solid = (x, y) => x >= 0 && y >= 0 && x < w && y < h && a && a[(y * w + x) * 4 + 3] > 76;
+  const quad = (p, n, u, v) => { for (const i of [0, 1, 2, 0, 2, 3]) { pos.push(...p[i]); nor.push(...n); uv.push(u[i], v[i]); } };
+  const X = x => -size / 2 + x * s, Y = y => size / 2 - y * s;
+  // front and back: the whole picture (its empty pixels are cut by alphaTest)
+  quad([[X(0), Y(h), d], [X(w), Y(h), d], [X(w), Y(0), d], [X(0), Y(0), d]], [0, 0, 1], [0, 1, 1, 0], [1 - vy, 1 - vy, 1, 1]);
+  quad([[X(w), Y(h), -d], [X(0), Y(h), -d], [X(0), Y(0), -d], [X(w), Y(0), -d]], [0, 0, -1], [1, 0, 0, 1], [1 - vy, 1 - vy, 1, 1]);
+  if (a) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!solid(x, y)) continue;
+    const u = (x + 0.5) / w, v = 1 - (y + 0.5) / h, U = [u, u, u, u], V = [v, v, v, v];   // the pixel's own colour
+    if (!solid(x - 1, y)) quad([[X(x), Y(y + 1), -d], [X(x), Y(y + 1), d], [X(x), Y(y), d], [X(x), Y(y), -d]], [-1, 0, 0], U, V);
+    if (!solid(x + 1, y)) quad([[X(x + 1), Y(y + 1), d], [X(x + 1), Y(y + 1), -d], [X(x + 1), Y(y), -d], [X(x + 1), Y(y), d]], [1, 0, 0], U, V);
+    if (!solid(x, y - 1)) quad([[X(x), Y(y), d], [X(x + 1), Y(y), d], [X(x + 1), Y(y), -d], [X(x), Y(y), -d]], [0, 1, 0], U, V);
+    if (!solid(x, y + 1)) quad([[X(x), Y(y + 1), -d], [X(x + 1), Y(y + 1), -d], [X(x + 1), Y(y + 1), d], [X(x), Y(y + 1), d]], [0, -1, 0], U, V);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  extruded.set(key, g);
+  return g;
+}
 async function heldItem(item, px, look = null) {
   if (/_banner$/.test(item)) {                          // a banner held: a small flag on its pole, its patterns painted
     const base = item.replace(/_banner$/, "");
@@ -1767,12 +1852,16 @@ async function heldItem(item, px, look = null) {
     const t = look && (look.base || (look.patterns || []).length) ? shieldTexture(look)
       : (await texOnce("entity/shield/base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
     if (!t) return null;
-    const g = new THREE.BoxGeometry(1 * px, 22 * px, 12 * px), uv = g.attributes.uv;
+    // the plate (12 wide, 22 tall, 1 thick) held up on the forearm, its face forward, as in the game's third person
+    const g = new THREE.BoxGeometry(12 * px, 22 * px, 1 * px), uv = g.attributes.uv;
     for (let i = 0; i < uv.count; i++)                  // every side shows the plate's front (2, 2 .. 14, 24 of 64)
       uv.setXY(i, (2 + uv.getX(i) * 12) / 64, 1 - (2 + (1 - uv.getY(i)) * 22) / 64);
     const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.25 }));
-    q.position.set(-2 * px, -10 * px, 2 * px);
-    return q;
+    const hold = new THREE.Group(); hold.add(q);
+    q.position.set(0, 2 * px, 0);                       // its middle a little above the fist
+    hold.position.set(0, -9 * px, 5 * px);              // in front of the forearm
+    hold.rotation.set(-Math.PI / 2 + 0.2, 0, 0);        // the arm hangs down: turn it up so it stands, face forward
+    return hold;
   }
   const ic = await itemInfo(item);
   if (ic && ic.cube) {
@@ -1790,9 +1879,11 @@ async function heldItem(item, px, look = null) {
   }
   const t = await itemTexture(item);
   if (!t) return null;
-  const g = new THREE.PlaneGeometry(10 * px, 10 * px).translate(3 * px, 3 * px, 0);   // the grip (an icon's lower left) at the fist
+  // the picture made solid like the game's item models: front and back, and an edge on every pixel that borders an
+  // empty one (a spyglass, sword or bow is then a thin solid, not a card)
+  const g = extrudedGeometry(t, 10 * px).translate(3 * px, 3 * px, 0);   // the grip (an icon's lower left) at the fist
   const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
-    emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // a flat icon: lit a little by itself so it never turns black edge-on
+    emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // lit a little by itself so it never turns black edge-on
   // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
   q.position.set(0, -10 * px, 1 * px); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
   return q;

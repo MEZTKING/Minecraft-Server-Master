@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1631,6 +1631,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Held and dropped items, shields, eggs**: 24 May around 20:22-20:26: shields on the forearm facing forward,
+  spyglasses and tools solid, dropped items 3D, vegitogod22's eggs flying.
 - **Watch in Flashback**: go to a moment (e.g. follow vegitogod22 on 24 May 20:22), press **Watch in Flashback**:
   Minecraft starts; in Flashback → Replays the newest copy ("vegitogod22 at 24 May 20.22.xx") opens at the green
   marker. Please check that the short copy opens.
@@ -1784,6 +1786,14 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "sheild arent rendered properly, neither are spyglasses ... its supposed to be 3d check
+  everything, when vegitogod throws eggs, it doesnt show up"; "dropped items should be 3d models". Held items are
+  extruded from their pictures like the game's item models (front, back and an edge per border pixel); dropped
+  items are small blocks or the same solids; the shield faces forward on the forearm. Thrown things: projectiles
+  were skipped; they're now followed every tick and their launch speed read (`paths.lp_vec3`, the 1.21.9+ compact
+  vector: eggs and pearls 1.5 blocks a tick, full bow arrows 3.0) and flown with the game's gravity and drag
+  (`EXACT_SUFFIX` `.exact10`).
 
 - **2026-11-24:** Owner: "you should be able to press a single button in the history tab to the exact recording in
   that time automatically". **Watch in Flashback** (`/api/flashback/watch`, `HistoryMap.watch_in_flashback`): the
