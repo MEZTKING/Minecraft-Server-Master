@@ -23,7 +23,8 @@ PACKETS = ("add_entity", "remove_entities", "set_entity_data", "animate", "set_t
            "set_player_inventory", "set_held_slot",      # the recorded player's hotbar and selected slot
            "block_event",                                # chests opening and closing
            "set_health",                                 # the recorded player's health and food
-           "swing_animation")                            # 26.3: arm swings (instead of animate)
+           "swing_animation",                            # 26.3: arm swings (instead of animate)
+           "set_entity_link", "block_entity_data")       # leads; signs written
 TABLE_VERSION = 3          # 3: block states and the chunk packets (blocks at the moment); 2: items and components
 BUNDLED = os.path.join(os.path.dirname(__file__), "assets", "protocols.json")
 _cache: dict[int, dict | None] = {}

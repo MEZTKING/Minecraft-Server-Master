@@ -232,6 +232,27 @@ PROFESSIONS = ["none", "armorer", "butcher", "cartographer", "cleric", "farmer",
                "leatherworker", "librarian", "mason", "nitwit", "shepherd", "toolsmith", "weaponsmith"]
 
 
+def sign_written(body: bytes) -> list | None:
+    """``[x, y, z, front, back]`` from a block_entity_data body (block position, VarInt type, network NBT) that
+    holds a sign's text; None for anything else."""
+    if len(body) < 10:
+        return None
+    pos = struct.unpack_from(">q", body, 0)[0]
+    _t, k = _varint(body, 8)
+    if k >= len(body) or body[k] != 10 or b"_text" not in body[k:]:
+        return None
+    try:
+        from . import nbt as nbt_mod, signs as signs_mod
+        from .moment import block_pos
+        be = nbt_mod.loads(b"\x0a\x00\x00" + body[k + 1:])
+        txt = signs_mod.text_of(be)
+    except Exception:                                   # not a sign, or something unexpected: skipped
+        return None
+    if not txt["front"] and not txt["back"]:
+        return None
+    return list(block_pos(pos)) + [txt["front"], txt["back"]]
+
+
 def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
     """What a mob's entity data says that changes how it looks: ``["baby", 0/1]``, ``["wool", byte]`` (a sheep:
     colour in the low 4 bits, 0x10 sheared), ``["variant", n]`` (a horse: coat + 256 x markings), ``["size", n]`` (slimes, magma cubes), ``["name", text]`` (a name
@@ -586,10 +607,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         bev_id = pk.get("block_event") if ex_on else None
         hp_id = pk.get("set_health") if ex_on else None      # f32 health, varint food, f32 saturation
         swing_id = pk.get("swing_animation") if ex_on else None   # 26.3: entity id, hand (0 main, 1 off)
+        link_id = pk.get("set_entity_link") if ex_on else None    # i32 tied entity, i32 holder (0: let go)
+        bed_id = pk.get("block_entity_data") if ex_on else None   # block pos, type, NBT (signs' text)
+        knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
         new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id, bev_id, hp_id, swing_id)
+                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -666,6 +690,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if extras is not None and eid != me:
                                 t_id, _k = _varint(b, k + 16)
                                 kinds_of[eid] = types[t_id] if 0 <= t_id < len(types) else ""
+                                if kinds_of[eid] == "leash_knot" and _k + 24 <= i + size:
+                                    knots[eid] = tuple(round(v, 3) for v in struct.unpack_from(">ddd", b, _k))
                             if not name and extras is not None and eid != me:
                                 t_id, _k = _varint(b, k + 16)
                                 kind = types[t_id] if 0 <= t_id < len(types) else ""
@@ -750,6 +776,24 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if b[k + 8] == 1:
                                 from .moment import block_pos
                                 extras["events"].append([tick, None, "ce", list(block_pos(pos)) + [b[k + 9]]])
+                        elif pid == link_id and size >= 9:    # a lead: the tied mob and who (or which knot) holds it
+                            tied, holder = struct.unpack_from(">ii", b, k)
+                            if tied in others and others[tied].startswith("#"):
+                                if holder == me:
+                                    val = ["p", None]
+                                elif holder in others and not others[holder].startswith("#"):
+                                    val = ["p", others[holder]]
+                                elif holder in knots:
+                                    val = ["k"] + list(knots[holder])
+                                elif holder in others:
+                                    val = ["m", others[holder]]
+                                else:
+                                    val = []
+                                extras["events"].append([tick, others[tied], "lead", val])
+                        elif pid == bed_id and size >= 12:    # a block entity's data: a sign's text written
+                            sg = sign_written(bytes(b[k:i + size]))
+                            if sg:
+                                extras["events"].append([tick, None, "sg", sg])
                         elif pid == swing_id and size >= 3:   # 26.3's arm swing: like animate 0 / 3
                             eid, k = _varint(b, k)
                             if eid == me or (eid in others and not others[eid].startswith("#")):
@@ -1024,7 +1068,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact14.json.gz"    # 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact15.json.gz"    # 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

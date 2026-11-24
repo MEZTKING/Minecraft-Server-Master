@@ -235,6 +235,7 @@ and a banner worn on the head (pillager captains) stands on it, all from the rec
 **Signs.** Standing, wall and hanging signs are shaped as in the game, and their text is written on them as the
 backup saved it: every line where it was written, front and back, in the sign's dye colour (darker unless it was
 made to glow). Text that doesn't glow is lit like the sign; glowing text shines with an outline, as in the game.
+In close-up playback, text someone wrote on a sign during a recording replaces the backup's from that moment on.
 
 **Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
 in the game.
@@ -318,6 +319,9 @@ its long coat, a warm pig...; the variant names come from the recording itself),
 clothes with their job's outfit and level badge (zombie villagers too), **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
 the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
 game does it, red all the while, and is gone a second later.
+
+**Leads.** Animals on a lead are tied as the recordings saw them: a rope sagging like the game's from the animal
+to the player holding it, to a fence knot, or to a wandering trader leading his llamas.
 
 **Armour stands** are shown where the recordings saw them, with their armour and held items, small or full size,
 with or without arms and base plate, and posed as they were set. **Arrows** fly as the game's arrow model, turned

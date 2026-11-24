@@ -3951,6 +3951,21 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_sign_written_packet(self):
+        """A block_entity_data packet with a sign's text (network NBT: no root name) gives its place and lines;
+        other block entities give nothing."""
+        from mcsm import nbt, paths
+        x, y, z = 286, 77, -2409
+        pos = ((x & 0x3FFFFFF) << 38) | ((z & 0x3FFFFFF) << 12) | (y & 0xFFF)
+        body_nbt = nbt.dumps({"front_text": {"messages": ['""', '{"text":"Room 9"}', '""', '""'], "color": "black",
+                                             "has_glowing_text": 0}, "is_waxed": 0}, compress=False)
+        net = b"\x0a" + body_nbt[3:]                         # the root compound without its (empty) name
+        body = struct.pack(">q", pos) + bytes([7]) + net
+        self.assertEqual(paths.sign_written(body), [286, 77, -2409, {"lines": ["", "Room 9", "", ""], "color": "black",
+                                                                     "glow": False}, None])
+        other = nbt.dumps({"patterns": []}, compress=False)
+        self.assertIsNone(paths.sign_written(struct.pack(">q", pos) + bytes([3]) + b"\x0a" + other[3:]))
+
     def test_hanging(self):
         """Paintings (variant, 2D facing, centre) and item frames (item, facing, turn, glow), within the tile; frames
         holding a map are left to the maps code."""

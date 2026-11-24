@@ -4455,8 +4455,9 @@ function signTextMesh(side, hanging) {
   m.renderOrder = 2;
   return m;
 }
-function signMesh(sg) {
-  const g = new THREE.Group(), D = Math.PI / 180;
+function signMesh(sg, g = new THREE.Group()) {
+  const D = Math.PI / 180;
+  g.userData.sign = sg; g.userData.key = `${sg.x},${sg.y},${sg.z}`;
   const FACE_Y = { south: 0, north: 180, east: 90, west: -90 };
   g.position.set(sg.x + 0.5, sg.y, sg.z + 0.5);
   const hanging = sg.kind === "hanging" || sg.kind === "wall_hanging";
@@ -4472,8 +4473,28 @@ function signMesh(sg) {
   }
   return g;
 }
+// text written during a recording ("sg" [x, y, z, front, back]): the latest before the time shown replaces the backup's
+function signEdits() {
+  const out = new Map();
+  if (!EXACT.on) return out;
+  for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.sg || []) {
+    if (t > T) continue;
+    const k = `${v[0]},${v[1]},${v[2]}`, cur = out.get(k);
+    if (!cur || cur.t < t) out.set(k, { t, front: v[3], back: v[4] });
+  }
+  return out;
+}
 function signsStep(now) {
   if (now - SIGNS.last < 600) return; SIGNS.last = now;
+  const edits = signEdits();
+  for (const e of SIGNS.tiles.values()) for (const g of e.group.children) {
+    const sg = g.userData.sign, ed = edits.get(g.userData.key), want = ed ? { ...sg, front: ed.front, back: ed.back } : sg;
+    const key = JSON.stringify([want.front, want.back]);
+    if (g.userData.shown === undefined) g.userData.shown = JSON.stringify([sg.front, sg.back]);
+    if (g.userData.shown === key) continue;
+    for (const c of g.children.slice()) { g.remove(c); c.geometry.dispose(); c.material.map?.dispose(); c.material.dispose(); }
+    signMesh(want, g); g.userData.sign = sg; g.userData.shown = key;
+  }
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
   for (const [k, e] of SIGNS.tiles) {                   // a piece gone (or another backup): its signs go
     if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) {
@@ -4684,6 +4705,43 @@ function hangingStep(now) {
       for (const f of r.frames || []) group.add(frameMesh(f));
       HANG.group.add(group); HANG.tiles.set(k, { id, layer, dim, group });
     }).catch(() => {}).finally(() => HANG.asking.delete(k));
+  }
+}
+
+// ---------- leads: a rope from a tied mob to whoever (or whichever fence knot) holds it ----------
+// "lead" states from the recordings: ["p", player], ["k", x, y, z] (a knot), ["m", mob] or [] (let go). Drawn as the
+// game's leash: 24 pieces from the mob's neck to the holder, sagging (y = dy f^2 going up, dy - dy (1 - f)^2 going
+// down), brown, with a fence knot where it's tied.
+const LEADS = { group: new THREE.Group(), mat: new THREE.MeshLambertMaterial({ color: 0x6b4a2b }), last: 0, knots: new Map() };
+scene.add(LEADS.group);
+const KNOT_GEO = new THREE.BoxGeometry(6 / 16, 8 / 16, 6 / 16);
+function leadsStep(now) {
+  if (now - LEADS.last < 33) return; LEADS.last = now;
+  for (const c of LEADS.group.children.slice()) { LEADS.group.remove(c); if (c.userData.tube) c.geometry.dispose(); }
+  if (!EXACT.on) return;
+  const d = $("#dim").value;
+  for (const [label, mob] of Object.entries(EXACT.mobs)) {
+    const v = stateAt(label, "lead", T, null); if (!v || !v.length) continue;
+    const o = mobMeshes.get(label); if (!o || !o.mesh.visible) continue;
+    const [w, h] = MOB_SIZE[mob.type] || [0.6, 0.9];
+    const a = o.mesh.position.clone(); a.y += h * 0.6;
+    const yaw = o.mesh.rotation.y; a.x += Math.sin(-yaw) * w * 0.4; a.z += Math.cos(yaw) * w * 0.4;
+    let b = null;
+    if (v[0] === "p") { const m = markers[v[1]]; if (m && m.group.visible) { b = m.group.position.clone(); b.y += 1.2; } }
+    else if (v[0] === "m") { const om = mobMeshes.get(v[1]); if (om && om.mesh.visible) { b = om.mesh.position.clone(); b.y += 1.0; } }
+    else if (v[0] === "k") {
+      const int = Number.isInteger(v[1]) && Number.isInteger(v[3]);
+      b = new THREE.Vector3(v[1] + (int ? 0.5 : 0), v[2] + (int ? 0.5 : 0), v[3] + (int ? 0.5 : 0));
+      const knot = new THREE.Mesh(KNOT_GEO, LEADS.mat); knot.position.copy(b); LEADS.group.add(knot);
+    }
+    if (!b || a.distanceTo(b) > 12) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, pts = [];
+    for (let k = 0; k <= 24; k++) {
+      const f = k / 24;
+      pts.push(new THREE.Vector3(a.x + dx * f, a.y + (dy > 0 ? dy * f * f : dy - dy * (1 - f) * (1 - f)), a.z + dz * f));
+    }
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.025, 4, false), LEADS.mat);
+    tube.userData.tube = true; LEADS.group.add(tube);
   }
 }
 
@@ -5008,6 +5066,7 @@ function frame(now) {
   headsStep(now);                                      // player heads in their skins
   chestsStep(now);                                     // chests' lids opening
   hangingStep(now);                                    // paintings and item frames
+  leadsStep(now);                                      // leads
   gfxStep(now);
   renderer.render(scene, camera);
 }
