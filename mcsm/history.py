@@ -510,6 +510,20 @@ class HistoryMap(TerrainServer):
                 return {"banners": cache[key]}
             except (ValueError, OSError) as exc:
                 return {"banners": [], "message": str(exc)}
+        if path.startswith("/api/heads/"):           # player heads and their skins: /api/heads/<layer>/<dim>/<tx>/<tz>
+            from . import heads as hd
+            try:
+                layer, dim, tx, tz = path[len("/api/heads/"):].split("/")
+                key = (int(layer), dim, int(tx), int(tz))
+                cache = self.__dict__.setdefault("_heads", {})
+                if key not in cache:
+                    bw = self.layer_world(int(layer))
+                    cache[key] = hd.heads_in_tile(bw.root, bw.world, "minecraft:" + dim, int(tx), int(tz)) if bw else []
+                    while len(cache) > 400:
+                        cache.pop(next(iter(cache)))
+                return {"heads": cache[key]}
+            except (ValueError, OSError) as exc:
+                return {"heads": [], "message": str(exc)}
         if path.startswith("/api/signs/"):           # signs and their text: /api/signs/<layer>/<dim>/<tx>/<tz>
             from . import signs as sg
             try:

@@ -1484,7 +1484,8 @@ function buildPart(json, layerKey, path, tw, th, mats, parts, name) {
   grp.scale.set(sx || 1, sy || 1, sz || 1);
   json.cubes.forEach((c, i) => { const m = new THREE.Mesh(cubeGeo(`${layerKey}|${path}|${i}`, c, tw, th), mats.n); m.userData.mobMats = mats; grp.add(m); });
   for (const [cn, cj] of Object.entries(json.children)) grp.add(buildPart(cj, layerKey, `${path}/${cn}`, tw, th, mats, parts, cn));
-  if (name && !parts[name]) parts[name] = { g: grp, x: grp.rotation.x, y: grp.rotation.y, z: grp.rotation.z };
+  if (name && !parts[name]) parts[name] = { g: grp, x: grp.rotation.x, y: grp.rotation.y, z: grp.rotation.z,
+    p: grp.position.clone(), m: json.pose.slice(0, 3) };   // m: its place in the model's units (y down)
   return grp;
 }
 // What the recording says about a mob's looks (entity data): a baby, a sheep's wool (colour; 0x10 sheared), a horse's
@@ -1725,6 +1726,30 @@ function mobGallery(kinds, at) {
   scene.add(g); GALLERY = { g, labels, at: c };
   return c;
 }
+// a tamed cat or wolf sitting (its flags 0x01): the game's sitting pose (FelineModel / WolfModel), each part at its
+// place in the model's units ([x, y, z]: set, "+": moved by) and turn
+const SIT = {
+  cat: { body: { d: [0, -4, 5], xr: Math.PI / 4 }, head: { d: [0, -3.3, 1] }, tail1: { d: [0, 8, -2], xr: 1.7278761 },
+    tail2: { d: [0, 2, -0.8], xr: 2.670354 }, left_front_leg: { at: [null, 16.1, -7], xr: -0.15707964 },
+    right_front_leg: { at: [null, 16.1, -7], xr: -0.15707964 }, left_hind_leg: { at: [null, 21, 1], xr: -Math.PI / 2 },
+    right_hind_leg: { at: [null, 21, 1], xr: -Math.PI / 2 } },
+  wolf: { upper_body: { at: [-1, 16, -3], xr: 1.2566371 }, body: { at: [0, 18, 0], xr: Math.PI / 4 }, tail: { at: [-1, 21, 6] },
+    right_hind_leg: { at: [-2.5, 22.7, 2], xr: 3 * Math.PI / 2 }, left_hind_leg: { at: [0.5, 22.7, 2], xr: 3 * Math.PI / 2 },
+    right_front_leg: { at: [-2.49, 17, -4], xr: 5.811947 }, left_front_leg: { at: [0.51, 17, -4], xr: 5.811947 } },
+};
+function petSit(o, label, kind) {
+  if (!o.parts || (o.look && o.look.baby)) return;
+  const sit = !!(stateAt(label, "tame", T, 0) & 1);
+  if (!sit && !o.sitting) return;
+  o.sitting = sit;
+  for (const [n, v] of Object.entries(SIT[kind])) {
+    const q = o.parts[n]; if (!q) continue;
+    if (!sit) { q.g.position.copy(q.p); q.g.rotation.x = q.x; continue; }
+    const m = v.at ? v.at.map((a, i) => a ?? q.m[i]) : q.m.map((a, i) => a + v.d[i]);
+    q.g.position.set(m[0] * MPX, -m[1] * MPX, -m[2] * MPX);
+    if (v.xr !== undefined) q.g.rotation.x = v.xr;
+  }
+}
 function standPose(o, label) {                           // an armour stand's head, body, arms and legs as set
   if (!o.parts) return;
   const poses = stateAt(label, "asp", T, null) || {}, D = Math.PI / 180;
@@ -1813,6 +1838,7 @@ function updateMobs() {
         continue;
       }
       if (mob.type === "armor_stand") standPose(o, label); else animateMob(o, label, speed);
+      if (mob.type === "cat" || mob.type === "wolf") petSit(o, label, mob.type);
       mobNameTag(o, label);
       const hp = o.parts && o.parts.head;                    // the head turned and tilted as recorded
       if (hp && a[7] != null) {
@@ -4470,6 +4496,50 @@ function signsStep(now) {
   }
 }
 
+// ---------- player heads: in their owner's skin ----------
+// From the backup shown (/api/heads/...): the skin's texture hash, drawn with the game's player head model (head and
+// hat layer) just over the block builder's plain head, at its exact turn (standing: 16 ways; on a wall: against it)
+const HEADS = { tiles: new Map(), asking: new Set(), last: 0, group: new THREE.Group(), tex: new Map() };
+scene.add(HEADS.group);
+function headMesh(h) {
+  const g = new THREE.Group(), L = MOBM && MOBM.PLAYER_HEAD;
+  if (!L) return g;
+  const FACE_Y = { south: 0, north: 180, east: 90, west: -90 };
+  if (h.wall) {                                         // against the block behind: 4 px back and 4 px up
+    const a = (FACE_Y[h.facing] ?? 0) * Math.PI / 180;
+    g.position.set(h.x + 0.5 - Math.sin(a) * 0.25, h.y + 0.25, h.z + 0.5 - Math.cos(a) * 0.25); g.rotation.y = a;
+  } else { g.position.set(h.x + 0.5, h.y, h.z + 0.5); g.rotation.y = -h.rotation * 22.5 * Math.PI / 180; }
+  if (!HEADS.tex.has(h.skin)) HEADS.tex.set(h.skin, new Promise(res => new THREE.TextureLoader().load(`skintex/${h.skin}.png`, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; res(t); }, undefined, () => res(null))));
+  HEADS.tex.get(h.skin).then(t => {
+    if (!t) return;
+    const inner = buildPart(L.root, "PLAYER_HEAD", "", L.tw, L.th, mobMaterials(`skin:${h.skin}`, t), {}, "");
+    inner.scale.setScalar(1.03);                        // just over the plain head
+    g.add(inner);
+  });
+  return g;
+}
+function headsStep(now) {
+  if (now - HEADS.last < 700) return; HEADS.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  for (const [k, e] of HEADS.tiles) {
+    if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) { HEADS.group.remove(e.group); HEADS.tiles.delete(k); }
+  }
+  if (!MOBM) return;
+  for (const id of REAL.tiles.keys()) {
+    const k = `${layer}|${dim}|${id}`;
+    if (HEADS.tiles.has(k) || HEADS.asking.has(k)) continue;
+    HEADS.asking.add(k);
+    const [tx, tz] = id.split(",");
+    fetch(`api/heads/${layer}/${d}/${tx}/${tz}`).then(r => r.json()).then(r => {
+      if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
+      const group = new THREE.Group();
+      for (const h of r.heads || []) group.add(headMesh(h));
+      HEADS.group.add(group); HEADS.tiles.set(k, { id, layer, dim, group });
+    }).catch(() => {}).finally(() => HEADS.asking.delete(k));
+  }
+}
+
 // ---------- maps: every map of the backup shown, and maps on their item frames ----------
 // The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
 // background). In the world, each framed map is a picture on its wall where the real blocks are loaded; the
@@ -4744,6 +4814,7 @@ function frame(now) {
   contStep(now);                                       // a chest or furnace the watched player has open
   bannersStep(now);                                    // banners' flags where the real blocks are
   signsStep(now);                                      // signs' text
+  headsStep(now);                                      // player heads in their skins
   gfxStep(now);
   renderer.render(scene, camera);
 }

@@ -3899,6 +3899,68 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             paths.REGISTRIES.clear(); paths.REGISTRIES.update(old)
 
+    def test_removed_light_goes_dark(self):
+        """A torch in the backup taken away during a recording: the floor it lit goes dark (its stored light falls
+        off from the torch), while light from another torch still there flows back in."""
+        from mcsm import blockmesh as bm
+
+        class Fake:                                       # stone up to y 64; the backup's light from two torches
+            min_y, lit = 0, True
+
+            def __init__(self, edits):
+                self.edits = edits
+                self.tops = [65 if (x, z) in ((8, 8), (2, 2)) else 64 for z in range(16) for x in range(16)]
+
+            def original_state(self, x, y, z):
+                if y <= 64:
+                    return "minecraft:stone"
+                return "minecraft:torch" if (x, y, z) in ((8, 65, 8), (2, 65, 2)) else None
+
+            def state(self, x, y, z):
+                return self.edits[(x, y, z)] if (x, y, z) in self.edits else self.original_state(x, y, z)
+
+            def biome(self, x, y, z):
+                return "minecraft:plains"
+
+            def light(self, x, y, z):
+                if y <= 64:
+                    return 0, 0
+                d1 = abs(x - 8) + abs(y - 65) + abs(z - 8)
+                d2 = abs(x - 2) + abs(y - 65) + abs(z - 2)
+                return 15, max(0, 14 - d1, 14 - d2)
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+            look = bm.Look(jar)
+
+            def floor(edits):
+                r = bm.build(os.path.join(tmp, "nowhere"), os.path.join(tmp, "nowhere", "w"), [], look, only={(0, 0)},
+                             overrides={(0, 0): Fake(edits)})
+                out = {}
+                for i in range(0, len(r["faces"]), bm.RECORD.size):
+                    x, y, z, d, k, ex, tint, l0, l1 = bm.RECORD.unpack_from(r["faces"], i)
+                    if d == 0 and y == 64:
+                        out[(x + r["origin"][0], z + r["origin"][1])] = (ex >> 8) & 15
+                return out
+            before, after = floor({}), floor({(8, 65, 8): "minecraft:air"})
+            self.assertEqual(before[(12, 8)], 10)
+            self.assertEqual(after[(12, 8)], max(0, 14 - (10 + 6)))   # only the far torch's light: 14 - 16 -> 0
+            self.assertEqual(after[(3, 2)], 13)                         # next to the torch still there: unchanged
+            self.assertEqual(after[(6, 6)], 6)                          # between them: the remaining torch's 14 - 8
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_head_skin_hash(self):
+        """A player head's skin: the texture hash from its profile (1.20.5+) or SkullOwner (older); none without."""
+        import base64
+        from mcsm import heads
+        h = "a" * 64
+        val = base64.b64encode(json.dumps({"textures": {"SKIN": {"url": f"http://textures.minecraft.net/texture/{h}"}}}).encode()).decode()
+        self.assertEqual(heads.skin_hash({"profile": {"name": "x", "properties": [{"name": "textures", "value": val}]}}), h)
+        self.assertEqual(heads.skin_hash({"SkullOwner": {"Name": "x", "Properties": {"textures": [{"Value": val.rstrip("=")}]}}}), h)
+        self.assertIsNone(heads.skin_hash({"profile": {"name": "x"}}))
+
     def test_sign_text(self):
         """Sign lines from every layout: JSON text in strings (to 1.21.4), components as NBT (1.21.5+), the old
         Text1-4; empty signs give nothing."""

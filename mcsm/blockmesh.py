@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 11                    # bump when the output changes (cached tiles are built again); 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 12                    # bump when the output changes (cached tiles are built again); 12: dark where a light block was taken away; 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 # x, y, z, dir, look, light/shading, tint (RGB565), then the smooth light of the face's 4 corners: 12 bits each
@@ -913,6 +913,9 @@ class PatchedChunk:
         e = self.edits.get((x, y, z))
         return e if e is not None else self.base.state(x, y, z)
 
+    def original_state(self, x: int, y: int, z: int) -> str | None:
+        return self.base.state(x, y, z)
+
     def biome(self, x: int, y: int, z: int) -> str | None:
         return self.base.biome(x, y, z)
 
@@ -1182,17 +1185,54 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         return v
 
     # light from blocks placed since the backup's light was worked out (torches put up during a recording, Ledger
-    # changes): spread out as the game does, one level less a step, through anything that isn't solid
+    # changes): spread out as the game does, one level less a step, through anything that isn't solid. A light block
+    # taken away takes its light with it: the spaces whose stored light falls off from it go dark, then light flows
+    # back in from the spaces round them (the game's light removal)
     placed: dict[tuple[int, int, int], int] = {}
+    dark: set[tuple[int, int, int]] = set()
     q = deque()
+
+    def stored_blk(p):
+        c = chunks.get((p[0] >> 4, p[2] >> 4))
+        return c.light(p[0] & 15, p[1], p[2] & 15)[1] if c is not None else 0
+    removed = []
     for (cx, cz), c in chunks.items():
         for (lx, y, lz) in list(getattr(c, "edits", None) or {}):
             st = c.state(lx, y, lz)                       # (recordings' chunks keep state ids)
             lv = emission(st) if st else 0
             p = ((cx << 4) + lx, y, (cz << 4) + lz)
+            was = getattr(c, "original_state", None)
+            old = was(lx, y, lz) if was else None
+            ov = emission(old) if old else 0
+            if ov > lv:
+                removed.append((p, ov))
             if lv > placed.get(p, 0):
                 placed[p] = lv
                 q.append(p)
+    for src, ov in removed:                             # the spaces lit by it: their light falls off from it
+        reg = deque([(src, ov)])
+        seen_r = {src}
+        while reg:
+            p, lv = reg.popleft()
+            if p != src and stored_blk(p) != lv:
+                continue
+            dark.add(p)
+            if lv <= 1:
+                continue
+            for dx, dy, dz in DIRS:
+                n = (p[0] + dx, p[1] + dy, p[2] + dz)
+                if n not in seen_r and (n[0] >> 4, n[2] >> 4) in chunks:
+                    seen_r.add(n)
+                    reg.append((n, lv - 1))
+    for p in dark:                                      # light flowing back in from the spaces round them
+        for dx, dy, dz in DIRS:
+            n = (p[0] + dx, p[1] + dy, p[2] + dz)
+            if n in dark or (n[0] >> 4, n[2] >> 4) not in chunks:
+                continue
+            b = stored_blk(n)
+            if b > 1 and b > placed.get(n, 0):
+                placed[n] = b
+                q.append(n)
     while q:
         x, y, z = q.popleft()
         lv = placed[(x, y, z)] - 1
@@ -1213,7 +1253,9 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         if c is None:
             return 15 << 4
         sky, blk = c.light(x & 15, y, z & 15)
-        if placed:
+        if dark and (x, y, z) in dark:
+            blk = placed.get((x, y, z), 0)
+        elif placed:
             blk = max(blk, placed.get((x, y, z), 0))
         if slab is not None:                         # caves: a little light everywhere, so they can be seen
             blk = max(blk, CAVE_LIGHT)

@@ -198,6 +198,14 @@ class RecChunk:
             return None
         return self.sections[si][0].get(((y & 15) << 8) | (z << 4) | x)
 
+    def original_state(self, x: int, y: int, z: int) -> str | None:
+        """The block as the chunk was sent, before the recorded changes."""
+        si = (y - self.min_y) >> 4
+        if not 0 <= si < len(self.sections):
+            return None
+        i = self.sections[si][0].get(((y & 15) << 8) | (z << 4) | x)
+        return self.states[i] if i is not None and 0 <= i < len(self.states) else None
+
     def state(self, x: int, y: int, z: int) -> str | None:
         i = self._id(x, y, z)
         return self.states[i] if i is not None and 0 <= i < len(self.states) else None

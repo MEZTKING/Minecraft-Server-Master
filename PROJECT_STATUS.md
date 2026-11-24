@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -972,8 +972,16 @@ stand-ins now have the game's sizes (standing board above the block on its stick
 reads past registry entries for these mobs (`holders`). Checked: Felix is an all-black cat with a light blue collar
 (`EXACT_SUFFIX` `.exact14`).
 
-Still different (worst first): sitting cats and wolves; heads (player heads' skins), chest lids, pistons, copper
-golems; darkness where a light block was broken during a recording; sign text written during a recording (the
+**Round 7 (2026-11-24, owner: "Yes, next batch").** A light block taken away (recording or Ledger change: the
+chunk's `original_state` gave off more light than its new block): the spaces whose stored block light falls off
+from it go dark, then light flows back in from the spaces round them (`blockmesh.VERSION` 12). Sitting cats and
+wolves (tame flags 0x01): the game's FelineModel / WolfModel sitting pose (parts moved and turned; parts now keep
+their model place). Player heads in their owner's skin (`mcsm/heads.py`, `/api/heads/...`: the profile's or
+SkullOwner's texture hash, drawn with the jar's PLAYER_HEAD model over the plain head, at its exact turn). Checked:
+Felix sitting. Not seen (no player heads near the village in the backup): heads, and light going dark (a test).
+
+Still different (worst first): chest lids opening (the chest is part of the block pieces; it needs drawing on its
+own), pistons, copper golems; sign text written during a recording (the
 backup's is shown); eating and drinking (the game's arm bob in
 first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
 action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
@@ -1696,6 +1704,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 7**: Felix sitting on 26 May 19:41; any player heads you've placed (they should wear the player's
+  skin); a torch or lantern broken during a recording (the spot should go dark). The real blocks are built again
+  once.
 - **Parity round 6**: signs with their text (the "Room 1", "Room 2", "Room 3" signs and "cute golem," near
   300, -2363; the hanging "Bread" sign at 354, 82, -2246); Felix the all-black cat with a light blue collar on 26 May
   19:41. The real blocks are built again once (the signs' new shape).
@@ -1868,6 +1879,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "Yes, next batch". Parity round 7 (backlog 0zh): darkness where a light block was taken
+  away, sitting cats and wolves, player heads in their owner's skin. Tests: `test_removed_light_goes_dark`,
+  `test_head_skin_hash`.
 
 - **2026-11-24:** Owner: "Yes, next batch". Parity round 6 (backlog 0zh): sign text from the backups, signs shaped as
   the game's, collars on tamed cats and wolves and the tamed wolf's look. Tests: `test_sign_text`,

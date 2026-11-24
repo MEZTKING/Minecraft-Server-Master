@@ -194,7 +194,8 @@ of that backup's Minecraft version). Every block you could see from outside is t
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
 fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;
-a double chest joins up), signs (with their text, see below), banners (with their patterns, see below), shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
+a double chest joins up), signs (with their text, see below), banners (with their patterns, see below), shulker boxes, skulls and mob heads (player heads in their owner's skin, from Mojang's texture server like the
+players' own skins), decorated pots. Blocks standing in
 water (waterlogged stairs, slabs, fences...) have their water. Grass, leaves, vines and water take the colour of
 their biome, from the game's own biome files: swamps are murky, badlands and savannas dry, jungles bright. Like the
 game, the colour is blended where biomes meet. Turned stairs, fences and walls keep their texture lined up as in
@@ -254,7 +255,8 @@ torches, lanterns, glowstone and so on that the backup stores for that spot, wit
 corners. Like the game's **smooth lighting**, each corner of a block face takes the light of the four spaces
 around it, so light fades evenly across floors and walls instead of in block-sized steps. Light from torches,
 lanterns and other light blocks **placed after the backup** (during a recording, or from the Ledger log) is worked
-out too: it spreads as in the game, one level less each block, around corners but not through solid blocks.
+out too: it spreads as in the game, one level less each block, around corners but not through solid blocks. A
+light block taken away takes its light with it: the spaces it lit go dark, apart from light from others nearby.
 Like the game's own light map, sky light and torch light are added together (not the brighter of the
 two) and go through the game's brightness curve, so rooms lit by torches are as bright as in the game. With
 graphics Fancy, torch light isn't darkened by the sun's shadows (a lit room under a roof stays lit). Open **Light** (under *Terrain*) to change it; your settings are remembered:
@@ -310,7 +312,8 @@ something, as in the game. An egg or snowball breaking doesn't count as a death.
 
 What the recordings say about each mob's looks is used too: **babies** are drawn with the game's own baby models
 (big heads, small bodies), **sheep** in their wool colour (and bare when sheared), **horses** in their coat and
-markings, **tamed cats and wolves** with a collar in its dye colour (a tamed wolf's own look too), **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
+markings, **tamed cats and wolves** with a collar in its dye colour (a tamed wolf's own look too), sitting when they were
+told to sit, **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
 its long coat, a warm pig...; the variant names come from the recording itself), **villagers** in their biome's
 clothes with their job's outfit and level badge (zombie villagers too), **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
 the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
