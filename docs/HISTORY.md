@@ -262,7 +262,8 @@ graphics Fancy, torch light isn't darkened by the sun's shadows (a lit room unde
   - **Off:** Minecraft's own flat look, as without shaders.
   - **Fancy:** shader-like looks, drawn in the page itself, as real shader packs only run inside the game:
     - the sun casts shadows from blocks and players;
-    - a real sky with sunrise and sunset colours, the sun and moon, stars at night and grey rain clouds;
+    - a real sky with sunrise and sunset colours, the sun, the moon in the game's picture for that night's phase
+      (full to new and back, eight nights, from the recording's day number), stars at night and grey rain clouds;
     - haze in the distance;
     - a soft glow around torches, lanterns, glowstone, fire and other light sources (soul ones glow blue),
       strongest at night;
@@ -297,8 +298,13 @@ squid, bats, farm animals, villagers, horses, boats and the rest. They walk (leg
 speed), zombies hold their arms out, fish swish their tails, squid move their tentacles and bats flap. Mobs turn
 and tilt their heads as recorded (a mob turning by more than 15 degrees is kept even when it stands still).
 Pillagers, vindicators and other illagers fold their arms when empty-handed and free them when holding
-something, as in the game. Named mobs (name tags) keep their recorded pose and item use. An egg or snowball
-breaking doesn't count as a death. The
+something, as in the game. An egg or snowball breaking doesn't count as a death.
+
+What the recordings say about each mob's looks is used too: **babies** are drawn with the game's own baby models
+(big heads, small bodies), **sheep** in their wool colour (and bare when sheared), **horses** in their coat and
+markings, **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
+the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
+game does it, red all the while, and is gone a second later. The
 models are read from the newest Minecraft 26.x game installed on this PC (older versions' games can't be read);
 without one, mobs show as boxes sized and coloured by kind. What the recordings don't say is picked once per mob:
 a horse's coat, a cat's or parrot's colours, a tropical fish's colour, and farm animals are their temperate kind.
@@ -315,7 +321,11 @@ What the recordings say about each player and mob is shown too:
 
 - **Sleeping:** lying on their back.
 - **Dying:** falling over sideways; mobs disappear after their death.
-- **Using an item:** the arm raised (eating, drawing a bow, holding up a shield).
+- **Holding and using items:** the game's own arm poses: an arm holding something a little lower and forward; a
+  shield raised across the body; a spyglass to the eye; a goat horn to the mouth; a trident raised overhead; a
+  brush held out; drawing a bow or crossbow with both arms along the look.
+- **Turning:** the body follows the way they walk and turns after the head, never more than 75 degrees from it,
+  as the game works it out (the recordings keep where they look, not the body).
 - **Hurt:** a short red flash.
 - **Burning:** an orange flicker.
 

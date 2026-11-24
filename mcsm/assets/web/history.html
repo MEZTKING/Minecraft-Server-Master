@@ -79,6 +79,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 .empty { color: var(--muted); font-size: 12px; padding: 2px 6px; }
 .note { font-size: 12px; color: var(--text-2); margin-top: 8px; }
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.mobtag { position: absolute; transform: translate(-50%, -100%); padding: 0 4px; background: rgba(0, 0, 0, .25); color: #fff;
+  font: 14px/1.3 monospace; white-space: nowrap; }
 /* the spectated player's hotbar (exact from their recording, else from a backup) and the inventory panel (E) */
 #hotbar { position: fixed; left: 50%; bottom: 196px; transform: translateX(-50%); z-index: 4; text-align: center; pointer-events: none; }
 #panel, #timeline { z-index: 8; }
@@ -699,9 +701,10 @@ for (const k of Object.keys(SHOW)) {
 // ---------- graphics: Off / Fancy / Ultra (shader-like looks, all in the page) ----------
 SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uDay: { value: 1 }, uRain: { value: 0 } },
+  uniforms: { uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uDay: { value: 1 }, uRain: { value: 0 },
+    uMoonTex: { value: null }, uMoonOn: { value: 0 } },
   vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `varying vec3 vDir; uniform vec3 uSunDir; uniform float uDay, uRain;
+  fragmentShader: `varying vec3 vDir; uniform vec3 uSunDir; uniform float uDay, uRain, uMoonOn; uniform sampler2D uMoonTex;
     float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
     void main() {
       float h = max(vDir.y, 0.0);
@@ -711,7 +714,14 @@ SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMa
       col += vec3(1.0, 0.42, 0.12) * pow(max(dot(vDir, uSunDir), 0.0), 6.0) * low * 0.7 * (1.0 - h);
       float sd = dot(vDir, uSunDir), md = dot(vDir, -uSunDir);
       col = mix(col, vec3(1.6, 1.45, 1.1), smoothstep(0.99935, 0.9997, sd) * (1.0 - uRain));    // the sun
-      col = mix(col, vec3(0.85, 0.88, 0.95), smoothstep(0.9995, 0.9998, md) * (1.0 - uRain));   // the moon
+      if (uMoonOn > 0.5) {                     // the game's moon picture for tonight's phase, added to the sky as the game does
+        vec3 m = -uSunDir, t1 = normalize(cross(m, vec3(0.0, 0.0, 1.0))), t2 = cross(t1, m);
+        float dm = dot(vDir, m);
+        if (dm > 0.0) {
+          vec3 p = vDir / dm; vec2 q = vec2(dot(p, t1), dot(p, t2)) / 0.1;
+          if (abs(q.x) < 1.0 && abs(q.y) < 1.0) col += texture2D(uMoonTex, q * 0.5 + 0.5).rgb * (1.0 - uRain);
+        }
+      } else col = mix(col, vec3(0.85, 0.88, 0.95), smoothstep(0.9995, 0.9998, md) * (1.0 - uRain));   // the moon
       if (hash(floor(vDir * 420.0)) > 0.9982 && vDir.y > 0.0) col += vec3(0.9) * (1.0 - uDay) * (1.0 - uRain);   // stars
       col = mix(col, vec3(0.36, 0.38, 0.42) * (0.25 + 0.75 * uDay), uRain * 0.85);           // rain clouds
       gl_FragColor = vec4(col, 1.0);
@@ -720,6 +730,20 @@ SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMa
     }`,
 }));
 SKY.frustumCulled = false; SKY.renderOrder = -10; SKY.visible = false; scene.add(SKY);
+// the moon's phase: the day number (day time / 24000) mod 8, from full (0) to new (4) and back
+const MOON_PHASES = ["full_moon", "waning_gibbous", "third_quarter", "waning_crescent", "new_moon", "waxing_crescent",
+  "first_quarter", "waxing_gibbous"];
+const MOON = { phase: -1, tex: {} };
+function setMoonPhase(ph) {
+  if (ph === MOON.phase) return; MOON.phase = ph;
+  const name = MOON_PHASES[ph];
+  if (!MOON.tex[name]) MOON.tex[name] = new THREE.TextureLoader().load(`blocktex/0/environment/celestial/moon/${name}.png`, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    if (MOON.phase === ph) { SKY.material.uniforms.uMoonTex.value = t; SKY.material.uniforms.uMoonOn.value = 1; }
+  }, undefined, () => { SKY.material.uniforms.uMoonOn.value = 0; });
+  else { SKY.material.uniforms.uMoonTex.value = MOON.tex[name]; SKY.material.uniforms.uMoonOn.value = 1; }
+}
+setMoonPhase(0);
 const SUN_TARGET = new THREE.Object3D(); scene.add(SUN_TARGET); sun.target = SUN_TARGET;
 const GFX_OPTS = { off: null, fancy: { map: 2048, half: 90, ratio: 1.5 }, ultra: { map: 4096, half: 150, ratio: 2 } };
 function applyGraphicsMode(mode, save = true) {
@@ -1463,31 +1487,71 @@ function buildPart(json, layerKey, path, tw, th, mats, parts, name) {
   if (name && !parts[name]) parts[name] = { g: grp, x: grp.rotation.x, y: grp.rotation.y, z: grp.rotation.z };
   return grp;
 }
+// What the recording says about a mob's looks (entity data): a baby, a sheep's wool (colour; 0x10 sheared), a horse's
+// coat and markings, a slime's size. Any change builds the model again.
+const DYE_ORDER = ["white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan",
+  "purple", "blue", "brown", "green", "red", "black"];
+const HORSE_COAT = ["white", "creamy", "chestnut", "brown", "black", "gray", "darkbrown"];
+const HORSE_MARKS = [null, "white", "whitefield", "whitedots", "blackdots"];
+function mobLook(label, kind) {
+  const look = { baby: !!stateAt(label, "baby", T, 0) };
+  if (kind === "sheep") look.wool = stateAt(label, "wool", T, 0);
+  if (kind === "horse") look.variant = stateAt(label, "variant", T, null);
+  if (kind === "slime" || kind === "magma_cube") look.size = stateAt(label, "size", T, null);
+  return look;
+}
 async function buildMob(o, label, kind) {
   if (!MOBM) return;                                   // models not loaded yet: try again next frame
   o.building = true;
-  const [layer, tex] = mobLayerAndTex(kind, label), L = MOBM[layer];
+  const look = o.look || {}, key = o.lookKey;
+  let [layer, tex] = mobLayerAndTex(kind, label);
+  if (kind === "horse" && look.variant != null) tex = `horse/horse_${HORSE_COAT[look.variant & 255] || "brown"}`;
+  let baby = !!(look.baby && MOBM[layer + "_BABY"]);   // the game's own baby model and texture (26.x)
+  let L = MOBM[baby ? layer + "_BABY" : layer];
   if (!L) return;                                      // no model: stays a box
-  const t = await mobTexture(tex);
-  if (!t || !mobMeshes.has(label)) return;
+  let t = baby ? await mobTexture(tex + "_baby") : null;
+  if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
+  if (!t) t = await mobTexture(tex);
+  if (!t || !mobMeshes.has(label) || o.lookKey !== key) return;
   const inner = new THREE.Group(), parts = {};
   inner.position.y = 24 * MPX;                         // the model's y = 24 is the ground
-  inner.add(buildPart(L.root, layer, "", L.tw, L.th, mobMaterials(tex, t), parts, ""));
-  for (const [xl, xt, glass] of (MOB_EXTRA[kind] || [])) {
+  inner.add(buildPart(L.root, baby ? layer + "_BABY" : layer, "", L.tw, L.th, mobMaterials(tex + (baby ? "_baby" : ""), t), parts, ""));
+  const extras = (MOB_EXTRA[kind] || []).slice();
+  if (kind === "sheep" && (look.wool & 0x10)) extras.length = 0;         // sheared
+  const marks = kind === "horse" && look.variant != null && HORSE_MARKS[(look.variant >> 8) & 255];
+  if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, true]);
+  for (let [xl, xt, glass, over] of extras) {
+    if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
+      const bl = xl === layer ? layer + "_BABY" : xl.replace(layer + "_", layer + "_BABY_");
+      if (MOBM[bl]) { xl = bl; xt += "_baby"; }
+    }
     const XL = MOBM[xl], t2 = XL && await mobTexture(xt);
-    if (XL && t2) inner.add(buildPart(XL.root, xl, "", XL.tw, XL.th, mobMaterials(xt, t2, glass), {}, ""));
+    if (!XL || !t2 || o.lookKey !== key) continue;
+    let mats = mobMaterials(xt, t2, glass);
+    if (kind === "sheep" && !over) {                    // the wool in its dye colour
+      const col = DYE[DYE_ORDER[(look.wool || 0) & 15]] ?? 0xffffff;
+      mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn }; mats.n.color = new THREE.Color(col);
+    }
+    if (over) {                                         // markings: drawn on the coat itself
+      mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
+      mats.n.polygonOffset = true; mats.n.polygonOffsetFactor = -1; mats.n.polygonOffsetUnits = -1;
+    }
+    inner.add(buildPart(XL.root, xl, "", XL.tw, XL.th, mats, {}, ""));
   }
+  if (o.lookKey !== key || !mobMeshes.has(label)) return;
   if (kind === "tropical_fish") {                      // its colours come from the variant (not recorded): one per fish
     let h = 0; for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) | 0;
     const col = new THREE.Color().setHSL((Math.abs(h) % 360) / 360, 0.75, 0.6);
     inner.traverse(m => { if (m.isMesh) { const ms = m.userData.mobMats;
       const own = { n: ms.n.clone(), hurt: ms.hurt, burn: ms.burn }; own.n.color = col; m.material = own.n; m.userData.mobMats = own; } });
   }
-  const s = (L.scale || 1) * (MOB_SCALE[kind] || 1);
+  let s = (L.scale || 1) * (look.size != null ? Math.max(1, look.size) : (MOB_SCALE[kind] || 1));
+  if (look.baby && !baby) s *= 0.5;                    // no baby model: the grown one at half size
   const model = new THREE.Group(); model.add(inner); model.scale.setScalar(s);
-  o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.state = "n";
+  if (o.model) o.mesh.remove(o.model);
+  o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.state = "n"; o.gearKeys = {}; o.gear = {};
 }
-function mobMesh(label, kind) {
+function mobMesh(label, kind, look = null) {
   let o = mobMeshes.get(label);
   if (!o) {
     let base = kind; for (const k of Object.keys(MOB_SIZE)) if (kind.endsWith(k) && k.length > (MOB_SIZE[base] ? base.length : 0)) base = k;
@@ -1503,6 +1567,10 @@ function mobMesh(label, kind) {
   if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
     if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]); }
     return o;
+  }
+  if (look) {                                          // its looks changed (grew up, sheared, dyed...): built again
+    const key = JSON.stringify(look);
+    if (o.lookKey !== key) { o.lookKey = key; o.look = look; o.building = false; }
   }
   if (!o.building && MOBM) buildMob(o, label, kind);
   return o;
@@ -1602,9 +1670,25 @@ function mobGallery(kinds, at) {
   scene.add(g); GALLERY = { g, labels, at: c };
   return c;
 }
-function mobTint(o, label) {                             // red when hurt, orange when burning (swaps shared materials)
-  const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01;
-  const st = h !== null && h < 450 ? "hurt" : burn ? "burn" : "n";
+// a name tag's name over the mob, as the game shows it (dark plate, white text) when you're within 16 blocks
+const _ntv = new THREE.Vector3(), _ntb = new THREE.Box3();
+function mobNameTag(o, label) {
+  const name = stateAt(label, "name", T, "");
+  const near = name && SHOW.names && o.mesh.visible && o.mesh.position.distanceTo(camera.position) < 16;
+  if (!near) { if (o.tag) o.tag.style.display = "none"; return; }
+  if (!o.tag) { o.tag = document.createElement("div"); o.tag.className = "mobtag"; $("#labels").appendChild(o.tag); }
+  if (o.tag.textContent !== name) o.tag.textContent = name;
+  const h = o.model ? _ntb.setFromObject(o.model).max.y : o.mesh.position.y + 1;
+  _ntv.set(o.mesh.position.x, h + 0.3, o.mesh.position.z).project(camera);
+  const on = _ntv.z < 1 && Math.abs(_ntv.x) < 1.1 && Math.abs(_ntv.y) < 1.1;
+  o.tag.style.display = on ? "" : "none";
+  if (on) { o.tag.style.left = `${(_ntv.x + 1) / 2 * innerWidth}px`; o.tag.style.top = `${(1 - _ntv.y) / 2 * innerHeight}px`; }
+}
+// the game's death: tipping over sideways, sqrt(ticks / 20 x 1.6) of 90 degrees, red all the while, gone after 20 ticks
+const deathTilt = ms => Math.min(1, Math.sqrt(Math.max(0, ms / 50) / 20 * 1.6)) * Math.PI / 2;
+function mobTint(o, label) {                             // red when hurt or dying, orange when burning (swaps shared materials)
+  const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01, died = sinceLast(label, "d", T);
+  const st = (h !== null && h < 500) || (died !== null && died < 1000) ? "hurt" : burn ? "burn" : "n";
   if (!o.model) { o.base = o.base || o.box.material.color.clone(); hurtTint(o.box.material, label, o.base); return; }
   if (st === o.state) return;
   o.state = st;
@@ -1617,7 +1701,7 @@ function updateMobs() {
       const rows = mob.rows; if (!rows.length || T < rows[0][0] - 1000) continue;
       const i = lower(rows, T, r => r[0]), a = rows[i - 1] || rows[0], b = rows[i];
       if (T - a[0] > 16_000 || a[4] !== d) continue;           // left view (or not here)
-      const o = mobMesh(label, mob.type);
+      const o = mobMesh(label, mob.type, mobLook(label, mob.type));
       let x = a[1], y = a[2], z = a[3], yaw = a[5], speed = 0;
       if (b && b[0] - a[0] <= 700 && b[4] === a[4]) {
         const f = (T - a[0]) / Math.max(1, b[0] - a[0]);
@@ -1628,9 +1712,9 @@ function updateMobs() {
       if (o.last) { const dd = Math.hypot(x - o.last[0], z - o.last[1]); if (dd < 2) o.dist += dd; }
       o.last = [x, z];
       o.mesh.position.set(x, y, z); o.mesh.rotation.y = -yaw * Math.PI / 180; o.mesh.visible = true; shown.add(label);
-      const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1500);
-      o.mesh.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;
-      if (died !== null && died > 1500) { o.mesh.visible = false; continue; }               // gone after the death
+      const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1000);
+      o.mesh.rotation.z = dying ? deathTilt(died ?? 1000) : 0;
+      if (died !== null && died >= 1000) { o.mesh.visible = false; continue; }              // gone 20 ticks after the death
       if (died === null) {                                   // picked up, despawned, killed: gone at once
         const gone = sinceLast(label, "gone", T);
         if (gone !== null && T - gone >= a[0]) { o.mesh.visible = false; continue; }
@@ -1655,6 +1739,7 @@ function updateMobs() {
         continue;
       }
       animateMob(o, label, speed);
+      mobNameTag(o, label);
       const hp = o.parts && o.parts.head;                    // the head turned and tilted as recorded
       if (hp && a[7] != null) {
         let hy = a[7], pt = a[6];
@@ -1667,6 +1752,7 @@ function updateMobs() {
       mobTint(o, label);
     }
   }
+  for (const [label, o] of mobMeshes) if (o.tag && (!shown.has(label) || !o.mesh.visible)) o.tag.style.display = "none";
   for (const [label, o] of mobMeshes) if (!shown.has(label)) {
     if (label.startsWith("#gallery#")) { animateMob(o, label, 2); continue; }
     if (mobMeshes.size > 600) {                          // only the box is the mob's own: models share geometry
@@ -2099,11 +2185,11 @@ function animateFigure(m, now) {
   const flat = pose === 1 || pose === 3 || (pose < 0 && ((fl & 0x10) || (fl & 0x80)));
   const sneak = !flat && (pose === 5 || (pose < 0 && (fl & 0x02)));
   const sleeping = pose === 2, died = c && c.exact ? sinceLast(m.name, "d", T) : null;
-  const dying = pose === 7 || (died !== null && died < 1500);
+  const dying = pose === 7 || (died !== null && died < 1000);
   m.F.fig.rotation.order = "YXZ";
   const rx = flat ? Math.PI / 2 : sleeping ? -Math.PI / 2 : 0;
   m.F.fig.rotation.x += (rx - m.F.fig.rotation.x) * Math.min(1, dt * 10);
-  m.F.fig.rotation.z = dying ? Math.min(1, (died ?? 400) / 400) * Math.PI / 2 : 0;   // the game's death: fall sideways
+  m.F.fig.rotation.z = dying ? deathTilt(died ?? 1000) : 0;   // the game's death: fall sideways
   m.F.fig.position.y = flat ? 0.3 : sleeping ? 0.6 : sneak ? -0.125 : 0;
   hurtTint(m.F.mat, m.name, WHITE);
   // the game's sneaking pose: body 0.5 rad forward from the neck, head 4.2 px and body/arms 3.2 px lower,
@@ -2121,9 +2207,27 @@ function animateFigure(m, now) {
   const sw = c && c.exact ? swingAt(m.name, T) : null;
   m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
   if (c && c.exact && c.yaw !== undefined) {
-    const r = d => d * Math.PI / 180;
-    m.F.fig.rotation.y = -r(c.yaw); m.yaw = undefined;
-    P0.head.rotation.y = -r((((c.head - c.yaw) % 360) + 540) % 360 - 180); P0.head.rotation.x = r(c.pitch);
+    // the body's turn isn't recorded: the game works it out each tick (LivingEntity.tickHeadTurn): it turns 30% of the
+    // way to where they walk (backwards: still facing ahead) or to the look while swinging, and the head is never more
+    // than 75 degrees from it
+    const r = d => d * Math.PI / 180, wrap = a => ((a % 360) + 540) % 360 - 180, look = c.head ?? c.yaw;
+    if (m.body === undefined || m.riding || Math.abs(T - (m.bodyT ?? -1e15)) > 1000) m.body = look;
+    else if (T !== m.bodyT) {
+      const ticks = Math.min(5, Math.abs(T - m.bodyT) / 50);
+      let f = m.body;
+      if ((c.speed || 0) > 1 && Math.hypot(dx, dz) > 1e-4) {
+        f = Math.atan2(dz, dx) * 180 / Math.PI - 90;
+        if (Math.abs(wrap(look - f)) > 95) f -= 180;
+      }
+      if (m.swing > 0) f = look;
+      m.body += wrap(f - m.body) * (1 - Math.pow(0.7, ticks));
+      const d2 = Math.max(-75, Math.min(75, wrap(look - m.body)));
+      m.body = look - d2;
+      if (d2 * d2 > 2500) m.body += d2 * 0.2 * Math.min(1, ticks);
+    }
+    m.bodyT = T;
+    m.F.fig.rotation.y = -r(m.body); m.yaw = undefined;
+    P0.head.rotation.y = -r(wrap(look - m.body)); P0.head.rotation.x = r(c.pitch);
   } else {
     P0.head.rotation.set(0, 0, 0);
     if (Math.hypot(dx, dz) > 0.02) m.yaw = Math.atan2(dx, dz);
@@ -2150,8 +2254,23 @@ function animateFigure(m, now) {
     P.rarm.rotation.x = P.larm.rotation.x = -Math.PI / 2 + hx;
     P.rarm.rotation.y = (side > 0 ? 0.1 : 0.5) + hy; P.larm.rotation.y = (side > 0 ? -0.5 : -0.1) + hy;
   } else {
-    P.rarm.rotation.x = m.using && !m.usingOff ? -1.1 : -s * 0.8 + lean - (m.swing || 0) * 1.6;
-    P.larm.rotation.x = m.using && m.usingOff ? -1.1 : s * 0.8 + lean;   // a shield up, eating with the off hand
+    // the game's arm poses (HumanoidModel.ArmPose) for what each hand holds and is using; its y turns are ours negated
+    const hx = P.head.rotation.x, hy = P.head.rotation.y;
+    const pose = (right, key, use, base) => {
+      const it = (key || "").split("|")[0], sg = right ? 1 : -1;
+      if (use && it === "shield") return [base * 0.5 - 0.9425, sg * Math.PI / 6];          // BLOCK
+      if (use && it === "spyglass") return [Math.max(-2.4, Math.min(3.3, hx - 1.9199 - (sneak ? 0.2618 : 0))), hy + sg * 0.2618];
+      if (use && it === "goat_horn") return [Math.max(-1.2, Math.min(1.2, hx)) - 1.4835, hy + sg * Math.PI / 6];   // TOOT_HORN
+      if (use && it === "trident") return [base * 0.5 - Math.PI, 0];                       // THROW_SPEAR
+      if (use && it === "brush") return [base * 0.5 - Math.PI / 5, 0];
+      if (it) return [base * 0.5 - Math.PI / 10, 0];                                       // ITEM: holding something
+      return [base, 0];                                                                     // EMPTY
+    };
+    const gk = m.gearKeys || {};
+    const [rx, ry] = pose(true, gk.mainhand, m.using && !m.usingOff, -s * 0.8 + lean);
+    const [lx, ly] = pose(false, gk.offhand, m.using && m.usingOff, s * 0.8 + lean);
+    P.rarm.rotation.x = rx - (m.swing || 0) * 1.6; P.rarm.rotation.y = ry;
+    P.larm.rotation.x = lx; P.larm.rotation.y = ly;
   }
   m.last = p.clone(); m.lastT = now;
 }
@@ -3304,6 +3423,7 @@ function worldStep(now, dt) {
   let changed = false;
   if (dtime !== null) {
     const hours = ((((dtime % 24000) + 24000) % 24000) / 1000 + 6) % 24;    // day time 0 = 6:00, 6000 = noon
+    setMoonPhase(((Math.floor(dtime / 24000) % 8) + 8) % 8);
     if (Math.abs(hours - LIGHTS.time) > 0.01) { LIGHTS.time = Math.round(hours * 100) / 100; changed = true; }
   }
   if (Math.abs(rain - (LIGHTS.rain || 0)) > 0.01 || Math.abs(thunder - (LIGHTS.thunder || 0)) > 0.01) {

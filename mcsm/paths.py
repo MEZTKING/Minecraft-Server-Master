@@ -144,10 +144,11 @@ def _varlong(b, i: int) -> tuple[int, int]:
 SER_BYTE, SER_VARINT, SER_VARLONG, SER_FLOAT, SER_BOOL, SER_OPT_BLOCK_POS = 0, 1, 2, 3, 8, 11
 
 
-def entity_data(b, k: int, end: int) -> dict[int, int | float]:
-    """``{index: value}`` for the entries of an entity-data packet body we can read (from *k*, after the entity
-    id): flags (0), pose (6), living flags / hand use (8), health (9). Stops at the first unknown kind."""
-    out: dict[int, int | float] = {}
+def entity_data_all(b, k: int, end: int) -> dict[int, tuple[int, object]]:
+    """``{index: (serializer, value)}`` for every entry of an entity-data packet body we can read past (from *k*,
+    after the entity id): bytes, VarInts, floats and booleans with their value, a text component (a mob's name)
+    as its text, the rest None. Stops at the first unknown kind."""
+    out: dict[int, tuple[int, object]] = {}
     last = -1
     while k < end:
         idx = b[k]
@@ -156,35 +157,125 @@ def entity_data(b, k: int, end: int) -> dict[int, int | float]:
         last = idx
         ser, k = _varint(b, k + 1)
         if ser == SER_BYTE:
-            out[idx] = b[k]
+            out[idx] = (ser, b[k])
             k += 1
         elif ser == SER_FLOAT:
-            out[idx] = struct.unpack_from(">f", b, k)[0]
+            out[idx] = (ser, struct.unpack_from(">f", b, k)[0])
             k += 4
         elif ser == SER_BOOL:
+            out[idx] = (ser, bool(b[k]))
             k += 1
         elif ser == SER_VARINT or idx == 6:               # index 6 is the pose (a VarInt) in every version
             v, k = _varint(b, k)
-            if idx == 6:
-                out[idx] = v
+            out[idx] = (SER_VARINT, v)
         elif ser == SER_VARLONG:
             _v, k = _varlong(b, k)
+            out[idx] = (ser, None)
         elif ser == SER_OPT_BLOCK_POS:
             k += 9 if b[k] else 1
+            out[idx] = (ser, None)
         elif ser == 4:                                    # a string: skipped
             n, k = _varint(b, k)
             k += n
+            out[idx] = (ser, None)
         elif ser == 5:                                    # a text component (network NBT)
-            k = _nbt_skip(b, k)
-        elif ser == 6:                                    # an optional text component (a mob's name, index 2):
-            k = _nbt_skip(b, k + 1) if b[k] else k + 1    # read past it so hand use and health after it count
+            txt, k = _text_of(b, k)
+            out[idx] = (ser, txt)
+        elif ser == 6:                                    # an optional text component (a mob's name, index 2)
+            if b[k]:
+                txt, k = _text_of(b, k + 1)
+            else:
+                txt, k = "", k + 1
+            out[idx] = (ser, txt)
         elif ser == 9:                                    # rotations: three floats
             k += 12
+            out[idx] = (ser, None)
         elif ser == 10:                                   # a block position
             k += 8
+            out[idx] = (ser, None)
         else:
             break
     return out
+
+
+# Mobs that can be babies (index 16, a boolean: ageable animals and villagers, the zombie family)
+BABY_KINDS = {"cow", "mooshroom", "pig", "sheep", "chicken", "horse", "donkey", "mule", "llama", "trader_llama",
+              "skeleton_horse", "zombie_horse", "camel", "villager", "wolf", "cat", "ocelot", "fox", "rabbit", "panda",
+              "polar_bear", "turtle", "goat", "bee", "hoglin", "zoglin", "axolotl", "frog", "sniffer", "armadillo",
+              "strider", "dolphin", "squid", "glow_squid", "parrot", "zombie", "husk", "drowned", "zombie_villager",
+              "zombified_piglin", "happy_ghast", "nautilus"}
+
+
+def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
+    """What a mob's entity data says that changes how it looks: ``["baby", 0/1]``, ``["wool", byte]`` (a sheep:
+    colour in the low 4 bits, 0x10 sheared), ``["variant", n]`` (a horse: coat + 256 x markings), ``["size", n]`` (slimes, magma cubes), ``["name", text]`` (a name
+    tag; "" when taken off). *new_ids*: 26.x, where animals' own entries are one index on (17 -> 18)."""
+    out = []
+    if kind in BABY_KINDS and d.get(16, (None,))[0] == SER_BOOL:
+        out.append(["baby", int(d[16][1])])
+    if kind == "sheep":
+        w = d.get(18 if new_ids else 17)
+        if w and w[0] == SER_BYTE:
+            out.append(["wool", w[1]])
+    if kind == "horse":                                # coat (low byte) and markings (next byte)
+        v = d.get(19 if new_ids else 18)
+        if v and v[0] == SER_VARINT:
+            out.append(["variant", v[1]])
+    if kind in ("slime", "magma_cube") and d.get(16, (None,))[0] == SER_VARINT:
+        out.append(["size", d[16][1]])
+    if d.get(2, (None,))[0] == 6 and isinstance(d[2][1], str):
+        out.append(["name", d[2][1]])
+    return out
+
+
+def entity_data(b, k: int, end: int) -> dict[int, int | float]:
+    """``{index: value}`` for the entries of an entity-data packet body we use for players and mobs alike: flags
+    (0), pose (6), living flags / hand use (8, a byte), health (9, a float)."""
+    out: dict[int, int | float] = {}
+    for idx, (ser, v) in entity_data_all(b, k, end).items():
+        if (idx == 0 and ser == SER_BYTE) or idx == 6 or (idx == 8 and ser == SER_BYTE) or (idx == 9 and ser == SER_FLOAT):
+            out[idx] = v
+    return out
+
+
+def _text_of(b, k: int) -> tuple[str, int]:
+    """A network-NBT text component's plain text (a string, or a compound's "text" and its "extra" parts' text)
+    and where it ends."""
+    from . import terrain
+    t = b[k]
+    if t == 8:
+        return terrain._value(b, 8, k + 1)
+    if t == 10:
+        return _text_compound(b, k + 1)
+    return "", _nbt_skip(b, k)
+
+
+def _text_compound(b, pos: int) -> tuple[str, int]:
+    """The text of a text component's compound payload (from just after its type byte) and where it ends."""
+    from . import terrain
+    head, tail = "", []
+    while b[pos] != 0:
+        tt = b[pos]
+        n = struct.unpack_from(">H", b, pos + 1)[0]
+        name = b[pos + 3:pos + 3 + n].decode("utf-8", "replace")
+        pos += 3 + n
+        if tt == 8 and name == "text":
+            head, pos = terrain._value(b, 8, pos)
+        elif tt == 9 and name == "extra":             # a list of components (or strings)
+            et = b[pos]
+            cnt = struct.unpack_from(">i", b, pos + 1)[0]
+            pos += 5
+            for _ in range(max(0, cnt)):
+                if et == 8:
+                    v, pos = terrain._value(b, 8, pos)
+                elif et == 10:
+                    v, pos = _text_compound(b, pos)
+                else:
+                    v, pos = "", terrain._skip(b, et, pos)
+                tail.append(v)
+        else:
+            pos = terrain._skip(b, tt, pos)
+    return head + "".join(tail), pos + 1
 
 
 # Held items and armour (set_equipment): entity id, then (slot byte, 0x80 = another follows; item stack) entries.
@@ -441,7 +532,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         held_id = pk.get("set_held_slot") if ex_on else None
         bev_id = pk.get("block_event") if ex_on else None
         hp_id = pk.get("set_health") if ex_on else None      # f32 health, varint food, f32 saturation
-        swing_id = pk.get("swing_animation") if ex_on else None   # 26.3: entity id, hand (0 main, 1 off)    # chests, ender chests, shulker boxes opening and closing
+        swing_id = pk.get("swing_animation") if ex_on else None   # 26.3: entity id, hand (0 main, 1 off)
+        new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
                              pinv_id, held_id, bev_id, hp_id, swing_id)
@@ -540,6 +632,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     extras["events"].append([tick, others[eid], "it", it])   # which item
                             elif eid == me or eid in others:
                                 who = None if eid == me else others[eid]
+                                if who and who.startswith("#"):          # a mob: baby, wool, size, name tag
+                                    for ev in mob_details(who.split("#")[1], entity_data_all(b, k, i + size), new_ids):
+                                        extras["events"].append([tick, who] + ev)
                                 d = entity_data(b, k, i + size)
                                 if 0 in d:
                                     extras["events"].append([tick, who, "f", d[0]])    # sneak, sprint, swim, elytra, fire
@@ -863,7 +958,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact11.json.gz"    # 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact12.json.gz"    # 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

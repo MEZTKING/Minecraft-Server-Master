@@ -3857,6 +3857,25 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(d.get(6), 5)
             self.assertEqual(d.get(8), 1)
 
+    def test_mob_details(self):
+        """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
+        a name tag as a compound text component with extra parts."""
+        from mcsm import paths
+        B, V, BOOL = paths.SER_BYTE, paths.SER_VARINT, paths.SER_BOOL
+        self.assertEqual(paths.mob_details("cow", {16: (BOOL, True)}, True), [["baby", 1]])
+        self.assertEqual(paths.mob_details("creeper", {16: (BOOL, True)}, True), [])     # not a baby kind
+        self.assertEqual(paths.mob_details("sheep", {17: (B, 0x1E)}, False), [["wool", 0x1E]])
+        self.assertEqual(paths.mob_details("sheep", {18: (B, 6)}, True), [["wool", 6]])
+        self.assertEqual(paths.mob_details("horse", {19: (V, 769)}, True), [["variant", 769]])
+        self.assertEqual(paths.mob_details("slime", {16: (V, 4)}, True), [["size", 4]])
+        # {"text": "Fe", "extra": ["l", {"text": "ix"}]}
+        comp = (bytes([10]) + bytes([8]) + b"\x00\x04text" + b"\x00\x02Fe"
+                + bytes([9]) + b"\x00\x05extra" + bytes([8]) + b"\x00\x00\x00\x01" + b"\x00\x01l" + bytes([0]))
+        txt, end = paths._text_of(comp, 0)
+        self.assertEqual((txt, end), ("Fel", len(comp)))
+        body = bytes([2, 6, 1]) + comp + b"\xff"
+        self.assertEqual(paths.mob_details("cat", paths.entity_data_all(body, 0, len(body)), True), [["name", "Fel"]])
+
     def test_water_shape(self):
         """Water shaped as the game does: a source 8/9 high, flowing water lower by level, corners averaged over the
         four cells round them (cells of 0.8 or more counting ten times), full under more water; flowing texture."""
