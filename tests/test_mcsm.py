@@ -1354,6 +1354,38 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_trimmed_replay_copy(self):
+        """A highlight's copy keeps only the 5-minute parts it needs, renumbered from c0, with its markers moved to
+        match, its own name, and the bytes it writes counted."""
+        from mcsm import flashback as fbm
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, "src.zip")
+            meta = {"uuid": "u1", "name": "orig", "total_ticks": 24000, "markers": {"6500": {"colour": 1, "description": "old"}},
+                    "chunks": {f"c{i}.flashback": {"duration": 6000} for i in range(4)}}
+            with zipfile.ZipFile(src, "w") as z:
+                z.writestr("metadata.json", json.dumps(meta))
+                for i in range(4):
+                    z.writestr(f"c{i}.flashback", f"part {i}" * 100)
+                z.writestr("level_chunk_caches/0", b"cache")
+            dst = os.path.join(tmp, "out", "copy.zip")
+            got = []
+            m = fbm.write_replay_copy(src, dst, [fbm.FlashbackMarker(7000, "start", 1)], trim=(7000, 13000),
+                                      display_name="jamie burns – vegitogod22", progress=got.append, new_uuid=False)
+            self.assertEqual(m["_trim_offset"], 6000)
+            with zipfile.ZipFile(dst) as z:
+                names = sorted(z.namelist())
+                out = json.loads(z.read("metadata.json"))
+                self.assertEqual(z.read("c0.flashback"), b"part 1" * 100)        # the part with tick 7000, renumbered
+                self.assertEqual(z.read("c1.flashback"), b"part 2" * 100)
+            self.assertEqual(names, ["c0.flashback", "c1.flashback", "level_chunk_caches/0", "metadata.json"])
+            self.assertEqual((out["total_ticks"], sorted(out["chunks"]), out["name"]),
+                             (12000, ["c0.flashback", "c1.flashback"], "jamie burns – vegitogod22"))
+            self.assertEqual(sorted(int(k) for k in out["markers"]), [500, 1000])   # the old marker and the new one
+            self.assertEqual(sum(got), fbm.copy_size(src, (7000, 13000)))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_item_banner_patterns(self):
         """A shield's or banner's look in an item stack: base_color, and banner_patterns (registry entries named from
         the recording's own registry, or written out in full)."""

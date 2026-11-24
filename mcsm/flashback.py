@@ -437,17 +437,117 @@ def copy_name(meta: dict, src: str, suffix: str, title: str | None = None) -> st
     return name + suffix
 
 
+def _parts(meta: dict) -> list[tuple[str, int, int]]:
+    """The recording's parts in order: ``(file, first tick, ticks)`` (from metadata's ``chunks``)."""
+    chunks = meta.get("chunks") or {}
+    names = sorted((n for n in chunks if re.fullmatch(r"c\d+\.flashback", n)), key=lambda n: int(n[1:-10]))
+    out, t = [], 0
+    for n in names:
+        d = int((chunks.get(n) or {}).get("duration", 0) or 0)
+        out.append((n, t, d))
+        t += d
+    return out
+
+
+def trim_plan(meta: dict, a: int, b: int) -> tuple[list[tuple[str, int, int]], int]:
+    """The parts a copy needs to cover ticks a..b (each part starts with a full snapshot, so it plays on its own),
+    and the tick the copy then starts at."""
+    parts = _parts(meta)
+    keep = [p for p in parts if p[1] + p[2] > a and p[1] <= b] or parts[:1]
+    return keep, (keep[0][1] if keep else 0)
+
+
+def _cache_files_used(zin: zipfile.ZipFile, parts: list[str]) -> set[str]:
+    """The ``level_chunk_caches/<n>`` files the given parts read (``level_chunk_cached`` actions name entries by
+    number; each file holds 10,000)."""
+    import struct
+
+    def varint(b, i):
+        v = s_ = 0
+        while True:
+            x = b[i]; i += 1
+            v |= (x & 0x7F) << s_
+            if not x & 0x80:
+                return v, i
+            s_ += 7
+    used: set[str] = set()
+    for name in parts:
+        b = zin.read(name)
+        i = 4
+        n, i = varint(b, i)
+        kinds = []
+        for _ in range(n):
+            ln, i = varint(b, i)
+            kinds.append(b[i:i + ln].decode("utf-8", "replace"))
+            i += ln
+        i += 4
+        cc = kinds.index("flashback:action/level_chunk_cached") if "flashback:action/level_chunk_cached" in kinds else -1
+        while i + 5 <= len(b):
+            aid, i = varint(b, i)
+            size = struct.unpack_from(">I", b, i)[0]
+            i += 4
+            if aid == cc:
+                used.add(f"level_chunk_caches/{varint(b, i)[0] // 10000}")
+            i += size
+    return used
+
+
+def _trim_names(zin: zipfile.ZipFile, meta: dict, trim: tuple[int, int]) -> set[str]:
+    """Every file a trimmed copy keeps (its parts, the chunk caches they read, and the rest)."""
+    keep = [p[0] for p in trim_plan(meta, *trim)[0]]
+    try:
+        caches = _cache_files_used(zin, keep)
+    except (IndexError, ValueError, KeyError):
+        caches = None                                   # unreadable: keep every cache
+    out = set()
+    for i in zin.infolist():
+        n = i.filename
+        if re.fullmatch(r"c\d+\.flashback", n):
+            if n in keep:
+                out.add(n)
+        elif n.startswith("level_chunk_caches/") and caches is not None:
+            if n in caches:
+                out.add(n)
+        else:
+            out.add(n)
+    return out
+
+
+def copy_size(src: str, trim: tuple[int, int] | None = None) -> int:
+    """About how many bytes a copy of *src* writes (its kept parts and everything else)."""
+    with zipfile.ZipFile(src) as zin:
+        meta = json.loads(zin.read("metadata.json").decode("utf-8"))
+        keep = _trim_names(zin, meta, trim) if trim else None
+        return sum(i.file_size for i in zin.infolist() if i.filename not in ("metadata.json", "metadata.json.old")
+                   and (keep is None or i.filename in keep))
+
+
 def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_suffix: str = " (mcsm)",
-                      new_uuid: bool = True) -> dict:
+                      new_uuid: bool = True, trim: tuple[int, int] | None = None, display_name: str | None = None,
+                      progress=None) -> dict:
     """Copy a Flashback replay ``.zip`` adding *markers*. Returns the new metadata.
 
     Existing markers are kept; a new marker whose tick is taken is moved to the next
-    free tick. Markers outside ``0..total_ticks`` are dropped.
+    free tick. Markers outside ``0..total_ticks`` are dropped. With *trim* (ticks a, b), only the 5-minute parts
+    covering a..b are copied (renumbered from c0; every part starts with its own snapshot), and every tick, marker
+    included, moves back by the first kept part's start (``meta["_trim_offset"]``). *display_name* names it in
+    Flashback's list; *progress* (bytes written) is called as it copies.
     """
     if os.path.abspath(src) == os.path.abspath(dst):
         raise ValueError("refusing to overwrite the original replay; choose another output file")
     with zipfile.ZipFile(src) as zin:
         meta = json.loads(zin.read("metadata.json").decode("utf-8"))
+        offset, rename, files = 0, None, None
+        if trim:
+            files = _trim_names(zin, meta, trim)
+            keep, offset = trim_plan(meta, *trim)
+            rename = {p[0]: f"c{i}.flashback" for i, p in enumerate(keep)}
+            meta["chunks"] = {rename[p[0]]: dict((meta.get("chunks") or {}).get(p[0]) or {"duration": p[2]}) for p in keep}
+            meta["total_ticks"] = sum(p[2] for p in keep)
+            meta["markers"] = {str(int(k) - offset): v for k, v in (meta.get("markers") or {}).items()
+                               if str(k).lstrip("-").isdigit() and 0 <= int(k) - offset <= meta["total_ticks"]}
+            markers = [FlashbackMarker(mk.tick - offset, mk.description, mk.colour) for mk in markers]
+            meta["trimmed_from_mcsm"] = {"start_tick": offset, "ticks": meta["total_ticks"]}
         total = int(meta.get("total_ticks") or 0) or sum(
             int((c or {}).get("duration", 0)) for c in (meta.get("chunks") or {}).values() if isinstance(c, dict))
         existing = dict(meta.get("markers") or {})
@@ -466,7 +566,7 @@ def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_s
         if new_uuid:
             meta["original_uuid_mcsm"] = meta.get("uuid")
             meta["uuid"] = str(uuid_mod.uuid4())
-        meta["name"] = copy_name(meta, src, name_suffix)
+        meta["name"] = display_name or copy_name(meta, src, name_suffix)
         os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         tmp = dst + ".part"
         with zipfile.ZipFile(tmp, "w") as zout:
@@ -474,17 +574,54 @@ def write_replay_copy(src: str, dst: str, markers: list[FlashbackMarker], name_s
                 if info.filename == "metadata.json":
                     zout.writestr(info, json.dumps(meta, indent=2), compress_type=zipfile.ZIP_DEFLATED)
                     continue
-                out_info = zipfile.ZipInfo(info.filename, info.date_time)
+                name = info.filename
+                if files is not None and name not in files:
+                    continue                             # not needed by the kept parts
+                if rename is not None and re.fullmatch(r"c\d+\.flashback", name):
+                    if name not in rename:
+                        continue                         # a part outside the trim
+                    name = rename[name]
+                if name == "metadata.json.old":
+                    continue
+                out_info = zipfile.ZipInfo(name, info.date_time)
                 out_info.compress_type = info.compress_type
                 out_info.external_attr = info.external_attr
                 with zin.open(info) as fin, zout.open(out_info, "w", force_zip64=True) as fout:
-                    shutil.copyfileobj(fin, fout, 1 << 20)
+                    while True:
+                        buf = fin.read(1 << 20)
+                        if not buf:
+                            break
+                        fout.write(buf)
+                        if progress:
+                            progress(len(buf))
         os.replace(tmp, dst)
     if new_uuid:
         kind = name_suffix.strip(" ()").split(" ")[0] or "copy"
         register_copy(dst, meta["uuid"], meta.get("original_uuid_mcsm"), kind, meta.get("name", ""))
     meta["_markers_added"] = added
+    meta["_trim_offset"] = offset
     return meta
+
+
+def prism_exe() -> str | None:
+    """Prism Launcher's program, if installed (Windows: its usual place; else on PATH)."""
+    for p in (os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "PrismLauncher", "prismlauncher.exe"),
+              os.path.join(os.environ.get("ProgramFiles", ""), "PrismLauncher", "prismlauncher.exe")):
+        if p and os.path.isfile(p):
+            return p
+    return shutil.which("prismlauncher") or shutil.which("PrismLauncher")
+
+
+def launch_instance(name: str) -> str:
+    """Start a Prism Launcher instance (the Minecraft that has Flashback); returns what was done."""
+    import subprocess
+    exe = prism_exe()
+    if not exe:
+        raise ValueError("Prism Launcher wasn't found on this PC: start Minecraft yourself and open Flashback")
+    kw = {"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}
+    subprocess.Popen([exe, "--launch", name], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, close_fds=True, **kw)
+    return f"Starting {name} in Prism Launcher"
 
 
 def copy_editor_state(flashback_dir: str, old_uuid: str | None, new_uuid: str) -> bool:

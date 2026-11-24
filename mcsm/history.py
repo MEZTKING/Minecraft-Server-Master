@@ -542,6 +542,8 @@ class HistoryMap(TerrainServer):
                 return self.inventory(unquote(name), int(t))
             except (ValueError, OSError) as exc:
                 return {"available": False, "message": str(exc)}
+        if path == "/api/highlights/export/job":    # the export's progress
+            return self.export_job()
         if path == "/api/incidents":                  # builds damaged (Ledger): explosions, fire, lava, others
             return {"incidents": self.incidents() or []}
         if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers
@@ -1460,11 +1462,45 @@ class HistoryMap(TerrainServer):
                 raise ValueError("recordings are not available in this session")
             if not self._export_lock.acquire(blocking=False):
                 raise ValueError("an export is already running")
-            try:
-                out = os.path.dirname(os.path.abspath(self.highlights.path))
-                return hl.export(self.data, items, self.replay_file, out, self.flashback_dir,
-                                 self.data.world.get("level_name") or self._payload["title"],
-                                 pick_dir=self.flashback_pick)
-            finally:
-                self._export_lock.release()
+            import threading
+            import time as time_mod
+            job = self._export_job = {"running": True, "done": 0, "total": 0, "started": time_mod.time(),
+                                      "message": "Working out what to copy…", "result": None, "error": None}
+
+            def copied(done: int, total: int) -> None:
+                job["done"], job["total"] = done, total
+
+            def run():
+                try:
+                    out = os.path.dirname(os.path.abspath(self.highlights.path))
+                    job["result"] = hl.export(self.data, items, self.replay_file, out, self.flashback_dir,
+                                              self.data.world.get("level_name") or self._payload["title"],
+                                              progress=lambda msg: job.__setitem__("message", msg),
+                                              pick_dir=self.flashback_pick, copied=copied)
+                except Exception as exc:                  # noqa: BLE001 -- shown on the page
+                    job["error"] = str(exc)
+                finally:
+                    job["running"] = False
+                    self._export_lock.release()
+            threading.Thread(target=run, daemon=True).start()
+            return self.export_job()
+        if path == "/api/flashback/open":             # start the Minecraft (Prism instance) that has this Flashback
+            from . import flashback as fbm
+            want = os.path.abspath(str(body.get("flashback") or ""))
+            mc = str(body.get("mc") or "")
+            found = fbm.flashback_folders()
+            pick = next((f for f in found if os.path.abspath(f["path"]) == want), None)                 or next((f for f in found if mc and f["mc"] == mc), None)
+            if pick is None or pick.get("launcher") not in (None, "PrismLauncher"):
+                raise ValueError("no Prism Launcher instance with that Flashback: start it yourself")
+            return {"message": fbm.launch_instance(pick["name"])}
         return None
+
+    def export_job(self) -> dict:
+        """The highlights export running in the background: bytes copied of the total, and the result once done."""
+        import time as time_mod
+        job = getattr(self, "_export_job", None) or {"running": False}
+        out = {k: v for k, v in job.items()}
+        if job.get("running") and job.get("done") and job.get("total"):
+            spent = time_mod.time() - job["started"]
+            out["left_s"] = round(spent * (job["total"] - job["done"]) / max(1, job["done"]))
+        return out

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1621,6 +1621,12 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Export again** (your "jamie burns to death"): watch the progress bar; the copies should be named after the
+  highlight and the player, a few minutes long each; **Open Flashback** on one; then try **Edit → Combine With Other
+  Replay** in Flashback. Please tell me if a short copy fails to open in Flashback (it keeps only the chunk data its
+  parts use).
+- **Cherry trees**: your planted cherry trees near spawn should be pink again.
+- **Fine scrubbing**: Shift-drag on the timeline; , and . for one tick.
 - **Rendering settings**: open **Rendering** under Light: try an FPS cap, Colours "As in the game" vs "Film-like"
   (the badlands trees near 300, 140, -600), Block distance Far.
 - **Shields and held banners**: a patterned shield in someone's hand; a pillager captain's banner on its head.
@@ -1759,6 +1765,21 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner, after comparing with Flashback: "you should be able to fine drag on the graph"; "show a
+  loading bar so i know how long is left for exporting"; "it made 5 parts, how am i supposed to access these. make it
+  easy to access ... name them ... combine with another replay"; "add an option to open in flashback"; "i planted
+  these by hand so there actually the pink trees"; the time of day. Done: cherry, azalea and pale oak leaves keep
+  their own colours (only oak, jungle, acacia, dark oak leaves and vines take the biome's; `blockmesh.VERSION` 7).
+  Fine scrubbing (Shift/Ctrl-drag 20x slower; , and . one tick). Highlights export: in the background with a progress
+  bar (`/api/highlights/export/job`); copies keep only the 5-minute parts around their highlights and the chunk
+  cache files those parts read (`flashback.write_replay_copy(trim=...)`; 424 MB -> 67 MB, 45 s -> 10 s on
+  vegitogod22's 2-hour recording), named "<highlight> – <player>", listed with **Open Flashback**
+  (`/api/flashback/open`: `prismlauncher --launch <instance>`). Combining is Flashback's own (documented).
+  Time of day: checked against the recording: the 26.1 overworld clock (id 0 in the recording's `world_clock`
+  registry, continuing the 1.21.11 day time) and the game's `day` timeline (0 = wake-up/sunrise) give morning at
+  19:22 UTC on 24 May, just after a sleep; Flashback showed night there. Not explained yet (owner: admins use /day
+  and the like, which the viewer follows as sent).
 
 - **2026-11-24:** Owner: "Yes, shields too"; "im not sure if the tree rendering here is the right colour. also add an
   fps cap adjustable etc and othe rendering settings while in history". Shields' and banners' looks in item stacks

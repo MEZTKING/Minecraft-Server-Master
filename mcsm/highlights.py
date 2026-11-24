@@ -21,6 +21,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import zipfile
 import re
 import threading
 import time
@@ -167,7 +168,8 @@ def write_clip_list(path: str, data: m.ServerData, items: list[dict]) -> str:
 def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Replay], str],
            out_dir: str, flashback_dir: str | None, world_name: str = "world",
            progress: Callable[[str], None] | None = None,
-           pick_dir: Callable[[m.Replay], str | None] | None = None) -> dict:
+           pick_dir: Callable[[m.Replay], str | None] | None = None,
+           copied: Callable[[int, int], None] | None = None) -> dict:
     """Write the Flashback copies and the clip list for *items*. Returns a summary.
 
     *pick_dir* chooses the Flashback folder per recording (the launcher instance with the
@@ -185,7 +187,26 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
         for r in reps:
             by_replay.setdefault(id(r), (r, []))[1].append(h)
     folders = set()
+    # each copy keeps only the 5-minute parts its highlights need (and half a minute either side): small and quick
+    plans = []
     for r, hs in by_replay.values():
+        r0 = _ms(r.start)
+        total = int(r.raw_meta.get("total_ticks") or 0) or int(r.duration_ms / 50)
+        a = max(0, round((min(h["start"] for h in hs) - r0) / 50) - 600)
+        b = min(total, round((max(h["end"] for h in hs) - r0) / 50) + 600)
+        try:
+            size = fbm.copy_size(replay_file(r), (a, b))
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            size = 0
+        plans.append((r, hs, (a, b), size))
+    grand = sum(p[3] for p in plans) or 1
+    done = [0]
+
+    def wrote(n: int) -> None:
+        done[0] += n
+        if copied:
+            copied(done[0], grand)
+    for r, hs, trim, _size in plans:
         fb, _installed = fbm.export_target(r, pick_dir, flashback_dir, out_dir)
         target = os.path.join(fb, "replays")
         folders.add(target)
@@ -199,8 +220,10 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             markers.append(fbm.FlashbackMarker(b, f"■ {h['title']}", END_COLOUR))
             scenes.append({"name": h["title"][:60], "keyframeTracks": [], "exportStartTicks": a,
                            "exportEndTicks": max(a + 1, b), "history": {"entries": [], "position": 0}})
-        base = os.path.splitext(os.path.basename(r.path.rstrip("/")))[0]
-        name = f"{_safe(r.recorded_player or 'replay')} {base} (highlights)"
+        who = r.recorded_player or "replay"
+        title = hs[0]["title"] if len(hs) == 1 else f"{len(hs)} highlights"
+        shown = f"{title} – {who}"                         # as Flashback lists it
+        name = _safe(f"{title} - {who}")
         dst = os.path.join(target, name + ".zip")
         n = 2
         while os.path.exists(dst):
@@ -208,14 +231,20 @@ def export(data: m.ServerData, items: list[dict], replay_file: Callable[[m.Repla
             n += 1
         say(f"Copying {r.path} ({len(hs)} highlight{'s' if len(hs) != 1 else ''})…")
         try:
-            meta = fbm.write_replay_copy(replay_file(r), dst, markers, " (highlights)")
+            meta = fbm.write_replay_copy(replay_file(r), dst, markers, " (highlights)", trim=trim,
+                                         display_name=shown, progress=wrote)
         except (OSError, ValueError, KeyError) as exc:
             result["skipped"].append(f"{r.path}: {exc}")
             continue
+        off = meta.get("_trim_offset") or 0                # the copy starts at that tick: the scenes move with it
+        for sc in scenes:
+            sc["exportStartTicks"] = max(0, sc["exportStartTicks"] - off)
+            sc["exportEndTicks"] = max(sc["exportStartTicks"] + 1, sc["exportEndTicks"] - off)
         state = {"scenes": scenes, "sceneIndex": 0}
         state_file = fbm.install_editor_state(fb, meta["uuid"], state)
-        result["replays"].append({"file": dst, "editor_state": state_file, "recorded_by": r.recorded_player,
-                                  "minecraft": r.mc_version, "highlights": [h["title"] for h in hs]})
+        result["replays"].append({"file": dst, "name": shown, "editor_state": state_file, "recorded_by": r.recorded_player,
+                                  "minecraft": r.mc_version, "highlights": [h["title"] for h in hs],
+                                  "flashback": fb, "installed": _installed})
     result["folder"] = sorted(folders)[0] if len(folders) == 1 else (sorted(folders) or None)
     result["installed"] = any(not f.startswith(os.path.abspath(out_dir)) for f in map(os.path.abspath, folders))
     result["not_installed"] = sorted({os.path.dirname(f) for f in map(os.path.abspath, folders)

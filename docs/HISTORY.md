@@ -495,6 +495,10 @@ and pause, because Space moves you up.
 
 Spectating switches to exact playback (1×). **Esc** stops.
 
+**Fine scrubbing.** Hold **Shift** (or Ctrl) while dragging on the timeline: the time moves 20 times slower than
+the mouse, to creep back and forth frame by frame. **,** and **.** step one game tick (1/20 s) back and on (with
+Shift: a second).
+
 **Relive a moment, like a memory.** **Relive** on a moment in the list (or the **Relive** button by
 *Spectate*, for the next minute of the player you spectate or the one nearest the view) replays it as if you
 were there again:
@@ -607,10 +611,19 @@ Flashback ready to export.
    **Delete** removes it. Each one says how many recordings cover it, and whose.
 4. **Export to Flashback** handles all highlights at once:
    - For every Flashback recording that covers a highlight (one per player's point of view),
-     a **copy** appears in Flashback's replay list, named `NAME DATE (highlights)`. It has a
-     green **▶ title** marker at each highlight's start and a red **■ title** marker at its
-     end. Its editor has **one scene per highlight whose export range is already set**: open
-     the copy, choose the scene, press Export.
+     a **copy** appears in Flashback's replay list, named after the highlight and whose view it
+     is (`jamie burns to death – vegitogod22`). It holds only the 5-minute parts of the recording
+     around its highlights, with the chunk data they use (a 2-hour, 424 MB recording becomes a
+     67 MB copy in about 10 seconds). It has a green **▶ title** marker at each highlight's start
+     and a red **■ title** marker at its end. Its editor has **one scene per highlight whose
+     export range is already set**: open the copy, choose the scene, press Export.
+   - A **progress bar** shows how much is copied and about how long is left.
+   - When it's done, the copies are listed under the button (and kept there): each with whose
+     view it is, its Minecraft version, and **Open Flashback**, which starts the Minecraft (Prism
+     Launcher instance) that has that Flashback. Then in Minecraft: Flashback → Replays → the copy.
+   - **One replay of everyone's views:** Flashback can join copies itself. In its replay list,
+     **Edit** on one copy → **Combine With Other Replay** → pick another copy (again for each
+     more). The copies are short, so this is quick.
    - A clip list, `<world> highlights.csv`, next to the highlights file: title, local
      start/end, length, players, and for each recording the in/out time to seek to. Use it
      for any video editor.

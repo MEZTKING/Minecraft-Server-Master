@@ -163,6 +163,10 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 #chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
 #dev { position: absolute; right: 16px; top: 120px; width: 380px; max-height: calc(100% - 260px); overflow: auto; padding: 10px 12px; z-index: 6; font-size: 12px; }
 #dev pre { margin: 6px 0; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; color: var(--text); }
+#hlProg .bar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; margin: 6px 0 2px; }
+#hlProgFill { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+#hlCopies li { padding: 6px 0; border-top: 1px solid var(--border); }
+#hlCopies li .t { font-weight: 600; }
 #rBox { margin: 6px 0; } #rBox summary { cursor: pointer; }
 #fpsBadge { position: fixed; left: 50%; top: 6px; transform: translateX(-50%); z-index: 30; font: 12px/1.4 monospace;
   background: rgba(0,0,0,.55); color: #9f9; padding: 2px 8px; border-radius: 4px; pointer-events: none; }
@@ -404,6 +408,8 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
   </div>
   <ul id="hl"></ul>
   <div class="row"><button id="hlExport" type="button">Export to Flashback</button></div>
+  <div id="hlProg" hidden><div class="bar"><div id="hlProgFill"></div></div><div class="meta" id="hlProgText"></div></div>
+  <ul class="list" id="hlCopies"></ul>
   <div class="note" id="hlStatus"></div>
   <div class="note" id="status"></div>
 </aside>
@@ -446,7 +452,7 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
   </div>
   <div class="row"><input id="devGo" type="text" placeholder="Go to: x y z  or  2026-05-24 20:31:09"><button id="devGoBtn" type="button">Go</button></div>
 </div>
-<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump · Space plays/pauses · I / O mark a highlight's start / end · F: free camera (WASD, Space/Shift, drag to look)</div>
+<div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump (Shift-drag: fine) · , / . one tick back / on · Space plays/pauses · I / O mark a highlight's start / end · F: free camera (WASD, Space/Shift, drag to look)</div>
 
 <section id="timeline" class="card">
   <div class="row" style="margin-top:0">
@@ -2336,15 +2342,25 @@ wrap.addEventListener("pointerdown", e => {
     $("#hlStatus").textContent = sel.value ? `Moments: only Minecraft ${b.v.mc} (click the band again for all).` : "";
     return;
   }
-  dragging = true; wrap.setPointerCapture(e.pointerId); seek(timeAtX(e.clientX), false);
+  dragging = true; wrap.setPointerCapture(e.pointerId);
+  DRAG.x = e.clientX; DRAG.t = T;
+  if (!(e.shiftKey || e.ctrlKey)) seek(timeAtX(e.clientX), false);   // a fine drag starts from where you are
 });
+// fine scrubbing: Shift (or Ctrl) held while dragging moves the time 20 times slower than the pointer
+const DRAG = { x: 0, t: 0 };
 wrap.addEventListener("pointermove", e => {
   const t = timeAtX(e.clientX), tip = $("#hoverTip"), r = cv.getBoundingClientRect(), b = !dragging && bandAt(e);
   tip.hidden = false; tip.style.left = `${e.clientX - r.left}px`;
   tip.textContent = b ? `Minecraft ${b.v.mc}, ${fmtDay(b.v.start)} – ${fmtDay(b.v.end)}: `
     + (b.v.flashback ? `its recordings open in ${b.v.flashback}` : "no Flashback of this version on this PC (add one to open its recordings)")
     + " · click: its moments" : fmtShort(t);
-  if (dragging) seek(t, false);
+  if (dragging) {
+    if (e.shiftKey || e.ctrlKey) {
+      const per = (view[1] - view[0]) / r.width;          // ms per pixel at this zoom
+      DRAG.t += (e.clientX - DRAG.x) * per / 20; DRAG.x = e.clientX; seek(DRAG.t, false);
+      tip.textContent = `${fmtShort(T)} · fine`;
+    } else { DRAG.x = e.clientX; DRAG.t = t; seek(t, false); }
+  }
 });
 wrap.addEventListener("pointerup", () => { dragging = false; setView(); });
 wrap.addEventListener("pointerleave", () => { $("#hoverTip").hidden = true; });
@@ -2549,17 +2565,52 @@ function renderHighlights() {
 $("#hlExport").onclick = async () => {
   const n = new Set(HL.highlights.flatMap(h => (h.recordings || []).map(r => r.path))).size;
   const where2 = HL.per_version ? "\n\nEach copy goes into the Flashback of its recording's Minecraft version:\n" + (HL.targets || []).map(t => `  ${t.mc} → ${t.name || "no Flashback of that version here (a folder next to the highlights file)"}`).join("\n") : "";
-  if (!confirm(`Export ${HL.highlights.length} highlight(s)?\n\nThis copies ${n} recording(s) ${HL.flashback_dir ? "into Flashback" : "next to the highlights file"} with start/end markers and one export scene per highlight, and writes a clip list (CSV). Big recordings take a while to copy. Your originals are not changed.${where2}`)) return;
-  $("#hlExport").disabled = true; $("#hlStatus").textContent = "Exporting… (copying recordings)";
-  try {
-    const r = await post("api/highlights/export", {});
-    const where = r.installed ? "Flashback → Replays (names end with “(highlights)”). In the editor, pick a highlight's scene and Export."
-      : `${r.folder}. Copy the .zip files into Flashback's replays folder.`;
-    $("#hlStatus").textContent = `Done: ${r.replays.length} replay cop${r.replays.length === 1 ? "y" : "ies"} in ${where} Clip list: ${r.clip_list}`
-      + (r.skipped.length ? ` Not covered by any recording: ${r.skipped.join(", ")}.` : "");
-  } catch (e) { $("#hlStatus").textContent = `Export failed: ${e.message}`; }
-  $("#hlExport").disabled = !HL.highlights.length;
+  if (!confirm(`Export ${HL.highlights.length} highlight(s)?\n\nThis makes a copy of each of the ${n} recording(s) that saw them (only the minutes around the highlights), ${HL.flashback_dir ? "in Flashback" : "next to the highlights file"}, named after the highlight and whose view it is, with start/end markers and one export scene per highlight, and writes a clip list (CSV). Your originals are not changed.${where2}`)) return;
+  $("#hlExport").disabled = true;
+  try { await post("api/highlights/export", {}); } catch (e) { $("#hlStatus").textContent = `Export failed: ${e.message}`; $("#hlExport").disabled = false; return; }
+  $("#hlProg").hidden = false; $("#hlStatus").textContent = "";
+  const tick = async () => {                            // the progress bar, until it's done
+    let j; try { j = await (await fetch("api/highlights/export/job")).json(); } catch (e) { setTimeout(tick, 1500); return; }
+    const pc = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
+    $("#hlProgFill").style.width = `${pc}%`;
+    const mb = v => (v / 1048576).toFixed(0);
+    $("#hlProgText").textContent = j.running
+      ? `${Math.round(pc)}% · ${mb(j.done)} of ${mb(j.total)} MB${j.left_s != null ? ` · about ${hms(j.left_s * 1000)} left` : ""} · ${j.message || ""}`
+      : "";
+    if (j.running) { setTimeout(tick, 700); return; }
+    $("#hlProg").hidden = true; $("#hlExport").disabled = !HL.highlights.length;
+    if (j.error) { $("#hlStatus").textContent = `Export failed: ${j.error}`; return; }
+    showCopies(j.result);
+  };
+  tick();
 };
+// the copies an export made: each named, with its Minecraft version, and a button that starts that Flashback
+function showCopies(r) {
+  if (!r) return;
+  try { store.set("mcsm-last-export", JSON.stringify(r)); } catch (e) {}
+  $("#hlStatus").textContent = `Done: ${r.replays.length} cop${r.replays.length === 1 ? "y" : "ies"}`
+    + (r.installed ? ", in Flashback's replay list (Flashback → Replays)." : `, in ${r.folder}: copy them into Flashback's replays folder.`)
+    + ` Clip list: ${r.clip_list}.` + (r.skipped.length ? ` Not covered by any recording: ${r.skipped.join(", ")}.` : "")
+    + (r.replays.length > 1 ? " To make one replay of everyone's views: in Flashback, Edit on one copy → Combine With Other Replay → pick another (again for each)." : "");
+  $("#hlCopies").replaceChildren(...r.replays.map(c => {
+    const li = document.createElement("li");
+    const t = document.createElement("div"); t.className = "t"; t.textContent = c.name || c.file.split(/[\\/]/).pop();
+    const m = document.createElement("div"); m.className = "meta";
+    m.textContent = `${c.recorded_by || "?"}'s view · Minecraft ${c.minecraft || "?"} · ${c.highlights.join(", ")}`;
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Open Flashback";
+    b.title = `Start the Minecraft (${c.minecraft}) that has this Flashback; then Flashback → Replays → “${c.name}”`;
+    b.disabled = c.installed === false;
+    b.onclick = async () => {
+      b.disabled = true;
+      try { const x = await post("api/flashback/open", { flashback: c.flashback, mc: c.minecraft });
+        $("#hlStatus").textContent = `${x.message}. In Minecraft: Flashback → Replays → “${c.name}”.`; }
+      catch (e) { $("#hlStatus").textContent = `Couldn't start it: ${e.message}`; }
+      setTimeout(() => { b.disabled = false; }, 4000);
+    };
+    li.append(t, m, b); return li;
+  }));
+}
+try { const last = JSON.parse(store.get("mcsm-last-export") || "null"); if (last) setTimeout(() => showCopies(last), 0); } catch (e) {}
 
 // ---------- important moments (mcsm/moments.py) ----------
 let MOM = [], momShown = 20, momFinal = false;
@@ -3820,6 +3871,8 @@ addEventListener("keydown", e => {
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
   if (e.code === "KeyI") $("#hlIn").click();
   if (e.code === "KeyO") $("#hlOut").click();
+  if (e.code === "Period") { setPlaying(false); seek(T + (e.shiftKey ? 1000 : 50), false); return; }   // one game tick (1 s with Shift)
+  if (e.code === "Comma") { setPlaying(false); seek(T - (e.shiftKey ? 1000 : 50), false); return; }
   if (e.code === "ArrowRight") seek(T + 60000 * (e.shiftKey ? 60 : 1));
   if (e.code === "ArrowLeft") seek(T - 60000 * (e.shiftKey ? 60 : 1));
 });

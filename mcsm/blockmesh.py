@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 6                     # bump when the output changes (cached tiles are built again); 6: banners' poles only; 5: under water
+VERSION = 7                     # bump when the output changes (cached tiles are built again); 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
@@ -51,6 +51,8 @@ TINTS: dict = {}
 FIXED_TINTS = {"spruce_leaves": (97, 153, 97), "birch_leaves": (128, 167, 85), "mangrove_leaves": (146, 193, 98),
                "lily_pad": (32, 128, 48), "attached_melon_stem": (224, 199, 28), "attached_pumpkin_stem": (224, 199, 28),
                "melon_stem": (224, 199, 28), "pumpkin_stem": (224, 199, 28)}
+# leaves the game colours by the biome's foliage (the others keep their texture's colours: cherry, azalea, pale oak)
+FOLIAGE_TINTED = {"oak_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves", "vine", "leaf_litter"}
 GRASS_TINTED = {"grass_block", "short_grass", "grass", "tall_grass", "fern", "large_fern", "potted_fern", "sugar_cane",
                 "bush"}
 
@@ -65,8 +67,10 @@ def tint_kind(name: str, props: dict) -> str | tuple | None:
         f = int(props.get("power", "0") or 0) / 15
         return (int(255 * (f * 0.6 + (0.4 if f > 0 else 0.3))), int(255 * max(0.0, f * f * 0.7 - 0.5)),
                 int(255 * max(0.0, f * f * 0.6 - 0.7)))
-    if "leaves" in name or name == "vine":
+    if name in FOLIAGE_TINTED:
         return "foliage"
+    if "leaves" in name:                                # cherry, azalea, pale oak...: their own colours (no tint in the game)
+        return None
     return "grass"
 
 
@@ -598,6 +602,11 @@ class Look:
                 by_dir[q[1]] = q
             quads = by_dir
         tinted = any(q and q[-1] for q in quads)
+        if tinted and tint_kind(name, props) is None:      # tint indices but no colour in the game: none at all
+            for q in quads:
+                if q:
+                    q[-1] = 0
+            tinted = False
         info = {"name": name, "kind": kind, "quads": quads, "opaque": kind == "cube" and not cutout,
                 "cutout": cutout, "water": props.get("waterlogged") == "true",
                 "tint": tint_kind(name, props) if tinted else None}
