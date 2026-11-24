@@ -3447,6 +3447,81 @@ async function contStep(now) {
     + (d.ledger ? "" : " (no Ledger log: as saved then)") + ". Slots are a best guess where items moved.";
 }
 
+// ---------- banners: each flag painted from its patterns, at its exact angle ----------
+// The block builder draws only the pole and bar; the flags come from the banners' saved patterns (/api/banners),
+// painted from the game's pattern pictures (white masks) in the game's dye colours, bottom layer first.
+const DYE = { white: 0xF9FFFE, orange: 0xF9801D, magenta: 0xC74EBD, light_blue: 0x3AB3DA, yellow: 0xFED83D, lime: 0x80C71F,
+  pink: 0xF38BAA, gray: 0x474F52, light_gray: 0x9D9D97, cyan: 0x169C9C, purple: 0x8932B8, blue: 0x3C44AA,
+  brown: 0x835432, green: 0x5E7C16, red: 0xB02E26, black: 0x1D1D21 };
+const BAN = { tiles: new Map(), asking: new Set(), tex: new Map(), img: new Map(), group: new THREE.Group(), last: 0 };
+scene.add(BAN.group);
+function banImg(name) {
+  if (!BAN.img.has(name)) BAN.img.set(name, new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null);
+    im.src = `blocktex/0/entity/banner/${name}.png`; }));
+  return BAN.img.get(name);
+}
+function banTexture(base, patterns) {                   // the flag's front: 20 x 40 pixels of the 64 x 64 banner sheet
+  const key = base + "|" + patterns.map(p => p.join(":")).join(",");
+  if (BAN.tex.has(key)) return BAN.tex.get(key);
+  const cv = document.createElement("canvas"); cv.width = 20; cv.height = 40;
+  const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  BAN.tex.set(key, t);
+  (async () => {
+    const g = cv.getContext("2d"), tmp = document.createElement("canvas"); tmp.width = 20; tmp.height = 40;
+    const tg = tmp.getContext("2d");
+    for (const [name, col] of [["base", base], ...patterns]) {
+      const im = await banImg(name); if (!im) continue;
+      const c = "#" + (DYE[col] ?? 0xffffff).toString(16).padStart(6, "0");
+      tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, 20, 40);
+      tg.drawImage(im, 1, 1, 20, 40, 0, 0, 20, 40);
+      tg.globalCompositeOperation = "multiply"; tg.fillStyle = c; tg.fillRect(0, 0, 20, 40);
+      tg.globalCompositeOperation = "destination-in"; tg.drawImage(im, 1, 1, 20, 40, 0, 0, 20, 40);
+      g.drawImage(tmp, 0, 0);
+    }
+    t.needsUpdate = true;
+  })();
+  return t;
+}
+const BAN_FLAG = new THREE.PlaneGeometry(20 / 24, 40 / 24);   // the game draws the flag at two thirds: 20 x 40 pixels
+const BAN_BAR = new THREE.BoxGeometry(1, 2 / 16, 2 / 16);
+const BAN_WOOD = new THREE.MeshLambertMaterial({ color: 0x9c7f4e });
+function banMesh(b) {
+  const g = new THREE.Group();
+  const f = new THREE.Mesh(BAN_FLAG, new THREE.MeshLambertMaterial({ map: banTexture(b.base, b.patterns), side: THREE.DoubleSide, alphaTest: 0.1 }));
+  g.add(f);
+  if (b.wall) {                                         // hangs from its bar against the block behind
+    const n = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] }[b.facing] || [0, 1];
+    g.position.set(b.x + 0.5 - n[0] * 0.4375, b.y, b.z + 0.5 - n[1] * 0.4375);
+    g.rotation.y = { south: 0, north: Math.PI, east: Math.PI / 2, west: -Math.PI / 2 }[b.facing] || 0;
+    f.position.y = 0.875 - 20 / 24;                     // its top at the bar
+  } else {                                              // on its pole, turned in sixteenths of a circle
+    g.position.set(b.x + 0.5, b.y, b.z + 0.5);
+    g.rotation.y = -b.rotation * Math.PI / 8;
+    f.position.set(0, 1.875 - 20 / 24, 0.07);
+    const bar = new THREE.Mesh(BAN_BAR, BAN_WOOD); bar.position.set(0, 1.94, 0.07); g.add(bar);
+  }
+  return g;
+}
+function bannersStep(now) {
+  if (now - BAN.last < 500) return; BAN.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  for (const [k, e] of BAN.tiles) {                     // a piece gone (or another backup): its banners go
+    if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) { BAN.group.remove(e.group); BAN.tiles.delete(k); }
+  }
+  for (const id of REAL.tiles.keys()) {
+    const k = `${layer}|${dim}|${id}`;
+    if (BAN.tiles.has(k) || BAN.asking.has(k)) continue;
+    BAN.asking.add(k);
+    const [tx, tz] = id.split(",");
+    fetch(`api/banners/${layer}/${d}/${tx}/${tz}`).then(r => r.json()).then(r => {
+      if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
+      const group = new THREE.Group();
+      for (const b of r.banners || []) group.add(banMesh(b));
+      BAN.group.add(group); BAN.tiles.set(k, { id, layer, dim, group });
+    }).catch(() => {}).finally(() => BAN.asking.delete(k));
+  }
+}
+
 // ---------- maps: every map of the backup shown, and maps on their item frames ----------
 // The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
 // background). In the world, each framed map is a picture on its wall where the real blocks are loaded; the
@@ -3703,6 +3778,7 @@ function frame(now) {
   invStep(now);                                        // the hotbar and inventory of who you watch
   mapsStep(now);                                       // maps on their item frames
   contStep(now);                                       // a chest or furnace the watched player has open
+  bannersStep(now);                                    // banners' flags where the real blocks are
   gfxStep(now);
   renderer.render(scene, camera);
 }

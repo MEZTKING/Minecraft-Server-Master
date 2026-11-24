@@ -3702,6 +3702,39 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_banners(self):
+        """Banners: their patterns (1.20.5+ and the older codes), base colour from the block, wall or standing."""
+        from mcsm import banners, terrain
+        self.assertEqual(banners.patterns_of({"patterns": [{"pattern": "minecraft:stripe_top", "color": "red"},
+                                                           {"pattern": {"asset_id": "minecraft:globe"}, "color": "blue"}]}),
+                         [["stripe_top", "red"], ["globe", "blue"]])
+        self.assertEqual(banners.patterns_of({"Patterns": [{"Pattern": "mr", "Color": 9}]}), [["rhombus", "cyan"]])
+        tmp = tempfile.mkdtemp()
+        try:
+            srv = os.path.join(tmp, "srv")
+            world = os.path.join(srv, "world")
+
+            def b(x, y, z):
+                if y < 64:
+                    return "minecraft:stone"
+                if (x, y, z) == (3, 64, 3):
+                    return "minecraft:red_banner[rotation=4]"
+                if (x, y, z) == (5, 65, 5):
+                    return "minecraft:blue_wall_banner[facing=east]"
+                return None
+            chunk = terrain.make_chunk_blocks(0, 0, b, 56, 80)
+            chunk["block_entities"] = [
+                {"id": "minecraft:banner", "x": 3, "y": 64, "z": 3, "patterns": [{"pattern": "minecraft:cross", "color": "white"}]},
+                {"id": "minecraft:banner", "x": 5, "y": 65, "z": 5},
+                {"id": "minecraft:banner", "x": 9, "y": 64, "z": 9}]          # its block is gone: left out
+            terrain.write_region(os.path.join(world, "region", "r.0.0.mca"), {(0, 0): chunk})
+            found = sorted(banners.banners_in_tile(srv, world, "minecraft:overworld", 0, 0), key=lambda v: v["x"])
+            self.assertEqual(found, [
+                {"x": 3, "y": 64, "z": 3, "base": "red", "wall": False, "facing": "north", "rotation": 4, "patterns": [["cross", "white"]]},
+                {"x": 5, "y": 65, "z": 5, "base": "blue", "wall": True, "facing": "east", "rotation": 0, "patterns": []}])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_container_moves(self):
         """A container's contents after Ledger's item moves: taken off the stacks of that item (last slot first), put
         on a stack of it or into the first empty slot; and undone, for a backup taken after the moment."""

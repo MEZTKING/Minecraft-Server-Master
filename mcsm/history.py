@@ -496,6 +496,20 @@ class HistoryMap(TerrainServer):
                 while len(cache) > 40:
                     cache.pop(next(iter(cache)))
             return {"cells": cache[key], "cell": 16, "available": True}
+        if path.startswith("/api/banners/"):         # banners and their patterns: /api/banners/<layer>/<dim>/<tx>/<tz>
+            from . import banners as bn
+            try:
+                layer, dim, tx, tz = path[len("/api/banners/"):].split("/")
+                key = (int(layer), dim, int(tx), int(tz))
+                cache = self.__dict__.setdefault("_banners", {})
+                if key not in cache:
+                    bw = self.layer_world(int(layer))
+                    cache[key] = bn.banners_in_tile(bw.root, bw.world, "minecraft:" + dim, int(tx), int(tz)) if bw else []
+                    while len(cache) > 400:
+                        cache.pop(next(iter(cache)))
+                return {"banners": cache[key]}
+            except (ValueError, OSError) as exc:
+                return {"banners": [], "message": str(exc)}
         if path.startswith("/api/container/"):       # contents at a moment: /api/container/<dim>/<x>/<y>/<z>/<t ms>
             try:
                 dim, x, y, z, t = path[len("/api/container/"):].split("/")

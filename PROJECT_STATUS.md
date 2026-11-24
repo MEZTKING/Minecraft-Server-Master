@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -896,7 +896,7 @@ they vanish; time of day and weather; blocks as they were (chunk snapshots + eve
 
 **Different from the recording (worst first):**
 1. Containers: contents rebuilt from backup + Ledger (slots guessed; furnaces' smelting not logged).
-2. Text on signs, banners, map pictures: as in the backup, not as at the moment.
+2. Text on signs, banners (patterns now drawn, 2026-11-24), map pictures: as in the backup, not as at the moment.
 3. No mining cracks, particles, sounds, chest lids, pistons moving.
 4. Mobs: babies drawn adult-sized, variants (cat, horse colours) picked, not read; mob names not shown.
 5. Light: from the backup's light, not updated as torches are placed during the recording.
@@ -1621,6 +1621,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Banners**: any banner close up should show its real pattern (e.g. the 34 at Vakirath's base around
+  4733, 128, 345); standing ones at their exact angle.
 - **Containers in Relive**: relive Vakirath on 24 May at 14:26:50 UTC (15:26 your time): his large chest opens
   with its contents and his hotbar under it. Do the contents look right?
 - **Under water**: look into a lake or the sea: the floor should be there now.
@@ -1754,6 +1756,13 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Banners with their patterns (owner: "can we get banners to work throughout"): `mcsm/banners.py`
+  reads every banner block entity of a real-block piece (1.20.5+ `patterns`, or the older `Patterns` codes) with its
+  block (base colour, wall facing or standing rotation); `/api/banners/<layer>/<dim>/<tx>/<tz>`. The page paints each
+  flag from `entity/banner/<pattern>.png` tinted with the dye colours and hangs it at its exact angle (16 steps); the
+  block builder now draws only the pole and bar (`blockmesh.VERSION` 6). On the 20 Nov backup: 34 at Vakirath's base,
+  ominous banners at outposts. Not yet: patterns on shields and on banners held or worn.
 
 - **2026-11-24:** Owner: "when a player opens a chest or furnace etc in the relive moment it should show what they
   were seeing exactly"; "prioritze generating aruond the player when reliving"; "underwater seems empty and players

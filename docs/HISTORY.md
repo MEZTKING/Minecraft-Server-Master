@@ -194,7 +194,7 @@ of that backup's Minecraft version). Every block you could see from outside is t
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
 fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;
-a double chest joins up), signs, banners, shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
+a double chest joins up), signs, banners (with their patterns, see below), shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
 water (waterlogged stairs, slabs, fences...) have their water. Grass, leaves, vines and water take the colour of
 their biome, from the game's own biome files: swamps are murky, badlands and savannas dry, jungles bright. Like the
 game, the colour is blended where biomes meet. Turned stairs, fences and walls keep their texture lined up as in
@@ -210,6 +210,11 @@ close up is drawn as a glowing grid of points and lines with a scan rippling acr
 map's big flat polygons; each piece of real blocks then rises up out of the ground column by column, its top edge
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
+
+**Banners** show their real patterns, as saved in the backup shown: each flag is painted from the game's own
+pattern pictures in the game's dye colours, layer by layer (any number of layers, as with your Limitless Banners
+mod), and hangs at its exact angle (standing banners turn in sixteenths of a circle, as in the game). Ominous
+banners at pillager outposts too.
 
 **Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
 in the game.

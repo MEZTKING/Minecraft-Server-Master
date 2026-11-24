@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 5                     # bump when the output changes (cached tiles are built again); 5: under water
+VERSION = 6                     # bump when the output changes (cached tiles are built again); 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
@@ -430,13 +430,12 @@ class Look:
             wool = f"block/{colour}_wool" if self.has_texture(f"block/{colour}_wool") else "block/white_wool"
             six = {k: {"texture": "#w"} for k in FACE_NAMES}
             pole = {k: {"texture": "#p"} for k in FACE_NAMES}
+            # only the wood: the flag is painted by the viewer from the banner's patterns (mcsm.banners), at its
+            # exact angle; a standing banner's pole is in the middle, so the 16 angles don't matter for it
             if "wall" in name:                         # hangs from the block behind it (model faces north)
-                els = [{"from": [1, -14, 14.5], "to": [15, 14, 15.5], "faces": six},
-                       {"from": [0, 13, 14], "to": [16, 15, 16], "faces": pole}]
+                els = [{"from": [0, 13, 14], "to": [16, 15, 16], "faces": pole}]
             else:
-                els = [{"from": [1, 2, 7.5], "to": [15, 30, 8.5], "faces": six},
-                       {"from": [7, 0, 6.5], "to": [9, 30, 7.5], "faces": pole},
-                       {"from": [0, 30, 6.5], "to": [16, 32, 8.5], "faces": pole}]
+                els = [{"from": [7, 0, 7], "to": [9, 30, 9], "faces": pole}]
                 rot = int(props.get("rotation", "0") or 0)
                 facing_y = int(round(rot * 22.5 / 90.0)) * 90 % 360
             return [els, {"w": wool, "p": "block/oak_planks"}, (16, 16), 0, facing_y]
