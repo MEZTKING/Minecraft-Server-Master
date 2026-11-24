@@ -5612,6 +5612,33 @@ class TestLedger(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_explosions(self):
+        """Blasts from the blocks Ledger saw them break: one cause, within a second and 8 blocks, is one blast."""
+        from datetime import datetime, timedelta, timezone
+        from mcsm import ledger
+        tmp = tempfile.mkdtemp()
+        try:
+            p = os.path.join(tmp, "ledger.sqlite")
+            self._db(p)
+            con = sqlite3.connect(p)
+            con.execute("create table sources (id integer primary key, name text)")
+            con.execute("insert into sources values (1, 'player'), (2, 'creeper'), (3, 'tnt')")
+            con.execute("delete from actions")
+            t0 = datetime(2026, 3, 2, 18, tzinfo=timezone.utc)
+            ts = lambda s: (t0 + timedelta(seconds=s)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            rows = [(1, ts(0.1 * i), 10 + i % 3, 64, 10 + i // 3, 2) for i in range(9)]     # a creeper: 9 blocks
+            rows += [(1, ts(30), 100, 70, 100, 3), (1, ts(30.2), 102, 70, 101, 3)]            # TNT, half a minute on
+            rows += [(1, ts(60), 50, 64, 50, 1)]                                              # a player: no blast
+            con.executemany("insert into actions (action_id, time, x, y, z, world_id, object_id, old_object_id, source)"
+                            " values (?, ?, ?, ?, ?, 1, 1, 3, ?)", rows)
+            con.commit(); con.close()
+            lg = ledger.Ledger(p)
+            got = ledger.explosions(lg, "minecraft:overworld", int(t0.timestamp() * 1000) - 1000, int(t0.timestamp() * 1000) + 120_000)
+            self.assertEqual([(e["cause"], e["blocks"], e["x"], e["z"]) for e in got], [("creeper", 9, 11.0, 11.0), ("tnt", 2, 101.0, 100.5)])
+            self.assertEqual(got[0]["t"], int(t0.timestamp() * 1000))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_incidents(self):
         """Builds damaged: placed blocks lost to a creeper or another player; crops harvested don't count."""
         from datetime import datetime, timedelta, timezone

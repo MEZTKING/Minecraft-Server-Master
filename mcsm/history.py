@@ -544,6 +544,14 @@ class HistoryMap(TerrainServer):
                 return {"available": False, "message": str(exc)}
         if path == "/api/highlights/export/job":    # the export's progress
             return self.export_job()
+        if path.startswith("/api/explosions/"):      # blasts from the Ledger log: /api/explosions/<dim>/<from>/<to>
+            from . import ledger as ledger_mod
+            try:
+                dim, a, b = path[len("/api/explosions/"):].split("/")
+                lg = self.ledger()
+                return {"explosions": ledger_mod.explosions(lg, "minecraft:" + dim, int(a), min(int(b), int(a) + 7_200_000)) if lg else []}
+            except (ValueError, OSError) as exc:
+                return {"explosions": [], "message": str(exc)}
         if path == "/api/incidents":                  # builds damaged (Ledger): explosions, fire, lava, others
             return {"incidents": self.incidents() or []}
         if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers

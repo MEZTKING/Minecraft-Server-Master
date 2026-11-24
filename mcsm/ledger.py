@@ -238,6 +238,35 @@ def find_builds(lg: Ledger, limits: dict | None = None, cache_file: str | None =
 # ---------------------------------------------------------------- griefing and accidents
 EXPLOSIVE = {"creeper": "a creeper", "tnt": "TNT", "explosion": "an explosion", "fireball": "a fireball",
              "wither": "a wither", "end_crystal": "an end crystal", "bed": "a bed", "respawn_anchor": "a respawn anchor"}
+def explosions(lg: "Ledger", dim: str, t0: int, t1: int) -> list[dict]:
+    """Every explosion between t0 and t1 (ms) from the blocks it broke (Ledger logs each with its cause; the
+    recordings leave explosions out when ServerReplay's optimize_explosion_packets is on): ``{t, x, y, z, blocks,
+    radius, cause}``, oldest first. Breaks by one cause within a second and 8 blocks of each other are one blast."""
+    wid = lg.worlds.get(dim)
+    srcs = tuple(EXPLOSIVE)
+    q = ("select x.time, x.x, x.y, x.z, s.name from actions x join sources s on s.id = x.source "
+         "join ActionIdentifiers a on a.id = x.action_id where a.action_identifier = 'block-break' "
+         f"and s.name in ({','.join('?' * len(srcs))}) and x.time >= ? and x.time <= ?"
+         + (" and x.world_id = ?" if wid is not None else "") + " order by x.time")
+    args = list(srcs) + [_when(t0), _when(t1)] + ([wid] if wid is not None else [])
+    blasts: list[dict] = []
+    for when, x, y, z, src in lg._con().execute(q, args):
+        t = _ms(when)
+        b = next((b for b in reversed(blasts[-8:]) if b["cause"] == src and t - b["t1"] <= 1000
+                  and abs(b["sx"] / b["blocks"] - x) <= 8 and abs(b["sz"] / b["blocks"] - z) <= 8), None)
+        if b is None:
+            b = {"t": t, "t1": t, "sx": 0, "sy": 0, "sz": 0, "blocks": 0, "cause": src, "pts": []}
+            blasts.append(b)
+        b["t1"] = t; b["sx"] += x; b["sy"] += y; b["sz"] += z; b["blocks"] += 1; b["pts"].append((x, y, z))
+    out = []
+    for b in blasts:
+        n = b["blocks"]; cx, cy, cz = b["sx"] / n, b["sy"] / n, b["sz"] / n
+        r = max((((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) ** 0.5 for x, y, z in b["pts"]), default=1)
+        out.append({"t": b["t"], "x": round(cx, 1), "y": round(cy, 1), "z": round(cz, 1), "blocks": n,
+                    "radius": round(max(1.5, r), 1), "cause": b["cause"]})
+    return out
+
+
 INCIDENT_LIMITS = {
     "explosion": {"gap_ms": 20_000, "reach": 24, "min_blocks": 5},
     "fire": {"gap_ms": 180_000, "reach": 48, "min_blocks": 10},

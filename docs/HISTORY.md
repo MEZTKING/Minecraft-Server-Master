@@ -502,6 +502,15 @@ Spectating switches to exact playback (1×). **Esc** stops.
 **Play** on a moment follows the player it's about (spectating them from behind or through their eyes, as
 Spectate is set): the one its title names first, else the one whose recording covers it. **Esc** stops following.
 
+**Hide UI and pictures.** **Hide UI** (or **F1**, as in the game) hides every panel and label for a clean view;
+F1 or **Esc** brings them back. **Picture** (or **F2**) saves a PNG of the 3D view as it is now (into your
+browser's downloads), named after the world and the time shown. Both work while reliving.
+
+**Explosions.** Creepers, TNT, fireballs, withers, end crystals and beds blowing up show as a flash, a burst of
+light and rising smoke, sized to the blast, with a short camera shake while reliving close by. They come from the
+Ledger log (every block a blast broke, with its cause), because the recordings leave explosions out when
+ServerReplay's `optimize_explosion_packets` is on.
+
 **Fine scrubbing.** Hold **Shift** (or Ctrl) while dragging on the timeline: the time moves 20 times slower than
 the mouse, to creep back and forth frame by frame. **,** and **.** step one game tick (1/20 s) back and on (with
 Shift: a second).
@@ -521,8 +530,9 @@ were there again:
   player (with no room at all, it looks out from their eyes).
 - It opens with a memory look (a warm haze closing in, a soft vignette, warmer colours) that fades away a few
   seconds in, so the rest plays as it was; it comes back for the ending.
-- No panels: a letterbox, their hotbar, and what anyone near says as subtitles with their name. Only the names
-  of people close by are shown.
+- No panels: a letterbox and the game's own HUD, from the game's own pictures at its GUI scale 2: their hotbar
+  and selected slot, hearts, food, armour (from what they wear), the experience bar, a crosshair when seeing
+  through their eyes, and chat in the bottom left as in the game. Only the names of people close by are shown.
 - On a moment, time slows to a third for a few seconds around its key event (a death, an advancement, a first).
 - At the end it fades back to white with the caption, then puts the viewer back as it was. **Esc** leaves any
   time.

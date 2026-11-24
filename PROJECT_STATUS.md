@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -837,7 +837,17 @@ to improve on my side on the server so mapping data and more information is easi
 5. "player are nearly always recorded unless i havent added the sever replay mod at that moment, it should be
    mentiond in the timeline." The timeline shows it: online rows without a recording row.
 
-**Verdict: nothing needs changing for what the viewer uses.** Optional extras, in order of value:
+**Verdict: nothing needs changing for what the viewer uses.** Updated 2026-11-24 (owner: "do i need to turn on any
+setting for server replay, such as light packets and sound packets"):
+- **`optimize_explosion_packets: false`** (recommended): the recordings then keep each explosion as it happened
+  (centre, size), for Flashback's own videos too; the viewer shows blasts from Ledger either way.
+- **`ignore_sound_packets: false`** (recommended if you film in Flashback): Flashback's video exports can then
+  carry the game's sounds (footsteps, blasts, music discs); the viewer itself plays no sound. Files get somewhat
+  bigger.
+- `ignore_light_packets`: leave it on; Flashback and the viewer work light out from the blocks.
+- `include_resource_packs: true`: the Hero's Journey items' own looks in Flashback.
+
+Optional extras, in order of value:
 - **A daily copy of `Main_world/players/` only** (stats, advancements, playerdata: a few MB). Inventories,
   armour, ender chests and statistics are only as fresh as the last backup (the 24 May inventory came from a
   5-day-old backup); a daily copy makes them exact to the day. A full backup monthly stays as it is.
@@ -1621,6 +1631,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Explosions**: 14 Nov 23:04:04 UTC at Vakirath's chests (4768, 102, 381): a creeper's flash and smoke.
+- **Relive HUD**: the game's hotbar, hearts, food, armour, experience bar, crosshair (eyes view), chat bottom left.
+- **F1 / F2**: hide the UI; save a picture.
 - **Textures**: distant grass and leaves should no longer shimmer or stripe while moving.
 - **Relive loading**: a bar with what it's waiting for; then only real blocks to the haze.
 - **Play on a moment**: it should follow the player it's about.
@@ -1768,6 +1781,15 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "are explosion not accurate ... is this due to the serverreplay optmising such packets"; "in
+  the relive, try to show the ui just like how minecraft does it. also that hot bar seems to burn over ever ui of ours";
+  "add an option to hide our own ui and take pictures". Explosions: the recordings have no explosion packets
+  (`optimize_explosion_packets: true`), so blasts come from Ledger (`ledger.explosions`, `/api/explosions`: one
+  cause's breaks within a second and 8 blocks; 14 Nov 23:04:04 creeper, 74 blocks) drawn as a flash (over the
+  blocks round it), light and smoke, with a shake in Relive. Relive HUD from the game's `gui/sprites/hud` pictures
+  (GUI scale 2). The spectate hotbar now sits under the panels. F1 hides the UI, F2 saves a PNG
+  (`preserveDrawingBuffer`). The FPS counter moved out of the panel (it was held there by the panel's blur).
 
 - **2026-11-24:** Owner: "a glitching effect on the textures"; "show a loading bar when recreating a relive moment";
   "the view from a player in a relive should always be the actuall blocks"; "when pressing play a moment it should

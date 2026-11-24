@@ -80,7 +80,21 @@ ul { list-style: none; margin: 0; padding: 0; }
 .note { font-size: 12px; color: var(--text-2); margin-top: 8px; }
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
 /* the spectated player's hotbar (exact from their recording, else from a backup) and the inventory panel (E) */
-#hotbar { position: fixed; left: 50%; bottom: 196px; transform: translateX(-50%); z-index: 21; text-align: center; pointer-events: none; }
+#hotbar { position: fixed; left: 50%; bottom: 196px; transform: translateX(-50%); z-index: 4; text-align: center; pointer-events: none; }
+#panel, #timeline { z-index: 8; }
+body.relive #hotbar { display: none; }                 /* in a memory: the game's own HUD instead */
+/* Relive: the game's HUD, from its own pictures, at GUI scale 2 (one game pixel = 2 screen pixels) */
+#mcHud { position: fixed; left: 50%; bottom: calc(9vh + 2px); transform: translateX(-50%); width: 364px; height: 110px;
+  z-index: 21; pointer-events: none; image-rendering: pixelated; }
+#mcHud img { position: absolute; image-rendering: pixelated; }
+#mcHud .n { position: absolute; color: #fff; font: 700 14px/1 monospace; text-shadow: 2px 2px 0 #3f3f3f; }
+#mcHud .lvl { position: absolute; left: 0; right: 0; text-align: center; color: #80ff20; font: 700 14px/1 monospace;
+  text-shadow: 2px 0 #000, -2px 0 #000, 0 2px #000, 0 -2px #000; }
+#mcCross { position: fixed; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; z-index: 21;
+  image-rendering: pixelated; pointer-events: none; mix-blend-mode: difference; }
+#mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
+#mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
+  transition: opacity .8s; }
 body.relive #hotbar { bottom: calc(9vh + 54px); }
 #hotbar .stats { display: flex; justify-content: space-between; width: 370px; margin: 0 auto 3px; }
 #hotbar .stats span { display: flex; flex-direction: row; }
@@ -128,6 +142,12 @@ body.relive #invBox { display: none !important; }
 #mapAll img { width: 92px; height: 92px; position: static; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
+body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat,
+body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
+#cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
+  background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
+#shotFlash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 40; transition: opacity .35s; }
 body.relive #panel, body.relive #timeline, body.relive #help, body.relive #dev, body.relive #storyCard,
 body.relive #loadCard, body.relive #tlv { display: none !important; }
 #relive { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
@@ -135,6 +155,7 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 #relive .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
 #relive .top { top: 0; } #relive .bot { bottom: 0; }
 #relive .white { position: absolute; inset: 0; background: #fffaf0; opacity: 1; }
+body.relive #relive .sub { display: none; }
 #relive .sub { position: absolute; left: 50%; bottom: calc(9vh + 18px); transform: translateX(-50%); max-width: min(760px, 86vw);
   text-align: center; color: #fff; font-size: 20px; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); line-height: 1.35; }
 #relive .sub b { color: #ffe9b0; font-weight: 600; }
@@ -231,6 +252,8 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
   <h4 style="margin:12px 0 6px">Every map</h4>
   <div class="all" id="mapAll"></div>
 </div>
+<div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
+<div id="mcHud" hidden></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -257,6 +280,8 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
     <button id="mapBtn" type="button" title="Every map in the backup shown, and the walls of maps in item frames (also drawn on the walls in the world)">Maps</button>
     <button id="invBtn" type="button" title="What the spectated (or nearest) player carries: the hotbar exactly from their own recording, the rest from the nearest backup (E)">Inventory</button>
     <button id="reliveBtn" type="button" title="Relive the next minute through the chosen player's eyes, like a memory (Spectate picks who; Esc leaves)">Relive</button>
+    <button id="hideUiBtn" type="button" title="Hide all of the viewer's panels and labels, for a clean view (F1, as in the game; F1 or Esc again to show them)">Hide UI</button>
+    <button id="picBtn" type="button" title="Save a picture of the 3D view as it is now, without the panels (F2, as in the game)">Picture</button>
     <button id="reviewBtn" type="button" title="The server's year and each player's, as cards (opens in a new tab)" onclick="window.open('/review', '_blank')">Year in review</button>
   </div>
   <div class="row" id="terrainRow" hidden>
@@ -553,7 +578,7 @@ $("#toggle").onclick = () => $("#panel").classList.toggle("collapsed");
 if (matchMedia("(max-width: 720px)").matches) $("#panel").classList.add("collapsed");   // phones: map first
 
 // ---------- scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });   // kept: for pictures (F2)
 const RELIVE = { on: false };                     // reliving a moment (see Relive, below)
 // rendering settings (see Rendering, below), read first: the sky and the pieces use them from the start
 const RSET_DEFAULTS = { fps: 0, showFps: false, res: 1, dist: 1, fov: 55, haze: 1, tone: "game", shadows: true, mobs: true, glow: true };
@@ -1203,7 +1228,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -3458,6 +3483,8 @@ function reliveStep(dt) {
   const lookFirst = R.eye.clone().addScaledVector(fwd, 10);
   const t = performance.now() / 1000;                   // a very slight handheld sway, less when close
   camera.position.add(new THREE.Vector3(Math.sin(t * 0.7), Math.sin(t * 1.1) * 0.7, Math.cos(t * 0.6)).multiplyScalar(0.015 * (1 - f)));
+  const sh = (performance.now() - (EXPL.shake || -1e9)) / 1000;   // a blast close by: a short shake
+  if (sh < 0.6) camera.position.add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.35 * (1 - sh / 0.6)));
   camera.lookAt(lookOther.lerp(lookFirst, f));
   m.F.fig.visible = dd > 1.0;
 }
@@ -3574,6 +3601,152 @@ $("#invBtn").onclick = () => invToggle();
 $("#invClose").onclick = () => invToggle(false);
 $("#invTabInv").onclick = () => { INV.tab = "inv"; INV.invKey = ""; };
 $("#invTabEnder").onclick = () => { INV.tab = "ender"; INV.invKey = ""; };
+
+// ---------- a clean view (F1) and pictures (F2), as in the game ----------
+function setClean(on = !document.body.classList.contains("clean")) {
+  document.body.classList.toggle("clean", on);
+  const h = $("#cleanHint"); h.hidden = !on; h.style.opacity = 1;
+  if (on) setTimeout(() => { h.style.opacity = 0; }, 2500);
+}
+function takePicture() {
+  renderer.render(scene, camera);                       // a fresh frame, then the canvas as a PNG
+  renderer.domElement.toBlob(b => {
+    if (!b) return;
+    const d = new Date(T), pad = n => String(n).padStart(2, "0");
+    const name = `${(H && H.title || "world").replace(/[^\w-]+/g, "_")} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}.png`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    const f = $("#shotFlash"); f.style.transition = "none"; f.style.opacity = 0.6;
+    requestAnimationFrame(() => { f.style.transition = "opacity .35s"; f.style.opacity = 0; });
+    toastStatus(`Picture saved: ${name} (your browser's downloads)`);
+  }, "image/png");
+}
+$("#hideUiBtn").onclick = () => setClean(true);
+document.body.appendChild($("#fpsBadge"));             // out of the panel (whose blur would hold it in place)
+$("#picBtn").onclick = () => takePicture();
+
+// ---------- explosions: from the Ledger log (the blocks each blast broke), as a flash, light and smoke ----------
+// The recordings leave explosions out (ServerReplay's optimize_explosion_packets); Ledger logs every block a blast
+// broke with its cause, so /api/explosions gives each blast's time, centre, size and cause.
+const EXPL = { span: "", list: [], fx: new Map(), group: new THREE.Group(), tex: null, shake: 0 };
+scene.add(EXPL.group);
+function explTexture() {
+  if (EXPL.tex) return EXPL.tex;
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.4, "rgba(255,255,255,.6)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return (EXPL.tex = new THREE.CanvasTexture(c));
+}
+function explMake(e) {
+  const g = new THREE.Group(); g.position.set(e.x + 0.5, e.y + 0.5, e.z + 0.5);
+  // the flash: bright enough to show over the blocks round it (a blast lights up its crater from inside)
+  const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: explTexture(), color: 0xfff0c8, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+  flash.renderOrder = 10; g.add(flash);
+  const light = new THREE.PointLight(0xffb060, 0, e.radius * 6); g.add(light);
+  const puffs = [];
+  let seed = Math.floor(e.t) % 9973;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 40; i++) {                        // smoke: grey puffs spread through the blast, drifting up
+    const p = new THREE.Sprite(new THREE.SpriteMaterial({ map: explTexture(), color: 0x9a9a9a, transparent: true, depthWrite: false }));
+    const a = rnd() * Math.PI * 2, b = (rnd() - 0.3) * Math.PI / 2, d = rnd() * e.radius;
+    p.userData.at = new THREE.Vector3(Math.cos(a) * Math.cos(b) * d, Math.sin(b) * d, Math.sin(a) * Math.cos(b) * d);
+    p.userData.size = 2 + rnd() * 2.5; g.add(p); puffs.push(p);
+  }
+  return { g, flash, light, puffs };
+}
+async function explStep(now) {
+  const dim = $("#dim").value, span = `${dim}|${Math.floor(T / 1_800_000)}`;
+  if (span !== EXPL.span) {                             // half an hour at a time
+    EXPL.span = span; EXPL.list = [];
+    const a = Math.floor(T / 1_800_000) * 1_800_000;
+    fetch(`api/explosions/${dim.replace("minecraft:", "")}/${a - 5000}/${a + 1_805_000}`).then(r => r.json())
+      .then(d => { if (EXPL.span === span) EXPL.list = d.explosions || []; }).catch(() => {});
+  }
+  const live = new Set();
+  for (const e of EXPL.list) {
+    const age = (T - e.t) / 1000;
+    if (age < 0 || age > 3) continue;
+    live.add(e.t);
+    let f = EXPL.fx.get(e.t);
+    if (!f) { f = explMake(e); EXPL.fx.set(e.t, f); EXPL.group.add(f.g);
+      if (RELIVE.on && camera.position.distanceTo(f.g.position) < 24) EXPL.shake = now; }
+    const k = Math.min(1, age / 0.25);                  // the flash swells to the blast's size, then fades
+    f.flash.scale.setScalar(e.radius * 4 * (0.3 + 0.7 * k));
+    f.flash.material.opacity = Math.max(0, 1 - age / 0.8);
+    f.light.intensity = Math.max(0, 1 - age / 0.6) * 40;
+    for (const p of f.puffs) {
+      const u = Math.min(1, age / 3);
+      p.position.copy(p.userData.at).multiplyScalar(0.4 + 0.8 * Math.min(1, age / 0.5)); p.position.y += 1 + age * 1.5;
+      p.scale.setScalar(p.userData.size * (0.6 + u));
+      p.material.opacity = age < 0.15 ? age / 0.15 * 0.8 : 0.8 * (1 - u);
+    }
+  }
+  for (const [t, f] of EXPL.fx) if (!live.has(t)) { EXPL.group.remove(f.g); EXPL.fx.delete(t); }
+}
+
+// ---------- Relive: the game's own HUD (hotbar, hearts, food, armour, experience, crosshair, chat) ----------
+const HUD = { key: "", last: 0 };
+const ARMOR_PTS = { leather: [1, 3, 2, 1], chainmail: [2, 5, 4, 1], iron: [2, 6, 5, 2], golden: [2, 5, 3, 1],
+  diamond: [3, 8, 6, 3], netherite: [3, 8, 6, 3], copper: [2, 4, 3, 1], turtle: [2, 0, 0, 0] };
+const hudSprite = n => `blocktex/0/gui/sprites/hud/${n}.png`;
+function hudStep(now) {
+  const on = RELIVE.on && RELIVE.phase !== "load";
+  $("#mcHud").hidden = !on; $("#mcChat").hidden = !on;
+  const first = on && RELIVE.view === "first" && RELIVE.d < 0.6;
+  $("#mcCross").hidden = !first;
+  if (first && !$("#mcCross").src) $("#mcCross").src = hudSprite("crosshair");
+  if (!on || now - HUD.last < 150) return; HUD.last = now;
+  const who = RELIVE.name, ex = exactHotbar(who), b = INV.backup[`${who}|${Math.floor(T / 600_000)}`];
+  const bs = b && b.available ? b.slots : {};
+  const slots = ex.slots.map((e, i) => e !== undefined ? e : (bs[i] || null));
+  const sel = ex.sel ?? (b && b.selected) ?? 0;
+  const hp = stateAt(who, "hp", T, null);
+  let armor = 0;                                        // armour points from what they wear (as the game counts them)
+  ["head", "chest", "legs", "feet"].forEach((k, i) => { const v = stateAt(who, `eq:${k}`, T, null);
+    const mm = v && ARMOUR.exec(v[0]); if (mm) armor += (ARMOR_PTS[mm[1]] || [0, 0, 0, 0])[i]; });
+  const key = JSON.stringify([slots, sel, hp, armor, b && b.xp_level]);
+  if (key !== HUD.key) {
+    HUD.key = key;
+    const els = [], img = (src, x, y, w, h) => { const im = document.createElement("img"); im.src = src;
+      Object.assign(im.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+      im.onerror = () => { im.style.visibility = "hidden"; }; els.push(im); return im; };
+    const Y = 110 - 44;                                   // the hotbar's top (22 game pixels tall)
+    img(hudSprite("hotbar"), 0, Y, 364, 44);
+    img(hudSprite("hotbar_selection"), -2 + sel * 40, Y - 2, 48, 46);
+    slots.forEach((v, i) => {
+      if (!v || !v[0]) return;
+      const im = img(`itemtex/0/${v[0]}.png`, 6 + i * 40, Y + 6, 32, 32);
+      im.style.objectFit = "cover"; im.style.objectPosition = "top";
+      if (v[1] > 1) { const n = document.createElement("span"); n.className = "n"; n.textContent = v[1];
+        Object.assign(n.style, { left: `${6 + i * 40}px`, top: `${Y + 26}px`, width: "34px", textAlign: "right" }); els.push(n); }
+    });
+    const XY = Y - 14;                                    // the experience bar (182 x 5)
+    img(hudSprite("experience_bar_background"), 0, XY, 364, 10);
+    if (b && b.available && b.xp_level) { const l = document.createElement("div"); l.className = "lvl"; l.style.top = `${XY - 14}px`;
+      l.textContent = b.xp_level; els.push(l); }
+    const RY = XY - 22;                                   // hearts on the left, food on the right (9 x 9, 8 apart)
+    if (hp) {
+      const h = Math.ceil(hp[0]), f = hp[1];
+      for (let i = 0; i < 10; i++) {
+        img(hudSprite("heart/container"), i * 16, RY, 18, 18);
+        if (h >= 2 * i + 1) img(hudSprite(h >= 2 * i + 2 ? "heart/full" : "heart/half"), i * 16, RY, 18, 18);
+        img(hudSprite(f >= 2 * i + 2 ? "food_full" : f === 2 * i + 1 ? "food_half" : "food_empty"), 346 - i * 16, RY, 18, 18);
+      }
+    }
+    if (armor > 0) for (let i = 0; i < 10; i++)          // armour above the hearts
+      img(hudSprite(armor >= 2 * i + 2 ? "armor_full" : armor === 2 * i + 1 ? "armor_half" : "armor_empty"), i * 16, RY - 20, 18, 18);
+    $("#mcHud").replaceChildren(...els);
+  }
+  // chat as in the game: bottom left, the last lines, fading after 10 seconds
+  const lines = [];
+  for (const [n, list] of Object.entries(chatBy)) for (let i = lower(list, T, e => e.t) - 1; i >= 0 && T - list[i].t <= 10_000; i--)
+    lines.push([list[i].t, `<${n}> ${list[i].text}`]);
+  lines.sort((a, c) => a[0] - c[0]);
+  const ck = lines.map(l => l[1]).join("|");
+  if (ck !== HUD.chat) { HUD.chat = ck; $("#mcChat").replaceChildren(...lines.slice(-6).map(([, t]) => { const d = document.createElement("div"); d.textContent = t; return d; })); }
+}
 
 // ---------- containers: what the player saw when they opened a chest, barrel, furnace... ----------
 // The recordings keep chests opening (their lid's viewers: "ce" events) but not what's inside; the Ledger log keeps
@@ -3890,6 +4063,9 @@ addEventListener("blur", () => FREE.keys.clear());
 addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
   if (e.code === "Backquote") { setDev(!DEV.on); return; }
+  if (e.code === "F1") { e.preventDefault(); setClean(); return; }
+  if (e.code === "F2") { e.preventDefault(); takePicture(); return; }
+  if (e.code === "Escape" && document.body.classList.contains("clean")) { setClean(false); return; }
   if (e.code === "Escape" && RELIVE.on) { reliveExit(); return; }
   if (RELIVE.on && (e.code === "KeyV" || e.code === "F5")) { e.preventDefault(); reliveView(); return; }
   if (RELIVE.on && e.code !== "Backquote") return;                         // a memory plays on its own
@@ -3975,6 +4151,8 @@ function frame(now) {
   worldStep(now, dt);
   if (RELIVE.on) reliveStep(dt);
   invStep(now);                                        // the hotbar and inventory of who you watch
+  hudStep(now);                                        // reliving: the game's own HUD
+  explStep(now);                                       // explosions (from the Ledger log)
   mapsStep(now);                                       // maps on their item frames
   contStep(now);                                       // a chest or furnace the watched player has open
   bannersStep(now);                                    // banners' flags where the real blocks are
