@@ -3951,6 +3951,24 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_hanging(self):
+        """Paintings (variant, 2D facing, centre) and item frames (item, facing, turn, glow), within the tile; frames
+        holding a map are left to the maps code."""
+        from unittest import mock
+        from mcsm import hanging, mapart
+        ents = [{"id": "minecraft:painting", "Pos": [186.5, 170.0, -770.96875], "facing": 0, "variant": "minecraft:sunset"},
+                {"id": "minecraft:glow_item_frame", "Pos": [204.97, 175.5, -772.5], "Facing": 4, "ItemRotation": 3,
+                 "Item": {"id": "minecraft:clock", "count": 1}},
+                {"id": "minecraft:item_frame", "Pos": [200.5, 70.5, -700.03], "Facing": 2,
+                 "Item": {"id": "minecraft:filled_map", "components": {"minecraft:map_id": 4}}},
+                {"id": "minecraft:painting", "Pos": [500.5, 70.0, -770.5], "facing": 1, "variant": "minecraft:kebab"}]
+        with mock.patch.object(mapart, "entity_regions", return_value=["x/r.0.-2.mca"]), \
+                mock.patch.object(mapart, "_region_entities", return_value=ents):
+            r = hanging.hanging_in_tile("w", "minecraft:overworld", 1, -7)
+        self.assertEqual(r["paintings"], [{"x": 186.5, "y": 170.0, "z": -770.96875, "facing": 0, "variant": "sunset"}])
+        self.assertEqual(r["frames"], [{"x": 204.97, "y": 175.5, "z": -772.5, "facing": 4, "rot": 3, "item": "clock",
+                                        "glow": True, "invisible": False}])
+
     def test_head_skin_hash(self):
         """A player head's skin: the texture hash from its profile (1.20.5+) or SkullOwner (older); none without."""
         import base64

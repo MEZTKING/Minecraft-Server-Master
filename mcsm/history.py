@@ -510,6 +510,21 @@ class HistoryMap(TerrainServer):
                 return {"banners": cache[key]}
             except (ValueError, OSError) as exc:
                 return {"banners": [], "message": str(exc)}
+        if path.startswith("/api/hanging/"):         # paintings and item frames: /api/hanging/<layer>/<dim>/<tx>/<tz>
+            from . import hanging as hg
+            try:
+                layer, dim, tx, tz = path[len("/api/hanging/"):].split("/")
+                key = (int(layer), dim, int(tx), int(tz))
+                cache = self.__dict__.setdefault("_hanging", {})
+                if key not in cache:
+                    bw = self.layer_world(int(layer))
+                    cache[key] = hg.hanging_in_tile(bw.world, "minecraft:" + dim, int(tx), int(tz)) if bw \
+                        else {"paintings": [], "frames": []}
+                    while len(cache) > 400:
+                        cache.pop(next(iter(cache)))
+                return cache[key]
+            except (ValueError, OSError) as exc:
+                return {"paintings": [], "frames": [], "message": str(exc)}
         if path.startswith("/api/heads/"):           # player heads and their skins: /api/heads/<layer>/<dim>/<tx>/<tz>
             from . import heads as hd
             try:

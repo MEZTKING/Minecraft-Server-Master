@@ -4548,6 +4548,24 @@ function chestModel(st) {                                // st: the block state,
   });
   return g;
 }
+// a shulker box opening: the game's model (lid and base), turned to its facing (Direction.getRotation); the lid rises
+// half a block and turns 270 degrees as it opens (linearly)
+function shulkerModel(st) {
+  const name = st.split("[")[0].replace("minecraft:", ""), facing = (/facing=(\w+)/.exec(st) || [])[1] || "up";
+  const L = MOBM && MOBM.SHULKER_BOX; if (!L) return null;
+  const col = name.replace(/_?shulker_box$/, ""), tex = col ? `shulker/shulker_${col}` : "shulker/shulker";
+  const g = new THREE.Group(), parts = {}, H = Math.PI / 2;
+  const turn = { up: [0, 0, 0], down: [Math.PI, 0, 0], north: [H, 0, Math.PI], south: [H, 0, 0], west: [H, 0, H], east: [H, 0, -H] }[facing] || [0, 0, 0];
+  g.rotation.set(turn[0], turn[1], turn[2], "XYZ");
+  mobTexture(tex).then(t => {
+    if (!t) return;
+    const inner = buildPart(L.root, `SHULKER_BOX|${tex}`, "", L.tw, L.th, mobMaterials(tex, t), parts, "");
+    const wrap = new THREE.Group(); wrap.add(inner); wrap.position.y = 24 * MPX - 0.5; wrap.scale.setScalar(1.002);
+    g.add(wrap); g.userData.parts = parts;
+  });
+  g.userData.shulker = true;
+  return g;
+}
 function chestsStep(now) {
   if (now - CHESTS.last < 60) return; CHESTS.last = now;
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
@@ -4576,20 +4594,96 @@ function chestsStep(now) {
       continue;
     }
     const st = CHESTS.state.get(sk);
-    if (!/chest/.test(st)) continue;                    // a shulker box or barrel: not drawn here
+    const shulker = /shulker_box/.test(st);
+    if (!/chest/.test(st) && !shulker) continue;         // a barrel: its block itself shows it open
     let e = CHESTS.shown.get(k);
     if (!e) {
-      const g = chestModel(st); if (!g) continue;
+      const g = shulker ? shulkerModel(st) : chestModel(st); if (!g) continue;
       const [x, y, z] = k.split(",").map(Number);
-      g.position.set(x + 0.5, y, z + 0.5); CHESTS.group.add(g);
+      g.position.set(x + 0.5, y + (shulker ? 0.5 : 0), z + 0.5); CHESTS.group.add(g);
       e = { g }; CHESTS.shown.set(k, e);
     }
     const parts = e.g.userData.parts;
     if (parts && parts.lid) {
       chestFacesHidden(k, true);                        // (only once its model is there)
-      const a = (1 - Math.pow(1 - o, 3)) * Math.PI / 2;
-      parts.lid.g.rotation.x = -a; if (parts.lock) parts.lock.g.rotation.x = -a;
+      if (e.g.userData.shulker) {
+        parts.lid.g.position.y = -(24 - o * 8) * MPX; parts.lid.g.rotation.y = -o * 1.5 * Math.PI;
+      } else {
+        const a = (1 - Math.pow(1 - o, 3)) * Math.PI / 2;
+        parts.lid.g.rotation.x = -a; if (parts.lock) parts.lock.g.rotation.x = -a;
+      }
     }
+  }
+}
+
+// ---------- paintings and item frames (from the backup shown) ----------
+// /api/hanging/...: each painting's centre, facing and picture (its size: 16 pixels of the picture a block; the
+// game's back on the back and edges), and each item frame's centre, facing, turn and item (frames with maps are
+// the maps code's). A frame: its leather back in a birch border; the item's picture half a block, turned in eighths.
+const HANG = { tiles: new Map(), asking: new Set(), last: 0, group: new THREE.Group() };
+scene.add(HANG.group);
+const N2D = [[0, 0, 1], [-1, 0, 0], [0, 0, -1], [1, 0, 0]], N3D = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+function texLoad(url) {
+  return new Promise(res => new THREE.TextureLoader().load(url, t => {
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; res(t); }, undefined, () => res(null)));
+}
+const HANG_TEX = new Map();
+function hangTex(url) { if (!HANG_TEX.has(url)) HANG_TEX.set(url, texLoad(url)); return HANG_TEX.get(url); }
+function paintingMesh(pt) {
+  const g = new THREE.Group(), n = new THREE.Vector3(...N2D[pt.facing]);
+  g.position.set(pt.x, pt.y, pt.z); g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  Promise.all([hangTex(`blocktex/0/painting/${pt.variant}.png`), hangTex("blocktex/0/painting/back.png")]).then(([t, back]) => {
+    if (!t) return;
+    const w = t.image.width / 16, h = t.image.height / 16;
+    const bm = new THREE.MeshLambertMaterial({ map: back || null, color: back ? 0xffffff : 0x8a6a40 });
+    const mats = [bm, bm, bm, bm, new THREE.MeshLambertMaterial({ map: t }), bm];   // +x -x +y -y front(+z) back
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, 1 / 16), mats));
+  });
+  return g;
+}
+function frameMesh(f) {
+  const g = new THREE.Group(), n = new THREE.Vector3(...N3D[f.facing]);
+  g.position.set(f.x, f.y, f.z);
+  if (Math.abs(n.y) > 0.5) g.rotation.x = n.y > 0 ? -Math.PI / 2 : Math.PI / 2;
+  else g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  if (!f.invisible) Promise.all([hangTex(`blocktex/0/block/${f.glow ? "glow_item_frame" : "item_frame"}.png`), hangTex("blocktex/0/block/birch_planks.png")])
+    .then(([back, wood]) => {
+      const wm = new THREE.MeshLambertMaterial({ map: wood || null, color: wood ? 0xffffff : 0xc8b077 });
+      // the game's frame model: a birch border round its back's middle (the texture's 3..13 pixels, 10 x 10)
+      const lt = back ? back.clone() : null;
+      if (lt) { lt.offset.set(3 / 16, 3 / 16); lt.repeat.set(10 / 16, 10 / 16); lt.needsUpdate = true; }
+      const fm = new THREE.MeshLambertMaterial({ map: lt, color: lt ? 0xffffff : 0x8a5a3a, emissive: f.glow ? 0x444444 : 0 });
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(12 / 16, 12 / 16, 1 / 16), wm));
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(10 / 16, 10 / 16), fm);
+      face.position.z = 1 / 32 + 0.001; g.add(face);
+    });
+  if (f.item) itemTexture(f.item).then(t => {
+    if (!t) return;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3,
+      emissive: f.glow ? 0xffffff : 0, emissiveMap: f.glow ? t : null, emissiveIntensity: 0.5 }));
+    m.position.z = 1 / 32 + 0.004; m.rotation.z = -f.rot * Math.PI / 4;
+    g.add(m);
+  });
+  return g;
+}
+function hangingStep(now) {
+  if (now - HANG.last < 700) return; HANG.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  for (const [k, e] of HANG.tiles) {
+    if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) { HANG.group.remove(e.group); HANG.tiles.delete(k); }
+  }
+  for (const id of REAL.tiles.keys()) {
+    const k = `${layer}|${dim}|${id}`;
+    if (HANG.tiles.has(k) || HANG.asking.has(k)) continue;
+    HANG.asking.add(k);
+    const [tx, tz] = id.split(",");
+    fetch(`api/hanging/${layer}/${d}/${tx}/${tz}`).then(r => r.json()).then(r => {
+      if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
+      const group = new THREE.Group();
+      for (const pt of r.paintings || []) group.add(paintingMesh(pt));
+      for (const f of r.frames || []) group.add(frameMesh(f));
+      HANG.group.add(group); HANG.tiles.set(k, { id, layer, dim, group });
+    }).catch(() => {}).finally(() => HANG.asking.delete(k));
   }
 }
 
@@ -4913,6 +5007,7 @@ function frame(now) {
   signsStep(now);                                      // signs' text
   headsStep(now);                                      // player heads in their skins
   chestsStep(now);                                     // chests' lids opening
+  hangingStep(now);                                    // paintings and item frames
   gfxStep(now);
   renderer.render(scene, camera);
 }

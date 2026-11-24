@@ -374,7 +374,12 @@ helmet, a skeleton's bow, a piglin's golden sword, a drowned's trident.
 
 **Chests opening.** In close-up playback, chests open and shut when they did in the recordings (any chest a
 recorded player could see, not only their own): the lid lifts on its hinge with the game's easing, takes half a
-second, and shuts again the same way. Double chests, trapped chests, ender chests and copper chests too.
+second, and shuts again the same way. Double chests, trapped chests, ender chests and copper chests too, and
+shulker boxes (their lid rises and turns, as in the game). Barrels show open through their block.
+
+**Paintings and item frames.** Paintings hang in their pictures at their real size, and item frames show their
+birch border and what's in them (turned as it was), from the backup shown. Frames holding a map show the map (see
+Maps).
 
 **Chests, furnaces and other containers.** While you spectate or relive someone, when they open a chest (the
 recordings keep chest lids opening) or put items into or take them out of anything (the Ledger log: barrels,

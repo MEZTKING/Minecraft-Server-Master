@@ -400,7 +400,7 @@ function blockMeshes(info, buf, atlas) {
       const soul = b.name.startsWith("soul_");
       glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
     }
-    const chest = Gr === geo.solid && /chest$/.test(b.name), i0 = Gr.i.length;
+    const chest = Gr === geo.solid && /chest$|shulker_box$/.test(b.name), i0 = Gr.i.length;
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
