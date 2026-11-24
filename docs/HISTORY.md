@@ -372,6 +372,10 @@ when it changes or every few minutes; until the first listing in a recording, th
 An elytra worn shows as folded wings on the back. Mobs hold and wear what they had too: a zombie's sword or
 helmet, a skeleton's bow, a piglin's golden sword, a drowned's trident.
 
+**Chests opening.** In close-up playback, chests open and shut when they did in the recordings (any chest a
+recorded player could see, not only their own): the lid lifts on its hinge with the game's easing, takes half a
+second, and shuts again the same way. Double chests, trapped chests, ender chests and copper chests too.
+
 **Chests, furnaces and other containers.** While you spectate or relive someone, when they open a chest (the
 recordings keep chest lids opening) or put items into or take them out of anything (the Ledger log: barrels,
 furnaces, hoppers, shulker boxes...), its screen shows as in the game: the container's slots (a large chest's 54,

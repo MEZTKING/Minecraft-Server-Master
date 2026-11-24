@@ -375,6 +375,7 @@ function blockMeshes(info, buf, atlas) {
   for (let k = 0; k < n; k++) keys[k] = ck(k);
   const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => (keys[a] < keys[b] ? -1 : keys[a] > keys[b] ? 1 : a - b));
   geo.solid.ranges = new Map(); geo.water.ranges = new Map(); geo.glass.ranges = new Map();
+  geo.solid.blocks = new Map();                          // chests: "x,y,z" -> their index ranges (drawn on their own when open)
   let curKey = null;
   const close = () => { if (curKey === null) return;
     for (const Gr of [geo.solid, geo.water, geo.glass]) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.i.length; } };
@@ -399,10 +400,16 @@ function blockMeshes(info, buf, atlas) {
       const soul = b.name.startsWith("soul_");
       glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
     }
+    const chest = Gr === geo.solid && /chest$/.test(b.name), i0 = Gr.i.length;
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
     } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, CS, CB, ex & 255, tint);
+    if (chest && Gr.i.length > i0) {
+      const bk = `${x},${y},${z}`;
+      if (!Gr.blocks.has(bk)) Gr.blocks.set(bk, []);
+      Gr.blocks.get(bk).push([i0, Gr.i.length]);
+    }
   }
   close();
   const mesh = (Gr, mat) => {
@@ -421,6 +428,7 @@ function blockMeshes(info, buf, atlas) {
     const me = new THREE.Mesh(g, mat);
     me.userData.kind = mat.transparent ? "water" : "solid";
     me.userData.chunks = Gr.ranges;
+    if (Gr.blocks) me.userData.blocks = Gr.blocks;
     me.castShadow = me.receiveShadow = GFX.mode !== "off" && !mat.transparent;
     return me;
   };

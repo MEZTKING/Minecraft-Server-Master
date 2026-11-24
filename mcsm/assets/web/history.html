@@ -4496,6 +4496,103 @@ function signsStep(now) {
   }
 }
 
+// ---------- chests opening: the lid as the game moves it ----------
+// The recordings keep every chest's lid opening and shutting in view ("ce": [x, y, z, viewers]). While a lid isn't
+// shut, the chest's faces in its block piece are hidden and the game's chest model is drawn there instead, its lid
+// at the game's angle: openness moves 0.1 a tick towards open (or shut), drawn as (1 - (1 - o)^3) x 90 degrees.
+const CHESTS = { shown: new Map(), state: new Map(), asking: new Set(), last: 0, group: new THREE.Group() };
+scene.add(CHESTS.group);
+function chestOpenness(tl) {                             // tl: [[t, viewers]...] sorted; openness at T (0..1)
+  if (!tl.length || T < tl[0][0] - 1) return tl.length && tl[0][1] === 0 && T < tl[0][0] ? 1 : 0;
+  let o = tl[0][1] > 0 ? 0 : 1, t = tl[0][0] - 600, target = o;
+  for (const [te, v] of tl) {
+    if (te > T) break;
+    o = Math.max(0, Math.min(1, o + (target ? 1 : -1) * (te - t) / 500)); t = te; target = v > 0 ? 1 : 0;
+  }
+  return Math.max(0, Math.min(1, o + (target ? 1 : -1) * (T - t) / 500));
+}
+function chestFacesHidden(key, hide) {                   // a chest's own faces in the block pieces
+  const meshes = [];
+  for (const T0 of REAL.tiles.values()) meshes.push(...T0.meshes);
+  for (const c of LIVE.chunks.values()) meshes.push(...c.meshes);
+  for (const m of meshes) {
+    const rs = m.userData.blocks && m.userData.blocks.get(key), idx = m.geometry && m.geometry.index;
+    if (!rs || !idx) continue;
+    const hid = m.userData.hiddenBlocks || (m.userData.hiddenBlocks = new Set());
+    if (hide === hid.has(key)) continue;
+    if (!m.userData.orig) m.userData.orig = idx.array.slice();
+    for (const [a, b] of rs) { if (hide) idx.array.fill(0, a, b); else idx.array.set(m.userData.orig.subarray(a, b), a); }
+    if (hide) hid.add(key); else hid.delete(key);
+    idx.needsUpdate = true;
+  }
+}
+function chestModel(st) {                                // st: the block state, e.g. minecraft:chest[facing=north,type=left]
+  const name = st.split("[")[0].replace("minecraft:", ""), props = {};
+  for (const kv of (st.split("[")[1] || "").replace("]", "").split(",")) { const [k, v] = kv.split("="); if (k) props[k] = v; }
+  const type = props.type === "left" || props.type === "right" ? props.type : null;
+  const L = MOBM && MOBM[type ? `DOUBLE_CHEST_${type.toUpperCase()}` : "CHEST"]; if (!L) return null;
+  let tex = name === "ender_chest" ? "chest/ender" : name === "trapped_chest" ? "chest/trapped" : "chest/normal";
+  const cu = /^(?:waxed_)?(exposed_|weathered_|oxidized_)?copper_chest$/.exec(name);
+  if (cu) tex = "chest/copper" + (cu[1] ? "_" + cu[1].slice(0, -1) : "");
+  if (type && name !== "ender_chest") tex += "_" + type;
+  const g = new THREE.Group(), parts = {};
+  const turn = { south: 0, west: 90, north: 180, east: 270 }[props.facing] ?? 0;
+  g.rotation.y = -turn * Math.PI / 180;
+  mobTexture(tex).then(t => {
+    if (!t) return;
+    const flip = new THREE.Group();                    // the model's own coordinates (block-local, y up)
+    flip.add(buildPart(L.root, `CHEST|${tex}`, "", L.tw, L.th, mobMaterials(tex, t), parts, ""));
+    flip.rotation.x = Math.PI; flip.position.set(-0.5, 0, -0.5);
+    flip.scale.setScalar(1.002);                       // just over where its faces were
+    g.add(flip); g.userData.parts = parts;
+  });
+  return g;
+}
+function chestsStep(now) {
+  if (now - CHESTS.last < 60) return; CHESTS.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  const tl = new Map();
+  if (EXACT.on && MOBM) for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.ce || []) {
+    const k = `${v[0]},${v[1]},${v[2]}`;
+    if (!tl.has(k)) tl.set(k, []);
+    tl.get(k).push([t, v[3]]);
+  }
+  const want = new Map();
+  for (const [k, list] of tl) {
+    list.sort((a, b) => a[0] - b[0]);
+    const o = chestOpenness(list);
+    if (o > 0.001) want.set(k, o);
+  }
+  for (const [k, e] of CHESTS.shown) if (!want.has(k)) { CHESTS.group.remove(e.g); chestFacesHidden(k, false); CHESTS.shown.delete(k); }
+  for (const [k, o] of want) {
+    const sk = `${layer}|${d}|${k}`;
+    if (!CHESTS.state.has(sk)) {
+      if (!CHESTS.asking.has(sk)) {
+        CHESTS.asking.add(sk);
+        const [x, y, z] = k.split(",");
+        fetch(`api/blockat/${layer}/${d}/${x}/${y}/${z}`).then(r => r.json()).then(r => CHESTS.state.set(sk, r.state || ""))
+          .catch(() => CHESTS.state.set(sk, "")).finally(() => CHESTS.asking.delete(sk));
+      }
+      continue;
+    }
+    const st = CHESTS.state.get(sk);
+    if (!/chest/.test(st)) continue;                    // a shulker box or barrel: not drawn here
+    let e = CHESTS.shown.get(k);
+    if (!e) {
+      const g = chestModel(st); if (!g) continue;
+      const [x, y, z] = k.split(",").map(Number);
+      g.position.set(x + 0.5, y, z + 0.5); CHESTS.group.add(g);
+      e = { g }; CHESTS.shown.set(k, e);
+    }
+    const parts = e.g.userData.parts;
+    if (parts && parts.lid) {
+      chestFacesHidden(k, true);                        // (only once its model is there)
+      const a = (1 - Math.pow(1 - o, 3)) * Math.PI / 2;
+      parts.lid.g.rotation.x = -a; if (parts.lock) parts.lock.g.rotation.x = -a;
+    }
+  }
+}
+
 // ---------- player heads: in their owner's skin ----------
 // From the backup shown (/api/heads/...): the skin's texture hash, drawn with the game's player head model (head and
 // hat layer) just over the block builder's plain head, at its exact turn (standing: 16 ways; on a wall: against it)
@@ -4815,6 +4912,7 @@ function frame(now) {
   bannersStep(now);                                    // banners' flags where the real blocks are
   signsStep(now);                                      // signs' text
   headsStep(now);                                      // player heads in their skins
+  chestsStep(now);                                     // chests' lids opening
   gfxStep(now);
   renderer.render(scene, camera);
 }
