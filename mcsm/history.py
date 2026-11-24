@@ -439,6 +439,15 @@ class HistoryMap(TerrainServer):
                 return bw.block_tile(int(tx), int(tz), "minecraft:" + dim, f"/blocktile/{int(layer)}/")
             except (ValueError, OSError) as exc:
                 return {"faces": 0, "message": str(exc)}
+        if path.startswith("/api/cavetile/"):        # caves when underground: /api/cavetile/<layer>/<dim>/<tx>/<tz>/<band>
+            try:
+                layer, dim, tx, tz, band = path[len("/api/cavetile/"):].split("/")
+                bw = self.layer_world(int(layer))
+                if bw is None:
+                    return {"faces": 0, "message": "that backup's world isn't readable"}
+                return bw.cave_tile(int(tx), int(tz), "minecraft:" + dim, int(band), f"/blocktile/{int(layer)}/")
+            except (ValueError, OSError) as exc:
+                return {"faces": 0, "message": str(exc)}
         if path.startswith("/api/momentrecs/"):      # dev: the recordings running at a moment, /api/momentrecs/<t ms>
             try:
                 self._moment_why = []

@@ -154,6 +154,15 @@ class BuildWorld:
             pass
         return info
 
+    CAVE_BAND = 32                                       # cave pieces: bands of heights this tall (with 16 above/below)
+
+    def cave_tile(self, tx: int, tz: int, dim: str, band: int, url_prefix: str) -> dict:
+        """The caves of one piece, in heights band * 32 - 16 to band * 32 + 48: every face looking into open space
+        the sky can't reach (shown when the camera is underground; the normal piece has the rest)."""
+        key = hashlib.sha1(f"{self._tile_key(tx, tz, dim)}|caves|{band}".encode()).hexdigest()[:20]
+        y0 = band * self.CAVE_BAND - 16
+        return self._tile(tx, tz, dim, url_prefix, key, "tiles-caves", None, slab=(y0, y0 + self.CAVE_BAND + 32))
+
     def moment_chunk(self, cx: int, cz: int, dim: str, url_prefix: str, overrides: dict, sig: str,
                      patches: dict | None = None) -> dict:
         """One chunk's real blocks with *overrides* (as at a moment): live block changes during playback."""
@@ -161,7 +170,7 @@ class BuildWorld:
         return self._tile(cx, cz, dim, url_prefix, key, "tiles-moment", overrides, only={(cx, cz)}, patches=patches)
 
     def _tile(self, tx: int, tz: int, dim: str, url_prefix: str, key: str, folder: str, overrides,
-              only: set | None = None, patches: dict | None = None) -> dict:
+              only: set | None = None, patches: dict | None = None, slab: tuple | None = None) -> dict:
         import json
         n = self.TILE // 16
         base = os.path.join(self.cache, folder, key)
@@ -177,7 +186,8 @@ class BuildWorld:
             return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
         if only is None:
             only = {(tx * n + i, tz * n + j) for i in range(n) for j in range(n)}
-        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides, patches=patches)
+        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides, patches=patches,
+                     slab=slab)
         os.makedirs(os.path.dirname(base), exist_ok=True)
         if r["faces"]:
             with open(base + ".bin.part", "wb") as fh:
@@ -212,7 +222,7 @@ class BuildWorld:
     def block_tile_file(self, key: str) -> str | None:
         if not all(c in "0123456789abcdef" for c in key) or len(key) != 20:
             return None
-        for folder in ("tiles-blocks", "tiles-moment"):
+        for folder in ("tiles-blocks", "tiles-moment", "tiles-caves"):
             p = os.path.join(self.cache, folder, key + ".bin")
             if os.path.isfile(p):
                 return p

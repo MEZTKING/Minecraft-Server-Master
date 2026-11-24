@@ -220,14 +220,15 @@ function waterShader(sh) {
     .replace("#include <opaque_fragment>", `
   // water is unlit: the Fancy brightness match (uGain, for the lit blocks) would wash its colour out
   outgoingLight /= max(uGain, 1.0);
+  outgoingLight *= mix(1.0, 0.8, uFancy);                           // Fancy's film-like colour lifts it: a bit deeper
   if (uFancy > 0.5 && vN.y > 0.5) {
     vec3 n = normalize(vec3(0.06 * sin(vWorld.x * 1.7 + uTime * 1.3) + 0.04 * sin(vWorld.z * 2.3 - uTime * 1.7), 1.0,
                             0.06 * cos(vWorld.z * 1.5 + uTime * 1.1) + 0.04 * cos(vWorld.x * 2.1 + uTime * 1.9)));
     vec3 v = normalize(cameraPosition - vWorld);
     float fres = pow(1.0 - max(dot(v, n), 0.0), 5.0);              // the sky only at grazing angles
-    outgoingLight = mix(outgoingLight, uSky * 0.35 * (0.25 + 0.75 * uDay), 0.35 * fres);
+    outgoingLight = mix(outgoingLight, uSky * 0.3 * (0.25 + 0.75 * uDay), 0.2 * fres);
     outgoingLight += vec3(1.0, 0.95, 0.8) * pow(max(dot(reflect(-v, n), uSunDir), 0.0), 220.0) * 2.5 * uDay;
-    diffuseColor.a = mix(diffuseColor.a, 0.92, fres);
+    diffuseColor.a = mix(diffuseColor.a, 0.88, fres);
   }
   #include <opaque_fragment>`);
 }

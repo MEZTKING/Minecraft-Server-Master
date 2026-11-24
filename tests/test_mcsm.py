@@ -3658,6 +3658,29 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_caves(self):
+        """build(slab=...): the walls of a sealed tunnel are drawn, the open surface above isn't."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+
+            def b(x, y, z):
+                if y == 60 and 2 <= x <= 12 and z == 5:          # a tunnel, sealed in stone
+                    return None
+                return "minecraft:stone" if y <= 70 else None
+            world = self._world(tmp, b)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], bm.Look(jar), radius=40, slab=(56, 66))
+            at = {f[:4] for f in self._faces(r)}
+            self.assertIn((5, 59, 5, 0), at)                    # the tunnel's floor, facing up
+            self.assertIn((5, 61, 5, 1), at)                    # its ceiling, facing down
+            self.assertFalse(any(p[1] == 70 for p in at))       # the surface isn't part of the caves
+            self.assertTrue(all(f[5] >> 12 >= bm.CAVE_LIGHT or (f[5] >> 8) & 15 >= bm.CAVE_LIGHT
+                                for f in self._faces(r)))      # lit enough to see
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_biomes_water_and_stand_ins(self):
         """Grass takes its biome's colour (blended at the edge), waterlogged blocks have water round them, double
         chests reach each other, skulls are drawn, uvlock keeps a turned stair's texture lined up."""

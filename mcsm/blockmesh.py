@@ -40,6 +40,7 @@ DEPTH = 40                      # how far under a spot's surface open space is f
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
 
+CAVE_LIGHT = 6                    # caves (build(slab=...)): the least light a face gets, so tunnels aren't black
 AIR = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air", "minecraft:light", "minecraft:barrier",
        "minecraft:structure_void", "minecraft:moving_piston"}
 DIRS = [(0, 1, 0), (0, -1, 0), (0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)]
@@ -828,12 +829,14 @@ def _chunks_near(points: list[tuple[float, float]], radius: float) -> set[tuple[
 def build(root: str, world: str, points: list[tuple[float, float]], look: Look, radius: float = 80.0,
           max_chunks: int = 900, dimension: str = "minecraft:overworld",
           only: set[tuple[int, int]] | None = None, overrides: dict | None = None,
-          patches: dict | None = None) -> dict:
+          patches: dict | None = None, slab: tuple[int, int] | None = None) -> dict:
     """The visible block faces within *radius* of the (x, z) *points* (the camera path). With *only* (a set of
     chunk coordinates), exactly the blocks of those chunks; the chunks around them are read too, so faces at the
     edge are hidden or shown correctly (pieces built side by side fit together). *overrides*: chunks to use
     instead of the backup's ((cx, cz) -> a chunk with the same interface, e.g. :class:`mcsm.moment.RecChunk`).
-    *patches*: blocks to change in the backup's chunks ((cx, cz) -> {(x, y, z): state}, see :class:`PatchedChunk`)."""
+    *patches*: blocks to change in the backup's chunks ((cx, cz) -> {(x, y, z): state}, see :class:`PatchedChunk`).
+    *slab* (y0, y1): caves instead: every face from y0 up to y1 that looks into open space the sky can't reach
+    (the faces the normal build leaves out), with at least a little light so they can be seen."""
     if only is not None:
         core = set(only)
         want = {(cx + dx, cz + dz) for cx, cz in only for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
@@ -980,11 +983,27 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         if c is None:
             return 15 << 4
         sky, blk = c.light(x & 15, y, z & 15)
+        if slab is not None:                         # caves: a little light everywhere, so they can be seen
+            blk = max(blk, CAVE_LIGHT)
         return (sky << 4) | blk
 
     # 2. the blocks that open space touches, in the wanted area
     core_set = set(core_cols)
     cand: set[tuple[int, int, int]] = set()
+    if slab is not None:                             # caves: open space in the slab that the sky doesn't reach
+        sky_seen = visible
+        y0, y1 = slab
+
+        def visible(x: int, y: int, z: int) -> bool:   # noqa: F811 -- the caves' own idea of what's seen
+            return y0 <= y < y1 and not sky_seen(x, y, z) and passable(x, y, z)
+        for x, z in core_cols:
+            c = chunks[(x >> 4, z >> 4)]
+            for y in range(max(y0, c.min_y), min(y1, top(x, z) + 1)):
+                if visible(x, y, z):
+                    for dx, dy, dz in DIRS:
+                        if (x + dx, z + dz) in core_set:
+                            cand.add((x + dx, y + dy, z + dz))
+        core_cols = []                               # (the surface's blocks are the normal build's)
     for x, z in core_cols:
         h = top(x, z)
         nb = [top(x + 1, z), top(x - 1, z), top(x, z + 1), top(x, z - 1)]
@@ -992,15 +1011,15 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         c = chunks[(x >> 4, z >> 4)]
         for y in range(max(c.min_y, low), h + 3):
             cand.add((x, y, z))
-    for x, y, z in seen:
+    for x, y, z in (seen if slab is None else ()):
         if (x, z) in core_set:
             cand.add((x, y, z))
         for dx, dy, dz in DIRS:
             if (x + dx, z + dz) in core_set:
                 cand.add((x + dx, y + dy, z + dz))
 
-    xs = [x for x, _ in core_cols] or [0]
-    zs = [z for _, z in core_cols] or [0]
+    xs = [x for x, _ in core_set] or [0]
+    zs = [z for _, z in core_set] or [0]
     x0, z0 = (min(xs) >> 4) * 16, (min(zs) >> 4) * 16
     faces = bytearray()
     pack = RECORD.pack

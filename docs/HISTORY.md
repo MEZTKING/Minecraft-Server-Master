@@ -205,6 +205,12 @@ The pieces load 128 x 128 blocks at a time around where you look and around ever
 to each backup's world. Further away the map stays the smooth overview. When a backup's Minecraft version isn't
 installed on this PC, the status line says so and another version's textures are used.
 
+**Caves underground.** Fly the free camera below the ground (more than a block under the surface where you are)
+and the caves around you load: every wall, floor and ceiling of open space the sky can't reach, in a 64-block
+high slice around the camera (3 x 3 pieces of 128 blocks; the slice follows you up and down in 32-block steps).
+Caves are lit a little everywhere (cave light 6 of 15) so they can be seen, plus their real torch and lava light.
+They come from the backup shown (`tiles-caves` in the cache) and go away when you come back up.
+
 **Light.** The real blocks are lit the way the game lights them: each face gets the sky light and the light from
 torches, lanterns, glowstone and so on that the backup stores for that spot, with Minecraft's soft shadows in
 corners. Open **Light** (under *Terrain*) to change it; your settings are remembered:
@@ -224,8 +230,8 @@ corners. Open **Light** (under *Terrain*) to change it; your settings are rememb
     - haze in the distance;
     - a soft glow around torches, lanterns, glowstone, fire and other light sources (soul ones glow blue),
       strongest at night;
-    - water in its own biome colour (as with graphics Off) that reflects the sky only at a glancing angle, with
-      the sun's glint and small moving waves;
+    - water in its own biome colour, a little deeper than with graphics Off, that reflects the sky only at a
+      glancing angle, with the sun's glint and small moving waves;
     - film-like colour.
 
     It's about as bright as Off overall.
@@ -421,7 +427,8 @@ and pause, because Space moves you up.
 
 Spectating switches to exact playback (1×). **Esc** stops.
 
-**Dev mode** (press the **`** key, or open the page with `?dev=1`) shows a panel with:
+**Dev mode** (press the **`** key: top left of the keyboard, under Esc, left of 1; or open the page with
+`?dev=1`; it's remembered until you turn it off the same way) shows a panel with:
 
 - the exact time (and its number) and the camera's position, direction and mode;
 - the backup shown and how many real-block pieces have loaded (or failed);

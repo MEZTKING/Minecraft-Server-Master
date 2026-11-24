@@ -943,6 +943,49 @@ async function liveStep(now) {
     })();
   }
 }
+// ---------- caves: when the camera is underground, the cave faces around it (the normal pieces stop ~40 below ground)
+const CAVE = { tiles: new Map(), busy: false, last: 0, top: null, topAt: null, asking: false, under: false };
+async function caveStep(now) {
+  if (now - CAVE.last < 400) return;
+  CAVE.last = now;
+  const on = $("#realOn").checked, dim = $("#dim").value, layer = shownLayer[dim] ?? 0, cam = camera.position;
+  // the ground under the camera (the backup's column top), asked again when the camera has moved a few blocks
+  if (on && !CAVE.asking && (!CAVE.topAt || Math.hypot(cam.x - CAVE.topAt[0], cam.z - CAVE.topAt[1]) > 4 || CAVE.topAt[2] !== dim)) {
+    CAVE.asking = true;
+    const x = Math.floor(cam.x), z = Math.floor(cam.z);
+    fetch(`api/blockat/${layer}/${dim.replace("minecraft:", "")}/${x}/64/${z}`).then(r => r.json())
+      .then(r => { CAVE.top = typeof r.top === "number" ? r.top : null; CAVE.topAt = [x, z, dim]; })
+      .catch(() => {}).finally(() => { CAVE.asking = false; });
+  }
+  CAVE.under = on && CAVE.top != null && cam.y < CAVE.top - 1;
+  const band = Math.floor(cam.y / 32), key = `${dim}|${layer}|${band}`;
+  for (const [id, t] of CAVE.tiles) for (const m of t.meshes) m.visible = CAVE.under && t.key === key && (!m.isPoints || GFX.mode !== "off");
+  if (!CAVE.under || CAVE.busy) return;
+  const tx = Math.floor(cam.x / REAL_TILE), tz = Math.floor(cam.z / REAL_TILE), want = [];
+  for (const [i, j] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) want.push([tx + i, tz + j]);
+  const next = want.find(([x, z]) => !CAVE.tiles.has(`${key}|${x},${z}`));
+  if (!next) return;
+  CAVE.busy = true;
+  const id = `${key}|${next[0]},${next[1]}`;
+  try {
+    const info = await (await fetch(`api/cavetile/${layer}/${dim.replace("minecraft:", "")}/${next[0]}/${next[1]}/${band}`)).json();
+    const T0 = { key, meshes: [] };
+    if (info.faces) {
+      const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
+      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
+      const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
+      T0.meshes = blockMeshes(info, buf, atlas);
+      for (const m of T0.meshes) { if (!m.isPoints) m.material.map = atlas.tex; m.visible = false; scene.add(m); }
+    }
+    CAVE.tiles.set(id, T0);
+    if (CAVE.tiles.size > 30) {                        // keep the newest few dozen
+      const [oldId, old] = CAVE.tiles.entries().next().value;
+      for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+      CAVE.tiles.delete(oldId);
+    }
+  } catch (e) { CAVE.tiles.set(id, { key, meshes: [] }); }
+  finally { CAVE.busy = false; }
+}
 $("#realSkins").checked = store.get("mcsm-real-skins") !== "0";
 $("#realSkins").onchange = () => {
   store.set("mcsm-real-skins", $("#realSkins").checked ? "1" : "0");
@@ -1535,7 +1578,8 @@ function animateFigure(m, now) {
     let dy = m.yaw - m.F.fig.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     m.F.fig.rotation.y += dy * Math.min(1, dt * 8);
   }
-  const v = c && c.exact ? c.speed : sp;                 // exact playback: the recorded speed, not frame jitter
+  const still = T === m.lastFrameT; m.lastFrameT = T;      // paused (time not moving): nobody walks on the spot
+  const v = still ? 0 : c && c.exact ? c.speed : sp;     // exact playback: the recorded speed, not frame jitter
   m.speed = (m.speed || 0) * 0.85 + Math.min(1, v / 4.3) * 0.15;
   m.phase = (m.phase || 0) + dt * 9 * Math.min(1, v / 2);
   const s = Math.sin(m.phase) * 0.9 * m.speed * (m.sprint ? 1.35 : 1), P = m.F.parts;
@@ -2567,7 +2611,7 @@ function devState() {
       at_moment: [...REAL.tiles.values()].filter(t => t.moment).length,
       moment_time: momentTime() === null ? undefined : new Date(momentTime()).toISOString(),
       changed_blocks: [...REAL.tiles.values()].reduce((a, t) => a + (t.moment ? t.edits : 0), 0),
-      live_chunks: LIVE.chunks.size, changes_in_window: [...LIVE.byChunk.values()].reduce((a, v) => a + v.length, 0) },
+      live_chunks: LIVE.chunks.size, underground: CAVE.under, ground_top: CAVE.top, cave_pieces: CAVE.tiles.size, changes_in_window: [...LIVE.byChunk.values()].reduce((a, v) => a + v.length, 0) },
     exact: { on: EXACT.on, from: EXACT.lo ? new Date(EXACT.lo).toISOString() : null, to: EXACT.hi ? new Date(EXACT.hi).toISOString() : null,
       players: Object.keys(EXACT.rows).length, mobs: Object.keys(EXACT.mobs).length, busy: EXACT.busy, fetch_ms: DEV.exactMs },
     render: { fps: DEV.fps, draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
@@ -2871,6 +2915,7 @@ function frame(now) {
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   realStep(now);                                       // real blocks around where you look
   liveStep(now);                                       // and blocks placed or broken since, as they happen
+  caveStep(now);                                       // and caves when the camera is underground
   if (now - (HEAT.last || 0) > 400) { HEAT.last = now; heatStep(); }   // the activity heatmap (Ledger)
   exactStep(now);                                      // every recorded movement, close up at 1x / 10x
   updateMobs();
