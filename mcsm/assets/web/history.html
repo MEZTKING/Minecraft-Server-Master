@@ -1508,6 +1508,10 @@ function mobLook(label, kind) {
   if (VAR_TEX[kind]) look.variant = stateAt(label, "variant", T, null) ?? VAR_DEFAULT[kind] ?? null;
   if (kind === "villager" || kind === "zombie_villager") look.vd = stateAt(label, "vd", T, null);
   if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
+  if (kind === "cat" || kind === "wolf") {               // tamed: a collar in its dye (red unless dyed)
+    look.tame = stateAt(label, "tame", T, 0) & 4;
+    if (look.tame) look.collar = stateAt(label, "collar", T, 14);
+  }
   if (kind === "sheep") look.wool = stateAt(label, "wool", T, 0);
   if (kind === "horse") look.variant = stateAt(label, "variant", T, null);
   if (kind === "slime" || kind === "magma_cube") look.size = stateAt(label, "size", T, null);
@@ -1528,6 +1532,7 @@ async function buildMob(o, label, kind) {
   let baby = !!(look.baby && MOBM[layer + "_BABY"]);   // the game's own baby model and texture (26.x)
   let L = MOBM[baby ? layer + "_BABY" : layer];
   if (!L) return;                                      // no model: stays a box
+  if (look.tame && kind === "wolf") tex = tex + "_tame";                        // a tamed wolf's own picture
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
@@ -1540,6 +1545,8 @@ async function buildMob(o, label, kind) {
   if (kind === "sheep" && (look.wool & 0x10)) extras.length = 0;         // sheared
   const marks = kind === "horse" && look.variant != null && HORSE_MARKS[(look.variant >> 8) & 255];
   if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, 1]);
+  if (look.tame) extras.push(kind === "cat" ? ["CAT_COLLAR", "cat/cat_collar", false, 0, false, look.collar]
+    : [layer, "wolf/wolf_collar", false, 1, false, look.collar]);
   if (look.vd) {                                        // villagers: their biome's clothes, job and level badge on top
     const [vt, prof, lv] = look.vd, dir = kind === "zombie_villager" ? "zombie_villager" : "villager";
     if (baby) extras.push([layer, `${dir}/baby/${vt}`, false, 1, true]);
@@ -1549,7 +1556,7 @@ async function buildMob(o, label, kind) {
       if (prof && prof !== "none" && prof !== "nitwit") extras.push([layer, `${dir}/profession_level/${VILLAGER_LEVEL[Math.max(0, Math.min(4, lv - 1))]}`, false, 3]);
     }
   }
-  for (let [xl, xt, glass, over, babyTex] of extras) {
+  for (let [xl, xt, glass, over, babyTex, dye] of extras) {
     if (babyTex) xl = layer + "_BABY";
     else if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
       const bl = xl === layer ? layer + "_BABY" : xl.replace(layer + "_", layer + "_BABY_");
@@ -1561,6 +1568,9 @@ async function buildMob(o, label, kind) {
     if (kind === "sheep" && !over) {                    // the wool in its dye colour
       const col = DYE[DYE_ORDER[(look.wool || 0) & 15]] ?? 0xffffff;
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn }; mats.n.color = new THREE.Color(col);
+    }
+    if (dye != null) {                                  // a collar in its dye colour
+      mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn }; mats.n.color = new THREE.Color(DYE[DYE_ORDER[dye & 15]] ?? 0xffffff);
     }
     if (over) {                                         // markings, clothes, badges: drawn on the model itself, in order
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
@@ -4391,6 +4401,75 @@ function bannersStep(now) {
   }
 }
 
+// ---------- signs: their text, where the game writes it ----------
+// From the backup shown (/api/signs/<layer>/<dim>/<tx>/<tz>), for the real-block pieces loaded. The game's text:
+// font pixels of 1/96 block (standing and wall signs) or 0.9/64 (hanging), lines 10 (9) pixels apart, centred, in
+// the sign's dye text colour, darkened to 0.4 unless the text glows (then with an outline).
+const SIGNS = { tiles: new Map(), asking: new Set(), last: 0, group: new THREE.Group() };
+scene.add(SIGNS.group);
+const SIGN_TEXT_COL = { white: 0xFFFFFF, orange: 0xFF681F, magenta: 0xFF00FF, light_blue: 0x9AC0CD, yellow: 0xFFFF00,
+  lime: 0xBFFF00, pink: 0xFF69B4, gray: 0x808080, light_gray: 0xD3D3D3, cyan: 0x00FFFF, purple: 0xA020F0, blue: 0x0000FF,
+  brown: 0xA52A2A, green: 0x00FF00, red: 0xFF0000, black: 0x000000 };
+function signTextMesh(side, hanging) {
+  const fpx = hanging ? 0.9 / 64 : 1 / 96, lineH = hanging ? 9 : 10, wpx = hanging ? 60 : 90, k = 6;   // k canvas px a font px
+  const cv = document.createElement("canvas"); cv.width = (wpx + 8) * k; cv.height = (4 * lineH + 4) * k;
+  const g = cv.getContext("2d"), col = SIGN_TEXT_COL[side.color] ?? 0;
+  const dark = c => (Math.round(((c >> 16) & 255) * 0.4) << 16) | (Math.round(((c >> 8) & 255) * 0.4) << 8) | Math.round((c & 255) * 0.4);
+  const hex = c => "#" + c.toString(16).padStart(6, "0");
+  g.font = `bold ${8 * k}px "Minecraft", "Courier New", monospace`; g.textAlign = "center"; g.textBaseline = "middle";
+  side.lines.forEach((line, i) => {
+    const y = (2 + i * lineH + lineH / 2) * k, x = cv.width / 2;
+    if (side.glow) { g.strokeStyle = hex(col === 0 ? 0xF0EBCC : dark(col)); g.lineWidth = k * 1.4; g.strokeText(line, x, y, wpx * k); }
+    g.fillStyle = hex(side.glow ? col : dark(col)); g.fillText(line, x, y, wpx * k);
+  });
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(cv.width / k * fpx, cv.height / k * fpx),
+    side.glow ? new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.1, depthWrite: false })   // glowing: full bright
+      : new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.1, depthWrite: false }));        // lit like the board
+  m.renderOrder = 2;
+  return m;
+}
+function signMesh(sg) {
+  const g = new THREE.Group(), D = Math.PI / 180;
+  const FACE_Y = { south: 0, north: 180, east: 90, west: -90 };
+  g.position.set(sg.x + 0.5, sg.y, sg.z + 0.5);
+  const hanging = sg.kind === "hanging" || sg.kind === "wall_hanging";
+  g.rotation.y = (sg.kind === "standing" || sg.kind === "hanging" ? -sg.rotation * 22.5 : FACE_Y[sg.facing] ?? 0) * D;
+  // where the text's middle is, in the sign's own turn (front: +z): the game's translateSign + text offset
+  const [ty, tz] = sg.kind === "standing" ? [0.8333, 0.0467] : sg.kind === "wall" ? [0.5208, -0.3908]
+    : [0.305, 0.073];
+  for (const [side, z, turn] of [[sg.front, tz, 0], [sg.back, sg.kind === "wall" ? null : -tz, Math.PI]]) {
+    if (!side || z === null) continue;
+    const m = signTextMesh(side, hanging);
+    m.position.set(0, ty, z + (turn ? -0.002 : 0.002)); m.rotation.y = turn;
+    g.add(m);
+  }
+  return g;
+}
+function signsStep(now) {
+  if (now - SIGNS.last < 600) return; SIGNS.last = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  for (const [k, e] of SIGNS.tiles) {                   // a piece gone (or another backup): its signs go
+    if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) {
+      SIGNS.group.remove(e.group);
+      e.group.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
+      SIGNS.tiles.delete(k);
+    }
+  }
+  for (const id of REAL.tiles.keys()) {
+    const k = `${layer}|${dim}|${id}`;
+    if (SIGNS.tiles.has(k) || SIGNS.asking.has(k)) continue;
+    SIGNS.asking.add(k);
+    const [tx, tz] = id.split(",");
+    fetch(`api/signs/${layer}/${d}/${tx}/${tz}`).then(r => r.json()).then(r => {
+      if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
+      const group = new THREE.Group();
+      for (const sg of r.signs || []) group.add(signMesh(sg));
+      SIGNS.group.add(group); SIGNS.tiles.set(k, { id, layer, dim, group });
+    }).catch(() => {}).finally(() => SIGNS.asking.delete(k));
+  }
+}
+
 // ---------- maps: every map of the backup shown, and maps on their item frames ----------
 // The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
 // background). In the world, each framed map is a picture on its wall where the real blocks are loaded; the
@@ -4664,6 +4743,7 @@ function frame(now) {
   mapsStep(now);                                       // maps on their item frames
   contStep(now);                                       // a chest or furnace the watched player has open
   bannersStep(now);                                    // banners' flags where the real blocks are
+  signsStep(now);                                      // signs' text
   gfxStep(now);
   renderer.render(scene, camera);
 }

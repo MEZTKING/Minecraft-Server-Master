@@ -144,10 +144,11 @@ def _varlong(b, i: int) -> tuple[int, int]:
 SER_BYTE, SER_VARINT, SER_VARLONG, SER_FLOAT, SER_BOOL, SER_OPT_BLOCK_POS = 0, 1, 2, 3, 8, 11
 
 
-def entity_data_all(b, k: int, end: int) -> dict[int, tuple[int, object]]:
+def entity_data_all(b, k: int, end: int, holders: bool = False) -> dict[int, tuple[int, object]]:
     """``{index: (serializer, value)}`` for every entry of an entity-data packet body we can read past (from *k*,
     after the entity id): bytes, VarInts, floats and booleans with their value, a text component (a mob's name)
-    as its text, the rest None. Stops at the first unknown kind."""
+    as its text, the rest None. Stops at the first unknown kind; with *holders* (mobs whose only unknown kinds are
+    registry entries: cats, wolves, cows...), reads those as one VarInt each and goes on."""
     out: dict[int, tuple[int, object]] = {}
     last = -1
     while k < end:
@@ -205,9 +206,11 @@ def entity_data_all(b, k: int, end: int) -> dict[int, tuple[int, object]]:
             lv, k = _varint(b, k)
             out[idx] = (ser, ("villager", t, pr, lv))
         else:                                             # a kind not known here: its first VarInt (a registry
-            v, _k = _varint(b, k)                         # entry's id for mob variants), then stop
+            v, k2 = _varint(b, k)                         # entry's id for mob variants), then stop
             out[idx] = (ser, ("?", v))
-            break
+            if not holders:
+                break
+            k = k2
     return out
 
 
@@ -254,6 +257,13 @@ def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
                 if 0 <= v[1] < len(names):
                     out.append(["variant", names[v[1]].split(":", 1)[-1]])
                 break
+    if kind in ("cat", "wolf"):                        # tamed (0x04; 0x01 sitting) and the collar's dye (default red)
+        f = d.get(18 if new_ids else 17)
+        if f and f[0] == SER_BYTE:
+            out.append(["tame", f[1]])
+        c = d.get((23 if new_ids else 22) if kind == "cat" else (21 if new_ids else 20))
+        if c and c[0] == SER_VARINT:
+            out.append(["collar", c[1]])
     for idx, (ser, v) in d.items():                     # villagers: their biome's clothes, job and level
         if isinstance(v, tuple) and v[0] == "villager":
             out.append(["vd", [VILLAGER_TYPES[v[1]] if v[1] < len(VILLAGER_TYPES) else "plains",
@@ -684,7 +694,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             elif eid == me or eid in others:
                                 who = None if eid == me else others[eid]
                                 if who and who.startswith("#"):          # a mob: baby, wool, size, name tag
-                                    for ev in mob_details(who.split("#")[1], entity_data_all(b, k, i + size), new_ids):
+                                    mk = who.split("#")[1]
+                                    for ev in mob_details(mk, entity_data_all(b, k, i + size, mk in VARIANT_REG), new_ids):
                                         extras["events"].append([tick, who] + ev)
                                 da = entity_data_all(b, k, i + size)
                                 if da.get(12, (None,))[0] == SER_VARINT and not (who and any(
@@ -1013,7 +1024,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact13.json.gz"    # 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact14.json.gz"    # 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

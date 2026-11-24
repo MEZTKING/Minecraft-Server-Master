@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 10                    # bump when the output changes (cached tiles are built again); 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 11                    # bump when the output changes (cached tiles are built again); 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 # x, y, z, dir, look, light/shading, tint (RGB565), then the smooth light of the face's 4 corners: 12 bits each
@@ -527,11 +527,11 @@ class Look:
             six = {k: {"texture": "#p"} for k in FACE_NAMES}
             if "hanging" in name:
                 els = [{"from": [1, 0, 7], "to": [15, 10, 9], "faces": six}]
-            elif "wall" in name:
-                els = [{"from": [0, 4.5, 14], "to": [16, 12.5, 16], "faces": six}]
-            else:
-                els = [{"from": [0, 7, 7.25], "to": [16, 15, 8.75], "faces": six},
-                       {"from": [7.25, 0, 7.25], "to": [8.75, 7, 8.75], "faces": six}]
+            elif "wall" in name:                        # the game's sign model at 2/3: 16 x 8 x 1.33, 1 px off the wall
+                els = [{"from": [0, 4.333, 14.333], "to": [16, 12.333, 15.667], "faces": six}]
+            else:                                       # standing: the board over the block's top, on its stick
+                els = [{"from": [0, 9.333, 7.333], "to": [16, 17.333, 8.667], "faces": six},
+                       {"from": [7.333, 0, 7.333], "to": [8.667, 9.333, 8.667], "faces": six}]
                 rot = int(props.get("rotation", "0") or 0)
                 facing_y = int(round(rot * 22.5 / 90.0)) * 90 % 360
             return [els, {"p": planks}, (16, 16), 0, facing_y]

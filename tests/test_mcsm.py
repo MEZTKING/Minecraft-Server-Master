@@ -3886,7 +3886,7 @@ class TestRealBlocks(unittest.TestCase):
             # cat: 18 tame flags (byte), 19 owner (none), 20 variant (registry kind 21: id 2), 21 sound (id 0)
             body = bytes([18, 0, 5, 19, 13, 0, 20, 21, 2, 21, 22, 0, 0xFF])
             d = paths.entity_data_all(body, 0, len(body))
-            self.assertEqual(paths.mob_details("cat", d, True), [["variant", "siamese"]])
+            self.assertEqual(paths.mob_details("cat", d, True), [["variant", "siamese"], ["tame", 5]])
             body = bytes([19, 18, 2, 5, 3, 0xFF])                      # villager data: plains, farmer, level 3
             d = paths.entity_data_all(body, 0, len(body))
             self.assertEqual(paths.mob_details("villager", d, True), [["vd", ["plains", "farmer", 3]]])
@@ -3898,6 +3898,28 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(paths.mob_details("arrow", paths.entity_data_all(body, 0, len(body)), True), [["ig", 1]])
         finally:
             paths.REGISTRIES.clear(); paths.REGISTRIES.update(old)
+
+    def test_sign_text(self):
+        """Sign lines from every layout: JSON text in strings (to 1.21.4), components as NBT (1.21.5+), the old
+        Text1-4; empty signs give nothing."""
+        from mcsm import signs
+        be = {"front_text": {"messages": ['{"text":"Room 1"}', '""', '"x"', '{"text":"a","extra":["b",{"text":"c"}]}'],
+                             "color": "red", "has_glowing_text": 1},
+              "back_text": {"messages": ["", "", "", ""]}}
+        t = signs.text_of(be)
+        self.assertEqual(t["front"], {"lines": ["Room 1", "", "x", "abc"], "color": "red", "glow": True})
+        self.assertIsNone(t["back"])
+        t = signs.text_of({"front_text": {"messages": ["Bread", {"text": "fresh"}, [{"text": "to"}, "day"], ""]}})
+        self.assertEqual(t["front"]["lines"], ["Bread", "fresh", "today", ""])
+        t = signs.text_of({"Text1": '{"text":"old"}', "Text2": '""', "Text3": '""', "Text4": '""'})
+        self.assertEqual(t["front"]["lines"][0], "old")
+
+    def test_tamed_collars(self):
+        """A tamed cat's or wolf's flags and collar dye (26.x: cat 18 / 23, wolf 18 / 21; 1.21: one index less)."""
+        from mcsm import paths
+        B, V = paths.SER_BYTE, paths.SER_VARINT
+        self.assertEqual(paths.mob_details("cat", {18: (B, 5), 23: (V, 3)}, True), [["tame", 5], ["collar", 3]])
+        self.assertEqual(paths.mob_details("wolf", {17: (B, 4), 20: (V, 11)}, False), [["tame", 4], ["collar", 11]])
 
     def test_placed_light_and_smooth_corners(self):
         """A torch placed after the backup (a patch) lights the floor around it, less a level a step; each corner of

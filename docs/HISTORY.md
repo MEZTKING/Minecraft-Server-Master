@@ -194,7 +194,7 @@ of that backup's Minecraft version). Every block you could see from outside is t
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
 fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;
-a double chest joins up), signs, banners (with their patterns, see below), shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
+a double chest joins up), signs (with their text, see below), banners (with their patterns, see below), shulker boxes, skulls and mob heads, decorated pots. Blocks standing in
 water (waterlogged stairs, slabs, fences...) have their water. Grass, leaves, vines and water take the colour of
 their biome, from the game's own biome files: swamps are murky, badlands and savannas dry, jungles bright. Like the
 game, the colour is blended where biomes meet. Turned stairs, fences and walls keep their texture lined up as in
@@ -230,6 +230,10 @@ and a banner worn on the head (pillager captains) stands on it, all from the rec
 - **Colours:** *As in the game* (the game's own colours) or *Film-like* (richer contrast and colour in Fancy and
   Ultra; some colours, like badlands leaves, then look stronger than in the game).
 - **Shadows**, **Mobs** and **Light glow** on or off.
+
+**Signs.** Standing, wall and hanging signs are shaped as in the game, and their text is written on them as the
+backup saved it: every line where it was written, front and back, in the sign's dye colour (darker unless it was
+made to glow). Text that doesn't glow is lit like the sign; glowing text shines with an outline, as in the game.
 
 **Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
 in the game.
@@ -306,7 +310,7 @@ something, as in the game. An egg or snowball breaking doesn't count as a death.
 
 What the recordings say about each mob's looks is used too: **babies** are drawn with the game's own baby models
 (big heads, small bodies), **sheep** in their wool colour (and bare when sheared), **horses** in their coat and
-markings, **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
+markings, **tamed cats and wolves** with a collar in its dye colour (a tamed wolf's own look too), **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
 its long coat, a warm pig...; the variant names come from the recording itself), **villagers** in their biome's
 clothes with their job's outfit and level badge (zombie villagers too), **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
 the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
