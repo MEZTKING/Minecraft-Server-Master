@@ -82,6 +82,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* the spectated player's hotbar (exact from their recording, else from a backup) and the inventory panel (E) */
 #hotbar { position: fixed; left: 50%; bottom: 196px; transform: translateX(-50%); z-index: 21; text-align: center; pointer-events: none; }
 body.relive #hotbar { bottom: calc(9vh + 54px); }
+#hotbar .stats { display: flex; justify-content: space-between; width: 370px; margin: 0 auto 3px; }
+#hotbar .stats span { display: flex; flex-direction: row; }
+#hotbar .stats span.food { flex-direction: row-reverse; }
+#hotbar .stats img { width: 18px; height: 18px; image-rendering: pixelated; margin-right: -1px; }
 #hotbar .slots, #invBox .grid, #invBox .gear { display: grid; grid-template-columns: repeat(9, 40px); gap: 2px; }
 #invBox .gear { grid-template-columns: repeat(5, 40px); margin: 6px 0; }
 #invBox .grid.hb { margin-top: 6px; }
@@ -97,6 +101,17 @@ body.relive #hotbar { bottom: calc(9vh + 54px); }
 #invBox { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 22; padding: 12px; }
 #invBox .src { color: var(--text-2); text-shadow: none; }
 body.relive #invBox { display: none !important; }
+/* a container the player has open (spectating or reliving), like the game's screen */
+#contBox { position: fixed; left: 50%; top: 46%; transform: translate(-50%, -50%); z-index: 23; padding: 10px 12px 8px;
+  background: rgba(198,198,198,.96); border: 3px solid #fff; border-right-color: #555; border-bottom-color: #555;
+  border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,.4); pointer-events: none; }
+#contBox .t { color: #404040; font-size: 13px; margin-bottom: 4px; }
+#contBox .grid, #contBox .hb { display: grid; grid-template-columns: repeat(9, 40px); gap: 2px; }
+#contBox .hb { margin-top: 10px; }
+#contBox .grid.furnace { grid-template-columns: 40px 30px 40px; grid-template-rows: 40px 40px; gap: 4px 6px; }
+#contBox .arrow { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: #555; font-size: 22px; text-align: center; }
+#contBox .slot { background: #8b8b8b; border: 2px solid #373737; border-right-color: #fff; border-bottom-color: #fff; }
+#contBox .src { color: #555; font-size: 10px; margin-top: 4px; max-width: 374px; }
 /* maps: a gallery of every map, walls of framed maps as they hang */
 #mapBox { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 22; padding: 12px;
   width: min(940px, calc(100% - 32px)); max-height: 82vh; overflow: auto; }
@@ -186,7 +201,7 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 <body>
 <div id="scene"></div>
 <div id="labels"></div>
-<div id="hotbar" hidden><div class="slots" id="hbSlots"></div><div class="src" id="hbSrc"></div></div>
+<div id="hotbar" hidden><div class="stats" id="hbStats"></div><div class="slots" id="hbSlots"></div><div class="src" id="hbSrc"></div></div>
 <div id="invBox" class="card" hidden>
   <div class="row" style="margin-top:0;justify-content:space-between"><b id="invTitle">Inventory</b>
     <span><button type="button" id="invTabInv">Inventory</button> <button type="button" id="invTabEnder">Ender chest</button> <button type="button" id="invClose">✕</button></span></div>
@@ -194,6 +209,8 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
   <div class="gear" id="invGear"></div><div class="grid" id="invMain"></div><div class="grid hb" id="invHot"></div>
   <div class="src" id="invStats"></div>
 </div>
+<div id="contBox" hidden><div class="t" id="contTitle"></div><div class="grid" id="contGrid"></div>
+  <div class="hb" id="contHot"></div><div class="src" id="contSrc"></div></div>
 <div id="mapBox" class="card" hidden>
   <div class="row" style="margin-top:0;justify-content:space-between"><b>Maps</b>
     <span><label title="Draw the maps on their item frames in the world (close up, where the real blocks are)"><input type="checkbox" id="mapFrames" checked> On walls in the world</label>
@@ -907,6 +924,15 @@ function realWanted() {
   const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name || SHOT.preview || RELIVE.on), focus = free ? camera.position : controls.target;
   const d = free ? 60 : camera.position.distanceTo(controls.target), out = [], seen = new Set();
   const add = (x, z, w) => { const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); out.push([x, z, w]); } };
+  if (RELIVE.on && markers[RELIVE.name] && markers[RELIVE.name].cur) {
+    // reliving: the pieces around the player first (theirs, then the ring round it), everyone else after
+    const p = markers[RELIVE.name].cur.pos, tx = Math.floor(p[0] / REAL_TILE), tz = Math.floor(p[2] / REAL_TILE);
+    const fx = p[0] / REAL_TILE - tx, fz = p[2] / REAL_TILE - tz;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const toward = (i === 0 || (i < 0) === (fx < 0.5)) && (j === 0 || (j < 0) === (fz < 0.5));   // the side they're on first
+      add(tx + i, tz + j, -10 + i * i + j * j - (toward ? 0.5 : 0));
+    }
+  }
   if (d <= 900) {
     const r = d < 250 ? 1 : 2, tx = Math.floor(focus.x / REAL_TILE), tz = Math.floor(focus.z / REAL_TILE);
     for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) add(tx + i, tz + j, i * i + j * j);
@@ -1599,6 +1625,47 @@ function itemTexture(item) {                            // an item's picture as 
   }, undefined, () => res(null))));
   return itemTex.get(item);
 }
+// What a hand holds, as the game draws it in third person: a block as a small block (6 pixels, turned 45
+// degrees), anything else as its flat picture pointing forward from the fist. px: the model's pixel size.
+const itemIcons = new Map();
+function itemInfo(item) {
+  if (!itemIcons.has(item)) itemIcons.set(item, fetch(`api/itemicon/0/${item}`).then(r => r.json()).catch(() => ({ cube: false })));
+  return itemIcons.get(item);
+}
+async function heldItem(item, px) {
+  if (item === "shield") {                              // drawn by the game's code: its plate (12 x 22 pixels, 1 thick)
+    const t = (await texOnce("entity/shield/base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
+    if (!t) return null;
+    const g = new THREE.BoxGeometry(1 * px, 22 * px, 12 * px), uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++)                  // every side shows the plate's front (2, 2 .. 14, 24 of 64)
+      uv.setXY(i, (2 + uv.getX(i) * 12) / 64, 1 - (2 + (1 - uv.getY(i)) * 22) / 64);
+    const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.25 }));
+    q.position.set(-2 * px, -10 * px, 2 * px);
+    return q;
+  }
+  const ic = await itemInfo(item);
+  if (ic && ic.cube) {
+    const [side, top, bottom] = await Promise.all([texOnce(ic.tex), texOnce(ic.top || ic.tex), texOnce(ic.bottom || ic.tex)]);
+    if (!side) return null;
+    const mat = (t, tint) => new THREE.MeshLambertMaterial({ map: t || side, alphaTest: 0.3, color: tint || 0xffffff,
+      emissive: 0xffffff, emissiveMap: t || side, emissiveIntensity: 0.3 });
+    const grass = /grass_block_top|leaves/.test(ic.top || "") ? 0x7cbd6b : null;
+    const sm = mat(side);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(6 * px, 6 * px, 6 * px), [sm, sm, mat(top, grass), mat(bottom), sm, sm]);
+    const g = new THREE.Group(); g.add(b);
+    b.rotation.set(0.35, Math.PI / 4, 0);               // a little tilted, a corner forward, like the game
+    g.position.set(0, -10 * px, 3 * px);
+    return g;
+  }
+  const t = await itemTexture(item);
+  if (!t) return null;
+  const g = new THREE.PlaneGeometry(10 * px, 10 * px).translate(3 * px, 3 * px, 0);   // the grip (an icon's lower left) at the fist
+  const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
+    emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // a flat icon: lit a little by itself so it never turns black edge-on
+  // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
+  q.position.set(0, -10 * px, 1 * px); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
+  return q;
+}
 const ARMOUR = /^(leather|chainmail|iron|golden|diamond|netherite|copper|turtle)_(helmet|chestplate|leggings|boots)$/;
 function armourBoxes(slot, mat) {                        // the armour shell (the player model's boxes, a bit larger)
   const a = mat.slim ? 3 : 4, grow = slot === "legs" ? 1 : 2;
@@ -1623,13 +1690,8 @@ async function setGear(m, slot, v) {
   if (!item) return;
   const objs = [];
   if (slot === "mainhand" || slot === "offhand") {
-    const t = await itemTexture(item);
-    if (!t || m.F !== F || F.tok[slot] !== mine) return;
-    const g = new THREE.PlaneGeometry(10 * PX, 10 * PX).translate(3 * PX, 3 * PX, 0);   // the grip (an icon's lower left) at the fist
-    const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
-      emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // a flat icon: lit a little by itself so it never turns black edge-on
-    // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
-    q.position.set(0, -10 * PX, 1 * PX); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
+    const q = await heldItem(item, PX);
+    if (!q || m.F !== F || F.tok[slot] !== mine) return;
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
   } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
     const t = (await texOnce("entity/equipment/wings/elytra")) || (await texOnce("entity/elytra"));
@@ -1686,10 +1748,7 @@ async function setMobGear(o, slot, v) {
   const item = v && v[0], P = o.parts; if (!item || !P) return;
   if (slot === "mainhand" || slot === "offhand") {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
-    const t = await itemTexture(item); if (!t || o.gtok[slot] !== mine) return;
-    const q = new THREE.Mesh(new THREE.PlaneGeometry(10 * MPX, 10 * MPX).translate(3 * MPX, 3 * MPX, 0),
-      new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));
-    q.position.set(0, -10 * MPX, 1 * MPX); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
+    const q = await heldItem(item, MPX); if (!q || o.gtok[slot] !== mine) return;
     arm.g.add(q); o.gear[slot].push(q); return;
   }
   const mm = ARMOUR.exec(item); if (!mm || !P.head || !P.body) return;
@@ -3272,7 +3331,7 @@ function backupNote(b) {
 async function invStep(now) {
   if (now - INV.last < 250) return; INV.last = now;
   const who = invWho(), hb = $("#hotbar");
-  hb.hidden = !who || (RELIVE.on && RELIVE.phase === "load");
+  hb.hidden = !who || (RELIVE.on && RELIVE.phase === "load") || !$("#contBox").hidden;   // a container screen shows it itself
   if (!who) { if (INV.open) $("#invBox").hidden = true; return; }
   const ex = exactHotbar(who), b = await invBackup(who, T);
   const bs = b && b.available ? b.slots : {};
@@ -3281,6 +3340,18 @@ async function invStep(now) {
     return slotEl(exact ? e : bs[i] || null, { exact: exact && !!e, sel: (ex.sel ?? (b && b.selected)) === i });
   });
   const slots = hotbar();
+  // health and food, from their recording (the game's own heart and food pictures), else nothing
+  const hp = EXACT.on ? stateAt(who, "hp", T, null) : null, hkey = hp ? hp.join(",") : "";
+  if (hkey !== INV.hpKey) {
+    INV.hpKey = hkey;
+    const row = (n, full, half, empty, cls) => { const sp = document.createElement("span"); sp.className = cls;
+      for (let i = 0; i < 10; i++) { const im = document.createElement("img");
+        im.src = `blocktex/0/gui/sprites/hud/${n >= 2 * i + 2 ? full : n === 2 * i + 1 ? half : empty}.png`;
+        im.onerror = () => { im.style.visibility = "hidden"; }; sp.append(im); }
+      return sp; };
+    $("#hbStats").replaceChildren(...(hp ? [row(Math.ceil(hp[0]), "heart/full", "heart/half", "heart/container", "hearts"),
+      row(hp[1], "food_full", "food_half", "food_empty", "food")] : []));
+  }
   const key = JSON.stringify([who, ex.slots, ex.sel, b && b.backup]);
   if (key !== INV.hbKey) { INV.hbKey = key; $("#hbSlots").replaceChildren(...slots);
     $("#hbSrc").textContent = `${who}: ${ex.any ? "hotbar exact from the recording" : "hotbar from the " + backupNote(b)}`; }
@@ -3313,6 +3384,68 @@ $("#invBtn").onclick = () => invToggle();
 $("#invClose").onclick = () => invToggle(false);
 $("#invTabInv").onclick = () => { INV.tab = "inv"; INV.invKey = ""; };
 $("#invTabEnder").onclick = () => { INV.tab = "ender"; INV.invKey = ""; };
+
+// ---------- containers: what the player saw when they opened a chest, barrel, furnace... ----------
+// The recordings keep chests opening (their lid's viewers: "ce" events) but not what's inside; the Ledger log keeps
+// every item put in or taken out (and so when a furnace or barrel was used). The contents come from the server:
+// the backup's, with the Ledger moves up to the moment (/api/container).
+const CONT = { key: "", want: "", data: {}, uses: [], usesFor: "", last: 0 };
+function contOpen(who) {                                // the container they have open at T: {x, y, z, dim} or null
+  const m = markers[who], c = m && m.cur; if (!c) return null;
+  const ce = EXACT.on && EXACT.ev[who] && EXACT.ev[who].ce;
+  if (ce && ce.length) {                                // a chest whose lid they opened (near them) and haven't shut
+    const last = new Map();
+    for (const [t, v] of ce) { if (t > T) break; last.set(`${v[0]},${v[1]},${v[2]}`, [t, v]); }
+    let best = null;
+    for (const [t, v] of last.values()) if (v[3] > 0 && T - t < 120_000
+      && Math.hypot(v[0] + 0.5 - c.pos[0], v[1] + 0.5 - c.pos[1], v[2] + 0.5 - c.pos[2]) < 6 && (!best || t > best[0])) best = [t, v];
+    if (best) return { x: best[1][0], y: best[1][1], z: best[1][2], dim: c.dim };
+  }
+  for (const u of CONT.uses) if (T >= u.t0 - 1500 && T <= u.t1 + 1500 && u.dim === c.dim) return u;   // Ledger: items moved
+  return null;
+}
+async function contStep(now) {
+  if (now - CONT.last < 200) return; CONT.last = now;
+  const who = RELIVE.on ? RELIVE.name : SPEC.name, box = $("#contBox");
+  if (!who) { box.hidden = true; return; }
+  const span = `${who}|${Math.floor(T / 600_000)}`;      // Ledger visits, ten minutes at a time
+  if (CONT.usesFor !== span) {
+    CONT.usesFor = span; CONT.uses = [];
+    fetch(`api/containeruse/${encodeURIComponent(who)}/${Math.floor(T / 600_000) * 600_000 - 60_000}/${Math.floor(T / 600_000) * 600_000 + 660_000}`)
+      .then(r => r.json()).then(d => { if (CONT.usesFor === span) CONT.uses = d.uses || []; }).catch(() => {});
+  }
+  const o = contOpen(who);
+  if (!o) { box.hidden = true; return; }
+  const key = `${o.dim}|${o.x},${o.y},${o.z}|${Math.floor(T / 1000)}`;    // contents asked again each second open
+  if (!CONT.data[key] && CONT.want !== key) {
+    CONT.want = key;
+    fetch(`api/container/${o.dim.replace("minecraft:", "")}/${o.x}/${o.y}/${o.z}/${Math.round(T)}`).then(r => r.json())
+      .then(d => { CONT.data[key] = d; const ks = Object.keys(CONT.data); if (ks.length > 200) delete CONT.data[ks[0]]; }).catch(() => {});
+  }
+  const d = CONT.data[key] || CONT.shown;
+  if (!d || !d.available) { box.hidden = true; return; }
+  CONT.shown = d;
+  box.hidden = false;
+  const show = JSON.stringify([d.slots, d.kind, INV.hbKey]);
+  if (show === CONT.key) return; CONT.key = show;
+  const name = d.block.replace("minecraft:", "").replace(/_/g, " ");
+  $("#contTitle").textContent = (d.double ? "Large " : "") + name.replace(/^\w/, ch => ch.toUpperCase());
+  const g = $("#contGrid"), sl = d.slots || {};
+  if (/furnace|smoker/.test(d.kind)) {                  // input over fuel, the result to the right
+    g.className = "grid furnace";
+    const a = document.createElement("div"); a.className = "arrow"; a.textContent = "➜";
+    const cell = (i, r, c) => { const e = slotEl(sl[i] || null); e.style.gridRow = r; e.style.gridColumn = c; return e; };
+    g.replaceChildren(cell(0, 1, 1), cell(1, 2, 1), a, cell(2, "1 / span 2", 3));
+  } else {
+    g.className = "grid";
+    g.style.gridTemplateColumns = `repeat(${Math.min(9, d.size)}, 40px)`;
+    g.replaceChildren(...Array.from({ length: d.size }, (_, i) => slotEl(sl[i] || null)));
+  }
+  $("#contHot").replaceChildren(...[...$("#hbSlots").children].map(x => { const c = x.cloneNode(true);
+    c.querySelectorAll("img").forEach(im => { im.onerror = () => { im.style.visibility = "hidden"; }; im.src = im.src; }); return c; }));
+  $("#contSrc").textContent = `From the backup of ${d.backup}${d.moves ? ` and ${d.moves} item move${d.moves > 1 ? "s" : ""} in the Ledger log since` : ""}`
+    + (d.ledger ? "" : " (no Ledger log: as saved then)") + ". Slots are a best guess where items moved.";
+}
 
 // ---------- maps: every map of the backup shown, and maps on their item frames ----------
 // The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
@@ -3569,6 +3702,7 @@ function frame(now) {
   if (RELIVE.on) reliveStep(dt);
   invStep(now);                                        // the hotbar and inventory of who you watch
   mapsStep(now);                                       // maps on their item frames
+  contStep(now);                                       // a chest or furnace the watched player has open
   gfxStep(now);
   renderer.render(scene, camera);
 }

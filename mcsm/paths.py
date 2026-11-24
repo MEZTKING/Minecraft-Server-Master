@@ -369,9 +369,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         # is selected (server-side recordings keep these; other players' hotbars aren't sent to anyone)
         pinv_id = pk.get("set_player_inventory") if equip_id is not None else None
         held_id = pk.get("set_held_slot") if ex_on else None
+        bev_id = pk.get("block_event") if ex_on else None
+        hp_id = pk.get("set_health") if ex_on else None      # f32 health, varint food, f32 saturation    # chests, ender chests, shulker boxes opening and closing
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id)
+                             pinv_id, held_id, bev_id, hp_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -497,6 +499,15 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 cnt = _varint(b, k)[0]
                                 st, _ = item_stack(b, k, items_of, comps_of)
                                 extras["events"].append([tick, None, "hb", [slot, st[0], st[1], st[2], max(0, cnt)]])
+                        elif pid == bev_id and size >= 11:   # block pos, action, parameter, block: action 1 = viewers
+                            pos = struct.unpack_from(">q", b, k)[0]
+                            if b[k + 8] == 1:
+                                from .moment import block_pos
+                                extras["events"].append([tick, None, "ce", list(block_pos(pos)) + [b[k + 9]]])
+                        elif pid == hp_id and size >= 7:
+                            hp = struct.unpack_from(">f", b, k)[0]
+                            food = _varint(b, k + 4)[0]
+                            extras["events"].append([tick, None, "hp", [round(hp, 1), food]])
                         elif pid == held_id:                  # which hotbar slot they hold (the smallest packet: 2 bytes)
                             slot = _varint(b, k)[0]
                             if 0 <= slot < 9:
@@ -734,7 +745,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact7.json.gz"     # 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact8.json.gz"     # 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

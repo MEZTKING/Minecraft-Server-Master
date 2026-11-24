@@ -3702,6 +3702,38 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_container_moves(self):
+        """A container's contents after Ledger's item moves: taken off the stacks of that item (last slot first), put
+        on a stack of it or into the first empty slot; and undone, for a backup taken after the moment."""
+        from mcsm import containers as ct
+        slots = {0: ["dirt", 60], 3: ["dirt", 10], 5: ["torch", 1]}
+        mv = [{"kind": "out", "item": "dirt", "count": 12}, {"kind": "in", "item": "stone", "count": 70},
+              {"kind": "in", "item": "dirt", "count": 2}, {"kind": "out", "item": "torch", "count": 1}]
+        after = ct.apply(slots, 27, mv)
+        self.assertEqual(after, {0: ["dirt", 60], 1: ["stone", 64], 2: ["stone", 6]})
+        back = ct.apply(after, 27, mv, forward=False)      # the same items again (slots are a guess: the log has none)
+        totals = {}
+        for item, n in back.values():
+            totals[item] = totals.get(item, 0) + n
+        self.assertEqual(totals, {"dirt": 70, "torch": 1})
+        self.assertEqual((ct.kind_of("minecraft:red_shulker_box"), ct.SIZES["furnace"]), ("shulker_box", 3))
+        self.assertEqual(ct._ms("2026-05-24 14:26:56.408"), 1779632816408)
+
+    def test_under_water(self):
+        """The sea floor is drawn under water (seen through it, as in the game), with the water's surface."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+            world = self._world(tmp, lambda x, y, z: "minecraft:stone" if y <= 58 else "minecraft:water" if y <= 64 else None)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], bm.Look(jar), radius=40)
+            at = {(f[0], f[1], f[2], f[3], f[4]) for f in self._faces(r)}
+            self.assertIn((5, 58, 5, 0, "stone"), at)          # the floor, facing up into the water
+            self.assertIn((5, 64, 5, 0, "water"), at)          # the surface
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_maps(self):
         """Maps: the colour bytes with the game's shades, a PNG, both file layouts, and maps in item frames
         (26.x components and the older tag) found in an entities region."""

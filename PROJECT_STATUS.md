@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -853,6 +853,56 @@ the year in review);
 `Main_world/data/DistantHorizons.sqlite` (5 GB, last written April 2026: far terrain in detail);
 `scoreboard.dat`.
 
+### 0zh. Parity check against a recording (2026-11-24, owner: "do a 1/1 parity check")
+
+Every packet in Vakirath's recording of 24 May 2026 14:24 (26.1.2, 4,940 ticks = 4 min 7 s), counted, and what the
+viewer does with it. Recording actions: next_tick 4,940, move_entities 4,926 (positions: used), level_chunk_cached
+961 (blocks at the moment: used), configuration 30 (biome names: used), create_local_player 1 (used).
+
+| Packet | Count | In the viewer |
+| --- | --- | --- |
+| set_entity_motion | 127,921 | not used (positions come from move_entities; same result) |
+| rotate_head | 80,338 | used (head turn) |
+| entity_position_sync | 6,219 | not needed (move_entities has the same positions) |
+| set_entity_data | 5,651 | used: pose, flags, hand use, dropped items' item, health flash; not: baby, variants, names |
+| update_attributes | 1,867 | **not used**: size (scale), speed |
+| add_entity / remove_entities | 1,425 / 1,426 | used |
+| block_destruction | 1,160 | **not used**: the crack while mining a block |
+| block_update / section_blocks_update | 1,137 / 309 | used (live block changes) |
+| entity_event | 952 | used: deaths; not: other effects (totems, eating particles) |
+| map_item_data | 891 | **not used**: maps being drawn as players explore (the backup's maps are shown) |
+| set_equipment | 691 | used (players' and mobs' gear) |
+| set_player_inventory | 496 | used (hotbar) |
+| animate | 443 | used (swings) |
+| level_event | 381 | **not used**: block-break particles, door and chest sounds, ... |
+| take_item_entity | 336 | partly: the item vanishes; the fly-into-the-player isn't drawn |
+| block_event | 308 | used: chests opening (container screen); not: chest lids moving, pistons, bells, note blocks |
+| set_time | 249 | used |
+| block_entity_data | 58 | **not used**: sign text, banners, heads updated live (the backup's are drawn) |
+| set_held_slot | 35 | used |
+| player_info_update | 11 | not needed (names, skins come from elsewhere) |
+| set_health | 3 | used (hearts and food) |
+| set_passengers | 2 | used (riding) |
+| system_chat | 2 | not used (chat comes from the server log) |
+| damage_event, game_event, set_entity_link, login, ... | 1 each | damage and weather used; leads not drawn |
+
+Not in the recordings at all (ServerReplay leaves them out): sounds, light updates, particles, scoreboards,
+container screens (rebuilt from backups + Ledger), other players' hotbars.
+
+**The same as the recording:** every position, head turn and body turn (tick-exact); poses, sneaking, sprinting,
+swimming, elytra flight, sleeping, riding; arm swings, hurt flashes, deaths; held items and armour (players and
+mobs); the recorded player's hotbar, selected slot, health and food; mobs and their models; dropped items and when
+they vanish; time of day and weather; blocks as they were (chunk snapshots + every block change); biomes.
+
+**Different from the recording (worst first):**
+1. Containers: contents rebuilt from backup + Ledger (slots guessed; furnaces' smelting not logged).
+2. Text on signs, banners, map pictures: as in the backup, not as at the moment.
+3. No mining cracks, particles, sounds, chest lids, pistons moving.
+4. Mobs: babies drawn adult-sized, variants (cat, horse colours) picked, not read; mob names not shown.
+5. Light: from the backup's light, not updated as torches are placed during the recording.
+6. Size changes (the scale attribute) not applied.
+7. Armour trims and the enchantment glint aren't drawn.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -1571,6 +1621,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Containers in Relive**: relive Vakirath on 24 May at 14:26:50 UTC (15:26 your time): his large chest opens
+  with its contents and his hotbar under it. Do the contents look right?
+- **Under water**: look into a lake or the sea: the floor should be there now.
+- **Held blocks**: someone holding cobblestone or logs: a small block in the hand, not a flat picture.
+- **Hearts and food** above the hotbar while reliving.
 - **Maps**: the **Maps** button: the walls of framed maps (e.g. the 3 x 3 at Vakirath's base, 4730, 118, 356)
   and every map; click a wall to go there; framed maps on the walls in the world. Note: the 5 x 5 map floor at
   258, 69, -2505 is covered by blocks in the 8 June backup (is it under a floor on purpose?).
@@ -1699,6 +1754,17 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "when a player opens a chest or furnace etc in the relive moment it should show what they
+  were seeing exactly"; "prioritze generating aruond the player when reliving"; "underwater seems empty and players
+  holding some blocks are 2d / flat". Containers: `mcsm/containers.py` (the backup's block entity + Ledger's item
+  moves up to T; double chests; `/api/container`, `/api/containeruse`), chest openings from the recordings
+  (`block_event` -> `"ce"`), a game-like container screen. Relive loads the player's pieces first. Under water:
+  water no longer stops what can be seen (and the search starts down every water column), so sea floors are drawn
+  (`blockmesh.VERSION` 5). Held blocks as small 3D blocks and shields as shields (`Look.item_icon`,
+  `/api/itemicon`). Health and food from the recordings (`set_health` -> `"hp"`). `EXACT_SUFFIX` `.exact8`;
+  `block_event` and `set_health` added to the bundled packet tables. A parity check against a recording
+  (backlog 0zh).
 
 - **2026-11-24:** Maps in the history viewer (owner: "yes show the map art in the viewer"): `mcsm/mapart.py` reads
   a backup's maps (`data/minecraft/maps/<id>.dat` or `data/map_<id>.dat`), colours them with the game's map colours

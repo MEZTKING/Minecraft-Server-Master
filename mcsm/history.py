@@ -496,6 +496,26 @@ class HistoryMap(TerrainServer):
                 while len(cache) > 40:
                     cache.pop(next(iter(cache)))
             return {"cells": cache[key], "cell": 16, "available": True}
+        if path.startswith("/api/container/"):       # contents at a moment: /api/container/<dim>/<x>/<y>/<z>/<t ms>
+            try:
+                dim, x, y, z, t = path[len("/api/container/"):].split("/")
+                return self.container("minecraft:" + dim, int(x), int(y), int(z), int(t))
+            except (ValueError, OSError) as exc:
+                return {"available": False, "message": str(exc)}
+        if path.startswith("/api/containeruse/"):    # where a player used containers (Ledger): /api/containeruse/<name>/<t0>/<t1>
+            try:
+                from urllib.parse import unquote
+                name, a, b = path[len("/api/containeruse/"):].rsplit("/", 2)
+                return {"uses": self.container_use(unquote(name), int(a), int(b))}
+            except (ValueError, OSError):
+                return {"uses": []}
+        if path.startswith("/api/itemicon/"):        # how an item is drawn held: /api/itemicon/<layer>/<item>
+            layer, _, item = path[len("/api/itemicon/"):].partition("/")
+            try:
+                bw = self.layer_world(int(layer))
+                return (bw.look().item_icon(item) if bw else None) or {"tex": None, "cube": False}
+            except (ValueError, OSError):
+                return {"tex": None, "cube": False}
         if path.startswith("/api/maps/"):            # a backup's maps and the item frames they hang in: /api/maps/<layer>
             try:
                 return self.maps(int(path[len("/api/maps/"):]))
@@ -649,10 +669,10 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs") or slotted) and t < t0:
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp") or slotted) and t < t0:
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)
-                elif (slotted or kind == "hs") and t > t1:
+                elif (slotted or kind in ("hs", "hp")) and t > t1:
                     if (name, kind) not in state_after or state_after[(name, kind)][0] > t:
                         state_after[(name, kind)] = (t, value)
                 elif t0 <= t <= t1:
@@ -816,6 +836,64 @@ class HistoryMap(TerrainServer):
         if r is None:
             return {"ready": False, "maps": [], "frames": []}
         return {"ready": True, "maps": r.get("maps", []), "frames": r.get("frames", []), "message": r.get("message")}
+
+    def container(self, dim: str, x: int, y: int, z: int, t: int) -> dict:
+        """What was in the container at x, y, z at *t* (mcsm.containers): the library backup at or before t (else the
+        first after, the moves undone), then the Ledger log's item moves there up to t."""
+        from . import containers as ct, library as lib, world as world_mod
+        if not self.data.library_world:
+            return {"available": False, "message": "no backups"}
+        backups = [b for b in lib.world_backups(self.data.library_world) if b.get("snapshot_ms")]
+        if not backups:
+            return {"available": False, "message": "no backups with a time"}
+        before = [b for b in backups if b["snapshot_ms"] <= t]
+        pick = before[-1] if before else backups[0]
+        root = pick["path"]
+        world = world_mod.world_dir(root, world_mod.read_properties(os.path.join(root, "server.properties")))
+        sv = ct.saved(root, world, dim, x, y, z)
+        if sv is None:
+            return {"available": False, "message": f"nothing there in the backup of {pick['name']}"}
+        kind = ct.kind_of(sv["block"])
+        size = ct.SIZES.get(kind, 27)
+        spots, slots = [[x, y, z]], dict(sv["slots"])
+        if sv["other"]:                                  # a double chest: both halves, the left one first
+            ov = ct.saved(root, world, dim, *sv["other"])
+            if ov is not None and ct.kind_of(ov["block"]) == kind:
+                first, second = (slots, ov["slots"]) if "type=left" in sv["state"] else (ov["slots"], slots)
+                slots = {**first, **{k + 27: v for k, v in second.items()}}
+                spots.append(sv["other"]); size = 54
+        lg = self.ledger()
+        a, b = sorted((pick["snapshot_ms"], t))
+        mv = ct.moves(lg, dim, spots, a, b) if lg else []
+        slots = ct.apply(slots, size, mv, forward=bool(before))
+        return {"available": True, "block": sv["block"], "kind": kind, "size": size, "double": size == 54,
+                "slots": {str(k): v for k, v in slots.items()}, "backup": pick["name"], "backup_t": pick["snapshot_ms"],
+                "after": not before, "moves": len(mv), "ledger": bool(lg)}
+
+    def container_use(self, name: str, t0: int, t1: int) -> list[dict]:
+        """Where *name* put items into or took them out of containers between t0 and t1 (Ledger):
+        ``[{x, y, z, dim, t0, t1, n}]``, one per container visit (moves less than 8 s apart)."""
+        from .ledger import _when
+        lg = self.ledger()
+        if lg is None:
+            return []
+        q = ("select x.time, x.x, x.y, x.z, w.identifier from actions x join ActionIdentifiers a on a.id = x.action_id "
+             "join players p on p.id = x.player_id join worlds w on w.id = x.world_id "
+             "where p.player_name = ? and a.action_identifier in ('item-insert', 'item-remove') "
+             "and x.time >= ? and x.time <= ? order by x.time")
+        from .containers import _ms
+        visits: list[dict] = []
+        try:
+            for when, x, y, z, dim in lg._con().execute(q, (name, _when(t0), _when(t1))):
+                tm = _ms(when)
+                v = visits[-1] if visits else None
+                if v and (v["x"], v["y"], v["z"], v["dim"]) == (x, y, z, dim) and tm - v["t1"] < 8000:
+                    v["t1"], v["n"] = tm, v["n"] + 1
+                else:
+                    visits.append({"x": x, "y": y, "z": z, "dim": dim, "t0": tm, "t1": tm, "n": 1})
+        except Exception:                                 # noqa: BLE001 -- an odd database: none
+            return []
+        return visits[:400]
 
     def inventory(self, name: str, t: int) -> dict:
         """*name*'s inventory and ender chest as saved in the library backup at or before *t* (else the first after),

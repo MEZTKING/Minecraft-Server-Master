@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 4                     # bump when the output changes (cached tiles are built again)
+VERSION = 5                     # bump when the output changes (cached tiles are built again); 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
@@ -607,6 +607,11 @@ class Look:
         return self.index[state]
 
     def item_texture(self, item: str) -> str | None:
+        """The hotbar picture of *item* (see :meth:`item_icon`)."""
+        icon = self.item_icon(item)
+        return icon["tex"] if icon else None
+
+    def item_icon(self, item: str) -> dict | None:
         """The picture the game shows for *item* in a hotbar: its item definition (``items/<id>.json``, 1.21.4+:
         the first plain model, through selects and conditions to their fallback) or the older ``models/item/<id>``,
         then that model's ``layer0``; a block item takes its block's side (or only) texture."""
@@ -632,18 +637,31 @@ class Look:
                         return m
             return None
         if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            return f"item/{item}"
+            return {"tex": f"item/{item}", "cube": False}
         d = self._json(f"assets/minecraft/items/{item}.json")
         name = first_model(d.get("model")) if d else None
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")
-        tx = self._model(name)["textures"]
-        for key in ("layer0", "side", "all", "texture", "front", "top", "end", "cross"):   # not "particle" (beds: planks)
-            t = self._tex(tx, tx.get(key)) if key in tx else None
-            if t and self.has_texture(t.replace("minecraft:", "")):
-                return t.replace("minecraft:", "")
-        return f"block/{item}" if self.has_texture(f"block/{item}") else None
+        model = self._model(name)
+        tx = model["textures"]
+
+        def pick(*keys):
+            for key in keys:
+                t = self._tex(tx, tx.get(key)) if key in tx else None
+                if t and self.has_texture(t.replace("minecraft:", "")):
+                    return t.replace("minecraft:", "")
+            return None
+        if "layer0" not in tx and model["elements"] and not tx.get("cross"):
+            # a block held: the game draws it as a small block; its sides, top and bottom
+            side = pick("side", "all", "north", "front", "texture", "end", "top")
+            if side:
+                return {"tex": side, "cube": True, "top": pick("top", "up", "end", "all") or side,
+                        "bottom": pick("bottom", "down", "end", "all") or side}
+        t = pick("layer0", "side", "all", "texture", "front", "top", "end", "cross")   # not "particle" (beds: planks)
+        if t:
+            return {"tex": t, "cube": False}
+        return {"tex": f"block/{item}", "cube": False} if self.has_texture(f"block/{item}") else None
 
     def texture_png(self, tex: str) -> bytes | None:
         if not self.zf:
@@ -945,7 +963,8 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         if i is None:
             return True
         info = infos[i]
-        return not info["opaque"] and info["kind"] not in ("water", "lava")
+        # water is seen through (the sea floor, sunken things, a player under water); lava isn't
+        return not info["opaque"] and info["kind"] != "lava"
 
     # 1. the open space you can see into: from the sky in through gaps, down to DEPTH under each spot's surface
     core_cols = [(cx * 16 + lx, cz * 16 + lz) for cx, cz in core if (cx, cz) in chunks for lx in range(16) for lz in range(16)]
@@ -969,6 +988,15 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
             if passable(x, y, z) and (x, y, z) not in seen:
                 seen.add((x, y, z))
                 todo.append((x, y, z))
+        y = h                                                  # and down through water from its surface (seen through)
+        while y >= max(c.min_y, h - DEPTH):
+            i = block(x, y, z)
+            if i is None or infos[i]["kind"] != "water":
+                break
+            if (x, y, z) not in seen:
+                seen.add((x, y, z))
+                todo.append((x, y, z))
+            y -= 1
     while todo and len(seen) < MAX_OPEN:
         x, y, z = todo.popleft()
         for dx, dy, dz in DIRS:

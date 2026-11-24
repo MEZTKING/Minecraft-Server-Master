@@ -211,6 +211,9 @@ map's big flat polygons; each piece of real blocks then rises up out of the grou
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
 
+**Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
+in the game.
+
 **Caves underground.** Fly the free camera below the ground (more than a block under the surface where you are)
 and the caves around you load: every wall, floor and ceiling of open space the sky can't reach, in a 64-block
 high slice around the camera (3 x 3 pieces of 128 blocks; the slice follows you up and down in 32-block steps).
@@ -306,6 +309,16 @@ when it changes or every few minutes; until the first listing in a recording, th
 An elytra worn shows as folded wings on the back. Mobs hold and wear what they had too: a zombie's sword or
 helmet, a skeleton's bow, a piglin's golden sword, a drowned's trident.
 
+**Chests, furnaces and other containers.** While you spectate or relive someone, when they open a chest (the
+recordings keep chest lids opening) or put items into or take them out of anything (the Ledger log: barrels,
+furnaces, hoppers, shulker boxes...), its screen shows as in the game: the container's slots (a large chest's 54,
+a furnace's input, fuel and result) and their hotbar under it. The recordings don't keep what's inside, so the
+contents are rebuilt: what the backup saved in it, with every item the Ledger log saw put in or taken out since,
+up to that moment. The items and counts follow the log; which slot a moved item sits in is a best guess, and a
+furnace's smelting (input turning into output) isn't logged.
+
+**Health and food.** Above their hotbar: their hearts and food, from their own recording.
+
 **Maps and map art.** Maps hang in the world where they hang in the game: every map in an item frame (or glow
 item frame) is drawn on its wall, floor or ceiling, turned as it was, close up where the real blocks are shown.
 **Maps** (next to *Inventory*) opens a gallery:
@@ -329,6 +342,8 @@ shown above the timeline, with the slot they hold outlined:
   they hold in their hand is then the selected slot's item too.
 - Items look as in the game's hotbar (read from the game's item models: block items show their block).
   Shields, beds, chests and heads, which the game draws with its own code, show their name.
+- Blocks they hold are drawn as small blocks in their hand, as in the game; other things as their flat picture,
+  and a shield as a shield.
 - **Everything else comes from a backup**: the main inventory, armour, off hand and the **Ender chest** tab,
   from the player's save in the library backup taken at or before the time shown. The panel says which backup
   and how long before it was, and the health, food and level saved then.
@@ -469,7 +484,7 @@ Spectating switches to exact playback (1×). **Esc** stops.
 were there again:
 
 - The screen goes white with when, where and who was there, while their recording and the blocks around them
-  load (up to 30 seconds the first time).
+  load (up to 30 seconds the first time). The blocks around the player are loaded first, then the rest.
 - The camera drifts down from above and behind into the player's eyes (with *First person*) or over their
   shoulder (with *Behind*). Their position and look are smoothed, so it plays like a video.
 - **V** (or **F5**, as in the game) switches the view: their eyes, over the shoulder, or facing them. The camera
