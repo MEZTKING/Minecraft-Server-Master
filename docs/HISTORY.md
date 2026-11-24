@@ -234,6 +234,11 @@ and a banner worn on the head (pillager captains) stands on it, all from the rec
 **Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
 in the game.
 
+**Water's shape.** Water is shaped as the game shapes it: a still source a little under a block high, flowing
+water lower the further it runs, its surface sloping between cells (each corner averaged from the cells around it,
+as the game does), falling water full height, and the flowing texture on slopes and sides. Stained glass, ice,
+slime and honey blocks are see-through in their colour, and glass panes no longer flicker where faces meet.
+
 **Caves underground.** Fly the free camera below the ground (more than a block under the surface where you are)
 and the caves around you load: every wall, floor and ceiling of open space the sky can't reach, in a 64-block
 high slice around the camera (3 x 3 pieces of 128 blocks; the slice follows you up and down in 32-block steps).
@@ -242,7 +247,9 @@ They come from the backup shown (`tiles-caves` in the cache) and go away when yo
 
 **Light.** The real blocks are lit the way the game lights them: each face gets the sky light and the light from
 torches, lanterns, glowstone and so on that the backup stores for that spot, with Minecraft's soft shadows in
-corners. Open **Light** (under *Terrain*) to change it; your settings are remembered:
+corners. Like the game's own light map, sky light and torch light are added together (not the brighter of the
+two) and go through the game's brightness curve, so rooms lit by torches are as bright as in the game. With
+graphics Fancy, torch light isn't darkened by the sun's shadows (a lit room under a roof stays lit). Open **Light** (under *Terrain*) to change it; your settings are remembered:
 
 - **Time of day**: noon is full daylight. At night the sky light fades and only torches and lamps light things
   (warmly); sunrise and sunset tint the sun.
@@ -284,10 +291,14 @@ Movement between recorded positions is smoothed like the game smooths other play
 until shortly before the next recorded position, then glides into it, so steps up and jumps don't snap. Legs
 swing with the recorded speed. In that view the players also sneak (the game's pose: bent from the neck, head
 and arms lower, legs back), sprint, swim and fly with elytra (lying forward), and swing their arms
-when they did. Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player are shown, a
+when they did (in Minecraft 26.3 recordings too, which keep swings in a packet of their own). Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player are shown, a
 couple of times a second, with the game's own models and textures: creepers, skeletons, zombies, spiders, fish,
 squid, bats, farm animals, villagers, horses, boats and the rest. They walk (legs and arms swing with their
-speed), zombies hold their arms out, fish swish their tails, squid move their tentacles and bats flap. The
+speed), zombies hold their arms out, fish swish their tails, squid move their tentacles and bats flap. Mobs turn
+and tilt their heads as recorded (a mob turning by more than 15 degrees is kept even when it stands still).
+Pillagers, vindicators and other illagers fold their arms when empty-handed and free them when holding
+something, as in the game. Named mobs (name tags) keep their recorded pose and item use. An egg or snowball
+breaking doesn't count as a death. The
 models are read from the newest Minecraft 26.x game installed on this PC (older versions' games can't be read);
 without one, mobs show as boxes sized and coloured by kind. What the recordings don't say is picked once per mob:
 a horse's coat, a cat's or parrot's colours, a tropical fish's colour, and farm animals are their temperate kind.
@@ -326,7 +337,7 @@ earlier is still sitting.
 
 Players wear their armour and hold what they held, as the recordings saw it: helmets, chestplates, leggings
 and boots in every material (leather in its dye colour; trims aren't drawn), and the item in each hand as a
-flat icon pointing forward from the fist, like Minecraft's own third-person view. A block held shows its
+solid item held where Minecraft's own third-person view holds it. A block held shows its
 texture. Items from the Hero's Journey datapack show as the plain item they're based on (their own pictures
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
@@ -365,9 +376,11 @@ shown above the timeline, with the slot they hold outlined:
   slot when they start and whenever one changes, and which slot is held. Exact slots have a green dot. What
   they hold in their hand is then the selected slot's item too.
 - Items look as in the game's hotbar (read from the game's item models: block items show their block).
-  Shields, beds, chests and heads, which the game draws with its own code, show their name.
-- Blocks they hold are drawn as small blocks in their hand, as in the game; other things as their flat picture,
-  and a shield as a shield.
+  Shields show their plate (the game draws them with its own code); beds, chests and heads show their name.
+- Blocks they hold are drawn as small blocks in their hand, as in the game; other things as solid items made
+  from their picture (like the game's item models), and a shield as a shield with its banner pattern. Items sit in
+  the hand where the game puts them (its third-person placement for each item, mirrored in the left hand); a bow
+  or crossbow being drawn shows the game's pulling pictures and both arms held up.
 - **Everything else comes from a backup**: the main inventory, armour, off hand and the **Ender chest** tab,
   from the player's save in the library backup taken at or before the time shown. The panel says which backup
   and how long before it was, and the health, food and level saved then.
@@ -467,6 +480,11 @@ Where the numbers come from:
    becomes that recording's tick through the world clock, pauses included. Open it in Flashback and Export.
 
 The keyframes are kept in the browser per world.
+
+**Working on.** Anything that takes a while shows in the **Working on** card (bottom right) with what it's
+doing and how far it is: recordings being read in full, real blocks being built, maps being found, highlights
+being exported, and **Watch in Flashback** (finding the recording, making the short copy, starting Minecraft). It
+goes away when nothing is running, and is hidden in Relive and with F1.
 
 **Prepare ahead.** Close-up viewing reads recordings in full and builds real blocks the first time. **Prepare
 ahead** does that in advance for the day, week or month shown, or everything, optionally for one player only.

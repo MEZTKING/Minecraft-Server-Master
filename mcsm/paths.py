@@ -171,6 +171,17 @@ def entity_data(b, k: int, end: int) -> dict[int, int | float]:
             _v, k = _varlong(b, k)
         elif ser == SER_OPT_BLOCK_POS:
             k += 9 if b[k] else 1
+        elif ser == 4:                                    # a string: skipped
+            n, k = _varint(b, k)
+            k += n
+        elif ser == 5:                                    # a text component (network NBT)
+            k = _nbt_skip(b, k)
+        elif ser == 6:                                    # an optional text component (a mob's name, index 2):
+            k = _nbt_skip(b, k + 1) if b[k] else k + 1    # read past it so hand use and health after it count
+        elif ser == 9:                                    # rotations: three floats
+            k += 12
+        elif ser == 10:                                   # a block position
+            k += 8
         else:
             break
     return out
@@ -429,10 +440,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         pinv_id = pk.get("set_player_inventory") if equip_id is not None else None
         held_id = pk.get("set_held_slot") if ex_on else None
         bev_id = pk.get("block_event") if ex_on else None
-        hp_id = pk.get("set_health") if ex_on else None      # f32 health, varint food, f32 saturation    # chests, ender chests, shulker boxes opening and closing
+        hp_id = pk.get("set_health") if ex_on else None      # f32 health, varint food, f32 saturation
+        swing_id = pk.get("swing_animation") if ex_on else None   # 26.3: entity id, hand (0 main, 1 off)    # chests, ender chests, shulker boxes opening and closing
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id, bev_id, hp_id)
+                             pinv_id, held_id, bev_id, hp_id, swing_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -543,7 +555,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 extras["events"].append([tick, None if eid == me else others[eid], "hurt", 1])
                         elif pid == event_id and size >= 6:   # entity_event: i32 entity id, status (3 = died)
                             eid = struct.unpack_from(">i", b, k)[0]
-                            if b[k + 4] == 3 and (eid == me or eid in others):
+                            # (status 3 is also an egg or snowball breaking: only players and mobs die)
+                            if b[k + 4] == 3 and (eid == me or (eid in others and not (others[eid].startswith("#")
+                                                  and others[eid].split("#")[1] in PROJECTILES))):
                                 extras["events"].append([tick, None if eid == me else others[eid], "d", 1])
                         elif pid == stime_id and size >= 9:   # the time of day (two layouts, see _day_time)
                             dt = _day_time(b, k, i + size)
@@ -575,6 +589,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if b[k + 8] == 1:
                                 from .moment import block_pos
                                 extras["events"].append([tick, None, "ce", list(block_pos(pos)) + [b[k + 9]]])
+                        elif pid == swing_id and size >= 3:   # 26.3's arm swing: like animate 0 / 3
+                            eid, k = _varint(b, k)
+                            if eid == me or (eid in others and not others[eid].startswith("#")):
+                                extras["events"].append([tick, None if eid == me else others[eid], "s", 3 if b[k] == 1 else 0])
                         elif pid == hp_id and size >= 7:
                             hp = struct.unpack_from(">f", b, k)[0]
                             food = _varint(b, k + 4)[0]
@@ -727,8 +745,10 @@ def _sample(tick, cur, last_out, last_move, others, remove_id, min_move=MIN_MOVE
                 if (tick % MOB_EVERY and not flying) or me_c is None or me_c["dim"] != c["dim"]                         or abs(me_c["x"] - c["x"]) > MOB_RADIUS or abs(me_c["z"] - c["z"]) > MOB_RADIUS:
                     continue
                 lo = last_out.get(key)
-                if lo is not None and abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) < MOB_MIN_MOVE                         and tick - lo[0] < KEEPALIVE_TICKS:
-                    continue
+                turned = lo is not None and max(abs(((c["yaw"] - lo[5]) + 180) % 360 - 180),
+                                                abs(((c.get("head", c["yaw"]) - (lo[7] if lo[7] is not None else lo[5])) + 180) % 360 - 180)) > 15
+                if lo is not None and not turned and abs(c["x"] - lo[1]) + abs(c["y"] - lo[2]) + abs(c["z"] - lo[3]) < MOB_MIN_MOVE                         and tick - lo[0] < KEEPALIVE_TICKS:
+                    continue                         # (a mob turning its body or head by more than 15 degrees: a row)
             if remove_id is None and tick - last_move.get(key, tick) > OTHER_TIMEOUT_TICKS:
                 continue                     # unknown protocol: can't tell when they left view
         lo = last_out.get(key)
@@ -843,7 +863,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact10.json.gz"    # 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact11.json.gz"    # 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 7                     # bump when the output changes (cached tiles are built again); 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 9                     # bump when the output changes (cached tiles are built again); 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 RECORD = struct.Struct("<5hHH")     # x, y, z, dir, look, light/shading, tint (RGB565)
@@ -539,6 +539,36 @@ class Look:
                     {"t": tex}, (16, 16), 0, 0]
         return None
 
+    def fluid_info(self, base: int, corners: tuple, flowing: bool) -> int:
+        """A water (or lava) look with its top at the given corner heights ``(x0z0, x1z0, x0z1, x1z1)`` in blocks, as
+        the game shapes fluids: the plain box's top corners moved to those heights, its sides reaching up to them,
+        and the flowing texture on a sloped or flowing surface and on the sides (``block/water_flow``)."""
+        key = f"#fluid|{base}|{corners}|{int(flowing)}"
+        if key in self.index:
+            return self.index[key]
+        src = self.infos[base]
+        lava = src["kind"] == "lava"
+        flow_tex = self._tid("block/lava_flow" if lava else "block/water_flow")
+        still_tex = None
+        quads = []
+        for d, q in enumerate(src["quads"]):
+            if q is None:
+                quads.append(None)
+                continue
+            q = list(q)
+            for k in range(4):                          # each corner at the top: to its height
+                x, y, z = q[3 + 3 * k], q[4 + 3 * k], q[5 + 3 * k]
+                if y > 0.5:
+                    q[4 + 3 * k] = corners[int(round(x)) + 2 * int(round(z))]
+            if d != 1 and (flowing or d != 0):            # sides (and a flowing top): the flowing texture
+                still_tex = still_tex if still_tex is not None else q[0]
+                q[0] = flow_tex
+            quads.append(q)
+        info = dict(src, quads=quads)
+        self.index[key] = len(self.infos)
+        self.infos.append(info)
+        return self.index[key]
+
     def info(self, state: str) -> int | None:
         """Index of the look of *state* (``minecraft:name[props]``) in :attr:`infos`; None = draw nothing."""
         if state in self.index:
@@ -609,7 +639,11 @@ class Look:
             tinted = False
         info = {"name": name, "kind": kind, "quads": quads, "opaque": kind == "cube" and not cutout,
                 "cutout": cutout, "water": props.get("waterlogged") == "true",
-                "tint": tint_kind(name, props) if tinted else None}
+                "tint": tint_kind(name, props) if tinted else None,
+                # see-through (blended, not cut out): stained glass and panes, ice, slime, honey
+                "translucent": "stained_glass" in name or name in ("ice", "slime_block", "honey_block")}
+        if kind in ("water", "lava"):
+            info["level"] = int(props.get("level", "0") or 0)
         self.index[state] = len(self.infos)
         self.infos.append(info)
         return self.index[state]
@@ -619,16 +653,16 @@ class Look:
         icon = self.item_icon(item)
         return icon["tex"] if icon else None
 
-    def _display(self, name: str, depth: int = 0) -> dict | None:
-        """How the game holds an item model in a right hand in third person: ``{rotation, translation, scale}`` from
-        the model's ``display.thirdperson_righthand`` (or its parents'); None when no model says."""
+    def _display(self, name: str, depth: int = 0, which: str = "thirdperson_righthand") -> dict | None:
+        """How the game holds an item model in a hand in third person: ``{rotation, translation, scale}`` from the
+        model's ``display.<which>`` (or its parents'); None when no model in the chain says."""
         if depth > 10 or not name:
             return None
         m = self._json(f"assets/minecraft/models/{name.replace('minecraft:', '')}.json") or {}
-        disp = (m.get("display") or {}).get("thirdperson_righthand")
+        disp = (m.get("display") or {}).get(which)
         if isinstance(disp, dict):
             return {k: disp.get(k, d) for k, d in (("rotation", [0, 0, 0]), ("translation", [0, 0, 0]), ("scale", [1, 1, 1]))}
-        return self._display(m["parent"], depth + 1) if isinstance(m.get("parent"), str) else None
+        return self._display(m["parent"], depth + 1, which) if isinstance(m.get("parent"), str) else None
 
     def item_icon(self, item: str) -> dict | None:
         """The picture the game shows for *item* in a hotbar: its item definition (``items/<id>.json``, 1.21.4+:
@@ -657,9 +691,11 @@ class Look:
             return None
         d = self._json(f"assets/minecraft/items/{item}.json")
         name = first_model(d.get("model")) if d else None
-        hand = self._display(name if name and name != "#special" else f"item/{item}")
+        mname = name if name and name != "#special" else f"item/{item}"
+        hand = self._display(mname)
+        hand_left = self._display(mname, which="thirdperson_lefthand") or hand   # the game's own left-hand values
         if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            return {"tex": f"item/{item}", "cube": False, "hand": hand}
+            return {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left}
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")
@@ -677,10 +713,10 @@ class Look:
             side = pick("side", "all", "north", "front", "texture", "end", "top")
             if side:
                 return {"tex": side, "cube": True, "top": pick("top", "up", "end", "all") or side,
-                        "bottom": pick("bottom", "down", "end", "all") or side, "hand": hand}
+                        "bottom": pick("bottom", "down", "end", "all") or side, "hand": hand, "hand_left": hand_left}
         t = pick("layer0", "side", "all", "texture", "front", "top", "end", "cross")   # not "particle" (beds: planks)
         if t:
-            return {"tex": t, "cube": False, "hand": hand}
+            return {"tex": t, "cube": False, "hand": hand, "hand_left": hand_left}
         return {"tex": f"block/{item}", "cube": False} if self.has_texture(f"block/{item}") else None
 
     def texture_png(self, tex: str) -> bytes | None:
@@ -978,6 +1014,34 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
         i = block(x, y, z)
         return i is not None and infos[i]["opaque"]
 
+    def fluid_height(x: int, y: int, z: int, kind: str) -> float:
+        """The game's height of a fluid cell: 1 under the same fluid; else its amount / 9 (a source or falling: 8,
+        flowing level n: 8 - n). Not that fluid: -1 when solid, 0 when open (they count so in the corners)."""
+        i = block(x, y, z)
+        inf = infos[i] if i is not None else None
+        same = inf is not None and (inf["kind"] == kind or (kind == "water" and inf.get("water")))
+        if not same:
+            return -1.0 if (inf is not None and inf["opaque"]) else 0.0
+        a = block(x, y + 1, z)
+        ab = infos[a] if a is not None else None
+        if ab is not None and (ab["kind"] == kind or (kind == "water" and ab.get("water"))):
+            return 1.0
+        lv = inf.get("level", 0) if inf["kind"] == kind else 0
+        return (8 if lv == 0 or lv >= 8 else 8 - lv) / 9
+
+    def corner_height(h00: float, h10: float, h01: float, h11: float) -> float:
+        """A top corner as the game averages the four cells round it: full if a neighbour is full; cells at 0.8 or
+        more count ten times; solid ones not at all."""
+        if h10 >= 1.0 or h01 >= 1.0 or h11 >= 1.0:
+            return 1.0
+        tot = w = 0.0
+        for h in (h00, h10, h01, h11):
+            if h >= 0.8:
+                tot += h * 10; w += 10
+            elif h >= 0:
+                tot += h; w += 1
+        return tot / w if w else h00
+
     def passable(x: int, y: int, z: int) -> bool:
         i = block(x, y, z)
         if i is None:
@@ -1136,6 +1200,25 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                         continue
                     faces += pack(x - x0, y, z - z0, d, w, light(nx, ny, nz) << 8, tint(x, y, z, "water"))
             continue
+        draw = i
+        if kind in ("water", "lava"):                       # the game's fluid shape: corner heights from the cells round it
+            hs = {}
+
+            def fh(cx, cz):
+                if (cx, cz) not in hs:
+                    hs[(cx, cz)] = fluid_height(cx, y, cz, kind)
+                return hs[(cx, cz)]
+            if fh(x, z) >= 1.0:
+                corners = (1.0, 1.0, 1.0, 1.0)
+            else:
+                corners = tuple(round(corner_height(fh(x, z), fh(x + ex, z), fh(x, z + ez), fh(x + ex, z + ez)) * 32) / 32
+                                for ex, ez in ((-1, -1), (1, -1), (-1, 1), (1, 1)))
+            lv = info.get("level", 0)
+            flowing = 0 < lv < 8 or len(set(corners)) > 1
+            if corners != (0.875, 0.875, 0.875, 0.875) or flowing:
+                draw = look.fluid_info(i, corners, flowing)
+                if len(infos) < len(look.infos):
+                    infos = look.infos
         for d, (dx, dy, dz) in enumerate(DIRS):
             nx, ny, nz = x + dx, y + dy, z + dz
             if not visible(nx, ny, nz):
@@ -1146,7 +1229,7 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 if ninfo["opaque"] or n == i or (kind in ("water", "lava") and ninfo["kind"] == kind) \
                         or (kind == "water" and ninfo["water"]):
                     continue
-            if info["quads"][d] is None:
+            if infos[draw]["quads"][d] is None:
                 continue
             ao = 0
             if kind == "cube" and not info["cutout"]:
@@ -1165,14 +1248,15 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                     oc = opaque(nx + s[0], ny + s[1], nz + s[2])
                     occ = 3 if (o1 and o2) else (o1 + o2 + oc)
                     ao |= occ << (2 * k)
-            faces += pack(x - x0, y, z - z0, d, i, ao | (light(nx, ny, nz) << 8), tint(x, y, z, info["tint"]))
+            faces += pack(x - x0, y, z - z0, d, draw, ao | (light(nx, ny, nz) << 8), tint(x, y, z, info["tint"]))
     return {"origin": [x0, z0], "infos": infos, "textures": look.textures, "faces": bytes(faces),
             "chunks": len(chunks), "open": len(seen)}
 
 
 def client_infos(infos: list[dict]) -> list[dict]:
     """What the page needs of each look."""
-    return [{"name": i["name"], "kind": i["kind"], "quads": i["quads"], "cutout": i["cutout"]} for i in infos]
+    return [{"name": i["name"], "kind": i["kind"], "quads": i["quads"], "cutout": i["cutout"],
+             "translucent": i.get("translucent", False)} for i in infos]
 
 
 def texture_sizes(look: "Look", textures: list[str]) -> dict:

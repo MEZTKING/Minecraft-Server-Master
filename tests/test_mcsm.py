@@ -3845,6 +3845,60 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual((ct.kind_of("minecraft:red_shulker_box"), ct.SIZES["furnace"]), ("shulker_box", 3))
         self.assertEqual(ct._ms("2026-05-24 14:26:56.408"), 1779632816408)
 
+    def test_entity_data_reads_past_a_name(self):
+        """A named mob's data: the name (index 2, optional text component) is read past, so the pose and hand use
+        after it still count; an unnamed one (absent name) the same."""
+        from mcsm import paths
+        name = bytes([8]) + b"\x00\x03Bob"                  # network NBT: a string tag
+        for opt in (b"\x01" + name, b"\x00"):
+            body = bytes([0, 0, 0x02]) + bytes([2, 6]) + opt + bytes([6, 1, 5]) + bytes([8, 0, 1]) + b"\xff"
+            d = paths.entity_data(body, 0, len(body))
+            self.assertEqual(d.get(0), 2)
+            self.assertEqual(d.get(6), 5)
+            self.assertEqual(d.get(8), 1)
+
+    def test_water_shape(self):
+        """Water shaped as the game does: a source 8/9 high, flowing water lower by level, corners averaged over the
+        four cells round them (cells of 0.8 or more counting ten times), full under more water; flowing texture."""
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+
+            def b(x, y, z):
+                if y < 64:
+                    return "minecraft:stone"
+                if y == 64 and z == 5 and 2 <= x <= 6:              # a channel: a source, then flowing levels 1..4
+                    return f"minecraft:water[level={x - 2}]"
+                if y in (64, 65) and (x, z) == (10, 10):         # two sources stacked: the lower one is full
+                    return "minecraft:water[level=0]"
+                return "minecraft:stone" if y == 64 else None
+            world = self._world(tmp, b)
+            look = bm.Look(jar)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], look, radius=40)
+            # the top quad of each water cell: its four corner heights
+            def heights(pos):
+                ox, oz = r["origin"]
+                rec = [i for i in range(0, len(r["faces"]), bm.RECORD.size)
+                       if bm.RECORD.unpack_from(r["faces"], i)[:4] == (pos[0] - ox, pos[1], pos[2] - oz, 0)]
+                info = r["infos"][bm.RECORD.unpack_from(r["faces"], rec[0])[4]]
+                q = info["quads"][0]
+                return sorted({round(q[4 + 3 * k], 3) for k in range(4)}), info
+            src, _ = heights((2, 64, 5))
+            far, far_info = heights((6, 64, 5))
+            self.assertTrue(max(src) > max(far))                  # sloping down from the source
+            self.assertLess(min(far), 0.6)                        # level 4: (8 - 4) / 9 = 0.44 at its own corners
+            self.assertIn("block/water_flow", r["textures"])
+            low, _ = heights((10, 65, 10))
+            self.assertEqual(low, [0.688])                        # the upper source on its own, open air round it:
+                                                                  # (8/9 x 10) / 13 = 0.68 at each corner (to 1/32)
+            ox, oz = r["origin"]
+            self.assertFalse(any(bm.RECORD.unpack_from(r["faces"], i)[:4] == (10 - ox, 64, 10 - oz, 0)
+                                 for i in range(0, len(r["faces"]), bm.RECORD.size)))   # under water: no top drawn
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_under_water(self):
         """The sea floor is drawn under water (seen through it, as in the game), with the water's surface."""
         from mcsm import blockmesh as bm

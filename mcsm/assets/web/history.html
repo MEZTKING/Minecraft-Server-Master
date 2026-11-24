@@ -656,7 +656,7 @@ function applyLight(save = true) {
   setLight({ day: L.day, torch: L.torch, bright: L.bright, exposure: L.exposure, sunMix: L.sun, ao: L.ao, sunDir: dir });
   sun.position.copy(dir); SUN_DIR.copy(dir); sun.intensity = 1.6 * L.day * L.exposure; hemi.intensity = (0.35 + 0.75 * L.day) * L.exposure;
   if (SKY) { SKY.material.uniforms.uSunDir.value.copy(new THREE.Vector3(Math.cos(a), h, 0.3).normalize());
-    SKY.material.uniforms.uDay.value = L.day; SKY.material.uniforms.uRain.value = Math.max(L.rain || 0, L.thunder || 0);
+    SKY.material.uniforms.uDay.value = L.day; SKY.material.uniforms.uRain.value = L.rain || 0;
     GLOW_MAT.opacity = 0.25 + 0.55 * (1 - L.day); }
   const warm = h > -0.1 && h < 0.3 ? 1 - Math.abs(h - 0.1) / 0.2 : 0;               // sunrise / sunset colour
   sun.color.setRGB(1, 1 - 0.25 * Math.max(0, warm), 1 - 0.45 * Math.max(0, warm));
@@ -1655,6 +1655,14 @@ function updateMobs() {
         continue;
       }
       animateMob(o, label, speed);
+      const hp = o.parts && o.parts.head;                    // the head turned and tilted as recorded
+      if (hp && a[7] != null) {
+        let hy = a[7], pt = a[6];
+        if (b && b[0] - a[0] <= 700 && b[7] != null) { const f = (T - a[0]) / Math.max(1, b[0] - a[0]);
+          hy += ((((b[7] - a[7]) % 360) + 540) % 360 - 180) * f; pt += (b[6] - a[6]) * f; }
+        const rel = Math.max(-75, Math.min(75, ((((hy - yaw) % 360) + 540) % 360 - 180)));
+        hp.g.rotation.y = hp.y - rel * Math.PI / 180; hp.g.rotation.x = hp.x + Math.max(-60, Math.min(60, pt)) * Math.PI / 180;
+      }
       updateMobGear(o, label);
       mobTint(o, label);
     }
@@ -1805,7 +1813,8 @@ function itemInfo(item) {
   if (!itemIcons.has(item)) itemIcons.set(item, fetch(`api/itemicon/0/${item}`).then(r => r.json()).catch(() => ({ cube: false })));
   return itemIcons.get(item);
 }
-// A shield's face with its banner patterns: the shield's wood and plate (entity/shield/base), the plate in its base
+// A shield's face with its banner patterns: the shield's wood and plate (entity/shield/shield_base in 26.x,
+// entity/shield_base before), the plate in its base
 // dye, then each pattern's picture for shields (entity/shield/<pattern>) in its dye; the same 64 x 64 layout.
 const shieldTex = new Map();
 function shieldTexture(look) {
@@ -1815,20 +1824,21 @@ function shieldTexture(look) {
   const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
   shieldTex.set(key, t);
   (async () => {
-    const load = n => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `blocktex/0/entity/shield/${n}.png`; });
-    const g = cv.getContext("2d"), base = await load("base"); if (!base) return;
-    g.drawImage(base, 0, 0, 64, 64);
+    const load = n => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `blocktex/0/entity/${n}.png`; });
+    const g = cv.getContext("2d"), wood = (await load("shield/shield_base")) || (await load("shield_base"));
+    const base = await load("shield/base"); if (!wood || !base) return;
+    g.drawImage(wood, 0, 0, 64, 64);
     const tmp = document.createElement("canvas"); tmp.width = tmp.height = 64; const tg = tmp.getContext("2d");
     const layer = (im, col, plateOnly) => {
       tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, 64, 64);
-      if (plateOnly) tg.drawImage(im, 2, 2, 12, 22, 2, 2, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
+      if (plateOnly) tg.drawImage(im, 1, 1, 12, 22, 1, 1, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
       tg.globalCompositeOperation = "multiply"; tg.fillStyle = "#" + (DYE[col] ?? 0xffffff).toString(16).padStart(6, "0"); tg.fillRect(0, 0, 64, 64);
       tg.globalCompositeOperation = "destination-in";
-      if (plateOnly) tg.drawImage(im, 2, 2, 12, 22, 2, 2, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
+      if (plateOnly) tg.drawImage(im, 1, 1, 12, 22, 1, 1, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
       g.drawImage(tmp, 0, 0);
     };
     if (look.base) layer(base, look.base, true);
-    for (const [name, col] of look.patterns || []) { const im = await load(name); if (im) layer(im, col, false); }
+    for (const [name, col] of look.patterns || []) { const im = await load("shield/" + name); if (im) layer(im, col, false); }
     t.needsUpdate = true;
   })();
   return t;
@@ -1876,12 +1886,12 @@ async function heldItem(item, px, look = null, opts = {}) {
   }
   if (item === "shield") {                              // drawn by the game's code: its plate (12 x 22 pixels, 1 thick)
     const t = look && (look.base || (look.patterns || []).length) ? shieldTexture(look)
-      : (await texOnce("entity/shield/base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
+      : (await texOnce("entity/shield/shield_base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
     if (!t) return null;
     // the plate (12 wide, 22 tall, 1 thick) held up on the forearm, its face forward, as in the game's third person
     const g = new THREE.BoxGeometry(12 * px, 22 * px, 1 * px), uv = g.attributes.uv;
-    for (let i = 0; i < uv.count; i++)                  // every side shows the plate's front (2, 2 .. 14, 24 of 64)
-      uv.setXY(i, (2 + uv.getX(i) * 12) / 64, 1 - (2 + (1 - uv.getY(i)) * 22) / 64);
+    for (let i = 0; i < uv.count; i++)                  // every side shows the plate's front (1, 1 .. 13, 23 of 64)
+      uv.setXY(i, (1 + uv.getX(i) * 12) / 64, 1 - (1 + (1 - uv.getY(i)) * 22) / 64);
     const q = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.25 }));
     const hold = new THREE.Group(); hold.add(q);
     q.position.set(0, 2 * px, 0);                       // its middle a little above the fist
@@ -1908,8 +1918,8 @@ async function heldItem(item, px, look = null, opts = {}) {
       emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // lit a little by itself: never black edge-on
   }
   obj.matrixAutoUpdate = false;
-  obj.matrix.copy(handMatrix((ic && ic.hand) || { rotation: [0, 0, 0], translation: [0, 3, 1], scale: [0.55, 0.55, 0.55] },
-    px, !!opts.left, opts.pivot || 0));
+  const disp = (ic && (opts.left ? ic.hand_left || ic.hand : ic.hand)) || { rotation: [0, 0, 0], translation: [0, 3, 1], scale: [0.55, 0.55, 0.55] };
+  obj.matrix.copy(handMatrix(disp, px, !!opts.left, opts.pivot || 0));
   return obj;
 }
 // Where the game puts an item in a hand in third person (ItemInHandLayer, then the model's thirdperson_righthand
@@ -1925,8 +1935,10 @@ function handMatrix(d, px, left, pivot) {
   M.multiply(T.makeTranslation(flip * tr[0] / 16, tr[1] / 16, tr[2] / 16));
   M.multiply(T.makeRotationFromEuler(new THREE.Euler(ro[0] * D, flip * ro[1] * D, flip * ro[2] * D, "XYZ")));
   M.multiply(T.makeScale(sc[0], sc[1], sc[2]));
-  // into ours: the game's units (a block) to our pixels, y and z turned round, and the pivot difference
-  const out = new THREE.Matrix4().makeTranslation(flip * pivot * px, -2 * px * (pivot ? 1 : 0), 0);
+  // into ours: the pivot difference (pixels: a number = players, x by it and 2 down; or [dx, dy]), the game's units
+  // (a block) to our pixels, and y and z turned round
+  const [dx, dy] = Array.isArray(pivot) ? pivot : [pivot || 0, pivot ? -2 : 0];
+  const out = new THREE.Matrix4().makeTranslation(flip * dx * px, dy * px, 0);
   out.multiply(T.makeScale(16 * px, 16 * px, 16 * px));
   out.multiply(T.makeRotationX(Math.PI));             // (x, y, z) -> (x, -y, -z)
   out.multiply(M);
@@ -1956,8 +1968,8 @@ async function setGear(m, slot, v) {
   if (!item) return;
   const objs = [];
   if (slot === "mainhand" || slot === "offhand") {
-    const aw = m.F.slim ? 3 : 4;                          // our arm's pivot is its middle; the game's is 1 px further in
-    const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: aw / 2 - 1 + 0.0001, tex: v[4] || null });
+    // our arm pivots at its top middle; the game's hand point is 1 px further in and 2 down (slim arms too)
+    const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: 1, tex: v[4] || null });
     if (!q || m.F !== F || F.tok[slot] !== mine) return;
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
   } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
@@ -2034,7 +2046,8 @@ async function setMobGear(o, slot, v) {
   const item = v && v[0], P = o.parts; if (!item || !P) return;
   if (slot === "mainhand" || slot === "offhand") {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
-    const q = await heldItem(item, MPX, v[3] || null, { left: slot === "offhand" }); if (!q || o.gtok[slot] !== mine) return;
+    const skel = /^(skeleton|stray|wither_skeleton|bogged)$/.test(o.kind);   // their arms hold 1 px further in
+    const q = await heldItem(item, MPX, v[3] || null, { left: slot === "offhand", pivot: skel ? [1, 0] : 0 }); if (!q || o.gtok[slot] !== mine) return;
     arm.g.add(q); o.gear[slot].push(q); return;
   }
   if (slot === "head" && /_banner$/.test(item) && P.head) {
@@ -2067,6 +2080,12 @@ function updateMobGear(o, label) {
     const v = stateAt(label, `eq:${slot}`, T, null), key = gearKey(v);
     if (o.gearKeys[slot] !== key) { o.gearKeys[slot] = key; setMobGear(o, slot, v); }
   }
+  // illagers: arms folded when empty-handed, two free arms when holding something (never both, as the game)
+  const P = o.parts;
+  if (P.arms && P.right_arm) {
+    const holding = !!o.gearKeys.mainhand && o.gearKeys.mainhand !== gearKey(null);
+    P.arms.g.visible = !holding; P.right_arm.g.visible = holding; if (P.left_arm) P.left_arm.g.visible = holding;
+  }
 }
 function animateFigure(m, now) {
   updateGear(m);
@@ -2095,7 +2114,9 @@ function animateFigure(m, now) {
   P0.rleg.position.z = P0.lleg.position.z = sneak ? -4 * PX : 0;
   P0.rleg.position.y = P0.lleg.position.y = (sneak ? 12 - 0.2 : 12) * PX;
   m.sprint = !!(fl & 0x08);
-  m.using = c && c.exact ? !!(stateAt(m.name, "h", T) & 0x01) : false;                  // eating, drawing a bow, a shield
+  const hv = c && c.exact ? stateAt(m.name, "h", T) : 0;
+  m.using = !!(hv & 0x01);                               // eating, drawing a bow, a shield
+  m.usingOff = !!(hv & 0x02);                            // ...with the off hand
   m.riding = c && c.exact ? stateAt(m.name, "r", T, "") : "";                          // in a boat, on a horse, on a seat
   const sw = c && c.exact ? swingAt(m.name, T) : null;
   m.swing = sw !== null && sw < 300 ? Math.sin(sw / 300 * Math.PI) : 0;
@@ -2121,7 +2142,17 @@ function animateFigure(m, now) {
   if (m.riding) {                                       // sitting: legs forward, a little apart (the game's riding pose)
     P.rleg.rotation.x = P.lleg.rotation.x = -1.41; P.rleg.rotation.z = 0.1; P.lleg.rotation.z = -0.1;
   } else { P.rleg.rotation.z = P.lleg.rotation.z = 0; }
-  P.rarm.rotation.x = m.using ? -1.1 : -s * 0.8 + lean - (m.swing || 0) * 1.6; P.larm.rotation.x = s * 0.8 + lean;
+  const held = (m.gearKeys && m.gearKeys[m.usingOff ? "offhand" : "mainhand"]) || "";
+  P.rarm.rotation.order = P.larm.rotation.order = "ZYX";
+  P.rarm.rotation.y = P.larm.rotation.y = 0;
+  if (m.using && /^(bow|crossbow)\|/.test(held)) {      // drawing a bow: both arms up along the look, as in the game
+    const hx = P.head.rotation.x, hy = P.head.rotation.y, side = m.usingOff ? -1 : 1;
+    P.rarm.rotation.x = P.larm.rotation.x = -Math.PI / 2 + hx;
+    P.rarm.rotation.y = (side > 0 ? 0.1 : 0.5) + hy; P.larm.rotation.y = (side > 0 ? -0.5 : -0.1) + hy;
+  } else {
+    P.rarm.rotation.x = m.using && !m.usingOff ? -1.1 : -s * 0.8 + lean - (m.swing || 0) * 1.6;
+    P.larm.rotation.x = m.using && m.usingOff ? -1.1 : s * 0.8 + lean;   // a shield up, eating with the off hand
+  }
   m.last = p.clone(); m.lastT = now;
 }
 // A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
@@ -3255,8 +3286,8 @@ const RAIN = (() => {
 let lastWorld = 0;
 function worldStep(now, dt) {
   const follow = $("#lFollow").checked && EXACT.on;
-  const thunder = follow ? (worldAt("thunder", T) ?? 0) : 0;
-  const rain = follow ? Math.max(worldAt("rain", T) ?? 0, thunder) : 0;     // thunder only comes with rain
+  const rain = follow ? (worldAt("rain", T) ?? 0) : 0;
+  const thunder = follow ? (worldAt("thunder", T) ?? 0) * rain : 0;   // as the game: thunder only as much as it rains
   RAIN.visible = rain > 0.05 && $("#dim").value === "minecraft:overworld";
   if (RAIN.visible) {
     RAIN.position.set(camera.position.x, camera.position.y - 20, camera.position.z);
@@ -3684,11 +3715,33 @@ $("#reliveBtn").onclick = () => {
 // selected slot), as "hb:<slot>" and "hs" states. Their full inventory, armour and ender chest come from the
 // library backup saved at or before the time shown (playerdata), labelled with how old it is.
 const INV = { who: "", tab: "inv", backup: {}, want: "", busy: false, last: 0, open: false };
+// An item's hotbar picture. The shield has none (the game draws it from its 3D model): its front plate from the
+// game's shield texture, upright, as the hotbar shows it. Pictures that don't exist are asked for once.
+const ICON_SRC = new Map();
+function iconSrc(item) {
+  if (ICON_SRC.has(item)) return ICON_SRC.get(item);
+  let src = `itemtex/0/${item}.png`;
+  if (item === "shield") {
+    src = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";   // blank until drawn
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement("canvas"); c.width = c.height = 32; const g = c.getContext("2d");
+      g.imageSmoothingEnabled = false; const k = im.width / 64;
+      g.drawImage(im, 1 * k, 1 * k, 12 * k, 22 * k, 8, 2, 16, 28);     // the plate's front face (12 x 22)
+      ICON_SRC.set(item, c.toDataURL());
+      for (const e of document.querySelectorAll('img[data-item="shield"]')) e.src = ICON_SRC.get(item);
+    };
+    im.onerror = () => { if (!im.src.endsWith("/entity/shield_base_nopattern.png")) im.src = "blocktex/0/entity/shield_base_nopattern.png"; };
+    im.src = "blocktex/0/entity/shield/shield_base_nopattern.png";
+  }
+  ICON_SRC.set(item, src);
+  return src;
+}
 function itemImg(item) {                                // the item's icon from the game, or its block's texture
   const box = document.createElement("div"); box.className = "ic"; box.title = item.replace(/_/g, " ");
   const im = document.createElement("img"); im.alt = box.title;
-  im.src = `itemtex/0/${item}.png`;                     // as the game's hotbar shows it (animated ones: the first frame)
-  im.onerror = () => {                                  // drawn by the game's code (shields, beds, heads): its name
+  im.src = iconSrc(item); im.dataset.item = item;      // as the game's hotbar shows it (animated ones: the first frame)
+  im.onerror = () => {                                  // drawn by the game's code (beds, heads): its name
     const l = document.createElement("span"); l.className = "lbl"; l.style.color = "#fff"; l.textContent = item.replace(/_/g, " ").slice(0, 12); box.replaceWith(l); };
   box.append(im);
   return box;
@@ -3948,13 +4001,15 @@ function hudStep(now) {
     HUD.key = key;
     const els = [], img = (src, x, y, w, h) => { const im = document.createElement("img"); im.src = src;
       Object.assign(im.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
-      im.onerror = () => { im.style.visibility = "hidden"; }; els.push(im); return im; };
+      im.onerror = () => { im.style.visibility = "hidden";       // (not asked for again)
+        if (im.dataset.item) ICON_SRC.set(im.dataset.item, "data:image/gif;base64,R0lGODlhAQABAAAAACw="); };
+      els.push(im); return im; };
     const Y = 110 - 44;                                   // the hotbar's top (22 game pixels tall)
     img(hudSprite("hotbar"), 0, Y, 364, 44);
     img(hudSprite("hotbar_selection"), -2 + sel * 40, Y - 2, 48, 46);
     slots.forEach((v, i) => {
       if (!v || !v[0]) return;
-      const im = img(`itemtex/0/${v[0]}.png`, 6 + i * 40, Y + 6, 32, 32);
+      const im = img(iconSrc(v[0]), 6 + i * 40, Y + 6, 32, 32); im.dataset.item = v[0];
       im.style.objectFit = "cover"; im.style.objectPosition = "top";
       if (v[1] > 1) { const n = document.createElement("span"); n.className = "n"; n.textContent = v[1];
         Object.assign(n.style, { left: `${6 + i * 40}px`, top: `${Y + 26}px`, width: "34px", textAlign: "right" }); els.push(n); }

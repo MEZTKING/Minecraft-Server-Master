@@ -227,19 +227,32 @@ float rvLevel() { return uRev.y + (uClock - uRev.x) * uRev.z + (rvHash(floor(vBW
     diffuseColor.rgb *= mix(vec3(1.0), vT.rgb, o); diffuseColor.a = 1.0;
   } else if (vT.a > 0.5) diffuseColor.rgb *= vT.rgb;               // the biome's grass, leaves or water colour
   {
-    float sky = vL.x * uDay, blk = vL.y * uTorch;
-    float l = clamp(max(sky, blk), 0.0, 1.0);
-    float b = l / (3.0 - 2.0 * l);                                  // the game's light curve
-    b = mix(b, 1.0 - pow(1.0 - b, 4.0), uBright);                 // its brightness option
-    b = max(b, 0.04);
+    // the game's lightmap: each level through its curve l / (4 - 3l); sky light (times daylight) and block light
+    // (torches, lamps: warm, the game's own tint) ADDED, then its brightness option
+    float sky = vL.x / (4.0 - 3.0 * vL.x) * uDay, bl = vL.y / (4.0 - 3.0 * vL.y) * uTorch;
+    vec3 blk = vec3(bl, bl * ((bl * 0.6 + 0.4) * 0.6 + 0.4), bl * (bl * bl * 0.6 + 0.4));
+    vec3 c = clamp(vec3(sky) + blk, 0.0, 1.0);
+    c = mix(c, 1.0 - pow(1.0 - c, vec3(4.0)), uBright);
+    c = max(c, vec3(0.04));
     float side = vN.y > 0.5 ? 1.0 : vN.y < -0.5 ? 0.5 : abs(vN.z) > 0.5 ? 0.8 : 0.6;
     if (dot(vN, vN) < 0.1) side = 1.0;                             // not shaded (torches, flames)
     else side = mix(side, 0.45 + 0.55 * max(dot(vN, uSunDir), 0.0), uSunMix * (0.4 + 0.6 * uDay));
     side = mix(side, 1.0, uFancy);                                   // fancy: the lit material shades by the sun
     float ao = mix(1.0, vL.z, uAO);
-    vec3 warm = mix(vec3(1.0), vec3(1.0, 0.86, 0.68), clamp(blk - sky, 0.0, 1.0));   // torch light is warm
-    diffuseColor.rgb *= pow(clamp(vec3(b * side * ao * uExposure) * warm, 0.0, 4.0), vec3(2.2)) * uGain;
-  }`);
+#ifdef MCSM_SPLIT
+    // Fancy: the sky's share goes through the sun and its shadows; the torches' share glows on its own (a torch
+    // under a roof isn't in the sun's shadow)
+    vec3 cs = max(mix(vec3(sky), 1.0 - pow(1.0 - vec3(sky), vec3(4.0)), uBright), vec3(0.04));
+    vec3 cb = max(c - cs, vec3(0.0));
+    mcsmEm = diffuseColor.rgb * pow(clamp(cb * ao * uExposure, 0.0, 4.0), vec3(2.2)) * 1.6;
+    diffuseColor.rgb *= pow(clamp(cs * side * ao * uExposure, 0.0, 4.0), vec3(2.2)) * uGain;
+#else
+    diffuseColor.rgb *= pow(clamp(c * side * ao * uExposure, 0.0, 4.0), vec3(2.2)) * uGain;
+#endif
+  }`)
+    .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n#ifdef MCSM_SPLIT\n  totalEmissiveRadiance += mcsmEm;\n#endif");
+  if (sh.fragmentShader.includes("totalEmissiveRadiance"))   // a lit material (Fancy): torch light as its own glow
+    sh.fragmentShader = "#define MCSM_SPLIT\nvec3 mcsmEm = vec3(0.0);\n" + sh.fragmentShader;
 }
 // Water in Fancy: the sky reflected more at grazing angles, the sun's glint, small moving waves.
 function waterShader(sh) {
@@ -278,15 +291,21 @@ const GLOW_MAT = new THREE.PointsMaterial({ size: 3.2, map: null, transparent: t
 function blockMaterial(kind, atlas) {
   // Off: flat (Minecraft-like). Fancy/Ultra: a lit material that takes the sun's shadows.
   const fancy = GFX.mode !== "off", Mat = fancy && kind !== "water" ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
+  // faces are one-sided as in the game (ours wind clockwise seen from outside, so the engine's back side is the
+  // outside): no flicker where two faces back onto each other. Water stays two-sided (seen from below too).
+  // Cut-out textures (leaves, glass frames) fade by alpha-to-coverage, so far-off mipmaps don't pop on and off.
+  // See-through blocks (stained glass, ice, slime, honey) blend, in their own layer.
   const m = kind === "water"
     ? new Mat({ map: atlas.tex, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })
-    : new Mat({ map: atlas.tex, alphaTest: 0.5, side: THREE.DoubleSide });
+    : kind === "glass"
+      ? new Mat({ map: atlas.tex, transparent: true, depthWrite: false, alphaTest: 0.02, side: THREE.BackSide })
+      : new Mat({ map: atlas.tex, alphaTest: 0.5, alphaToCoverage: true, side: THREE.BackSide });
   m.userData.rev = { value: new THREE.Vector3(-1e4, -64, 1) };      // shown whole until revealIn starts it
   m.onBeforeCompile = sh => { (kind === "water" ? waterShader : lightShader)(sh); sh.uniforms.uRev = m.userData.rev; };
   // our faces wind clockwise seen from outside, so the engine's "front" is the inside: drawing that side into the
   // shadow map keeps sunlit surfaces from shadowing themselves
   m.shadowSide = THREE.FrontSide;
-  m.customProgramCacheKey = () => kind === "water" ? "mcsm-water" : "mcsm-blocks";
+  m.customProgramCacheKey = () => kind === "water" ? "mcsm-water" : kind === "glass" ? "mcsm-glass" : "mcsm-blocks";
   return m;
 }
 // Switch the graphics of block meshes already built (their geometry stays).
@@ -297,7 +316,7 @@ function applyGraphics(meshes, atlasTex) {
     const old = m.material, mat = blockMaterial(kind, { tex: old.map || atlasTex });
     if (old.userData.rev) mat.userData.rev.value.copy(old.userData.rev.value);   // a piece building in keeps going
     m.material = mat; old.dispose();
-    m.castShadow = m.receiveShadow = GFX.mode !== "off" && kind !== "water";
+    m.castShadow = m.receiveShadow = GFX.mode !== "off" && kind !== "water" && kind !== "glass";
   }
 }
 // A new piece builds in: it rises from its lowest block to its highest in about a second and a half, its top edge
@@ -318,7 +337,7 @@ function blockMeshes(info, buf, atlas) {
   const dv = new DataView(buf), n = buf.byteLength / 14, [ox, oz] = info.origin, N = atlas.N;
   const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], c: [], i: [] });
   const half = 0.5 / (N * (atlas.C || 16));                 // half a texel: the cell's edge, see lightShader
-  const geo = { solid: G(), water: G() };
+  const geo = { solid: G(), water: G(), glass: G() };
   const e = 0.001;
   const lin = v => Math.pow(v, 2.2);
   const quad = (Gr, q, x, y, z, sky, blk, ao, tint) => {
@@ -353,14 +372,14 @@ function blockMeshes(info, buf, atlas) {
   const keys = new Array(n);
   for (let k = 0; k < n; k++) keys[k] = ck(k);
   const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => (keys[a] < keys[b] ? -1 : keys[a] > keys[b] ? 1 : a - b));
-  geo.solid.ranges = new Map(); geo.water.ranges = new Map();
+  geo.solid.ranges = new Map(); geo.water.ranges = new Map(); geo.glass.ranges = new Map();
   let curKey = null;
   const close = () => { if (curKey === null) return;
-    for (const Gr of [geo.solid, geo.water]) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.i.length; } };
+    for (const Gr of [geo.solid, geo.water, geo.glass]) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.i.length; } };
   for (const k of order) {
     if (keys[k] !== curKey) {
       close(); curKey = keys[k];
-      for (const Gr of [geo.solid, geo.water]) Gr.ranges.set(curKey, [Gr.i.length, Gr.i.length]);
+      for (const Gr of [geo.solid, geo.water, geo.glass]) Gr.ranges.set(curKey, [Gr.i.length, Gr.i.length]);
     }
     const o = k * 14, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
     const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
@@ -369,7 +388,7 @@ function blockMeshes(info, buf, atlas) {
     let tint = tints.get(t5);
     if (!tint) { tint = [lin(((t5 >> 11) & 31) / 31), lin(((t5 >> 5) & 63) / 63), lin((t5 & 31) / 31)]; tints.set(t5, tint); }
     const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
-    const Gr = b.kind === "water" ? geo.water : geo.solid;
+    const Gr = b.kind === "water" ? geo.water : b.translucent ? geo.glass : geo.solid;
     if (GLOW.test(b.name) && (d === 7 || d === 0)) {
       const soul = b.name.startsWith("soul_");
       glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
@@ -401,6 +420,7 @@ function blockMeshes(info, buf, atlas) {
   };
   const out = [mesh(geo.solid, blockMaterial("solid", atlas))];
   if (geo.water.i.length) out.push(mesh(geo.water, blockMaterial("water", atlas)));
+  if (geo.glass.i.length) { const gm = mesh(geo.glass, blockMaterial("glass", atlas)); gm.userData.kind = "glass"; gm.renderOrder = 1; out.push(gm); }
   if (glows.length) {
     const g = new THREE.BufferGeometry(), n6 = glows.length / 6, pos = new Float32Array(n6 * 3), col = new Float32Array(n6 * 3);
     for (let k = 0; k < n6; k++) { pos.set(glows.slice(k * 6, k * 6 + 3), k * 3); col.set(glows.slice(k * 6 + 3, k * 6 + 6), k * 3); }

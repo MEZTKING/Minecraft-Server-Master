@@ -716,7 +716,7 @@ class HistoryMap(TerrainServer):
                 w = data["who"][row[1]]
                 if w and w.startswith("#"):              # a mob or pet: by its entity id (shared by all recordings)
                     mob = mobs.setdefault(w, {"type": data.get("mobs", {}).get(w, w.split("#")[1]), "rows": {}})
-                    mob["rows"][t] = [t, row[3], row[4], row[5], data["dims"][row[2]], row[6]]
+                    mob["rows"][t] = [t, row[3], row[4], row[5], data["dims"][row[2]], row[6], row[7], row[8]]   # + pitch, head
                     continue
                 name = aliases.get(w or r.recorded_player, w or r.recorded_player)
                 if not name or name.lower() in ignored:

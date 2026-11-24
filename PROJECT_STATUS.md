@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -913,6 +913,32 @@ they vanish; time of day and weather; blocks as they were (chunk snapshots + eve
 6. Size changes (the scale attribute) not applied.
 7. Armour trims and the enchantment glint aren't drawn.
 
+**Round 2 (2026-11-24, owner: "bow model is backwards and not drawn, just copy the flashback recordings, sent some
+sub agents ... fix everything you can find").** Three audits (building, combat, everyday) and Fable compared the
+viewer with the game's code and recordings. Fixed:
+- Held items placed by the game's own third-person transform (ItemInHandLayer + each model's
+  `thirdperson_righthand` / `_lefthand` display values; pivot difference for wide/slim arms and skeletons); bow and
+  crossbow pulling pictures (0.65 / 0.9 of 20 ticks; 0.58 / 1.0 of 25) and both arms up while drawing; shield arm.
+- Shields: 26.x texture names (`entity/shield/shield_base`, `shield_base_nopattern`; 1.21: `entity/shield_base*`),
+  the plate's face at (1, 1) of the texture; a shield icon in the hotbar and inventory.
+- Water shaped by level (`Look.fluid_info`, the game's corner averaging), flowing texture; stained glass, ice,
+  slime and honey translucent; glass drawn without depth writes; alpha-to-coverage for cut-out blocks.
+- The game's light map: each level through l/(4-3l), sky and block light added, block light's warm tint; Fancy:
+  torch light not shadowed by the sun. Thunder only with rain.
+- 26.3 `swing_animation` (id 123) read as arm swings (most 26.3 swings were lost).
+- `entity_data` reads past strings, text components, a mob's optional name (index 2), rotations and block
+  positions, so named mobs keep pose / hand use / health.
+- Status 3 from a thrown egg or snowball (breaking) no longer counts as a death.
+- Mobs' head yaw and pitch kept and drawn; a mob turning more than 15 degrees writes a row.
+- Illagers: crossed arms only when empty-handed.
+
+Still different (from the audits, worst first): smooth lighting per corner; light from torches placed during a
+recording (needs a light flood fill); sign text, heads, chest lids, pistons, copper golems; per-item use poses
+(spyglass to the eye, drinking, eating); arrows' crossed-plane model, arrows stuck in bodies; babies, sheep colour
+and shearing, mob variants (chicken, cow, pig, wolf, horse), mob names over heads; death animation timing (red,
+poof at 20 ticks); body yaw lagging the head; moon phase; action-bar messages; armour stands, item frames,
+paintings, leads; spyglass and trident 3D models; particles.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -1631,6 +1657,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 2**: 24 May 20:26, Relive FirstMirror7097 (front view, F5 twice): the yellow shield with the red
+  stripe on the left arm; drawing a bow shows the pulling bow with both arms up; water near rivers slopes and flows;
+  a torch-lit room indoors is as bright as in the game; mobs turn their heads; pillagers have two arms, not four.
 - **Held and dropped items, shields, eggs**: 24 May around 20:22-20:26: shields on the forearm facing forward,
   spyglasses and tools solid, dropped items 3D, vegitogod22's eggs flying.
 - **Watch in Flashback**: go to a moment (e.g. follow vegitogod22 on 24 May 20:22), press **Watch in Flashback**:
@@ -1786,6 +1815,14 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "bow model is backwards and not drawn, just copy the flashback recordings, sent some sub
+  agents and find a few random clips and fix everything you can find", "rendering of water physics is not fully
+  finished, glass panes show glitching, indoor lighting is poor". Parity round 2 (see backlog 0zh): held items by
+  the game's display transforms (Fable's review), bow pulling, water shapes (`blockmesh.VERSION` 9), translucent
+  glass, the game's light map, 26.3 swings, named mobs' data, eggs aren't deaths, mob head turns, illager arms,
+  shield textures for 26.x and a shield icon (`EXACT_SUFFIX` `.exact11`). Tests: `test_water_shape`,
+  `test_entity_data_reads_past_a_name`.
 
 - **2026-11-24:** Owner: "sheild arent rendered properly, neither are spyglasses ... its supposed to be 3d check
   everything, when vegitogod throws eggs, it doesnt show up"; "dropped items should be 3d models". Held items are
