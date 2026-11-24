@@ -205,6 +205,12 @@ The pieces load 128 x 128 blocks at a time around where you look and around ever
 to each backup's world. Further away the map stays the smooth overview. When a backup's Minecraft version isn't
 installed on this PC, the status line says so and another version's textures are used.
 
+**Build-in effect.** With **Build-in effect** ticked (under *Real blocks*, on at first), the land still loading
+close up is drawn as a glowing grid of points and lines with a scan rippling across it, instead of the smooth
+map's big flat polygons; each piece of real blocks then rises up out of the ground column by column, its top edge
+a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
+have them simply appear.
+
 **Caves underground.** Fly the free camera below the ground (more than a block under the surface where you are)
 and the caves around you load: every wall, floor and ceiling of open space the sky can't reach, in a 64-block
 high slice around the camera (3 x 3 pieces of 128 blocks; the slice follows you up and down in 32-block steps).
@@ -297,6 +303,20 @@ flat icon pointing forward from the fist, like Minecraft's own third-person view
 texture. Items from the Hero's Journey datapack show as the plain item they're based on (their own pictures
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
 when it changes or every few minutes; until the first listing in a recording, the first one seen is assumed.
+An elytra worn shows as folded wings on the back. Mobs hold and wear what they had too: a zombie's sword or
+helmet, a skeleton's bow, a piglin's golden sword, a drowned's trident.
+
+**Inventory and hotbar.** **Inventory** (next to *Relive*, or the **E** key) shows what the player you
+spectate (or the one nearest the view) carries. While you spectate or relive someone, their hotbar is also
+shown above the timeline, with the slot they hold outlined:
+
+- **The hotbar is exact** when the player's own recording covers the time: the recordings keep every hotbar
+  slot when they start and whenever one changes, and which slot is held. Exact slots have a green dot.
+- **Everything else comes from a backup**: the main inventory, armour, off hand and the **Ender chest** tab,
+  from the player's save in the library backup taken at or before the time shown. The panel says which backup
+  and how long before it was, and the health, food and level saved then.
+- Other players' hotbars aren't in anyone's recording (the game only sends you your own); only what they hold
+  and wear is seen.
 
 **Go to a day and time.** The **Go to** box in the bottom bar (after the date; clicking the date jumps to it)
 takes a day and an exact time, in your time zone, in the forms you'd naturally type:
@@ -426,6 +446,21 @@ and pause, because Space moves you up.
 - **Behind:** a few blocks behind them.
 
 Spectating switches to exact playback (1×). **Esc** stops.
+
+**Relive a moment, like a memory.** **Relive** on a moment in the list (or the **Relive** button by
+*Spectate*, for the next minute of the player you spectate or the one nearest the view) replays it as if you
+were there again:
+
+- The screen goes white with when, where and who was there, while the recordings and blocks load.
+- The camera drifts down from above and behind into the player's eyes (with *First person*) or over their
+  shoulder (with *Behind*), soft and a little handheld.
+- No panels: a letterbox, a warm haze closing in at the edges, and what anyone near says as subtitles with
+  their name. Only the names of people close by are shown.
+- On a moment, time slows to a third for a few seconds around its key event (a death, an advancement, a first).
+- At the end it fades back to white with the caption, then puts the viewer back as it was. **Esc** leaves any
+  time.
+
+It needs a recording of the time (moments without one have no Relive button).
 
 **Dev mode** (press the **`** key: top left of the keyboard, under Esc, left of 1; or open the page with
 `?dev=1`; it's remembered until you turn it off the same way) shows a panel with:

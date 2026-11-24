@@ -171,6 +171,7 @@ const LIGHT = {
   uGain: { value: 1.0 },           // brightness match between Off and Fancy
   uTime: { value: 0.0 },           // seconds, for the water's waves
   uSky: { value: new THREE.Color(0.75, 0.85, 1.0) },   // what the water reflects
+  uClock: { value: 0.0 },          // seconds, always running (the pages set it each frame): pieces building in
 };
 // Graphics: "off" (Minecraft-like flat light), "fancy" (sun shadows, sky reflections on water, glow), "ultra"
 const GFX = { mode: "off" };
@@ -186,11 +187,34 @@ function lightShader(sh) {
   // our faces are seen from their back (clockwise winding): keep the stored normal instead of flipping it per side
   sh.fragmentShader = sh.fragmentShader.replace("#include <normal_fragment_begin>",
     "vec3 normal = normalize( vNormal ); vec3 nonPerturbedNormal = normal;");
-  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; attribute vec4 aT; varying vec3 vN; varying vec3 vL; varying vec4 vT;")
-    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL; vT = aT;");
+  sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 aN; attribute vec3 aL; attribute vec4 aT; attribute vec4 aC; varying vec3 vN; varying vec3 vL; varying vec4 vT; varying vec4 vC; varying vec3 vBW;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvN = aN; vL = aL; vT = aT; vC = aC; vBW = (modelMatrix * vec4(transformed, 1.0)).xyz;");
   sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
-varying vec3 vN; varying vec3 vL; varying vec4 vT;
-uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO, uFancy, uGain, uTime; uniform vec3 uSunDir; uniform vec3 uSky;`)
+varying vec3 vN; varying vec3 vL; varying vec4 vT; varying vec4 vC; varying vec3 vBW;
+uniform float uDay, uTorch, uBright, uExposure, uSunMix, uAO, uFancy, uGain, uTime, uClock; uniform vec3 uSunDir; uniform vec3 uSky;
+uniform vec3 uRev;                 // building in: (start time, lowest y, blocks per second); see revealIn
+float rvHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float rvLevel() { return uRev.y + (uClock - uRev.x) * uRev.z + (rvHash(floor(vBW.xz)) - 0.5) * 6.0; }`)
+    // a new piece rises out of the ground column by column; above its edge nothing is drawn yet
+    .replace("void main() {", "void main() {\n  if (vBW.y > rvLevel()) discard;")
+    // the rising edge glows as a cyan block grid, then settles into the real blocks
+    .replace("#include <opaque_fragment>", `{
+    float band = 1.0 - smoothstep(0.0, 5.0, rvLevel() - vBW.y);
+    if (band > 0.001) {
+      vec3 fw = fwidth(vBW), fr = fract(vBW), dd = min(fr, 1.0 - fr) / max(fw, vec3(1e-4));
+      dd = mix(vec3(1e3), dd, step(vec3(1e-4), fw));               // not across the face's own plane
+      float line = 1.0 - clamp(min(dd.x, min(dd.y, dd.z)) - 0.5, 0.0, 1.0);
+      outgoingLight = mix(outgoingLight, outgoingLight * 0.35 + vec3(0.02, 0.08, 0.1), band * 0.8);
+      outgoingLight += vec3(0.25, 0.95, 1.0) * line * band * 1.6;
+    }
+  }
+  #include <opaque_fragment>`)
+    // each face reads only its own texture in the atlas: at a face's edge (antialiasing samples a little outside the
+    // triangle) the lookup would otherwise catch the next texture or an empty cell, a thin light line between blocks
+    .replace("#include <map_fragment>", `#ifdef USE_MAP
+  vec2 cuv = vC.z > vC.x ? clamp(vMapUv, vC.xy, vC.zw) : vMapUv;
+  diffuseColor *= texture2D(map, cuv);
+#endif`)
     .replace("#include <color_fragment>", `#include <color_fragment>
   if (vT.a > 1.5) {                                                  // only the overlay (marked alpha 250)
     float o = 1.0 - step(0.995, diffuseColor.a);
@@ -251,7 +275,8 @@ function blockMaterial(kind, atlas) {
   const m = kind === "water"
     ? new Mat({ map: atlas.tex, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })
     : new Mat({ map: atlas.tex, alphaTest: 0.5, side: THREE.DoubleSide });
-  m.onBeforeCompile = kind === "water" ? waterShader : lightShader;
+  m.userData.rev = { value: new THREE.Vector3(-1e4, -64, 1) };      // shown whole until revealIn starts it
+  m.onBeforeCompile = sh => { (kind === "water" ? waterShader : lightShader)(sh); sh.uniforms.uRev = m.userData.rev; };
   // our faces wind clockwise seen from outside, so the engine's "front" is the inside: drawing that side into the
   // shadow map keeps sunlit surfaces from shadowing themselves
   m.shadowSide = THREE.FrontSide;
@@ -264,8 +289,19 @@ function applyGraphics(meshes, atlasTex) {
     if (m.isPoints) { m.visible = GFX.mode !== "off"; continue; }
     const kind = m.userData.kind || "solid";
     const old = m.material, mat = blockMaterial(kind, { tex: old.map || atlasTex });
+    if (old.userData.rev) mat.userData.rev.value.copy(old.userData.rev.value);   // a piece building in keeps going
     m.material = mat; old.dispose();
     m.castShadow = m.receiveShadow = GFX.mode !== "off" && kind !== "water";
+  }
+}
+// A new piece builds in: it rises from its lowest block to its highest in about a second and a half, its top edge
+// a glowing grid (LIGHT.uClock must be running).
+function revealIn(meshes, seconds = 1.5) {
+  for (const m of meshes) {
+    if (m.isPoints || !m.material.userData.rev) continue;
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox, lo = b.min.y - 4, span = b.max.y - lo + 8;
+    m.material.userData.rev.value.set(LIGHT.uClock.value, lo, span / seconds);
   }
 }
 function setGraphics(mode) { GFX.mode = mode; LIGHT.uFancy.value = mode === "off" ? 0 : 1; }
@@ -274,7 +310,8 @@ const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
 // extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
 function blockMeshes(info, buf, atlas) {
   const dv = new DataView(buf), n = buf.byteLength / 14, [ox, oz] = info.origin, N = atlas.N;
-  const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], i: [] });
+  const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], c: [], i: [] });
+  const half = 0.5 / (N * (atlas.C || 16));                 // half a texel: the cell's edge, see lightShader
   const geo = { solid: G(), water: G() };
   const e = 0.001;
   const lin = v => Math.pow(v, 2.2);
@@ -298,6 +335,7 @@ function blockMeshes(info, buf, atlas) {
       Gr.u.push((col + u) / N, 1 - (row + v) / N);
       Gr.l.push(sky, blk, AO_LEVEL[(ao >> (2 * k)) & 3]);
       Gr.t.push(tint[0], tint[1], tint[2], mode);
+      Gr.c.push(col / N + half, 1 - (row + 1) / N + half, (col + 1) / N - half, 1 - row / N - half);
     }
     Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
@@ -346,6 +384,7 @@ function blockMeshes(info, buf, atlas) {
     g.setAttribute("normal", new THREE.Float32BufferAttribute(Gr.ln, 3));
     g.setAttribute("aL", new THREE.Float32BufferAttribute(Gr.l, 3));
     g.setAttribute("aT", new THREE.Float32BufferAttribute(Gr.t, 4));
+    g.setAttribute("aC", new THREE.Float32BufferAttribute(Gr.c, 4));
     g.setIndex(Gr.i);
     g.computeBoundingSphere();
     const me = new THREE.Mesh(g, mat);
@@ -425,5 +464,5 @@ function renderFree(players, marks = []) {           // the world through the fr
   controls.update();
   renderer.render(scene, camMap);
 }
-export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT,
+export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT, revealIn,
          GFX, GLOW_MAT, setGraphics, applyGraphics };

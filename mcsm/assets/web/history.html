@@ -79,6 +79,38 @@ ul { list-style: none; margin: 0; padding: 0; }
 .empty { color: var(--muted); font-size: 12px; padding: 2px 6px; }
 .note { font-size: 12px; color: var(--text-2); margin-top: 8px; }
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+/* the spectated player's hotbar (exact from their recording, else from a backup) and the inventory panel (E) */
+#hotbar { position: fixed; left: 50%; bottom: 196px; transform: translateX(-50%); z-index: 21; text-align: center; pointer-events: none; }
+body.relive #hotbar { bottom: calc(9vh + 54px); }
+#hotbar .slots, #invBox .grid, #invBox .gear { display: grid; grid-template-columns: repeat(9, 40px); gap: 2px; }
+#invBox .gear { grid-template-columns: repeat(5, 40px); margin: 6px 0; }
+#invBox .grid.hb { margin-top: 6px; }
+.slot { width: 40px; height: 40px; background: rgba(40,40,40,.62); border: 2px solid rgba(255,255,255,.18); position: relative;
+  image-rendering: pixelated; box-sizing: border-box; }
+.slot img { width: 32px; height: 32px; margin: 2px; image-rendering: pixelated; }
+.slot .n { position: absolute; right: 2px; bottom: 0; color: #fff; font-size: 12px; font-weight: 700; text-shadow: 1px 1px 0 #3f3f3f; }
+.slot.sel { border-color: #fff; box-shadow: 0 0 0 1px #000; }
+.slot.exact::after { content: ""; position: absolute; left: 2px; top: 2px; width: 5px; height: 5px; border-radius: 50%; background: #4ac26b; }
+.slot .lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.35); font-size: 10px; }
+#hotbar .src, #invBox .src { font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000; margin-top: 3px; }
+#invBox { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 22; padding: 12px; }
+#invBox .src { color: var(--text-2); text-shadow: none; }
+body.relive #invBox { display: none !important; }
+/* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
+body.relive #panel, body.relive #timeline, body.relive #help, body.relive #dev, body.relive #storyCard,
+body.relive #loadCard, body.relive #tlv { display: none !important; }
+#relive { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+#relive .vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 52%, rgba(255,246,228,.5) 100%); }
+#relive .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
+#relive .top { top: 0; } #relive .bot { bottom: 0; }
+#relive .white { position: absolute; inset: 0; background: #fffaf0; opacity: 1; }
+#relive .sub { position: absolute; left: 50%; bottom: calc(9vh + 18px); transform: translateX(-50%); max-width: min(760px, 86vw);
+  text-align: center; color: #fff; font-size: 20px; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); line-height: 1.35; }
+#relive .sub b { color: #ffe9b0; font-weight: 600; }
+#relive .cap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; color: #4a3f33;
+  font-size: 16px; line-height: 1.6; transition: opacity 1.2s; max-width: 86vw; }
+#relive .cap .big { font-size: 28px; font-weight: 300; letter-spacing: .02em; }
+#relive .hint { position: absolute; right: 16px; bottom: calc(9vh + 8px); color: rgba(255,255,255,.55); font-size: 12px; }
 .label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
   background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
 .label.stale { opacity: .55; font-style: italic; }
@@ -138,6 +170,18 @@ ul { list-style: none; margin: 0; padding: 0; }
 <body>
 <div id="scene"></div>
 <div id="labels"></div>
+<div id="hotbar" hidden><div class="slots" id="hbSlots"></div><div class="src" id="hbSrc"></div></div>
+<div id="invBox" class="card" hidden>
+  <div class="row" style="margin-top:0;justify-content:space-between"><b id="invTitle">Inventory</b>
+    <span><button type="button" id="invTabInv">Inventory</button> <button type="button" id="invTabEnder">Ender chest</button> <button type="button" id="invClose">✕</button></span></div>
+  <div class="src" id="invSrc"></div>
+  <div class="gear" id="invGear"></div><div class="grid" id="invMain"></div><div class="grid hb" id="invHot"></div>
+  <div class="src" id="invStats"></div>
+</div>
+<div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
+  <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
+  <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div></div>
+  <div class="hint">Esc to leave</div></div>
 
 <aside id="panel" class="card">
   <div class="head row" style="margin-top:0;justify-content:space-between">
@@ -156,6 +200,8 @@ ul { list-style: none; margin: 0; padding: 0; }
     <select id="specMode" title="First person: through their eyes · Behind: a few blocks behind them"><option value="first">First person</option><option value="third">Behind</option></select>
     <button id="freeCam" type="button" title="Fly around like Flashback's free camera: hold a mouse button and drag to look, WASD to move, Space up, Shift down, Ctrl faster, scroll for speed (key F)">Free cam</button>
     <button id="theme" type="button">Theme</button>
+    <button id="invBtn" type="button" title="What the spectated (or nearest) player carries: the hotbar exactly from their own recording, the rest from the nearest backup (E)">Inventory</button>
+    <button id="reliveBtn" type="button" title="Relive the next minute through the chosen player's eyes, like a memory (Spectate picks who; Esc leaves)">Relive</button>
     <button id="reviewBtn" type="button" title="The server's year and each player's, as cards (opens in a new tab)" onclick="window.open('/review', '_blank')">Year in review</button>
   </div>
   <div class="row" id="terrainRow" hidden>
@@ -164,6 +210,7 @@ ul { list-style: none; margin: 0; padding: 0; }
     </select></label>
     <label title="Outline what changed on the ground between the backup shown and the one before (builds, map art, digging)"><input type="checkbox" id="chgOn"> Changes</label>
     <label title="Close up, show the real blocks with Minecraft's textures from the backup shown (loaded around where you look as you move; further away the map stays smooth)"><input type="checkbox" id="realOn" checked> Real blocks</label>
+    <label title="New pieces of real blocks rise up out of a glowing grid as they arrive, and the land still loading is drawn as a grid of points and lines (off: they just appear)"><input type="checkbox" id="buildIn" checked> Build-in effect</label>
     <label title="Show the blocks near you as they were at that moment (built as they were, not as the next backup has them): from the recordings during exact playback, and from the server's Ledger log at any time it covers; updated every 30 seconds of playback and when you jump"><input type="checkbox" id="momentOn" checked> As at that moment<span id="momentAt" style="opacity:.7"></span></label>
   </div>
   <details id="showBox" title="What to show on the map">
@@ -386,7 +433,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics } from "./map3d.js";
+import { buildAtlas, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -432,6 +479,7 @@ if (matchMedia("(max-width: 720px)").matches) $("#panel").classList.add("collaps
 
 // ---------- scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
+const RELIVE = { on: false };                     // reliving a moment (see Relive, below)
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 $("#scene").appendChild(renderer.domElement);
 const scene = new THREE.Scene();
@@ -566,7 +614,7 @@ $("#lGfx").onchange = () => applyGraphicsMode($("#lGfx").value);
 function gfxStep(now) {
   if (GFX.mode === "off") return;
   LIGHT.uTime.value = now / 1000;
-  const focus = (FREE.on || SPEC.name || SHOT.preview) ? camera.position : controls.target;
+  const focus = (FREE.on || SPEC.name || SHOT.preview || RELIVE.on) ? camera.position : controls.target;
   SUN_TARGET.position.copy(focus);
   sun.position.copy(focus).addScaledVector(SUN_DIR, 300);
   SKY.position.copy(camera.position);
@@ -583,13 +631,36 @@ const terrainGroups = {}, tileKeys = {}, tileMeshes = {}, seamMeshes = {}, tileD
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 // Where real blocks are shown, the smooth map is cut away (up to 64 rectangles, x0, z0, x1, z1), so the two don't
 // fight: the map's shader drops the pixels inside them.
-const CLIP = { rects: Array.from({ length: 64 }, () => new THREE.Vector4(0, 0, 0, 0)), n: 0, uniforms: null };
+const CLIP = { rects: Array.from({ length: 64 }, () => new THREE.Vector4(0, 0, 0, 0)), n: 0, uniforms: null,
+  // pieces wanted but not here yet: the map there is drawn as a glowing grid of its points while they load
+  load: Array.from({ length: 32 }, () => new THREE.Vector4(0, 0, 0, 0)), nLoad: 0 };
 terrainMat.onBeforeCompile = sh => {
   sh.uniforms.uClip = { value: CLIP.rects }; sh.uniforms.uClipN = { value: CLIP.n }; CLIP.uniforms = sh.uniforms;
+  sh.uniforms.uLoad = { value: CLIP.load }; sh.uniforms.uLoadN = { value: CLIP.nLoad }; sh.uniforms.uClock = LIGHT.uClock;
   sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;")
     .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
-  sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;\nuniform vec4 uClip[64];\nuniform int uClipN;")
-    .replace("void main() {", "void main() {\n  for (int i = 0; i < 64; i++) { if (i >= uClipN) break; vec4 r = uClip[i];\n    if (vWPos.x > r.x && vWPos.x < r.z && vWPos.z > r.y && vWPos.z < r.w) discard; }");
+  sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWPos;\nuniform vec4 uClip[64];\nuniform int uClipN;\nuniform vec4 uLoad[32];\nuniform int uLoadN;\nuniform float uClock;")
+    .replace("void main() {", "void main() {\n  for (int i = 0; i < 64; i++) { if (i >= uClipN) break; vec4 r = uClip[i];\n    if (vWPos.x > r.x && vWPos.x < r.z && vWPos.z > r.y && vWPos.z < r.w) discard; }")
+    .replace("#include <opaque_fragment>", `{
+    float mx = 0.0; vec2 c = vec2(0.0);
+    for (int i = 0; i < 32; i++) { if (i >= uLoadN) break; vec4 r = uLoad[i];
+      vec2 e = min(vWPos.xz - r.xy, r.zw - vWPos.xz);
+      if (e.x > 0.0 && e.y > 0.0) { mx = smoothstep(0.0, 6.0, min(e.x, e.y)); c = (r.xy + r.zw) * 0.5; } }
+    if (mx > 0.0) {
+      // a block grid with brighter lines every 8 and dots where they cross, and a scan rippling out from the
+      // piece's middle: the land as points and lines, waiting for its blocks
+      vec2 p = vWPos.xz, w = max(fwidth(p), vec2(1e-3));
+      vec2 g1 = abs(fract(p - 0.5) - 0.5) / w, g8 = abs(fract(p / 8.0 - 0.5) - 0.5) * 8.0 / w;
+      float l1 = 1.0 - clamp(min(g1.x, g1.y), 0.0, 1.0), l8 = 1.0 - clamp(min(g8.x, g8.y) - 0.5, 0.0, 1.0);
+      float dot8 = 1.0 - clamp(length(g8) / 2.5 - 0.5, 0.0, 1.0);
+      float d = length(p - c), scan = exp(-pow((d - mod(uClock * 45.0, 110.0)) / 5.0, 2.0));
+      float hl = fract(vWPos.y / 4.0);                                    // height bands follow the land's shape
+      vec3 base = outgoingLight * 0.18 + vec3(0.0, 0.03, 0.05);
+      vec3 glow = vec3(0.2, 0.9, 1.0) * (l1 * 0.18 + l8 * 0.55 + dot8 * 1.2 + scan * (0.35 + l8)) + vec3(0.1, 0.5, 0.6) * smoothstep(0.92, 1.0, hl) * 0.3;
+      outgoingLight = mix(outgoingLight, base + glow, mx);
+    }
+  }
+  #include <opaque_fragment>`);
 };
 let terrainBounds = null, layers = [], terrainMode = "follow";
 const mapOf = (o, dim) => o[dim] || (o[dim] = new Map());
@@ -794,11 +865,19 @@ function realClip() {                               // cut the smooth map away u
   let n = 0;
   for (const T of REAL.tiles.values()) if (T.meshes.length && n < 64) { CLIP.rects[n++].set(T.x0, T.z0, T.x0 + REAL_TILE, T.z0 + REAL_TILE); }
   CLIP.n = n; if (CLIP.uniforms) CLIP.uniforms.uClipN.value = n;
+  let k = 0;
+  const dim = $("#dim").value, key = `${dim}|${shownLayer[dim] ?? 0}`;
+  for (const [x, z] of realWanted()) {
+    if (k >= 32) break;
+    if (REAL.tiles.has(`${x},${z}`) || REAL.failed.has(`${key}|${x},${z}`)) continue;
+    CLIP.load[k++].set(x * REAL_TILE, z * REAL_TILE, (x + 1) * REAL_TILE, (z + 1) * REAL_TILE);
+  }
+  CLIP.nLoad = k; if (CLIP.uniforms) CLIP.uniforms.uLoadN.value = k;
 }
 function realWanted() {
   // where you look (more pieces when zoomed out), then around every player shown, nearest first
   if (!$("#realOn").checked) return [];
-  const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name || SHOT.preview), focus = free ? camera.position : controls.target;
+  const free = typeof FREE !== "undefined" && (FREE.on || SPEC.name || SHOT.preview || RELIVE.on), focus = free ? camera.position : controls.target;
   const d = free ? 60 : camera.position.distanceTo(controls.target), out = [], seen = new Set();
   const add = (x, z, w) => { const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); out.push([x, z, w]); } };
   if (d <= 900) {
@@ -856,6 +935,7 @@ async function realStep(now) {
       if (REAL.key !== key) return;
       T.meshes = blockMeshes(info, buf, atlas);                // in the current graphics mode
       for (const m of T.meshes) { if (!m.isPoints) m.material.map = atlas.tex; scene.add(m); }
+      if (!old && !RELIVE.on && $("#buildIn").checked) revealIn(T.meshes);   // new here: it builds in (not a moment update)
     } else if (info.message) REAL.failed.add(mtx === null ? `${key}|${id}` : `${key}|${id}|${mtx}`);
     if (old && old !== T) for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.set(id, T); realClip();
@@ -976,6 +1056,7 @@ async function caveStep(now) {
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       T0.meshes = blockMeshes(info, buf, atlas);
       for (const m of T0.meshes) { if (!m.isPoints) m.material.map = atlas.tex; m.visible = false; scene.add(m); }
+      if (!old && $("#buildIn").checked) revealIn(T0.meshes);
     }
     CAVE.tiles.set(id, T0);
     if (CAVE.tiles.size > 30) {                        // keep the newest few dozen
@@ -1022,7 +1103,7 @@ function onlineAt(name, t) {
 // for the time around you, on the world clock; elsewhere the lighter overview paths.
 const EXACT = { lo: 0, hi: 0, rows: {}, ev: {}, world: {}, mobs: {}, busy: false, last: 0, on: false };
 function exactWanted() {                             // zoomed in, at 1x or 10x (or paused)
-  return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || SHOT.preview || camera.position.distanceTo(controls.target) < 600);
+  return !!H && +$("#speed").value <= 10 && (FREE.on || !!SPEC.name || SHOT.preview || RELIVE.on || camera.position.distanceTo(controls.target) < 600);
 }
 async function exactStep(now) {
   EXACT.on = exactWanted();
@@ -1344,6 +1425,7 @@ function updateMobs() {
         continue;
       }
       animateMob(o, label, speed);
+      updateMobGear(o, label);
       mobTint(o, label);
     }
   }
@@ -1512,6 +1594,19 @@ async function setGear(m, slot, v) {
     // the icon's diagonal (handle to head) laid level and turned to the arm's +z, which is the way the player faces
     q.position.set(0, -10 * PX, 1 * PX); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
+  } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
+    const t = (await texOnce("entity/equipment/wings/elytra")) || (await texOnce("entity/elytra"));
+    if (!t || m.F !== F || F.tok[slot] !== mine) return;
+    const material = new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.1, side: THREE.DoubleSide });
+    for (const s of [-1, 1]) {
+      const g = skinBox(10, 20, 2, 22, 0), uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * 2);
+      if (s > 0) g.scale(-1, 1, 1);                     // the left wing is the right one mirrored
+      const pivot = new THREE.Group(); pivot.position.set(s * PX, 0, -3 * PX);
+      pivot.rotation.set(0.26, 0, s * 0.26);            // folded: tilted back and out, as in the game
+      const w = new THREE.Mesh(g, material); w.position.set(s * 5 * PX, -10 * PX, 0); pivot.add(w);
+      F.parts.body.add(pivot); objs.push(pivot);
+    }
   } else {
     const mm = ARMOUR.exec(item); if (!mm) return;
     const mat = { leather: "leather", chainmail: "chainmail", iron: "iron", golden: "gold", diamond: "diamond",
@@ -1534,6 +1629,50 @@ function updateGear(m) {
     if (m.gearKeys[slot] !== key || (m.gearFig !== m.F)) { m.gearKeys[slot] = key; setGear(m, slot, v); }
   }
   m.gearFig = m.F;
+}
+// mobs' held items and armour (zombies with swords, skeletons with bows and helmets, piglins with gold...): only
+// on mobs whose model has the humanoid parts. Offsets are from each part's pivot, in model pixels.
+const MOB_ARMOUR_AT = { head: [["head", 0, 4, 0, 8, 8, 8, 0, 0, 1]],
+  chest: [["body", 0, -6, 0, 8, 12, 4, 16, 16, 1], ["right_arm", -1, -4, 0, 4, 12, 4, 40, 16, 1], ["left_arm", 1, -4, 0, 4, 12, 4, 40, 16, 1]],
+  legs: [["body", 0, -6, 0, 8, 12, 4, 16, 16, 0.5], ["right_leg", 0, -6, 0, 4, 12, 4, 0, 16, 0.5], ["left_leg", 0, -6, 0, 4, 12, 4, 0, 16, 0.5]],
+  feet: [["right_leg", 0, -6, 0, 4, 12, 4, 0, 16, 1], ["left_leg", 0, -6, 0, 4, 12, 4, 0, 16, 1]] };
+async function setMobGear(o, slot, v) {
+  o.gear = o.gear || {}; o.gtok = o.gtok || {};
+  const mine = o.gtok[slot] = (o.gtok[slot] || 0) + 1;
+  for (const x of (o.gear[slot] || [])) x.parent && x.parent.remove(x);
+  o.gear[slot] = [];
+  const item = v && v[0], P = o.parts; if (!item || !P) return;
+  if (slot === "mainhand" || slot === "offhand") {
+    const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
+    const t = await itemTexture(item); if (!t || o.gtok[slot] !== mine) return;
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(10 * MPX, 10 * MPX).translate(3 * MPX, 3 * MPX, 0),
+      new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));
+    q.position.set(0, -10 * MPX, 1 * MPX); q.rotation.set(0, -Math.PI / 2, -Math.PI / 4);
+    arm.g.add(q); o.gear[slot].push(q); return;
+  }
+  const mm = ARMOUR.exec(item); if (!mm || !P.head || !P.body) return;
+  const mat = { leather: "leather", chainmail: "chainmail", iron: "iron", golden: "gold", diamond: "diamond",
+    netherite: "netherite", copper: "copper", turtle: "turtle_scute" }[mm[1]];
+  const t = await texOnce(`entity/equipment/${slot === "legs" ? "humanoid_leggings" : "humanoid"}/${mat}`);
+  if (!t || o.gtok[slot] !== mine) return;
+  const material = new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.1,
+    color: mm[1] === "leather" ? new THREE.Color(v[2] != null ? v[2] : 0xA06540) : WHITE });
+  for (const [part, x, y, z, w, h, d, u, vv, grow] of MOB_ARMOUR_AT[slot] || []) {
+    if (!P[part]) continue;
+    const g = new THREE.BoxGeometry((w + grow) * MPX, (h + grow) * MPX, (d + grow) * MPX);
+    const sk = skinBox(w, h, d, u, vv, 0), uv = sk.attributes.uv;   // the same unfolding as the player's armour
+    for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * 2);
+    g.setAttribute("uv", uv); sk.dispose();
+    const b = new THREE.Mesh(g, material); b.position.set(x * MPX, y * MPX, z * MPX); P[part].g.add(b); o.gear[slot].push(b);
+  }
+}
+function updateMobGear(o, label) {
+  if (!o.parts || !EXACT) return;
+  o.gearKeys = o.gearKeys || {};
+  for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet"]) {
+    const v = stateAt(label, `eq:${slot}`, T, null), key = gearKey(v);
+    if (o.gearKeys[slot] !== key) { o.gearKeys[slot] = key; setMobGear(o, slot, v); }
+  }
 }
 function animateFigure(m, now) {
   updateGear(m);
@@ -2265,6 +2404,12 @@ function renderMoments() {
     const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
     btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined)" : "Watch this moment on the map",
         () => { showArea(m); seek(m.start); playUntil = m.end; setPlaying(true); });
+    if (m.recordings.length) {
+      const who = (m.recordings.find(r => r.player && m.players.includes(r.player)) || m.recordings[0]).player || m.players[0];
+      const key = (m.events.find(e => /death|died|killed|advancement|first/i.test(e.kind || e.text || "")) || m.events[0] || {}).t ?? m.start;
+      btn("Relive", `Relive this moment through ${who}'s eyes, like a memory (Esc leaves)`,
+          () => relive(who, Math.max(m.start - 8000, key - 12000), Math.min(Math.max(key + 20000, Math.min(m.end, key + 45000)), key + 60000), key));
+    }
     if (m.mode === "building" || m.mode === "map_art") {
       btn("Timelapse", "A timelapse of this build for Flashback: look around the build in 3D, preview it and choose the camera",
           () => openTimelapse(m));
@@ -2851,6 +2996,218 @@ function fillSpec() {
   sel.value = keep;
 }
 
+// ---------- Relive: a moment replayed as a memory ----------
+// White while the recording and blocks load, then a slow push-in from behind and above to over the shoulder (or
+// their eyes, with Spectate's First person), a smoothed handheld camera, slow motion around the key moment, and a
+// fade back to white with when, where and who. No panels; chat as subtitles. Esc leaves and puts everything back.
+function relive(name, start, end, key = null) {
+  if (!name || !markers[name]) { toastStatus("Pick a player to relive (Spectate)."); return; }
+  if (RELIVE.on) reliveExit();
+  RELIVE.prev = { speed: $("#speed").value, spec: SPEC.name, free: FREE.on, dev: DEV.on,
+    cam: camera.position.clone(), target: controls.target.clone(), near: camera.near };
+  if (SPEC.name) setSpec(""); if (FREE.on) setFree(false); if (DEV.on) setDev(false);
+  Object.assign(RELIVE, { on: true, name, start, end, key, phase: "load", since: performance.now(), e: 0,
+    pos: null, look: null });
+  setPlaying(false); $("#speed").value = "1"; seek(start, false);
+  controls.enabled = false; camera.near = 0.05; camera.updateProjectionMatrix();
+  document.body.classList.add("relive"); $("#relive").hidden = false;
+  $("#rlWhite").style.opacity = 1; $("#rlCap").style.opacity = 1; $("#rlSub").replaceChildren();
+  reliveCaption(key ?? start);
+  renderer.domElement.style.filter = "saturate(.82) sepia(.12) brightness(1.04) contrast(.96)";
+}
+function reliveCaption(t) {
+  const m = markers[RELIVE.name], c = m && m.cur;
+  $("#rlWhen").textContent = new Date(t).toLocaleString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" });
+  const dim = { "minecraft:the_nether": "the Nether", "minecraft:the_end": "the End" }[c && c.dim] || "the Overworld";
+  $("#rlWhere").textContent = c ? `${Math.round(c.pos[0])}, ${Math.round(c.pos[2])} in ${dim}` : "";
+  const near = c ? Object.entries(markers).filter(([n, o]) => n !== RELIVE.name && o.cur && o.cur.dim === c.dim
+    && Math.hypot(o.cur.pos[0] - c.pos[0], o.cur.pos[2] - c.pos[2]) < 48).map(([n]) => n) : [];
+  $("#rlWho").textContent = near.length ? `${RELIVE.name} with ${near.join(", ")}` : RELIVE.name;
+}
+function reliveExit() {
+  const p = RELIVE.prev || {};
+  RELIVE.on = false; document.body.classList.remove("relive"); $("#relive").hidden = true;
+  renderer.domElement.style.filter = "";
+  setPlaying(false); $("#speed").value = p.speed || "1";
+  const m = markers[RELIVE.name]; if (m) m.F.fig.visible = true;
+  camera.near = p.near || 0.1; camera.updateProjectionMatrix();
+  controls.enabled = true;
+  if (p.cam) { camera.position.copy(p.cam); controls.target.copy(p.target); controls.update(); }
+  if (p.dev) setDev(true);
+  pinGroup.visible = chgGroup.visible = true; HEAT.group.visible = true;
+  for (const o of allPathObjs) o.visible = true;
+  applySky(); applyShow();
+}
+function reliveReady() {
+  const r = EXACT.rows && EXACT.rows[RELIVE.name];
+  return EXACT.on && !EXACT.busy && r && !REAL.busy;
+}
+// the clock while reliving: 1x, slowed to a third around the key moment, stopped at the end
+function reliveTick(now, dt) {
+  const R = RELIVE, age = (now - R.since) / 1000;
+  if (R.phase === "load") {
+    if (reliveReady() || age > 15) { R.phase = "in"; R.since = now; R.pos = null; }
+    update(now, false); return;
+  }
+  if (R.phase === "in" || R.phase === "play") {
+    const fade = Math.min(1, age / 2.2);
+    if (R.phase === "in") { $("#rlWhite").style.opacity = 1 - fade; $("#rlCap").style.opacity = 1 - fade; if (fade >= 1) R.phase = "play"; }
+    const slow = R.key != null && Math.abs(T - R.key) < 1800 ? 0.35 : 1;
+    T += dt * slow; R.e += dt / 1000;
+    if (T >= R.end) { T = R.end; R.phase = "out"; R.since = now; reliveCaption(R.key ?? R.start); }
+  } else if (R.phase === "out") {
+    const f = Math.min(1, age / 2.5);
+    $("#rlWhite").style.opacity = f; $("#rlCap").style.opacity = Math.max(0, (age - 1) / 1.5);
+    renderer.domElement.style.filter = `saturate(${0.82 * (1 - f)}) sepia(.12) brightness(${1.04 + f * 0.3}) contrast(.96)`;
+    if (age > 6) { reliveExit(); return; }
+  }
+  if (T > view[1] || T < view[0]) setView();
+  update(now, false);
+  // subtitles: what anyone near said, with their name
+  const lines = [];
+  for (const [n, list] of Object.entries(chatBy)) {
+    const o = markers[n]; if (!o || !o.group.visible || o.group.position.distanceTo(camera.position) > 64) continue;
+    for (let i = lower(list, T, e => e.t) - 1; i >= 0 && T - list[i].t <= 12_000; i--)
+      if (T - list[i].t <= chatShown(list[i])) lines.push([list[i].t, n, list[i].text]);
+  }
+  lines.sort((a, b) => a[0] - b[0]);
+  const key = lines.slice(-2).map(l => l[1] + l[2]).join("|");
+  if (key !== R.subKey) {
+    R.subKey = key;
+    $("#rlSub").replaceChildren(...lines.slice(-2).map(([, n, t]) => { const d = document.createElement("div");
+      const b = document.createElement("b"); b.textContent = n + ": "; d.append(b, t); return d; }));
+  }
+}
+const smooth01 = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+function reliveStep(dt) {
+  const R = RELIVE, m = markers[R.name], c = m && m.cur;
+  // a warm haze closes in: the edges of the memory fade out (and hide what hasn't loaded)
+  if (scene.fog) { scene.fog.near = 26; scene.fog.far = 90; scene.fog.color.lerp(new THREE.Color(1, 0.97, 0.92), 0.6); }
+  scene.background = scene.fog ? scene.fog.color : scene.background;
+  // only the world and the people in it: no trails, pins, rings, outlines or heat
+  for (const o of Object.values(markers)) { o.trail.visible = false; o.F.ring.visible = false; }
+  for (const o of [pinGroup, chgGroup, grid, HEAT.group, typeof areaLine !== "undefined" ? areaLine : null, ...allPathObjs]) if (o) o.visible = false;
+  if (!c) return;
+  const r = d => d * Math.PI / 180;
+  // their look, softened: the pitch counts for less (a memory looks ahead, not at the feet)
+  const yaw = c.exact ? r(c.head ?? c.yaw) : -m.F.fig.rotation.y, pitch = c.exact ? r(c.pitch) * 0.35 : 0;
+  const sneak = c.exact && (flagsAt(R.name, T) & 0x02);
+  const eye = new THREE.Vector3(c.pos[0], c.pos[1] + (sneak ? 1.27 : 1.62), c.pos[2]);
+  const fwd = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+  const right = new THREE.Vector3(-Math.cos(yaw), 0, -Math.sin(yaw));
+  const first = $("#specMode").value === "first";
+  const k = smooth01(R.e / 4);                          // the push-in, over the first four seconds
+  const back = first ? 9 * (1 - k) + 0.05 * k : 9 - 5.2 * k, up = first ? 4.5 * (1 - k) : 4.5 - 3.7 * k, side = first ? 0 : 0.55 * k;
+  const want = eye.clone().addScaledVector(fwd, -back).add(new THREE.Vector3(0, up, 0)).addScaledVector(right, side);
+  const wantLook = eye.clone().addScaledVector(fwd, 10);
+  const a = 1 - Math.exp(-dt / (first && k > 0.95 ? 120 : 380));   // critically damped-ish: slow, soft, never jumpy
+  if (!R.pos) { R.pos = want.clone(); R.look = wantLook.clone(); }
+  R.pos.lerp(want, a); R.look.lerp(wantLook, a);
+  const t = performance.now() / 1000;                   // a slight handheld sway
+  camera.position.copy(R.pos).add(new THREE.Vector3(Math.sin(t * 0.7) * 0.04, Math.sin(t * 1.1) * 0.03, Math.cos(t * 0.6) * 0.04));
+  camera.lookAt(R.look);
+  m.F.fig.visible = camera.position.distanceTo(eye) > 0.6;
+}
+$("#reliveBtn").onclick = () => {
+  let who = $("#spec").value;
+  if (!who) {                                           // nobody chosen: the shown player nearest the view
+    let best = 1e9; const f = FREE.on ? camera.position : controls.target;
+    for (const [n, o] of Object.entries(markers)) if (o.group.visible) { const d = o.group.position.distanceTo(f); if (d < best) { best = d; who = n; } }
+  }
+  relive(who, T, T + 60_000, null);
+};
+
+// ---------- inventories: the hotbar exactly from the player's own recording; everything else from a backup ----------
+// The recordings keep a player's own hotbar (every slot when the recording starts and whenever one changes, and the
+// selected slot), as "hb:<slot>" and "hs" states. Their full inventory, armour and ender chest come from the
+// library backup saved at or before the time shown (playerdata), labelled with how old it is.
+const INV = { who: "", tab: "inv", backup: {}, want: "", busy: false, last: 0, open: false };
+function itemImg(item) {                                // the item's icon from the game, or its block's texture
+  const im = document.createElement("img"); im.alt = im.title = item.replace(/_/g, " ");
+  im.src = `blocktex/0/item/${item}.png`;
+  im.onerror = () => { if (!im.dataset.b) { im.dataset.b = 1; im.src = `blocktex/0/block/${item}.png`; } else {   // no flat picture (a block with sides): its name, short
+    const l = document.createElement("span"); l.className = "lbl"; l.style.color = "#fff"; l.textContent = item.replace(/_/g, " ").slice(0, 10); im.replaceWith(l); } };
+  return im;
+}
+function slotEl(v, opts = {}) {                         // v: [item, count] or null
+  const d = document.createElement("div"); d.className = "slot" + (opts.sel ? " sel" : "") + (opts.exact ? " exact" : "");
+  if (v && v[0]) { d.append(itemImg(v[0])); if (v[1] > 1) { const n = document.createElement("span"); n.className = "n"; n.textContent = v[1]; d.append(n); }
+    d.title = `${v[0].replace(/_/g, " ")}${v[1] > 1 ? ` x${v[1]}` : ""}${opts.exact ? " (exact, from the recording)" : ""}`; }
+  else if (opts.lbl) { const l = document.createElement("span"); l.className = "lbl"; l.textContent = opts.lbl; d.append(l); }
+  return d;
+}
+function invWho() {
+  if (RELIVE.on) return RELIVE.name;
+  if (SPEC.name) return SPEC.name;
+  if (!INV.open) return "";
+  let who = "", best = 1e9; const f = FREE.on ? camera.position : controls.target;
+  for (const [n, o] of Object.entries(markers)) if (o.group.visible) { const d = o.group.position.distanceTo(f); if (d < best) { best = d; who = n; } }
+  return who;
+}
+async function invBackup(who, t) {                      // the nearest backup's inventory (asked again every 10 min of time)
+  const key = `${who}|${Math.floor(t / 600_000)}`;
+  if (INV.backup[key] !== undefined || INV.busy) return INV.backup[key] || null;
+  INV.busy = true;
+  try { INV.backup[key] = await (await fetch(`api/inventory/${encodeURIComponent(who)}/${Math.round(t)}`)).json(); }
+  catch (e) { INV.backup[key] = { available: false }; }
+  finally { INV.busy = false; }
+  return INV.backup[key];
+}
+function exactHotbar(who) {                             // [9 x [item, count] | undefined], selected, any exact?
+  const out = [], hasAny = EXACT.on && EXACT.ev[who] && Object.keys(EXACT.ev[who]).some(k => k.startsWith("hb:"));
+  for (let i = 0; i < 9; i++) { const v = hasAny ? stateAt(who, `hb:${i}`, T, null) : null; out.push(v ? [v[0], v[3] || 1] : (hasAny ? null : undefined)); }
+  return { slots: out, sel: hasAny ? stateAt(who, "hs", T, null) : null, any: hasAny };
+}
+const ago = ms => { const h = Math.abs(ms) / 3_600_000; return h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`; };
+function backupNote(b) {
+  if (!b || !b.available) return b && b.message ? b.message : "no backup of this player";
+  return `backup ${b.backup} (${ago(T - b.t)} ${b.after ? "later" : "earlier"})`;
+}
+async function invStep(now) {
+  if (now - INV.last < 250) return; INV.last = now;
+  const who = invWho(), hb = $("#hotbar");
+  hb.hidden = !who;
+  if (!who) { if (INV.open) $("#invBox").hidden = true; return; }
+  const ex = exactHotbar(who), b = await invBackup(who, T);
+  const bs = b && b.available ? b.slots : {};
+  const hotbar = () => Array.from({ length: 9 }, (_, i) => {
+    const e = ex.slots[i], exact = e !== undefined;
+    return slotEl(exact ? e : bs[i] || null, { exact: exact && !!e, sel: (ex.sel ?? (b && b.selected)) === i });
+  });
+  const slots = hotbar();
+  const key = JSON.stringify([who, ex.slots, ex.sel, b && b.backup]);
+  if (key !== INV.hbKey) { INV.hbKey = key; $("#hbSlots").replaceChildren(...slots);
+    $("#hbSrc").textContent = `${who}: ${ex.any ? "hotbar exact from the recording" : "hotbar from the " + backupNote(b)}`; }
+  if (!INV.open) return;
+  $("#invBox").hidden = false;
+  const ikey = key + INV.tab;
+  if (ikey === INV.invKey) return; INV.invKey = ikey;
+  $("#invTitle").textContent = `${who}${INV.tab === "ender" ? "'s ender chest" : "'s inventory"}`;
+  $("#invSrc").textContent = INV.tab === "ender" ? `From the ${backupNote(b)}.`
+    : `Armour, off hand and the main inventory from the ${backupNote(b)}.` + (ex.any ? " Hotbar (green dot) exact from the recording." : "");
+  if (INV.tab === "ender") {
+    const es = b && b.available ? b.ender : {};
+    $("#invGear").replaceChildren(); $("#invHot").replaceChildren();
+    $("#invMain").replaceChildren(...Array.from({ length: 27 }, (_, i) => slotEl(es[i] || null)));
+    $("#invStats").textContent = "";
+    return;
+  }
+  // armour and off hand: the exact recording's equipment when there is one, else the backup's
+  const gear = ["head", "chest", "legs", "feet", "offhand"].map(k => {
+    const v = EXACT.on ? stateAt(who, `eq:${k}`, T, null) : null;
+    return v && v[0] ? slotEl([v[0], 1], { exact: true }) : slotEl(bs[k] || null, { lbl: k });
+  });
+  $("#invGear").replaceChildren(...gear);
+  $("#invMain").replaceChildren(...Array.from({ length: 27 }, (_, i) => slotEl(bs[i + 9] || null)));
+  $("#invHot").replaceChildren(...hotbar());
+  $("#invStats").textContent = b && b.available ? `At the backup: health ${b.health ?? "?"} · food ${b.food ?? "?"} · level ${b.xp_level ?? "?"}` : "";
+}
+function invToggle(on = !INV.open) { INV.open = on; INV.invKey = ""; if (!on) $("#invBox").hidden = true; }
+$("#invBtn").onclick = () => invToggle();
+$("#invClose").onclick = () => invToggle(false);
+$("#invTabInv").onclick = () => { INV.tab = "inv"; INV.invKey = ""; };
+$("#invTabEnder").onclick = () => { INV.tab = "ender"; INV.invKey = ""; };
+
 // ---------- free camera (like Flashback's): look with the mouse, fly with WASD / Space / Shift ----------
 const FREE = { on: false, keys: new Set(), yaw: 0, pitch: 0, speed: 10, drag: false, lx: 0, ly: 0 };
 function setFree(on) {
@@ -2894,12 +3251,15 @@ addEventListener("blur", () => FREE.keys.clear());
 addEventListener("keydown", e => {
   if (e.target.closest("select, input, button")) return;
   if (e.code === "Backquote") { setDev(!DEV.on); return; }
+  if (e.code === "Escape" && RELIVE.on) { reliveExit(); return; }
+  if (RELIVE.on && e.code !== "Backquote") return;                         // a memory plays on its own
   if (e.code === "Escape" && SHOT.preview) { SHOT.preview = false; setPlaying(false); controls.enabled = true; toastStatus("Preview stopped."); return; }
   if (e.code === "Escape" && SPEC.name) { setSpec(""); for (const m of Object.values(markers)) m.F.fig.visible = true; return; }
   if (e.code === "KeyF" || (e.code === "Escape" && FREE.on)) { setFree(!FREE.on && e.code === "KeyF"); return; }
   if (FREE.on && ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight", "ControlLeft"].includes(e.code)) {
     e.preventDefault(); FREE.keys.add(e.code); return;                       // flying, not playing
   }
+  if (e.code === "KeyE") { invToggle(); return; }
   if (e.code === "KeyP") setPlaying(!playing);
   if (e.code === "KeyK") { addKey(); return; }
   if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
@@ -2913,6 +3273,7 @@ let lastLayerCheck = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
+  LIGHT.uClock.value = now / 1000;                     // pieces building in, the loading grid
   realStep(now);                                       // real blocks around where you look
   liveStep(now);                                       // and blocks placed or broken since, as they happen
   caveStep(now);                                       // and caves when the camera is underground
@@ -2920,7 +3281,8 @@ function frame(now) {
   exactStep(now);                                      // every recorded movement, close up at 1x / 10x
   updateMobs();
   if (H && H.range) {
-    if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
+    if (RELIVE.on) reliveTick(now, dt);              // reliving a moment: its own clock
+    else if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
       storyStep(now, dt);
       if (T > view[1] || T < view[0]) setView();
       update(now, false);
@@ -2945,21 +3307,25 @@ function frame(now) {
       tmp.copy(m.group.position); tmp.y += 2.2 * m.group.scale.y; tmp.project(camera);
       const on = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
       const eyes = name === SPEC.name && $("#specMode").value === "first";
-      const talking = on && !eyes && chatBubble(m);             // not over your own head when watching through their eyes
+      const talking = on && !eyes && !RELIVE.on && chatBubble(m);   // reliving: chat is subtitles             // not over your own head when watching through their eyes
       m.bubble.style.display = talking ? "" : "none";
       if (talking) {
         m.bubble.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`;
         m.bubble.style.top = `${(1 - tmp.y) / 2 * innerHeight - (SHOW.names ? 22 : 4)}px`;
       }
-      if (!SHOW.names) { m.label.style.display = "none"; continue; }
+      if (!SHOW.names || (RELIVE.on && (name === RELIVE.name || m.group.position.distanceTo(camera.position) > 16))) {
+        m.label.style.display = "none"; continue;                // reliving: only the names of those close by
+      }
       m.label.style.display = on ? "" : "none";
       m.label.classList.toggle("stale", !!m.cur?.stale);
       if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
     }
   }
-  if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
+  if (RELIVE.on) { /* the memory camera: below, after the sky */ } else if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
   devUpdate(now);
   worldStep(now, dt);
+  if (RELIVE.on) reliveStep(dt);
+  invStep(now);                                        // the hotbar and inventory of who you watch
   gfxStep(now);
   renderer.render(scene, camera);
 }

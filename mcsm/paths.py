@@ -365,8 +365,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         game_id = pk.get("game_event") if ex_on else None
         pass_id = pk.get("set_passengers") if ex_on else None
         equip_id = pk.get("set_equipment") if ex_on and (tbl or {}).get("items") else None
+        # the recorded player's own hotbar: every slot when the recording starts and when it changes, and which slot
+        # is selected (server-side recordings keep these; other players' hotbars aren't sent to anyone)
+        pinv_id = pk.get("set_player_inventory") if equip_id is not None else None
+        held_id = pk.get("set_held_slot") if ex_on else None
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
-        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id)
+        watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
+                             pinv_id, held_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -421,7 +426,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             time_pid = _find_clock(probe, clock_point)
                         if tick % every == 0:
                             yield from _sample(tick, cur, last_out, last_move, others, remove_id, min_move, full)
-                    elif aid == gp and size > 2 and (players or extras is not None) and (b[i] in watch or b[i] & 0x80)                             and _varint(b, i)[0] in watch:
+                    elif aid == gp and size >= 2 and (players or extras is not None) and (b[i] in watch or b[i] & 0x80)                             and _varint(b, i)[0] in watch:
                         # (ids below 128 are one byte: most of the ~40 other packets per tick are skipped cheaply)
                         pid, k = _varint(b, i)
                         if pid == add_id and size >= 43:     # id, entity id, UUID, type, x, y, z
@@ -481,11 +486,21 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             eid, k = _varint(b, k)
                             if b[k] in (0, 3) and (eid == me or (eid in others and not others[eid].startswith("#"))):
                                 extras["events"].append([tick, None if eid == me else others[eid], "s", b[k]])
-                        elif pid == equip_id and size >= 3:   # held items and armour
+                        elif pid == equip_id and size >= 3:   # held items and armour (players and mobs)
                             eid, k = _varint(b, k)
-                            if eid == me or (eid in others and not others[eid].startswith("#")):
+                            if eid == me or eid in others:
                                 for slot in equipment(b, k, i + size, items_of, comps_of):
                                     extras["events"].append([tick, None if eid == me else others[eid], "eq", slot])
+                        elif pid == pinv_id and size >= 2:    # the recorded player's inventory slot (hotbar 0-8)
+                            slot, k = _varint(b, k)
+                            if 0 <= slot < 9:
+                                cnt = _varint(b, k)[0]
+                                st, _ = item_stack(b, k, items_of, comps_of)
+                                extras["events"].append([tick, None, "hb", [slot, st[0], st[1], st[2], max(0, cnt)]])
+                        elif pid == held_id:                  # which hotbar slot they hold (the smallest packet: 2 bytes)
+                            slot = _varint(b, k)[0]
+                            if 0 <= slot < 9:
+                                extras["events"].append([tick, None, "hs", slot])
                         elif pid == pass_id and size >= 3:    # set_passengers: vehicle, count, riders
                             veh, k = _varint(b, k)
                             n, k = _varint(b, k)
@@ -719,7 +734,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact6.json.gz"     # 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact7.json.gz"     # 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

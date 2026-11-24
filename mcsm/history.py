@@ -169,6 +169,26 @@ def version_segments(data: m.ServerData, end_ms: int | None = None) -> list[dict
     return [{"start": s["start"], "end": s["end"], "mc": s["mc"]} for s in clean]
 
 
+def _inventory_of(d: dict) -> dict:
+    """The slots of a playerdata compound: ``{"slots": {slot: [item, count]}, "ender": {...}, "selected", "health",
+    "food", "xp_level"}``; armour and off hand from the 1.21.5+ ``equipment`` compound or the older slots 100-103/-106."""
+    def stack(st):
+        return [str(st.get("id", "?")).replace("minecraft:", ""), int(st.get("count", st.get("Count", 1)) or 1)]
+    slots: dict = {}
+    old = {100: "feet", 101: "legs", 102: "chest", 103: "head", -106: "offhand"}
+    for st in d.get("Inventory") or []:
+        if isinstance(st, dict) and "Slot" in st:
+            n = int(st["Slot"])
+            slots[old.get(n, n)] = stack(st)
+    for k, st in (d.get("equipment") or {}).items():
+        if isinstance(st, dict) and k in ("head", "chest", "legs", "feet", "offhand"):
+            slots[k] = stack(st)
+    ender = {int(st["Slot"]): stack(st) for st in d.get("EnderItems") or [] if isinstance(st, dict) and "Slot" in st}
+    return {"slots": {str(k): v for k, v in slots.items()}, "ender": {str(k): v for k, v in ender.items()},
+            "selected": d.get("SelectedItemSlot"), "health": d.get("Health"), "food": d.get("foodLevel"),
+            "xp_level": d.get("XpLevel")}
+
+
 class HistoryMap(TerrainServer):
     PAGE = "history.html"
 
@@ -476,6 +496,13 @@ class HistoryMap(TerrainServer):
                 while len(cache) > 40:
                     cache.pop(next(iter(cache)))
             return {"cells": cache[key], "cell": 16, "available": True}
+        if path.startswith("/api/inventory/"):       # a player's inventory from the backups: /api/inventory/<name>/<t ms>
+            try:
+                name, t = path[len("/api/inventory/"):].rsplit("/", 1)
+                from urllib.parse import unquote
+                return self.inventory(unquote(name), int(t))
+            except (ValueError, OSError) as exc:
+                return {"available": False, "message": str(exc)}
         if path == "/api/incidents":                  # builds damaged (Ledger): explosions, fire, lava, others
             return {"incidents": self.incidents() or []}
         if path == "/api/ledger":                     # the Ledger mod's block log: blocks at any moment it covers
@@ -614,12 +641,13 @@ class HistoryMap(TerrainServer):
                 # states (flags, pose, hand use, riding): the last one before t0 however long ago, and changes;
                 # moments (swing, hurt, death) only in the window
                 name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
-                if kind == "eq":                          # one state per slot: "eq:mainhand", "eq:head", ...
-                    kind, value = f"eq:{value[0]}", value[1:]
-                if (kind in ("f", "p", "h", "r", "it") or kind.startswith("eq:")) and t < t0:
+                if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
+                    kind, value = f"{kind}:{value[0]}", value[1:]
+                slotted = kind.startswith(("eq:", "hb:"))
+                if (kind in ("f", "p", "h", "r", "it", "hs") or slotted) and t < t0:
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)
-                elif kind.startswith("eq:") and t > t1:
+                elif (slotted or kind == "hs") and t > t1:
                     if (name, kind) not in state_after or state_after[(name, kind)][0] > t:
                         state_after[(name, kind)] = (t, value)
                 elif t0 <= t <= t1:
@@ -756,6 +784,34 @@ class HistoryMap(TerrainServer):
             out += [[ms, x, y, z] for ms, x, y, z, _new, _old in lg.changes(dim, -far, -far, far, far, t0, t1)]
         out.sort()
         return {"changes": out}
+
+    def inventory(self, name: str, t: int) -> dict:
+        """*name*'s inventory and ender chest as saved in the library backup at or before *t* (else the first after),
+        read from that backup's playerdata (read-only; kept in memory per backup). Slots: 0-8 hotbar, 9-35 the rest,
+        ``head``/``chest``/``legs``/``feet``/``offhand``."""
+        from . import library as lib, nbt, players as players_mod, world as world_mod
+        prof = next((p for p in self.data.players.values() if p.name == name or name in (p.names_seen or [])), None)
+        if prof is None or not prof.uuid or not self.data.library_world:
+            return {"available": False, "message": "no backups of this player"}
+        backups = [b for b in lib.world_backups(self.data.library_world) if b.get("snapshot_ms")]
+        if not backups:
+            return {"available": False, "message": "no backups with a time"}
+        before = [b for b in backups if b["snapshot_ms"] <= t]
+        pick = before[-1] if before else backups[0]
+        cache = self.__dict__.setdefault("_inv", {})
+        key = (pick["path"], prof.uuid)
+        if key not in cache:
+            root = pick["path"]
+            world = world_mod.world_dir(root, world_mod.read_properties(os.path.join(root, "server.properties")))
+            folder = players_mod.player_dir(world, "playerdata")
+            f = os.path.join(folder, f"{prof.uuid}.dat") if folder else None
+            cache[key] = _inventory_of(nbt.load(f)) if f and os.path.isfile(f) else None
+            while len(cache) > 64:
+                cache.pop(next(iter(cache)))
+        inv = cache[key]
+        if inv is None:
+            return {"available": False, "message": f"{name} isn't in the backup of {pick['name']}"}
+        return {"available": True, "backup": pick["name"], "t": pick["snapshot_ms"], "after": not before, **inv}
 
     def ledger(self):
         """The Ledger mod's block log of the newest backup (mcsm.ledger), or None."""

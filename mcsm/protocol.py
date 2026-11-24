@@ -19,7 +19,8 @@ import zipfile
 
 PACKETS = ("add_entity", "remove_entities", "set_entity_data", "animate", "set_time", "entity_event",
            "set_equipment", "set_passengers", "hurt_animation", "damage_event", "game_event",
-           "level_chunk_with_light", "block_update", "section_blocks_update", "forget_level_chunk", "respawn")
+           "level_chunk_with_light", "block_update", "section_blocks_update", "forget_level_chunk", "respawn",
+           "set_player_inventory", "set_held_slot")      # the recorded player's hotbar and selected slot
 TABLE_VERSION = 3          # 3: block states and the chunk packets (blocks at the moment); 2: items and components
 BUNDLED = os.path.join(os.path.dirname(__file__), "assets", "protocols.json")
 _cache: dict[int, dict | None] = {}

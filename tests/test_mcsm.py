@@ -1354,6 +1354,50 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_hotbar_and_inventory(self):
+        """The recorded player's hotbar (set_player_inventory, set_held_slot) from a recording, and a player's slots
+        from a backup's playerdata (1.21.5+ equipment, or the older armour slots)."""
+        import struct
+        from mcsm import history, paths, protocol
+        t = protocol.table(777)
+        items, comps, pk = t["items"], t["components"], t["packets"]
+
+        def stack(name, n=1):
+            return _vi(n) + _vi(items.index(name)) + _vi(0) + _vi(0)
+        recs = [("create_local_player", struct.pack(">QQ", 1, 2) + struct.pack(">ddd", 0.0, 64.0, 0.0) + b"\0" * 40)]
+        for tick in range(6):
+            recs.append(("move_entities", _fb_move([(7, 0.0, 64.0, 0.0)])))
+            if tick == 1:
+                recs.append(("game_packet", _vi(pk["set_player_inventory"]) + _vi(0) + stack("diamond_sword")))
+                recs.append(("game_packet", _vi(pk["set_player_inventory"]) + _vi(8) + stack("cobblestone", 25)))
+                recs.append(("game_packet", _vi(pk["set_player_inventory"]) + _vi(20) + stack("dirt")))   # not the hotbar
+            if tick == 4:
+                recs.append(("game_packet", _vi(pk["set_held_slot"]) + _vi(8)))
+                recs.append(("game_packet", _vi(pk["set_player_inventory"]) + _vi(8) + _vi(0)))           # used up
+            recs.append(("next_tick", b""))
+        tmp = tempfile.mkdtemp()
+        try:
+            z = os.path.join(tmp, "r.zip")
+            with zipfile.ZipFile(z, "w") as zf:
+                zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3"}))
+                zf.writestr("c0.flashback", _fb_chunk(recs))
+            ev = [e for e in paths.exact_rows(z, os.path.join(tmp, "cache"), {})["events"] if e[2] in ("hb", "hs")]
+            self.assertEqual(ev, [[1, None, "hb", [0, "diamond_sword", "", None, 1]],
+                                  [1, None, "hb", [8, "cobblestone", "", None, 25]],
+                                  [4, None, "hs", 8], [4, None, "hb", [8, "", "", None, 0]]])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        new = history._inventory_of({"Inventory": [{"Slot": 0, "id": "minecraft:bow", "count": 1},
+                                                   {"Slot": 9, "id": "minecraft:torch", "count": 64}],
+                                     "equipment": {"head": {"id": "minecraft:iron_helmet", "count": 1}},
+                                     "EnderItems": [{"Slot": 3, "id": "minecraft:elytra", "count": 1}],
+                                     "SelectedItemSlot": 0, "Health": 20.0})
+        self.assertEqual(new["slots"], {"0": ["bow", 1], "9": ["torch", 64], "head": ["iron_helmet", 1]})
+        self.assertEqual((new["ender"], new["selected"]), ({"3": ["elytra", 1]}, 0))
+        old = history._inventory_of({"Inventory": [{"Slot": 103, "id": "minecraft:diamond_helmet", "Count": 1},
+                                                   {"Slot": -106, "id": "minecraft:shield", "Count": 1}]})
+        self.assertEqual(old["slots"], {"head": ["diamond_helmet", 1], "offhand": ["shield", 1]})
+
 
 class TestHistory(unittest.TestCase):
     """Player paths from Flashback recordings, and the history viewer's data and web server."""

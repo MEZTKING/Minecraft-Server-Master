@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -770,6 +770,61 @@ no in-world-text support (only 26.1–26.3). One timeline (one world, one story)
 Still to check: decoding positions per protocol and terrain/changes across the 1.21 → 26 boundary (block renames
 could look like changes).
 
+### 0zf. Relive a moment, a loading effect, inventories (raised 2026-11-24; all ✅ built the same day)
+
+The owner's asks: "make a system where you can replay the moment as if you were there again like a memory
+scene"; "make the loading of terrain very cool instead of showing polygons, maybe like a vertices matrix";
+"would it be possible to see what anyone has in their inventory/hotbar". Designs reviewed with Fable.
+
+1. ✅ **Relive** (memory scene). A state machine in `history.html` (`relive`, `reliveTick`, `reliveStep`,
+   `reliveExit`):
+   - load: white, with the caption, until the exact recording and blocks are ready (at most 15 s);
+   - in: fade from white;
+   - play: 1x, a third of the speed within 1.8 s of the key event;
+   - out: a freeze that fades to white with the caption, then everything is put back.
+   - Camera: a 4 s push-in from 9 blocks behind and 4.5 above to over the shoulder (or the eyes), smoothed with a
+     0.38 s time constant, slight sway, pitch softened.
+   - Look: CSS letterbox, vignette and canvas filter (no post-processing pass); fog pulled to 26-90 blocks in warm
+     white; trails, pins, rings, outlines and heat hidden; chat as subtitles; names only within 16 blocks.
+   - Buttons: on moments with a recording (the key event: the first death, advancement or first, else the
+     first event; 12 s before it to 20-60 s after), and **Relive** by Spectate (the next minute).
+   - Fable's advice taken: over the shoulder reads more like a memory than the eyes (the recorded head turns are
+     jittery), so *Behind* is offered; preload before fading in; restore everything on exit.
+2. ✅ **Build-in effect** (`map3d.js` `revealIn`, the overview's `uLoad` rectangles):
+   - each new real-block piece rises from its lowest block to its highest in 1.5 s, column by column (a hash per
+     column), its edge a cyan block grid (`fwidth` lines);
+   - the smooth map inside wanted-but-not-loaded pieces is drawn as a grid (every block, brighter every 8, dots
+     at crossings) with a scan ripple; `LIGHT.uClock` runs always. Moment rebuilds and Relive don't animate.
+   - Not done: the shadow pass doesn't follow the rise (shadows appear at once; 1.5 s).
+3. ✅ **Inventories.**
+   - **Checked first, on the owner's 24 May recording** (ServerReplay): the recordings keep
+     `set_player_inventory` for the hotbar (all 9 slots at the start, then each change: 9 slots over 68 min) and
+     `set_held_slot` (206 switches); no container contents. (Fable remembered Flashback's own
+     `flashback:remote_*` payloads; these server-side recordings have none.)
+   - `paths`: `"hb"` events `[slot, item, model, dye, count]` and `"hs"` (selected slot), recorded player only;
+     `history.exact` turns them into `hb:<slot>` / `hs` states like `eq:`. The two packet ids were added to the
+     bundled tables (`PACKETS`). The packet filter now admits 2-byte packets (set_held_slot is 2 bytes).
+   - `/api/inventory/<name>/<t>`: the library backup at or before t (else the first), its playerdata read with
+     `_inventory_of` (slots 0-35; armour and off hand from 1.21.5+ `equipment` or the old 100-103 / -106; ender
+     chest; selected slot, health, food, level).
+   - The page: a hotbar strip while spectating or reliving; the panel (**Inventory** / E) with armour, main,
+     hotbar and an ender chest tab, each part saying where it's from. Other players: only held items and armour
+     exist in any recording.
+
+### 0zg. Better recordings and data from the server (raised 2026-11-24, advice)
+
+The owner: "for the future is there a better way to record the players and the event, is there anything i can do
+to improve on my side on the server so mapping data and more information is easier". Advice given (nothing built):
+- Keep ServerReplay recording everyone all the time (it is what gives exact playback, hotbars, mobs and blocks at
+  the moment); recordings only exist for players while they're recorded.
+- Keep Ledger with no purge, and log item pick-ups and drops and container use if its config allows.
+- Backups more often (e.g. every few hours while people play): inventories, stats and the map are only as fresh
+  as the last backup.
+- Keep `logs/` with every dated `.log.gz` (chat, deaths, advancements, joins).
+- Keep the server clock right and in one time zone.
+- Optional: a lightweight player-position logger (a datapack or plugin writing positions every few seconds) for
+  times nobody's recording; a live map (BlueMap / squaremap) for a public view.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -1033,7 +1088,8 @@ Fable's order, most visible per effort first:
      (leather tinted by its dye) and a held icon at the fist, slightly self-lit.
    - Seen in the owner's recordings on 1.21.10 to 26.3: diamond armour and tools, bows, shields, leads,
      fishing rods, and `hsj:` item models (shown as their base item: the server resource pack isn't on the PC).
-   - Not drawn: armour trims, elytra, mob equipment, enchantment glint.
+   - Not drawn: armour trims, enchantment glint. Elytra (folded wings) and mobs' held items and armour were added
+     2026-11-24 (mobs' `set_equipment` is now read too; `EXACT_SUFFIX` `.exact7`).
 5. ✅ **Textured mobs.** Built 2026-11-23.
    - The models aren't hand-made. `mcsm/mobmodels.py` runs the game's own model code
      (`LayerDefinitions.createRoots()`), from the newest readable client jar (26.1 and later aren't
@@ -1487,6 +1543,13 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Relive**: **Relive** on a moment in the list (e.g. one of the 24 May ones), and the **Relive** button by
+  Spectate. Try both *First person* and *Behind*. Does it feel like a memory?
+- **Build-in effect**: zoom in somewhere new and watch the grid, then the blocks rising.
+- **Inventory**: spectate someone and press **E** (or **Inventory**); the hotbar above the timeline. Try the
+  ender chest tab. Do they match what you remember having?
+- **White lines between blocks**: should be gone (in Firefox, the screenshot you sent).
+- **Mobs' gear and elytra**: zombies and skeletons holding things and wearing armour; elytra on backs.
 - **Caves underground**: **Free cam** (F), fly down under the ground (Shift) and wait a few seconds: the caves
   around you load. Also: pause during exact playback and the players should stand still; water in Fancy should
   be a little deeper blue.
@@ -1604,6 +1667,14 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Relive a moment as a memory (owner: "replay the moment as if you were there again like a memory
+  scene"); the build-in effect for real blocks and the loading grid (owner: "make the loading of terrain very cool
+  instead of showing polygons, maybe like a vertices matrix"); inventory and hotbar (owner: "would it be possible to
+  see what anyone has in their inventory/hotbar"): the recorded player's hotbar exactly from the recordings, the rest
+  and the ender chest from the backups (`/api/inventory`). Parity: mobs' held items and armour, elytra. Fix: thin
+  light lines between blocks (owner: "there is a white line between blocks"): antialiasing sampled just outside each
+  face's texture in the atlas; the lookup is now clamped to the face's own cell.
 
 - **2026-11-24:** Owner's three viewer issues: (1) "terrain underground is not generated": caves now load when
   the free camera goes under the ground (`blockmesh.build(slab=...)`, `world3d.cave_tile`,
