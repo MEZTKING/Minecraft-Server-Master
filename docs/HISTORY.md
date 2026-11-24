@@ -302,9 +302,16 @@ something, as in the game. An egg or snowball breaking doesn't count as a death.
 
 What the recordings say about each mob's looks is used too: **babies** are drawn with the game's own baby models
 (big heads, small bodies), **sheep** in their wool colour (and bare when sheared), **horses** in their coat and
-markings, **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
+markings, **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
+its long coat, a warm pig...; the variant names come from the recording itself), **villagers** in their biome's
+clothes with their job's outfit and level badge (zombie villagers too), **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in
 the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
-game does it, red all the while, and is gone a second later. The
+game does it, red all the while, and is gone a second later.
+
+**Armour stands** are shown where the recordings saw them, with their armour and held items, small or full size,
+with or without arms and base plate, and posed as they were set. **Arrows** fly as the game's arrow model, turned
+along their flight, and stay where they land; arrows stuck in a player (the game counts them) poke out of their
+body, arms and head. The
 models are read from the newest Minecraft 26.x game installed on this PC (older versions' games can't be read);
 without one, mobs show as boxes sized and coloured by kind. What the recordings don't say is picked once per mob:
 a horse's coat, a cat's or parrot's colours, a tropical fish's colour, and farm animals are their temperate kind.

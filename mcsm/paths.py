@@ -114,7 +114,7 @@ SKIP_ENTITIES = {"item", "experience_orb", "arrow", "spectral_arrow", "trident",
                  "tnt", "area_effect_cloud", "marker", "interaction", "lightning_bolt", "firework_rocket",
                  "eye_of_ender", "fireball", "small_fireball", "dragon_fireball", "wither_skull", "shulker_bullet",
                  "llama_spit", "evoker_fangs", "wind_charge", "breeze_wind_charge", "leash_knot", "painting",
-                 "item_frame", "glow_item_frame", "armor_stand", "ominous_item_spawner", "end_crystal"}
+                 "item_frame", "glow_item_frame", "ominous_item_spawner", "end_crystal"}
 # things thrown or shot, followed every tick of their short flight (and shown as their item): entity -> item
 PROJECTILES = {"egg": "egg", "snowball": "snowball", "ender_pearl": "ender_pearl", "arrow": "arrow",
                "spectral_arrow": "spectral_arrow", "trident": "trident", "experience_bottle": "experience_bottle",
@@ -187,13 +187,26 @@ def entity_data_all(b, k: int, end: int) -> dict[int, tuple[int, object]]:
             else:
                 txt, k = "", k + 1
             out[idx] = (ser, txt)
-        elif ser == 9:                                    # rotations: three floats
+        elif ser == 9:                                    # rotations: three floats (degrees; armour stands' poses)
+            out[idx] = (ser, tuple(round(x, 2) for x in struct.unpack_from(">fff", b, k)))
             k += 12
-            out[idx] = (ser, None)
         elif ser == 10:                                   # a block position
             k += 8
             out[idx] = (ser, None)
-        else:
+        elif ser in (12, 14, 15, 19, 20):                 # direction, block state, optional ones, pose: a VarInt
+            v, k = _varint(b, k)
+            out[idx] = (ser, v)
+        elif ser == 13:                                   # an optional entity (its UUID): an owner
+            k += 17 if b[k] else 1
+            out[idx] = (ser, None)
+        elif ser == 18:                                   # villager data: type, profession, level
+            t, k = _varint(b, k)
+            pr, k = _varint(b, k)
+            lv, k = _varint(b, k)
+            out[idx] = (ser, ("villager", t, pr, lv))
+        else:                                             # a kind not known here: its first VarInt (a registry
+            v, _k = _varint(b, k)                         # entry's id for mob variants), then stop
+            out[idx] = (ser, ("?", v))
             break
     return out
 
@@ -204,6 +217,16 @@ BABY_KINDS = {"cow", "mooshroom", "pig", "sheep", "chicken", "horse", "donkey", 
               "polar_bear", "turtle", "goat", "bee", "hoglin", "zoglin", "axolotl", "frog", "sniffer", "armadillo",
               "strider", "dolphin", "squid", "glow_squid", "parrot", "zombie", "husk", "drowned", "zombie_villager",
               "zombified_piglin", "happy_ghast", "nautilus"}
+
+
+# mobs whose variant is an entry of a registry the recording sends at its start (missing: the default, temperate /
+# tabby / pale)
+VARIANT_REG = {"cat": "cat_variant", "wolf": "wolf_variant", "frog": "frog_variant", "pig": "pig_variant",
+               "chicken": "chicken_variant", "cow": "cow_variant", "zombie_nautilus": "zombie_nautilus_variant"}
+# villagers' types and jobs: built-in registries, in the game's order
+VILLAGER_TYPES = ["desert", "jungle", "plains", "savanna", "snow", "swamp", "taiga"]
+PROFESSIONS = ["none", "armorer", "butcher", "cartographer", "cleric", "farmer", "fisherman", "fletcher",
+               "leatherworker", "librarian", "mason", "nitwit", "shepherd", "toolsmith", "weaponsmith"]
 
 
 def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
@@ -223,6 +246,26 @@ def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
             out.append(["variant", v[1]])
     if kind in ("slime", "magma_cube") and d.get(16, (None,))[0] == SER_VARINT:
         out.append(["size", d[16][1]])
+    if kind in VARIANT_REG:                            # the first registry entry in its data: its variant
+        for idx in sorted(d):
+            ser, v = d[idx]
+            if idx >= 17 and isinstance(v, tuple) and v[0] == "?":
+                names = REGISTRIES.get(VARIANT_REG[kind]) or []
+                if 0 <= v[1] < len(names):
+                    out.append(["variant", names[v[1]].split(":", 1)[-1]])
+                break
+    for idx, (ser, v) in d.items():                     # villagers: their biome's clothes, job and level
+        if isinstance(v, tuple) and v[0] == "villager":
+            out.append(["vd", [VILLAGER_TYPES[v[1]] if v[1] < len(VILLAGER_TYPES) else "plains",
+                               PROFESSIONS[v[2]] if v[2] < len(PROFESSIONS) else "none", v[3]]])
+    if kind in ("arrow", "spectral_arrow", "trident") and d.get(10, (None,))[0] == SER_BOOL:
+        out.append(["ig", int(d[10][1])])               # stuck in a block (or flying again)
+    if kind == "armor_stand":                          # 0x01 small, 0x04 arms, 0x08 no base plate; poses in degrees
+        if d.get(15, (None,))[0] == SER_BYTE:
+            out.append(["asf", d[15][1]])
+        poses = {str(i): list(d[i][1]) for i in range(16, 22) if d.get(i, (None, None))[0] == 9 and d[i][1]}
+        if poses:
+            out.append(["asp", poses])
     if d.get(2, (None,))[0] == 6 and isinstance(d[2][1], str):
         out.append(["name", d[2][1]])
     return out
@@ -578,10 +621,18 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                     aid, i = _varint(b, i)
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
-                    if aid == cf and ex_on and size > 20 and b"banner_pattern" in b[i:i + 64]:
-                        names = registry_names(bytes(b[i:i + size]), "minecraft:banner_pattern")
-                        if names:
-                            REGISTRIES["banner_pattern"] = names
+                    if aid == cf and ex_on and size > 20 and (b"banner_pattern" in b[i:i + 64] or b"_variant" in b[i:i + 64]):
+                        try:                         # the registry's name: after the packet id, a string
+                            ln, kk = _varint(b, i + 1)
+                            reg = bytes(b[kk:kk + ln]).decode("utf-8", "replace")
+                        except IndexError:
+                            reg = ""
+                        if reg.startswith("minecraft:") and (reg.endswith("_variant") or reg.endswith("banner_pattern")):
+                            names = registry_names(bytes(b[i:i + size]), reg)
+                            if names:
+                                REGISTRIES[reg.split(":", 1)[1]] = names
+                                if extras is not None:          # (a mob's variant is an id into these)
+                                    extras.setdefault("registries", {})[reg.split(":", 1)[1]] = names
                     if clock is not None and aid == gp and size >= 9:
                         pid, kk = _varint(b, i) if b[i] & 0x80 else (b[i], i + 1)     # the id, then the packet
                         if pid == time_pid:
@@ -635,6 +686,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 if who and who.startswith("#"):          # a mob: baby, wool, size, name tag
                                     for ev in mob_details(who.split("#")[1], entity_data_all(b, k, i + size), new_ids):
                                         extras["events"].append([tick, who] + ev)
+                                da = entity_data_all(b, k, i + size)
+                                if da.get(12, (None,))[0] == SER_VARINT and not (who and any(
+                                        x in who for x in ("boat", "raft", "minecart", "arrow", "trident"))):
+                                    extras["events"].append([tick, who, "ar", da[12][1]])   # arrows stuck in them
                                 d = entity_data(b, k, i + size)
                                 if 0 in d:
                                     extras["events"].append([tick, who, "f", d[0]])    # sneak, sprint, swim, elytra, fire
@@ -958,7 +1013,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact12.json.gz"    # 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact13.json.gz"    # 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

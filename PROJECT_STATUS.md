@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -941,11 +941,23 @@ of 90 degrees, red, gone at 20 ticks). HumanoidModel arm poses (ITEM, BLOCK, SPY
 BRUSH). The body's turn worked out as LivingEntity.tickHeadTurn (30% a tick towards the walk, 75 degrees at most
 from the head). The moon's phase from the day number with the game's phase pictures (`EXACT_SUFFIX` `.exact12`).
 
+**Round 4 (2026-11-24, owner: "Yes, next batch").** Variants are registry entries: the recording's configuration
+packets carry every `*_variant` registry (kept in `paths.REGISTRIES` and `extras["registries"]`), and a mob's
+first registry-kind entry from index 17 on is its variant (cat 19 / 26.x 20, cow and chicken 18 on 26.x; missing =
+the default). Checked on the owner's 1.21.11 and 26.1.2 recordings: siamese / red / all-black cats, cold cows and
+chickens. The entity-data reader now also reads directions, block states, optional UUIDs (owners), villager data
+(type, profession, level: built-in registries in the game's order) and rotations (armour stand poses). Cold and warm
+cows, cold pigs and chickens use their own models. Villagers: type, profession and level-badge textures over the
+model (`villager/type`, `profession`, `profession_level`; babies `villager/baby/<type>`). Armour stands are followed
+now (flags 15: small, arms, no base plate; poses 16-21). Arrows: the jar's ARROW model, turned along the simulated
+flight, in the ground (`in_ground`, index 10) at the recorded spot; arrows in players (index 12) on random points of
+body, head and arms (`EXACT_SUFFIX` `.exact13`). Not seen in the sampled recordings (unchecked by eye): arrows in
+flight, arrows in bodies, armour stands.
+
 Still different (worst first): smooth lighting per corner; light from torches placed during a recording (needs a
 light flood fill); sign text, heads, chest lids, pistons, copper golems; eating and drinking (the game's arm bob in
-first person only); arrows' crossed-plane model, arrows stuck in bodies; other mob variants (cat, wolf, chicken,
-cow, pig, frog: registry entries not read yet), villager professions; action-bar messages; armour stands, item
-frames, paintings, leads; spyglass and trident 3D models; particles.
+first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
+action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
 
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
@@ -1665,6 +1677,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 4**: 26 May 19:53 in the village near D_HumanCrafter: villagers in their job outfits (the farmer's
+  straw hat, librarians, clerics) with level badges; cold cows and chickens around 19:46; cats in their real
+  colours. Please also look out for arrows (they should point along their flight and stay stuck where they land)
+  and armour stands; none were near a recorded player in the recordings I sampled.
 - **Parity round 3**: 26 May 19:40-19:50 near D_HumanCrafter: sheep in their colours (black, grey, brown, light
   grey), Stella the chestnut horse with white dots and her name, Felix the cat's name, baby zombies small with big
   heads; someone holding a shield up, looking through a spyglass; a player's body turning after their head; at
@@ -1827,6 +1843,11 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "Yes, next batch". Parity round 4 (backlog 0zh): mob variants from the recording's own
+  registries (cats, wolves, cows, pigs, chickens, frogs; cold/warm models), villagers' outfits, jobs and level
+  badges, armour stands with their poses, the game's arrow model in flight and stuck in the ground, arrows stuck in
+  players. Tests: `test_mob_variants_villagers_stands`.
 
 - **2026-11-24:** Owner: "Yes, next batch". Parity round 3 (backlog 0zh): mobs' looks from the recordings (babies
   with the game's baby models, sheep wool and shearing, horse coat and markings, slime size, name tags), the game's

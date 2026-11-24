@@ -693,7 +693,7 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name")
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp")
                         or slotted) and t < t0:                # (mobs' looks: kept from when they were first seen)
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)

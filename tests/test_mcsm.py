@@ -3876,6 +3876,29 @@ class TestRealBlocks(unittest.TestCase):
         body = bytes([2, 6, 1]) + comp + b"\xff"
         self.assertEqual(paths.mob_details("cat", paths.entity_data_all(body, 0, len(body)), True), [["name", "Fel"]])
 
+    def test_mob_variants_villagers_stands(self):
+        """A variant is the first registry entry in a mob's data (named from the recording's registries); villager
+        data is type, job, level; armour stands' flags and poses; an arrow stuck in a block."""
+        from mcsm import paths
+        old = dict(paths.REGISTRIES)
+        try:
+            paths.REGISTRIES["cat_variant"] = ["minecraft:all_black", "minecraft:black", "minecraft:siamese"]
+            # cat: 18 tame flags (byte), 19 owner (none), 20 variant (registry kind 21: id 2), 21 sound (id 0)
+            body = bytes([18, 0, 5, 19, 13, 0, 20, 21, 2, 21, 22, 0, 0xFF])
+            d = paths.entity_data_all(body, 0, len(body))
+            self.assertEqual(paths.mob_details("cat", d, True), [["variant", "siamese"]])
+            body = bytes([19, 18, 2, 5, 3, 0xFF])                      # villager data: plains, farmer, level 3
+            d = paths.entity_data_all(body, 0, len(body))
+            self.assertEqual(paths.mob_details("villager", d, True), [["vd", ["plains", "farmer", 3]]])
+            rot = struct.pack(">fff", -15.0, 0.0, 10.0)
+            body = bytes([15, 0, 0x0C, 19, 9]) + rot + b"\xff"
+            d = paths.entity_data_all(body, 0, len(body))
+            self.assertEqual(paths.mob_details("armor_stand", d, True), [["asf", 12], ["asp", {"19": [-15.0, 0.0, 10.0]}]])
+            body = bytes([8, 0, 1, 10, 8, 1, 0xFF])
+            self.assertEqual(paths.mob_details("arrow", paths.entity_data_all(body, 0, len(body)), True), [["ig", 1]])
+        finally:
+            paths.REGISTRIES.clear(); paths.REGISTRIES.update(old)
+
     def test_water_shape(self):
         """Water shaped as the game does: a source 8/9 high, flowing water lower by level, corners averaged over the
         four cells round them (cells of 0.8 or more counting ten times), full under more water; flowing texture."""

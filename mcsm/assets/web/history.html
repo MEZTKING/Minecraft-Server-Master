@@ -1493,8 +1493,21 @@ const DYE_ORDER = ["white", "orange", "magenta", "light_blue", "yellow", "lime",
   "purple", "blue", "brown", "green", "red", "black"];
 const HORSE_COAT = ["white", "creamy", "chestnut", "brown", "black", "gray", "darkbrown"];
 const HORSE_MARKS = [null, "white", "whitefield", "whitedots", "blackdots"];
+// variants (registry entries from the recording; missing: the game's default) -> texture, and their own models
+const VAR_TEX = { cat: v => `cat/cat_${v}`, wolf: v => v === "pale" ? "wolf/wolf" : `wolf/wolf_${v}`, cow: v => `cow/cow_${v}`,
+  pig: v => `pig/pig_${v}`, chicken: v => `chicken/chicken_${v}`, frog: v => `frog/frog_${v}` };
+const VAR_DEFAULT = { wolf: "pale", cow: "temperate", pig: "temperate", chicken: "temperate", frog: "temperate" };
+const VAR_LAYER = { cow: { cold: "COLD_COW", warm: "WARM_COW" }, chicken: { cold: "COLD_CHICKEN" }, pig: { cold: "COLD_PIG" } };
+const VILLAGER_LEVEL = ["stone", "iron", "gold", "emerald", "diamond"];
+// armour stands' poses (entity data 16-21, degrees) and the game's defaults
+const STAND_PARTS = { 16: ["head"], 17: ["body", "right_body_stick", "left_body_stick", "shoulder_stick"], 18: ["left_arm"],
+  19: ["right_arm"], 20: ["left_leg"], 21: ["right_leg"] };
+const STAND_DEFAULT = { 16: [0, 0, 0], 17: [0, 0, 0], 18: [-10, 0, -10], 19: [-15, 0, 10], 20: [-1, 0, -1], 21: [1, 0, 1] };
 function mobLook(label, kind) {
   const look = { baby: !!stateAt(label, "baby", T, 0) };
+  if (VAR_TEX[kind]) look.variant = stateAt(label, "variant", T, null) ?? VAR_DEFAULT[kind] ?? null;
+  if (kind === "villager" || kind === "zombie_villager") look.vd = stateAt(label, "vd", T, null);
+  if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
   if (kind === "sheep") look.wool = stateAt(label, "wool", T, 0);
   if (kind === "horse") look.variant = stateAt(label, "variant", T, null);
   if (kind === "slime" || kind === "magma_cube") look.size = stateAt(label, "size", T, null);
@@ -1506,12 +1519,19 @@ async function buildMob(o, label, kind) {
   const look = o.look || {}, key = o.lookKey;
   let [layer, tex] = mobLayerAndTex(kind, label);
   if (kind === "horse" && look.variant != null) tex = `horse/horse_${HORSE_COAT[look.variant & 255] || "brown"}`;
+  if (VAR_TEX[kind] && look.variant) {
+    tex = VAR_TEX[kind](look.variant);
+    const vl = VAR_LAYER[kind] && VAR_LAYER[kind][look.variant];
+    if (vl && MOBM[vl]) layer = vl;
+  }
+  if (kind === "armor_stand") { layer = look.flags & 1 && MOBM.ARMOR_STAND_SMALL ? "ARMOR_STAND_SMALL" : "ARMOR_STAND"; tex = "armorstand/armorstand"; }
   let baby = !!(look.baby && MOBM[layer + "_BABY"]);   // the game's own baby model and texture (26.x)
   let L = MOBM[baby ? layer + "_BABY" : layer];
   if (!L) return;                                      // no model: stays a box
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
+  if (!t && tex === "armorstand/armorstand") t = await mobTexture(tex = "armorstand/wood");   // its name before 26.x
   if (!t || !mobMeshes.has(label) || o.lookKey !== key) return;
   const inner = new THREE.Group(), parts = {};
   inner.position.y = 24 * MPX;                         // the model's y = 24 is the ground
@@ -1519,9 +1539,19 @@ async function buildMob(o, label, kind) {
   const extras = (MOB_EXTRA[kind] || []).slice();
   if (kind === "sheep" && (look.wool & 0x10)) extras.length = 0;         // sheared
   const marks = kind === "horse" && look.variant != null && HORSE_MARKS[(look.variant >> 8) & 255];
-  if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, true]);
-  for (let [xl, xt, glass, over] of extras) {
-    if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
+  if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, 1]);
+  if (look.vd) {                                        // villagers: their biome's clothes, job and level badge on top
+    const [vt, prof, lv] = look.vd, dir = kind === "zombie_villager" ? "zombie_villager" : "villager";
+    if (baby) extras.push([layer, `${dir}/baby/${vt}`, false, 1, true]);
+    else {
+      extras.push([layer, `${dir}/type/${vt}`, false, 1]);
+      if (prof && prof !== "none") extras.push([layer, `${dir}/profession/${prof}`, false, 2]);
+      if (prof && prof !== "none" && prof !== "nitwit") extras.push([layer, `${dir}/profession_level/${VILLAGER_LEVEL[Math.max(0, Math.min(4, lv - 1))]}`, false, 3]);
+    }
+  }
+  for (let [xl, xt, glass, over, babyTex] of extras) {
+    if (babyTex) xl = layer + "_BABY";
+    else if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
       const bl = xl === layer ? layer + "_BABY" : xl.replace(layer + "_", layer + "_BABY_");
       if (MOBM[bl]) { xl = bl; xt += "_baby"; }
     }
@@ -1532,9 +1562,9 @@ async function buildMob(o, label, kind) {
       const col = DYE[DYE_ORDER[(look.wool || 0) & 15]] ?? 0xffffff;
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn }; mats.n.color = new THREE.Color(col);
     }
-    if (over) {                                         // markings: drawn on the coat itself
+    if (over) {                                         // markings, clothes, badges: drawn on the model itself, in order
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
-      mats.n.polygonOffset = true; mats.n.polygonOffsetFactor = -1; mats.n.polygonOffsetUnits = -1;
+      mats.n.polygonOffset = true; mats.n.polygonOffsetFactor = -over; mats.n.polygonOffsetUnits = -over;
     }
     inner.add(buildPart(XL.root, xl, "", XL.tw, XL.th, mats, {}, ""));
   }
@@ -1549,6 +1579,10 @@ async function buildMob(o, label, kind) {
   if (look.baby && !baby) s *= 0.5;                    // no baby model: the grown one at half size
   const model = new THREE.Group(); model.add(inner); model.scale.setScalar(s);
   if (o.model) o.mesh.remove(o.model);
+  if (kind === "armor_stand") {                         // arms only when shown (0x04); the base plate unless hidden (0x08)
+    for (const n of ["right_arm", "left_arm"]) if (parts[n]) parts[n].g.visible = !!(look.flags & 4);
+    if (parts.base_plate) parts.base_plate.g.visible = !(look.flags & 8);
+  }
   o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.state = "n"; o.gearKeys = {}; o.gear = {};
 }
 function mobMesh(label, kind, look = null) {
@@ -1565,7 +1599,8 @@ function mobMesh(label, kind, look = null) {
   }
   if (kind === "item") { if (!o.icon) itemIcon(o); return o; }
   if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
-    if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]); }
+    if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]);
+      if (kind === "arrow" || kind === "spectral_arrow") arrowModel(kind).then(g => { if (g) { o.arrow = g; o.mesh.add(g); } }); }
     return o;
   }
   if (look) {                                          // its looks changed (grew up, sheared, dyed...): built again
@@ -1574,6 +1609,16 @@ function mobMesh(label, kind, look = null) {
   }
   if (!o.building && MOBM) buildMob(o, label, kind);
   return o;
+}
+// the game's arrow model (two crossed planes and the fletching, tip along +x), 0.9 blocks long like the game's;
+// centred on its point (flying), or with its tip at the point (stuck in someone)
+async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
+  const L = MOBM && MOBM.ARROW; if (!L) return null;
+  const tex = kind === "spectral_arrow" ? "projectiles/arrow_spectral" : "projectiles/arrow", t = await mobTexture(tex);
+  if (!t) return null;
+  const g = new THREE.Group(), inner = buildPart(L.root, "ARROW", "", L.tw, L.th, mobMaterials(tex, t), {}, "");
+  inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
+  g.add(inner); return g;
 }
 // things thrown or shot (entity -> the item drawn; "": not drawn) and their physics per tick: [gravity, drag, at most
 // ticks of flight followed (then it stays where it is, e.g. an arrow stuck in the ground)]
@@ -1670,6 +1715,14 @@ function mobGallery(kinds, at) {
   scene.add(g); GALLERY = { g, labels, at: c };
   return c;
 }
+function standPose(o, label) {                           // an armour stand's head, body, arms and legs as set
+  if (!o.parts) return;
+  const poses = stateAt(label, "asp", T, null) || {}, D = Math.PI / 180;
+  for (const [i, names] of Object.entries(STAND_PARTS)) {
+    const [x, y, z] = poses[i] || STAND_DEFAULT[i];
+    for (const n of names) { const q = o.parts[n]; if (q) q.g.rotation.set(x * D, -y * D, -z * D, "ZYX"); }
+  }
+}
 // a name tag's name over the mob, as the game shows it (dark plate, white text) when you're within 16 blocks
 const _ntv = new THREE.Vector3(), _ntb = new THREE.Box3();
 function mobNameTag(o, label) {
@@ -1721,14 +1774,25 @@ function updateMobs() {
       }
       if (o.proj !== undefined) {                    // thrown or shot: flown from its launch with the game's physics
         const v = stateAt(label, "v", T, null), ph = PROJ_PHYS[mob.type] || [0.03, 0.99];
-        if (v && a) {
+        const landed = stateAt(label, "ig", T, 0);           // an arrow in a block: where the recording put it
+        let dir = null;
+        if (v && a && !landed) {
           const ticks = Math.min((T - rows[0][0]) / 50, ph[2] || 200);
           let px = rows[0][1], py = rows[0][2], pz = rows[0][3], vx = v[0], vy = v[1], vz = v[2];
           for (let n = 0; n < Math.floor(ticks); n++) { px += vx; py += vy; pz += vz; vx *= ph[1]; vy = vy * ph[1] - ph[0]; vz *= ph[1]; }
           const fr = ticks % 1; px += vx * fr; py += vy * fr; pz += vz * fr;
           o.mesh.position.set(px, py, pz);
+          dir = new THREE.Vector3(vx, vy, vz);
+        } else if (landed) {
+          // the arrow's own turn (projectiles: yaw = atan2(dx, dz), pitch = atan2(dy, across))
+          const yw = a[5] * Math.PI / 180, pt = a[6] * Math.PI / 180;
+          dir = o.dir || new THREE.Vector3(Math.sin(yw) * Math.cos(pt), Math.sin(pt), Math.cos(yw) * Math.cos(pt));
         }
-        o.icon.visible = !!o.proj; o.icon.lookAt(camera.position);   // facing you, as the game draws thrown items
+        if (o.arrow) {
+          o.icon.visible = false;
+          if (dir && dir.lengthSq() > 1e-8) { dir.normalize(); if (!landed) o.dir = dir.clone();
+            o.arrow.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir); }
+        } else { o.icon.visible = !!o.proj; o.icon.lookAt(camera.position); }   // facing you, as the game draws thrown items
         continue;
       }
       if (o.icon) {
@@ -1738,7 +1802,7 @@ function updateMobs() {
         o.icon.position.y = 0.25 + Math.sin(T / 400 + label.length) * 0.05;
         continue;
       }
-      animateMob(o, label, speed);
+      if (mob.type === "armor_stand") standPose(o, label); else animateMob(o, label, speed);
       mobNameTag(o, label);
       const hp = o.parts && o.parts.head;                    // the head turned and tilted as recorded
       if (hp && a[7] != null) {
@@ -2173,8 +2237,38 @@ function updateMobGear(o, label) {
     P.arms.g.visible = !holding; P.right_arm.g.visible = holding; if (P.left_arm) P.left_arm.g.visible = holding;
   }
 }
+// arrows stuck in a player (the recordings keep how many): the game picks a body part, a point on it and a slant for
+// each from the player's id; here from their name, the same every time
+function stuckArrows(m) {
+  const n = m.cur && m.cur.exact ? Math.min(12, stateAt(m.name, "ar", T, 0) || 0) : 0, F = m.F;
+  F.arrows = F.arrows || [];
+  if (F.arrows.length === n || F.arrowsBusy) return;
+  for (const g of F.arrows.splice(n)) g.parent && g.parent.remove(g);
+  if (F.arrows.length >= n) return;
+  F.arrowsBusy = true;
+  arrowModel("arrow", 0.45, true).then(proto => {
+    F.arrowsBusy = false; if (!proto) return;
+    let h = 0; for (const ch of m.name) h = (h * 31 + ch.charCodeAt(0)) | 0;
+    const rnd = () => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) & 0xffff) / 0xffff; };
+    for (let i = 0; i < F.arrows.length; i++) { rnd(); rnd(); rnd(); rnd(); }
+    const parts = [F.parts.body, F.parts.head, F.parts.rarm, F.parts.larm].filter(Boolean);
+    while (F.arrows.length < n && parts.length) {
+      const part = parts[Math.floor(rnd() * parts.length) % parts.length];
+      const mesh = part.children.find(c => c.isMesh); if (!mesh) break;
+      mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox.clone().translate(mesh.position), c = bb.getCenter(new THREE.Vector3());
+      const pt = new THREE.Vector3(THREE.MathUtils.lerp(bb.min.x, bb.max.x, rnd()), THREE.MathUtils.lerp(bb.min.y, bb.max.y, rnd()),
+        THREE.MathUtils.lerp(bb.min.z, bb.max.z, rnd()));
+      const g = proto.clone(); g.position.copy(pt);
+      const into = c.clone().sub(pt); into.y *= 0.3; if (into.lengthSq() < 1e-8) into.set(0, 0, -1);
+      g.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), into.normalize());
+      part.add(g); F.arrows.push(g);
+    }
+  });
+}
 function animateFigure(m, now) {
   updateGear(m);
+  stuckArrows(m);
   // exact playback: body, head and look as recorded; otherwise face the way the player moves. Arms and legs swing
   // with their speed.
   const p = m.group.position, last = m.last || p.clone(), dt = Math.max(1, now - (m.lastT || now)) / 1000;
