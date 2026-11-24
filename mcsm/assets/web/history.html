@@ -280,6 +280,7 @@ body.relive #relive .sub { display: none; }
     <button id="mapBtn" type="button" title="Every map in the backup shown, and the walls of maps in item frames (also drawn on the walls in the world)">Maps</button>
     <button id="invBtn" type="button" title="What the spectated (or nearest) player carries: the hotbar exactly from their own recording, the rest from the nearest backup (E)">Inventory</button>
     <button id="reliveBtn" type="button" title="Relive the next minute through the chosen player's eyes, like a memory (Spectate picks who; Esc leaves)">Relive</button>
+    <button id="watchFbBtn" type="button" title="Open this exact moment in Flashback: copies the few minutes around it from the recording of the player you follow (or the nearest one), with a marker at this time, into the Flashback of its Minecraft version, and starts that Minecraft. Then: Flashback → Replays → the newest copy.">Watch in Flashback</button>
     <button id="hideUiBtn" type="button" title="Hide all of the viewer's panels and labels, for a clean view (F1, as in the game; F1 or Esc again to show them)">Hide UI</button>
     <button id="picBtn" type="button" title="Save a picture of the 3D view as it is now, without the panels (F2, as in the game)">Picture</button>
     <button id="reviewBtn" type="button" title="The server's year and each player's, as cards (opens in a new tab)" onclick="window.open('/review', '_blank')">Year in review</button>
@@ -3622,6 +3623,30 @@ function takePicture() {
   }, "image/png");
 }
 $("#hideUiBtn").onclick = () => setClean(true);
+// one button: this moment's recording, in Flashback (a short copy with a marker at this time; that Minecraft started)
+$("#watchFbBtn").onclick = async () => {
+  let who = SPEC.name || (RELIVE.on ? RELIVE.name : "");
+  if (!who) { let best = 1e9; const f = FREE.on ? camera.position : controls.target;
+    for (const [n, o] of Object.entries(markers)) if (o.group.visible) { const d = o.group.position.distanceTo(f); if (d < best) { best = d; who = n; } } }
+  const b = $("#watchFbBtn"); b.disabled = true;
+  try { await post("api/flashback/watch", { t: Math.round(T), player: who }); }
+  catch (e) { toastStatus(`Couldn't: ${e.message}`); b.disabled = false; return; }
+  const tick = async () => {
+    let j; try { j = await (await fetch("api/highlights/export/job")).json(); } catch (e) { setTimeout(tick, 1500); return; }
+    if (j.running) {
+      const pc = j.total ? Math.round(100 * j.done / j.total) : 0;
+      toastStatus(`Watch in Flashback: ${j.message || ""} ${pc}%${j.left_s != null ? ` · about ${hms(j.left_s * 1000)} left` : ""}`);
+      setTimeout(tick, 600); return;
+    }
+    b.disabled = false;
+    if (j.error) { toastStatus(`Watch in Flashback: ${j.error}`); return; }
+    const r = j.result;
+    toastStatus(r.installed
+      ? `“${r.name}” is in Flashback${r.started ? ` · ${r.started}` : ""}. In Minecraft: Flashback → Replays → “${r.name}” (the green marker is this moment).`
+      : `“${r.name}” was saved to ${r.file}: no Flashback for Minecraft ${r.minecraft} on this PC; copy it into one.`);
+  };
+  tick();
+};
 document.body.appendChild($("#fpsBadge"));             // out of the panel (whose blur would hold it in place)
 $("#picBtn").onclick = () => takePicture();
 

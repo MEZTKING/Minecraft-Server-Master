@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1631,6 +1631,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Watch in Flashback**: go to a moment (e.g. follow vegitogod22 on 24 May 20:22), press **Watch in Flashback**:
+  Minecraft starts; in Flashback → Replays the newest copy ("vegitogod22 at 24 May 20.22.xx") opens at the green
+  marker. Please check that the short copy opens.
 - **Explosions**: 14 Nov 23:04:04 UTC at Vakirath's chests (4768, 102, 381): a creeper's flash and smoke.
 - **Relive HUD**: the game's hotbar, hearts, food, armour, experience bar, crosshair (eyes view), chat bottom left.
 - **F1 / F2**: hide the UI; save a picture.
@@ -1781,6 +1784,12 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "you should be able to press a single button in the history tab to the exact recording in
+  that time automatically". **Watch in Flashback** (`/api/flashback/watch`, `HistoryMap.watch_in_flashback`): the
+  followed (or nearest) player's recording covering T, trimmed to a minute before and two after, marker and scene at
+  T, into its version's Flashback, then that Prism instance is started; progress on the status line. Flashback can't
+  be asked to open a replay from outside, so choosing it in Flashback's list stays a click.
 
 - **2026-11-24:** Owner: "are explosion not accurate ... is this due to the serverreplay optmising such packets"; "in
   the relive, try to show the ui just like how minecraft does it. also that hot bar seems to burn over ever ui of ours";

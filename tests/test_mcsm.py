@@ -1354,6 +1354,45 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_watch_in_flashback(self):
+        """One button: the recording covering a moment (the followed player's), copied around it into Flashback with a
+        marker at that time and a scene starting there; Minecraft is only started for a launcher's own Flashback."""
+        import types
+        from datetime import datetime, timedelta, timezone
+        from mcsm import history
+        tmp = tempfile.mkdtemp()
+        try:
+            start = datetime(2026, 5, 24, 18, 0, tzinfo=timezone.utc)
+
+            def rec(name, player):
+                p = os.path.join(tmp, name)
+                with zipfile.ZipFile(p, "w") as z:
+                    z.writestr("metadata.json", json.dumps({"uuid": name, "name": name, "total_ticks": 24000,
+                                                            "chunks": {f"c{i}.flashback": {"duration": 6000} for i in range(4)}}))
+                    for i in range(4):
+                        z.writestr(f"c{i}.flashback", b"x" * 10)
+                return types.SimpleNamespace(format="flashback", unfinished=False, start=start, end=start + timedelta(minutes=20),
+                                             raw_meta={"total_ticks": 24000}, duration_ms=1_200_000, recorded_player=player,
+                                             mc_version="26.1.2", path=p)
+            reps = [rec("a.zip", "Alex"), rec("b.zip", "Steve")]
+            fb = os.path.join(tmp, "flashback")
+            fake = types.SimpleNamespace(data=types.SimpleNamespace(replays=reps), replay_file=lambda r: r.path,
+                                         flashback_pick=lambda r: fb, flashback_dir=None,
+                                         highlights=types.SimpleNamespace(path=os.path.join(tmp, "h.json")))
+            t = int((start + timedelta(minutes=7)).timestamp() * 1000)     # tick 8400: in part 1
+            job = {"done": 0, "total": 0}
+            r = history.HistoryMap.watch_in_flashback(fake, t, "Steve", job)
+            self.assertEqual((r["recorded_by"], r["installed"], r["started"]), ("Steve", True, None))
+            with zipfile.ZipFile(r["file"]) as z:
+                meta = json.loads(z.read("metadata.json"))
+            self.assertEqual(sorted(meta["chunks"]), ["c0.flashback"])   # only part 1 (6 to 9 minutes in), renumbered
+            self.assertEqual(list(meta["markers"]), [str(8400 - 6000)])              # the marker at that moment
+            self.assertTrue(meta["name"].startswith("Steve at "))
+            self.assertTrue(os.path.isfile(os.path.join(fb, "editor_states", f"{meta['uuid']}.json")))
+            self.assertEqual(job["done"], job["total"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_trimmed_replay_copy(self):
         """A highlight's copy keeps only the 5-minute parts it needs, renumbered from c0, with its markers moved to
         match, its own name, and the bytes it writes counted."""

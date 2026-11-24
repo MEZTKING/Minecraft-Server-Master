@@ -1492,6 +1492,28 @@ class HistoryMap(TerrainServer):
                     self._export_lock.release()
             threading.Thread(target=run, daemon=True).start()
             return self.export_job()
+        if path == "/api/flashback/watch":            # one button: the recording at this moment, in Flashback
+            if self.replay_file is None:
+                raise ValueError("recordings are not available in this session")
+            if not self._export_lock.acquire(blocking=False):
+                raise ValueError("a copy is already being made")
+            import threading
+            import time as time_mod
+            t = int(body.get("t") or 0)
+            who = str(body.get("player") or "")
+            job = self._export_job = {"running": True, "done": 0, "total": 0, "started": time_mod.time(), "kind": "watch",
+                                      "message": "Finding the recording…", "result": None, "error": None}
+
+            def run():
+                try:
+                    job["result"] = self.watch_in_flashback(t, who, job)
+                except Exception as exc:                  # noqa: BLE001 -- shown on the page
+                    job["error"] = str(exc)
+                finally:
+                    job["running"] = False
+                    self._export_lock.release()
+            threading.Thread(target=run, daemon=True).start()
+            return self.export_job()
         if path == "/api/flashback/open":             # start the Minecraft (Prism instance) that has this Flashback
             from . import flashback as fbm
             want = os.path.abspath(str(body.get("flashback") or ""))
@@ -1502,6 +1524,52 @@ class HistoryMap(TerrainServer):
                 raise ValueError("no Prism Launcher instance with that Flashback: start it yourself")
             return {"message": fbm.launch_instance(pick["name"])}
         return None
+
+    def watch_in_flashback(self, t: int, who: str, job: dict) -> dict:
+        """A short copy of the recording at *t* (the one *who* made, else one that covers it), from a minute before
+        to two after, with a marker at t, in the Flashback of its Minecraft version; then that Minecraft is started."""
+        from datetime import datetime
+        from . import flashback as fbm, highlights as hl
+        reps = hl.covering(self.data, {"start": t, "end": t})
+        if not reps:
+            raise ValueError("no recording covers this moment")
+        r = next((x for x in reps if who and (x.recorded_player or "").lower() == who.lower()), None) or reps[0]
+        fb, installed = fbm.export_target(r, self.flashback_pick, self.flashback_dir,
+                                          os.path.dirname(os.path.abspath(self.highlights.path)))
+        r0 = hl._ms(r.start)
+        total = int(r.raw_meta.get("total_ticks") or 0) or int(r.duration_ms / 50)
+        at = max(0, min(total, round((t - r0) / 50)))
+        when = datetime.fromtimestamp(t / 1000).strftime("%d %b %H.%M.%S")
+        shown = f"{r.recorded_player or 'recording'} at {when}"
+        os.makedirs(os.path.join(fb, "replays"), exist_ok=True)
+        dst = os.path.join(fb, "replays", hl._safe(shown) + " (watch).zip")
+        n = 2
+        while os.path.exists(dst):
+            dst = os.path.join(fb, "replays", hl._safe(shown) + f" (watch {n}).zip")
+            n += 1
+        src = self.replay_file(r)
+        trim = (max(0, at - 1200), min(total, at + 2400))
+        job["total"] = fbm.copy_size(src, trim)
+        job["message"] = f"Copying {r.recorded_player}'s recording around {when}…"
+
+        def wrote(k: int) -> None:
+            job["done"] += k
+        meta = fbm.write_replay_copy(src, dst, [fbm.FlashbackMarker(at, f"▶ {when}", hl.START_COLOUR)], " (watch)",
+                                     trim=trim, display_name=shown, progress=wrote)
+        a = at - (meta.get("_trim_offset") or 0)
+        fbm.install_editor_state(fb, meta["uuid"], {"scenes": [{"name": f"From {when}", "keyframeTracks": [],
+                                 "exportStartTicks": a, "exportEndTicks": a + 1200, "history": {"entries": [], "position": 0}}],
+                                 "sceneIndex": 0})
+        started = None
+        if installed:
+            pick = next((f for f in fbm.flashback_folders() if os.path.abspath(f["path"]) == os.path.abspath(fb)), None)
+            if pick and pick.get("launcher") == "PrismLauncher":
+                try:
+                    started = fbm.launch_instance(pick["name"])
+                except (OSError, ValueError) as exc:
+                    started = f"couldn't start it ({exc})"
+        return {"name": shown, "file": dst, "installed": installed, "started": started, "minecraft": r.mc_version,
+                "recorded_by": r.recorded_player, "marker_tick": a}
 
     def export_job(self) -> dict:
         """The highlights export running in the background: bytes copied of the total, and the result once done."""

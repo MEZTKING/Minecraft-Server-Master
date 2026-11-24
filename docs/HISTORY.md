@@ -502,6 +502,12 @@ Spectating switches to exact playback (1×). **Esc** stops.
 **Play** on a moment follows the player it's about (spectating them from behind or through their eyes, as
 Spectate is set): the one its title names first, else the one whose recording covers it. **Esc** stops following.
 
+**Watch in Flashback.** One button for the exact moment shown: it takes the recording of the player you follow
+(or the nearest recorded player), copies the minute before and two minutes after into the Flashback of that
+recording's Minecraft version, named "<player> at <date time>", with a green marker at this moment and a scene
+starting there, and starts that Minecraft (Prism Launcher). In Minecraft: Flashback → Replays → the copy (Flashback
+can't be told from outside to open a replay, so that one click is yours). The status line shows the copying.
+
 **Hide UI and pictures.** **Hide UI** (or **F1**, as in the game) hides every panel and label for a clean view;
 F1 or **Esc** brings them back. **Picture** (or **F2**) saves a PNG of the 3D view as it is now (into your
 browser's downloads), named after the world and the time shown. Both work while reliving.
