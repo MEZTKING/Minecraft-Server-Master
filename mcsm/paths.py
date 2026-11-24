@@ -175,7 +175,35 @@ def entity_data(b, k: int, end: int) -> dict[int, int | float]:
 # skipped (the main hand comes first, so what's held is always read).
 SLOTS = ("mainhand", "offhand", "feet", "legs", "chest", "head", "body", "saddle")
 _VARINT_COMPONENTS = {"max_stack_size", "max_damage", "damage", "rarity", "repair_cost", "enchantable", "map_id",
-                      "ominous_bottle_amplifier", "base_color"}
+                      "ominous_bottle_amplifier"}
+DYES = ("white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple",
+        "blue", "brown", "green", "red", "black")
+# the recording's own registries (from its configuration packets), for components that name entries by number
+REGISTRIES: dict = {}
+
+
+def registry_names(packet: bytes, registry: str) -> list[str] | None:
+    """A registry's entry names in network id order, if *packet* (a configuration packet: id, then the registry's
+    name and entries) is that registry's data; else None."""
+    try:
+        k = 1
+        ln, k = _varint(packet, k)
+        if packet[k:k + ln].decode("utf-8", "replace") != registry:
+            return None
+        k += ln
+        n, k = _varint(packet, k)
+        out = []
+        for _ in range(n):
+            ln, k = _varint(packet, k)
+            out.append(packet[k:k + ln].decode("utf-8", "replace"))
+            k += ln
+            has = packet[k]
+            k += 1
+            if has:
+                k = _nbt_skip(packet, k)
+        return out
+    except (IndexError, ValueError, struct.error):
+        return None
 _UNIT_COMPONENTS = {"unbreakable", "glider", "intangible_projectile", "creative_slot_lock"}
 
 
@@ -197,6 +225,24 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
         return _varint(b, k)[1], None
     if name in _UNIT_COMPONENTS:
         return k, None
+    if name == "base_color":                            # a shield's (or banner item's) base dye
+        v, k = _varint(b, k)
+        return k, DYES[v % 16]
+    if name == "banner_patterns":                       # layers: a pattern (registry entry, or 0 + written out), a dye
+        names = REGISTRIES.get("banner_pattern") or []
+        n, k = _varint(b, k)
+        out = []
+        for _ in range(min(n, 64)):
+            h, k = _varint(b, k)
+            if h == 0:
+                asset, k = _string(b, k)
+                k = _string(b, k)[1]                    # its translation key
+                pat = asset
+            else:
+                pat = names[h - 1] if 0 <= h - 1 < len(names) else f"#{h - 1}"
+            d, k = _varint(b, k)
+            out.append([pat.split(":")[-1], DYES[d % 16]])
+        return k, out
     if name == "enchantment_glint_override":
         return k + 1, None
     if name in ("dyed_color", "map_color"):
@@ -251,22 +297,23 @@ def equipment(b, k: int, end: int, items: list, comps: list) -> list[list]:
         k += 1
         name = SLOTS[slot & 0x7F] if (slot & 0x7F) < len(SLOTS) else str(slot & 0x7F)
         got, k = item_stack(b, k, items, comps)
-        out.append([name] + got[:3])
+        out.append([name] + got[:3] + ([got[4]] if got[4] else []))   # + the banner look of a shield or banner
         if got[3]:                                     # a component it couldn't read: the rest is unknown
             break
     return out
 
 
 def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
-    """An item stack: ``([item ("" = empty), item_model or "", dye colour or None, stopped early], new position)``."""
+    """An item stack: ``([item ("" = empty), item_model or "", dye colour or None, stopped early, banner look or
+    None], new position)``; the banner look (shields, banners) is ``{"base": dye, "patterns": [[pattern, dye]]}``."""
     count, k = _varint(b, k)
     if count <= 0:
-        return ["", "", None, False], k
+        return ["", "", None, False, None], k
     iid, k = _varint(b, k)
     item = items[iid] if 0 <= iid < len(items) else f"#{iid}"
     add, k = _varint(b, k)
     rem, k = _varint(b, k)
-    model, colour = "", None
+    model, colour, look = "", None, None
     try:
         for _ in range(add):
             ct, k = _varint(b, k)
@@ -276,11 +323,15 @@ def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
                 model = val
             elif cname == "dyed_color":
                 colour = val
+            elif cname == "base_color":
+                look = {**(look or {}), "base": val}
+            elif cname == "banner_patterns" and val:
+                look = {**(look or {}), "patterns": val}
         for _ in range(rem):
             k = _varint(b, k)[1]
     except (ValueError, IndexError, struct.error):
-        return [item, model, colour, True], k
-    return [item, model, colour, False], k
+        return [item, model, colour, True, look], k
+    return [item, model, colour, False, look], k
 
 
 SER_OPT_COMPONENT, SER_ITEM_STACK = 6, 7
@@ -407,6 +458,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
             mv = kinds.index("move_entities") if "move_entities" in kinds else -1
             cl = kinds.index("create_local_player") if "create_local_player" in kinds else -1
             gp = kinds.index("game_packet") if "game_packet" in kinds else -1
+            cf = kinds.index("configuration_packet") if "configuration_packet" in kinds else -1
             # the snapshot (who/what is in view when this file starts) uses the same record format
             for start, end in ((i, i + snap), (i + snap, len(b))):
                 i = start
@@ -414,6 +466,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                     aid, i = _varint(b, i)
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
+                    if aid == cf and ex_on and size > 20 and b"banner_pattern" in b[i:i + 64]:
+                        names = registry_names(bytes(b[i:i + size]), "minecraft:banner_pattern")
+                        if names:
+                            REGISTRIES["banner_pattern"] = names
                     if clock is not None and aid == gp and size >= 9:
                         pid, kk = _varint(b, i) if b[i] & 0x80 else (b[i], i + 1)     # the id, then the packet
                         if pid == time_pid:
@@ -745,7 +801,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact8.json.gz"     # 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact9.json.gz"     # 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

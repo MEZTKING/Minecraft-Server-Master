@@ -1354,6 +1354,27 @@ class TestPosesAndMobs(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_item_banner_patterns(self):
+        """A shield's or banner's look in an item stack: base_color, and banner_patterns (registry entries named from
+        the recording's own registry, or written out in full)."""
+        from mcsm import paths, protocol
+        t = protocol.table(777)
+        items, comps = t["items"], t["components"]
+        paths.REGISTRIES["banner_pattern"] = ["minecraft:base", "minecraft:border", "minecraft:creeper"]
+        asset = b"minecraft:globe"
+        bp = (_vi(comps.index("banner_patterns")) + _vi(2)
+              + _vi(3) + _vi(14)                                          # entry 2 (creeper), red
+              + _vi(0) + _vi(len(asset)) + asset + _vi(5) + b"x.y.z" + _vi(11))   # written out: globe, blue
+        stack = _vi(1) + _vi(items.index("shield")) + _vi(2) + _vi(0) + _vi(comps.index("base_color")) + _vi(15) + bp
+        got, _ = paths.item_stack(stack, 0, items, comps)
+        self.assertEqual(got[0], "shield")
+        self.assertEqual(got[4], {"base": "black", "patterns": [["creeper", "red"], ["globe", "blue"]]})
+        reg = (_vi(7) + _vi(len(b"minecraft:banner_pattern")) + b"minecraft:banner_pattern" + _vi(2)
+               + _vi(len(b"minecraft:base")) + b"minecraft:base" + bytes([0])
+               + _vi(len(b"minecraft:bricks")) + b"minecraft:bricks" + bytes([0]))
+        self.assertEqual(paths.registry_names(reg, "minecraft:banner_pattern"), ["minecraft:base", "minecraft:bricks"])
+        self.assertIsNone(paths.registry_names(reg, "minecraft:worldgen/biome"))
+
     def test_hotbar_and_inventory(self):
         """The recorded player's hotbar (set_player_inventory, set_held_slot) from a recording, and a player's slots
         from a backup's playerdata (1.21.5+ equipment, or the older armour slots)."""

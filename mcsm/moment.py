@@ -353,26 +353,9 @@ class CacheIndex:
 def _biome_names(config_packets: list[bytes]) -> list[str]:
     """The biome registry (names in network id order) from the recording's configuration packets."""
     for p in config_packets:
-        try:
-            k = 1
-            ln, k = _vi(p, k)
-            name = p[k:k + ln].decode("utf-8", "replace")
-            k += ln
-            if name != "minecraft:worldgen/biome":
-                continue
-            n, k = _vi(p, k)
-            out = []
-            for _ in range(n):
-                ln, k = _vi(p, k)
-                out.append(p[k:k + ln].decode("utf-8", "replace"))
-                k += ln
-                has = p[k]
-                k += 1
-                if has:
-                    k = paths_mod._nbt_skip(p, k)
-            return out
-        except (IndexError, ValueError, struct.error):
-            continue
+        names = paths_mod.registry_names(p, "minecraft:worldgen/biome")
+        if names is not None:
+            return names
     return []
 
 

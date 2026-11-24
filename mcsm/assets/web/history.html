@@ -163,6 +163,9 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 #chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
 #dev { position: absolute; right: 16px; top: 120px; width: 380px; max-height: calc(100% - 260px); overflow: auto; padding: 10px 12px; z-index: 6; font-size: 12px; }
 #dev pre { margin: 6px 0; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; color: var(--text); }
+#rBox { margin: 6px 0; } #rBox summary { cursor: pointer; }
+#fpsBadge { position: fixed; left: 50%; top: 6px; transform: translateX(-50%); z-index: 30; font: 12px/1.4 monospace;
+  background: rgba(0,0,0,.55); color: #9f9; padding: 2px 8px; border-radius: 4px; pointer-events: none; }
 #lightBox { margin: 6px 0; } #lightBox summary { cursor: pointer; }
 #lightBox .lgrid { display: grid; grid-template-columns: auto 1fr 3.2em; gap: 4px 8px; align-items: center; margin: 6px 0; }
 #lightBox .lgrid span { font-variant-numeric: tabular-nums; color: var(--text-2); text-align: right; }
@@ -296,6 +299,24 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
     <label title="Close up at 1x / 10x: the time of day, rain and thunder as they were in the recording (they set Time of day)"><input type="checkbox" id="lFollow" checked> Time and weather from the recording</label>
     <div class="row"><button id="lReset" type="button">Reset</button><span class="meta">Hold Ctrl and scroll over a slider for fine steps.</span></div>
   </details>
+  <details id="rBox"><summary title="How the 3D view is drawn: frame rate, sharpness, how far real blocks load, and more (remembered)">Rendering</summary>
+    <div class="row"><label title="The most frames a second it draws (lower: cooler, quieter, longer battery)">FPS cap
+      <select id="rFps"><option value="0">No cap (screen)</option><option value="30">30</option><option value="60">60</option><option value="90">90</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></label>
+      <label title="A frame-rate counter in the corner"><input type="checkbox" id="rShowFps"> Show FPS</label></div>
+    <div class="row"><label title="Drawing resolution: lower is faster and softer, higher is sharper and slower">Resolution
+      <select id="rRes"><option value="0.5">50%</option><option value="0.75">75%</option><option value="1" selected>100%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
+      <label title="How far around you real blocks load, in pieces of 128 blocks (farther: slower to load, more memory)">Block distance
+      <select id="rDist"><option value="0">Near</option><option value="1" selected>Normal</option><option value="2">Far</option><option value="3">Very far</option></select></label></div>
+    <div class="row"><label for="rFov" title="Field of view (Minecraft's default is 70)">Field of view</label><input id="rFov" type="range" min="40" max="110" step="1" value="55"><span id="rFovV"></span></div>
+    <div class="row"><label for="rHaze" title="How far away the haze starts (Fancy and Ultra)">Haze distance</label><input id="rHaze" type="range" min="0.25" max="3" step="0.05" value="1"><span id="rHazeV"></span></div>
+    <div class="row"><label title="As in the game: the game's own colours. Film-like: richer contrast and colour (Fancy and Ultra), which makes some colours (badlands leaves, red sand) stronger than in the game">Colours
+      <select id="rTone"><option value="game">As in the game</option><option value="film">Film-like</option></select></label>
+      <label title="Sun shadows (Fancy and Ultra)"><input type="checkbox" id="rShadows" checked> Shadows</label></div>
+    <div class="row"><label title="Mobs, animals and dropped items"><input type="checkbox" id="rMobs" checked> Mobs</label>
+      <label title="The soft glow round torches and lamps (Fancy and Ultra)"><input type="checkbox" id="rGlow" checked> Light glow</label>
+      <button id="rReset" type="button">Reset</button></div>
+  </details>
+  <div id="fpsBadge" hidden></div>
   <div id="chgBox" hidden>
     <div class="meta" id="chgHead"></div>
     <ul id="chgList"></ul>
@@ -523,6 +544,10 @@ if (matchMedia("(max-width: 720px)").matches) $("#panel").classList.add("collaps
 // ---------- scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 const RELIVE = { on: false };                     // reliving a moment (see Relive, below)
+// rendering settings (see Rendering, below), read first: the sky and the pieces use them from the start
+const RSET_DEFAULTS = { fps: 0, showFps: false, res: 1, dist: 1, fov: 55, haze: 1, tone: "game", shadows: true, mobs: true, glow: true };
+const RSET = { ...RSET_DEFAULTS };
+try { Object.assign(RSET, JSON.parse(store.get("mcsm-render") || "{}")); } catch (e) {}
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 $("#scene").appendChild(renderer.domElement);
 const scene = new THREE.Scene();
@@ -550,7 +575,8 @@ function applySky() {
   if (typeof GFX !== "undefined" && GFX.mode !== "off" && d === "minecraft:overworld") {
     const hz = new THREE.Color().setRGB(0.62, 0.76, 0.95).lerp(new THREE.Color(0.02, 0.025, 0.05), 1 - LIGHTS.day)
       .lerp(new THREE.Color(0.36, 0.38, 0.42), Math.min(1, (LIGHTS.rain || 0) * 0.85));
-    scene.fog = new THREE.Fog(hz, 220, (LIGHTS.rain || 0) > 0.3 ? 900 : 2200);         // haze in the distance
+    const hm = RSET.haze;
+    scene.fog = new THREE.Fog(hz, 220 * hm, ((LIGHTS.rain || 0) > 0.3 ? 900 : 2200) * hm);   // haze in the distance
     LIGHT.uSky.value.copy(hz);
   }
 }
@@ -594,7 +620,7 @@ try { Object.assign(SHOW, JSON.parse(store.get("mcsm-show") || "{}")); } catch (
 function applyShow() {
   for (const k of Object.keys(SHOW)) { const el = $("#sh" + k[0].toUpperCase() + k.slice(1)); if (el) el.checked = SHOW[k]; }
   grid.visible = SHOW.grid;
-  if (typeof mobGroup !== "undefined") mobGroup.visible = SHOW.mobs;
+  if (typeof mobGroup !== "undefined") mobGroup.visible = SHOW.mobs && RSET.mobs;
   const d = $("#dim").value;
   for (const [dim, g] of Object.entries(terrainGroups)) g.visible = SHOW.map && dim === d;
   for (const m of Object.values(typeof markers !== "undefined" ? markers : {})) {
@@ -652,8 +678,35 @@ function applyGraphicsMode(mode, save = true) {
   for (const T of REAL.tiles.values()) applyGraphics(T.meshes);
   for (const m of Object.values(markers)) m.F.fig.traverse(x => { if (x.isMesh) x.castShadow = !!o; });
   applySky(); resize();
+  applyRender(false);                                  // the rendering settings on top
 }
 $("#lGfx").onchange = () => applyGraphicsMode($("#lGfx").value);
+// ---------- rendering settings (remembered): FPS cap, resolution, block distance, field of view, haze, colours ----------
+function applyRender(save = true) {
+  $("#rFps").value = String(RSET.fps); $("#rShowFps").checked = RSET.showFps; $("#rRes").value = String(RSET.res);
+  $("#rDist").value = String(RSET.dist); $("#rFov").value = RSET.fov; $("#rFovV").textContent = `${RSET.fov}°`;
+  $("#rHaze").value = RSET.haze; $("#rHazeV").textContent = `${Math.round(RSET.haze * 100)}%`; $("#rTone").value = RSET.tone;
+  $("#rShadows").checked = RSET.shadows; $("#rMobs").checked = RSET.mobs; $("#rGlow").checked = RSET.glow;
+  if (save) store.set("mcsm-render", JSON.stringify(RSET));
+  const o = GFX_OPTS[GFX.mode];
+  renderer.setPixelRatio(Math.min(devicePixelRatio, o ? o.ratio : 2) * RSET.res);
+  renderer.toneMapping = o && RSET.tone === "film" ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  LIGHT.uGain.value = o ? (RSET.tone === "film" ? 1.6 : 1.12) : 1;   // the same average brightness either way
+  sun.castShadow = !!o && RSET.shadows; renderer.shadowMap.enabled = !!o && RSET.shadows;
+  camera.fov = RSET.fov; camera.updateProjectionMatrix();
+  GLOW_MAT.visible = RSET.glow;
+  if (typeof mobGroup !== "undefined") mobGroup.visible = SHOW.mobs && RSET.mobs;
+  $("#fpsBadge").hidden = !RSET.showFps;
+  for (const T of REAL.tiles.values()) for (const m of T.meshes) m.material.needsUpdate = true;
+  applySky(); resize();
+}
+const rOn = (id, key, conv = v => v) => { $(id).addEventListener(id === "#rFov" || id === "#rHaze" ? "input" : "change",
+  e => { RSET[key] = conv(e.target.type === "checkbox" ? e.target.checked : e.target.value); applyRender(); }); };
+rOn("#rFps", "fps", Number); rOn("#rShowFps", "showFps"); rOn("#rRes", "res", Number); rOn("#rDist", "dist", Number);
+rOn("#rFov", "fov", Number); rOn("#rHaze", "haze", Number); rOn("#rTone", "tone"); rOn("#rShadows", "shadows");
+rOn("#rMobs", "mobs"); rOn("#rGlow", "glow");
+$("#rReset").onclick = () => { Object.assign(RSET, RSET_DEFAULTS); applyRender(); };
 function gfxStep(now) {
   if (GFX.mode === "off") return;
   LIGHT.uTime.value = now / 1000;
@@ -934,7 +987,8 @@ function realWanted() {
     }
   }
   if (d <= 900) {
-    const r = d < 250 ? 1 : 2, tx = Math.floor(focus.x / REAL_TILE), tz = Math.floor(focus.z / REAL_TILE);
+    const extra = RSET.dist - 1;     // the Block distance setting
+    const r = Math.max(0, (d < 250 ? 1 : 2) + extra), tx = Math.floor(focus.x / REAL_TILE), tz = Math.floor(focus.z / REAL_TILE);
     for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) add(tx + i, tz + j, i * i + j * j);
   }
   for (const m of Object.values(markers)) {
@@ -1632,9 +1686,48 @@ function itemInfo(item) {
   if (!itemIcons.has(item)) itemIcons.set(item, fetch(`api/itemicon/0/${item}`).then(r => r.json()).catch(() => ({ cube: false })));
   return itemIcons.get(item);
 }
-async function heldItem(item, px) {
+// A shield's face with its banner patterns: the shield's wood and plate (entity/shield/base), the plate in its base
+// dye, then each pattern's picture for shields (entity/shield/<pattern>) in its dye; the same 64 x 64 layout.
+const shieldTex = new Map();
+function shieldTexture(look) {
+  const key = JSON.stringify(look);
+  if (shieldTex.has(key)) return shieldTex.get(key);
+  const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+  const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  shieldTex.set(key, t);
+  (async () => {
+    const load = n => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `blocktex/0/entity/shield/${n}.png`; });
+    const g = cv.getContext("2d"), base = await load("base"); if (!base) return;
+    g.drawImage(base, 0, 0, 64, 64);
+    const tmp = document.createElement("canvas"); tmp.width = tmp.height = 64; const tg = tmp.getContext("2d");
+    const layer = (im, col, plateOnly) => {
+      tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, 64, 64);
+      if (plateOnly) tg.drawImage(im, 2, 2, 12, 22, 2, 2, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
+      tg.globalCompositeOperation = "multiply"; tg.fillStyle = "#" + (DYE[col] ?? 0xffffff).toString(16).padStart(6, "0"); tg.fillRect(0, 0, 64, 64);
+      tg.globalCompositeOperation = "destination-in";
+      if (plateOnly) tg.drawImage(im, 2, 2, 12, 22, 2, 2, 12, 22); else tg.drawImage(im, 0, 0, 64, 64);
+      g.drawImage(tmp, 0, 0);
+    };
+    if (look.base) layer(base, look.base, true);
+    for (const [name, col] of look.patterns || []) { const im = await load(name); if (im) layer(im, col, false); }
+    t.needsUpdate = true;
+  })();
+  return t;
+}
+async function heldItem(item, px, look = null) {
+  if (/_banner$/.test(item)) {                          // a banner held: a small flag on its pole, its patterns painted
+    const base = item.replace(/_banner$/, "");
+    const g = new THREE.Group();
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(10 * px, 20 * px), new THREE.MeshLambertMaterial({
+      map: banTexture(base, (look && look.patterns) || []), side: THREE.DoubleSide, alphaTest: 0.1 }));
+    f.position.set(0, -2 * px, 4 * px); f.rotation.y = -Math.PI / 2; g.add(f);
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(1 * px, 26 * px, 1 * px), BAN_WOOD); pole.position.set(0, -2 * px, -1 * px); g.add(pole);
+    g.position.set(0, -10 * px, 1 * px);
+    return g;
+  }
   if (item === "shield") {                              // drawn by the game's code: its plate (12 x 22 pixels, 1 thick)
-    const t = (await texOnce("entity/shield/base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
+    const t = look && (look.base || (look.patterns || []).length) ? shieldTexture(look)
+      : (await texOnce("entity/shield/base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
     if (!t) return null;
     const g = new THREE.BoxGeometry(1 * px, 22 * px, 12 * px), uv = g.attributes.uv;
     for (let i = 0; i < uv.count; i++)                  // every side shows the plate's front (2, 2 .. 14, 24 of 64)
@@ -1679,7 +1772,7 @@ function armourBoxes(slot, mat) {                        // the armour shell (th
   if (slot === "legs") return [["body", sb(8, 12, 4, 16, 16), -6], ["rleg", sb(4, 12, 4, 0, 16), -6], ["lleg", sb(4, 12, 4, 0, 16), -6]];
   return [["rleg", sb(4, 12, 4, 0, 16), -6], ["lleg", sb(4, 12, 4, 0, 16), -6]];   // boots
 }
-function gearKey(v) { return v ? `${v[0]}|${v[1] || ""}|${v[2] ?? ""}` : ""; }
+function gearKey(v) { return v ? `${v[0]}|${v[1] || ""}|${v[2] ?? ""}|${v[3] ? JSON.stringify(v[3]) : ""}` : ""; }
 async function setGear(m, slot, v) {
   const F = m.F, old = F.gear && F.gear[slot];
   F.gear = F.gear || {}; F.tok = F.tok || {};
@@ -1690,7 +1783,7 @@ async function setGear(m, slot, v) {
   if (!item) return;
   const objs = [];
   if (slot === "mainhand" || slot === "offhand") {
-    const q = await heldItem(item, PX);
+    const q = await heldItem(item, PX, v[3] || null);
     if (!q || m.F !== F || F.tok[slot] !== mine) return;
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
   } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
@@ -1707,6 +1800,11 @@ async function setGear(m, slot, v) {
       F.parts.body.add(pivot); objs.push(pivot);
     }
   } else {
+    if (slot === "head" && /_banner$/.test(item)) {   // a banner worn on the head: standing on it, behind
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(16 * PX, 32 * PX), new THREE.MeshLambertMaterial({
+        map: banTexture(item.replace(/_banner$/, ""), (v[3] && v[3].patterns) || []), side: THREE.DoubleSide, alphaTest: 0.1 }));
+      f.position.set(0, 18 * PX, -2 * PX); F.parts.head.add(f); objs.push(f); F.gear[slot] = objs; return;
+    }
     const mm = ARMOUR.exec(item); if (!mm) return;
     const mat = { leather: "leather", chainmail: "chainmail", iron: "iron", golden: "gold", diamond: "diamond",
       netherite: "netherite", copper: "copper", turtle: "turtle_scute" }[mm[1]];
@@ -1748,8 +1846,15 @@ async function setMobGear(o, slot, v) {
   const item = v && v[0], P = o.parts; if (!item || !P) return;
   if (slot === "mainhand" || slot === "offhand") {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
-    const q = await heldItem(item, MPX); if (!q || o.gtok[slot] !== mine) return;
+    const q = await heldItem(item, MPX, v[3] || null); if (!q || o.gtok[slot] !== mine) return;
     arm.g.add(q); o.gear[slot].push(q); return;
+  }
+  if (slot === "head" && /_banner$/.test(item) && P.head) {
+    const g = new THREE.Group();
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(10 * MPX * 1.6, 20 * MPX * 1.6), new THREE.MeshLambertMaterial({
+      map: banTexture(item.replace(/_banner$/, ""), (v[3] && v[3].patterns) || []), side: THREE.DoubleSide, alphaTest: 0.1 }));
+    f.position.set(0, 14 * MPX, -2 * MPX); g.add(f);    // above and behind the head, as the game draws it
+    P.head.g.add(g); o.gear[slot].push(g); return;
   }
   const mm = ARMOUR.exec(item); if (!mm || !P.head || !P.body) return;
   const mat = { leather: "leather", chainmail: "chainmail", iron: "iron", golden: "gold", diamond: "diamond",
@@ -3720,8 +3825,15 @@ addEventListener("keydown", e => {
 });
 const tmp = new THREE.Vector3();
 let lastLayerCheck = 0;
+const FPSC = { last: 0, n: 0, t0: 0 };
 function frame(now) {
   requestAnimationFrame(frame);
+  if (RSET.fps > 0 && now - FPSC.last < 1000 / RSET.fps - 2) return;      // the FPS cap: skip this screen refresh
+  FPSC.last = now; FPSC.n++;
+  if (now - FPSC.t0 > 500) {
+    if (RSET.showFps) $("#fpsBadge").textContent = `${Math.round(FPSC.n * 1000 / (now - FPSC.t0))} fps${RSET.fps ? ` (cap ${RSET.fps})` : ""}`;
+    FPSC.n = 0; FPSC.t0 = now;
+  }
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   LIGHT.uClock.value = now / 1000;                     // pieces building in, the loading grid
   realStep(now);                                       // real blocks around where you look

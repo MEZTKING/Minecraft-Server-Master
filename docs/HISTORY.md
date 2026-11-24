@@ -214,7 +214,18 @@ have them simply appear.
 **Banners** show their real patterns, as saved in the backup shown: each flag is painted from the game's own
 pattern pictures in the game's dye colours, layer by layer (any number of layers, as with your Limitless Banners
 mod), and hangs at its exact angle (standing banners turn in sixteenths of a circle, as in the game). Ominous
-banners at pillager outposts too.
+banners at pillager outposts too. Shields carry their patterns and base colour, banners held show as small flags,
+and a banner worn on the head (pillager captains) stands on it, all from the recordings.
+
+**Rendering** (under *Light*, remembered):
+
+- **FPS cap:** the most frames a second (30 to 240, or the screen's own rate), and **Show FPS** for a counter.
+- **Resolution:** 50% to 200% of the screen's sharpness.
+- **Block distance:** how far real blocks load around you (Near, Normal, Far, Very far).
+- **Field of view**, and **Haze distance** (Fancy and Ultra).
+- **Colours:** *As in the game* (the game's own colours) or *Film-like* (richer contrast and colour in Fancy and
+  Ultra; some colours, like badlands leaves, then look stronger than in the game).
+- **Shadows**, **Mobs** and **Light glow** on or off.
 
 **Under water.** The sea floor, sunken things and everything under water are drawn, seen through the water as
 in the game.

@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1621,6 +1621,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Rendering settings**: open **Rendering** under Light: try an FPS cap, Colours "As in the game" vs "Film-like"
+  (the badlands trees near 300, 140, -600), Block distance Far.
+- **Shields and held banners**: a patterned shield in someone's hand; a pillager captain's banner on its head.
 - **Banners**: any banner close up should show its real pattern (e.g. the 34 at Vakirath's base around
   4733, 128, 345); standing ones at their exact angle.
 - **Containers in Relive**: relive Vakirath on 24 May at 14:26:50 UTC (15:26 your time): his large chest opens
@@ -1756,6 +1759,15 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "Yes, shields too"; "im not sure if the tree rendering here is the right colour. also add an
+  fps cap adjustable etc and othe rendering settings while in history". Shields' and banners' looks in item stacks
+  (`base_color`, `banner_patterns` named from the recording's own `banner_pattern` registry; `paths.registry_names`,
+  shared with the biome names; `EXACT_SUFFIX` `.exact9`): patterned shields, small flags held, banners on heads. The
+  trees: the spot is badlands, whose foliage colour (9E814D) is orange-brown in the game too; Fancy's filmic tone
+  mapping made it stronger, so Colours is now a setting, "As in the game" by default. **Rendering** settings: FPS cap
+  (checked: 29 fps at a cap of 30, 144 uncapped), FPS counter, resolution, block distance, field of view, haze
+  distance, colours, shadows, mobs, light glow.
 
 - **2026-11-24:** Banners with their patterns (owner: "can we get banners to work throughout"): `mcsm/banners.py`
   reads every banner block entity of a real-block piece (1.20.5+ `patterns`, or the older `Patterns` codes) with its
