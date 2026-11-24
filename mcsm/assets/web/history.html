@@ -141,6 +141,10 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 #relive .cap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; color: #4a3f33;
   font-size: 16px; line-height: 1.6; transition: opacity 1.2s; max-width: 86vw; }
 #relive .cap .big { font-size: 28px; font-weight: 300; letter-spacing: .02em; }
+#rlLoad { margin-top: 18px; width: min(360px, 70vw); margin-left: auto; margin-right: auto; }
+#rlLoad .bar { height: 4px; border-radius: 2px; background: rgba(74,63,51,.15); overflow: hidden; }
+#rlLoadFill { height: 100%; width: 0; background: rgba(74,63,51,.55); transition: width .5s; }
+#rlLoad .msg { font-size: 12px; color: rgba(74,63,51,.7); margin-top: 6px; }
 #relive .hint { position: absolute; right: 16px; bottom: calc(9vh + 8px); color: rgba(255,255,255,.55); font-size: 12px; }
 .label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
   background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
@@ -229,7 +233,8 @@ body.relive #loadCard, body.relive #tlv { display: none !important; }
 </div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
-  <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div></div>
+  <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
+    <div id="rlLoad"><div class="bar"><div id="rlLoadFill"></div></div><div class="msg" id="rlLoadMsg"></div></div></div>
   <div class="hint" id="rlHint">V: change view · Esc to leave</div></div>
 
 <aside id="panel" class="card">
@@ -987,7 +992,8 @@ function realWanted() {
     // reliving: the pieces around the player first (theirs, then the ring round it), everyone else after
     const p = markers[RELIVE.name].cur.pos, tx = Math.floor(p[0] / REAL_TILE), tz = Math.floor(p[2] / REAL_TILE);
     const fx = p[0] / REAL_TILE - tx, fz = p[2] / REAL_TILE - tz;
-    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    // 5 x 5 pieces (640 blocks across): everything they can see is real blocks (the haze ends before the edge)
+    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
       const toward = (i === 0 || (i < 0) === (fx < 0.5)) && (j === 0 || (j < 0) === (fz < 0.5));   // the side they're on first
       add(tx + i, tz + j, -10 + i * i + j * j - (toward ? 0.5 : 0));
     }
@@ -2613,6 +2619,13 @@ function showCopies(r) {
 try { const last = JSON.parse(store.get("mcsm-last-export") || "null"); if (last) setTimeout(() => showCopies(last), 0); } catch (e) {}
 
 // ---------- important moments (mcsm/moments.py) ----------
+// who a moment is about: the player its title names first, else the one whose recording covers it
+function momentPlayer(m) {
+  const named = (m.players || []).map(n => [n, (m.title || "").indexOf(n)]).filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]);
+  if (named.length) return named[0][0];
+  const rec = (m.recordings || []).find(r => r.player && (m.players || []).includes(r.player)) || (m.recordings || [])[0];
+  return (rec && rec.player) || (m.players || [])[0] || null;
+}
 let MOM = [], momShown = 20, momFinal = false;
 async function loadMoments() {
   let res;
@@ -2659,10 +2672,11 @@ function renderMoments() {
       + (m.mc ? ` · Minecraft ${m.mc}` : "");
     const acts = document.createElement("div"); acts.className = "acts";
     const btn = (label, title, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title; b.onclick = fn; b.disabled = !!off; acts.appendChild(b); return b; };
-    btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined)" : "Watch this moment on the map",
-        () => { showArea(m); seek(m.start); playUntil = m.end; setPlaying(true); });
+    btn("▶ Play", m.mode ? "Watch this stretch on the map (its area is outlined), following who it's about" : "Watch this moment, following who it's about",
+        () => { showArea(m); seek(m.start); playUntil = m.end; setPlaying(true);
+          const who = momentPlayer(m); if (who && markers[who]) setSpec(who); });
     if (m.recordings.length) {
-      const who = (m.recordings.find(r => r.player && m.players.includes(r.player)) || m.recordings[0]).player || m.players[0];
+      const who = momentPlayer(m);
       const key = (m.events.find(e => /death|died|killed|advancement|first/i.test(e.kind || e.text || "")) || m.events[0] || {}).t ?? m.start;
       btn("Relive", `Relive this moment through ${who}'s eyes, like a memory (Esc leaves)`,
           () => relive(who, Math.max(m.start - 8000, key - 12000), Math.min(Math.max(key + 20000, Math.min(m.end, key + 45000)), key + 60000), key));
@@ -3264,7 +3278,9 @@ function relive(name, start, end, key = null) {
     cam: camera.position.clone(), target: controls.target.clone(), near: camera.near };
   if (SPEC.name) setSpec(""); if (FREE.on) setFree(false); if (DEV.on) setDev(false);
   Object.assign(RELIVE, { on: true, name, start, end, key, phase: "load", since: performance.now(), e: 0,
-    eye: null, fogObj: null, fog0: null, wall: Infinity, wallS: undefined, rayT: 0 });
+    eye: null, fogObj: null, fog0: null, wall: Infinity, wallS: undefined, rayT: 0, maxPending: 0 });
+  $("#rlLoad").hidden = false; $("#rlLoadFill").style.width = "0%";
+  CLIP.nLoad = 0; if (CLIP.uniforms) CLIP.uniforms.uLoadN.value = 0;   // never the loading grid in a memory
   reliveView($("#specMode").value === "first" ? "first" : "behind");
   setPlaying(false); $("#speed").value = "1"; seek(start, false);
   controls.enabled = false; camera.near = 0.05; camera.updateProjectionMatrix();
@@ -3295,21 +3311,37 @@ function reliveExit() {
   for (const o of allPathObjs) o.visible = true;
   applySky(); applyShow();
 }
-function reliveReady() {                               // their recording, and the real blocks around them
-  const r = EXACT.rows && EXACT.rows[RELIVE.name], m = markers[RELIVE.name], c = m && m.cur;
-  if (!(EXACT.on && !EXACT.busy && r && c)) return false;
+function reliveProgress() {                            // how far loading is (0..1) and what it's waiting for
+  const R = RELIVE, r = EXACT.rows && EXACT.rows[R.name], m = markers[R.name], c = m && m.cur;
+  // the recording: read in full (the first time: a few recordings at once, each counted as it's done)
+  let rec = 0, msg = "";
+  if (EXACT.on && !EXACT.busy && !EXACT.pending && (r || EXACT.lo)) rec = 1;   // read (or no recording of them then)
+  else {
+    R.maxPending = Math.max(R.maxPending || 0, EXACT.pending || 0);
+    rec = R.maxPending ? 0.1 + 0.9 * (1 - (EXACT.pending || 0) / R.maxPending) : 0.1;
+    if (r && c && EXACT.on && !EXACT.busy) rec = Math.max(rec, 0.95);
+    msg = EXACT.pending ? `Reading ${EXACT.pending} recording${EXACT.pending > 1 ? "s" : ""} of this moment (the first time takes a while)…`
+      : "Reading the recording…";
+  }
+  if (!c) return { p: 0.6 * rec, msg: msg || "Finding them…", ready: false };
   const tx = Math.floor(c.pos[0] / REAL_TILE), tz = Math.floor(c.pos[2] / REAL_TILE);
-  const fx = c.pos[0] / REAL_TILE - tx, fz = c.pos[2] / REAL_TILE - tz;
-  const need = [[tx, tz]];                              // their piece, and the neighbour they're near
-  if (fx < 0.25) need.push([tx - 1, tz]); else if (fx > 0.75) need.push([tx + 1, tz]);
-  if (fz < 0.25) need.push([tx, tz - 1]); else if (fz > 0.75) need.push([tx, tz + 1]);
-  return need.every(([x, z]) => REAL.tiles.has(`${x},${z}`));
+  const need = [];                                      // their piece and the eight round it: all they can see
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) need.push([tx + i, tz + j]);
+  const have = need.filter(([x, z]) => REAL.tiles.has(`${x},${z}`)).length;
+  if (rec >= 1 && have < need.length) msg = `Building the blocks around them (${have} of ${need.length})…`;
+  return { p: 0.6 * rec + 0.4 * have / need.length, msg, ready: rec >= 1 && have === need.length };
 }
+function reliveReady() { return reliveProgress().ready; }   // their recording, and the real blocks around them
 // the clock while reliving: 1x, slowed to a third around the key moment, stopped at the end
 function reliveTick(now, dt) {
   const R = RELIVE, age = (now - R.since) / 1000;
   if (R.phase === "load") {
-    if (reliveReady() || age > 30) { R.phase = "in"; R.since = now; }   // at most 30 s (a recording read for the first time)
+    const pr = reliveProgress();
+    $("#rlLoad").hidden = false;
+    $("#rlLoadFill").style.width = `${Math.round(100 * Math.max(pr.p, Math.min(0.95, age / 60)))}%`;
+    $("#rlLoadMsg").textContent = pr.msg || "Remembering…";
+    // waits for their recording and blocks; a first reading can take a while (it carries on after 2 minutes)
+    if (pr.ready || age > 120) { R.phase = "in"; R.since = now; $("#rlLoad").hidden = true; }
     update(now, false); return;
   }
   if (R.phase === "in" || R.phase === "play") {
@@ -3367,7 +3399,9 @@ function reliveStep(dt) {
   if (scene.fog && scene.fog !== R.fogObj) { R.fogObj = scene.fog; R.fog0 = { near: scene.fog.near, far: scene.fog.far, color: scene.fog.color.clone() }; }
   const h = reliveHaze(R);
   if (scene.fog && R.fog0) {
-    scene.fog.near = R.fog0.near + (26 - R.fog0.near) * h; scene.fog.far = R.fog0.far + (90 - R.fog0.far) * h;
+    // after the memory haze, a distance haze still ends the view inside the real blocks loaded round them
+    const near0 = Math.min(R.fog0.near, 110), far0 = Math.min(R.fog0.far, 230);
+    scene.fog.near = near0 + (26 - near0) * h; scene.fog.far = far0 + (90 - far0) * h;
     scene.fog.color.copy(R.fog0.color).lerp(new THREE.Color(1, 0.97, 0.92), h);
     scene.background = scene.fog.color;
   }

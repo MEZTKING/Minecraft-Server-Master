@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-24 (mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1621,6 +1621,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Textures**: distant grass and leaves should no longer shimmer or stripe while moving.
+- **Relive loading**: a bar with what it's waiting for; then only real blocks to the haze.
+- **Play on a moment**: it should follow the player it's about.
 - **Export again** (your "jamie burns to death"): watch the progress bar; the copies should be named after the
   highlight and the player, a few minutes long each; **Open Flashback** on one; then try **Edit → Combine With Other
   Replay** in Flashback. Please tell me if a short copy fails to open in Flashback (it keeps only the chunk data its
@@ -1765,6 +1768,16 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-24:** Owner: "a glitching effect on the textures"; "show a loading bar when recreating a relive moment";
+  "the view from a player in a relive should always be the actuall blocks"; "when pressing play a moment it should
+  automatically select whatever player its about". Block textures get mipmaps (nearest within a level, linear
+  between) and anisotropic filtering; the atlas is a power-of-two number of cells a row so every level stays inside
+  each cell. Relive: a loading bar (recording read, then the 3 x 3 pieces round the player; at most 2 minutes), 5 x 5
+  pieces round the player loaded first, the loading grid off, and a distance haze (at most 110-230 blocks) so only
+  real blocks show. Play on a moment spectates its player (`momentPlayer`: named first in the title, else the
+  recording's). Checked in the browser: a 3-recording first read shows its progress; MEZTKING's memory opens on the
+  pink cherry trees Flashback showed.
 
 - **2026-11-24:** Owner, after comparing with Flashback: "you should be able to fine drag on the graph"; "show a
   loading bar so i know how long is left for exporting"; "it made 5 parts, how am i supposed to access these. make it

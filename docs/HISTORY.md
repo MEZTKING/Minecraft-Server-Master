@@ -205,6 +205,10 @@ The pieces load 128 x 128 blocks at a time around where you look and around ever
 to each backup's world. Further away the map stays the smooth overview. When a backup's Minecraft version isn't
 installed on this PC, the status line says so and another version's textures are used.
 
+**Sharp but calm textures.** Close up, blocks show their crisp pixels; far away and at shallow angles they use
+smaller copies of each texture (mipmaps, like the game's *Mipmap Levels*), so distant grass and leaves don't
+shimmer into stripes.
+
 **Build-in effect.** With **Build-in effect** ticked (under *Real blocks*, on at first), the land still loading
 close up is drawn as a glowing grid of points and lines with a scan rippling across it, instead of the smooth
 map's big flat polygons; each piece of real blocks then rises up out of the ground column by column, its top edge
@@ -495,6 +499,9 @@ and pause, because Space moves you up.
 
 Spectating switches to exact playback (1×). **Esc** stops.
 
+**Play** on a moment follows the player it's about (spectating them from behind or through their eyes, as
+Spectate is set): the one its title names first, else the one whose recording covers it. **Esc** stops following.
+
 **Fine scrubbing.** Hold **Shift** (or Ctrl) while dragging on the timeline: the time moves 20 times slower than
 the mouse, to creep back and forth frame by frame. **,** and **.** step one game tick (1/20 s) back and on (with
 Shift: a second).
@@ -503,8 +510,10 @@ Shift: a second).
 *Spectate*, for the next minute of the player you spectate or the one nearest the view) replays it as if you
 were there again:
 
-- The screen goes white with when, where and who was there, while their recording and the blocks around them
-  load (up to 30 seconds the first time). The blocks around the player are loaded first, then the rest.
+- The screen goes white with when, where and who was there, and a loading bar, while their recording is read
+  and the real blocks around them are built (it says which it's waiting for; the first time can take a minute).
+  A memory only ever shows real blocks: the 640 blocks round the player load first, and a haze ends the view
+  inside them (no loading grid, no smooth map).
 - The camera drifts down from above and behind into the player's eyes (with *First person*) or over their
   shoulder (with *Behind*). Their position and look are smoothed, so it plays like a video.
 - **V** (or **F5**, as in the game) switches the view: their eyes, over the shoulder, or facing them. The camera

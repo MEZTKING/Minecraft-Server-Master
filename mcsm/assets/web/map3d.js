@@ -120,7 +120,9 @@ function loadImage(url) {
 }
 async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
   // one picture holding every texture; entity textures (chests) need more pixels than block ones
-  const N = Math.ceil(Math.sqrt(textures.length)), C = textures.some(t => t.startsWith("entity/")) ? 64 : 16;
+  // cells per row: a power of two, so the atlas (N x C pixels) halves cleanly at every mipmap level and a cell's
+  // smaller copies stay inside the cell
+  const N = 2 ** Math.ceil(Math.log2(Math.max(1, Math.ceil(Math.sqrt(textures.length))))), C = textures.some(t => t.startsWith("entity/")) ? 64 : 16;
   const cv = document.createElement("canvas");
   cv.width = cv.height = N * C;
   const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
@@ -153,7 +155,11 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
     }
   }
   const tex = new THREE.CanvasTexture(cv);
-  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+  // close up: crisp pixels; far away and at shallow angles: mipmaps (like the game's Mipmap Levels) and anisotropic
+  // filtering, so distant grass and leaves don't shimmer into stripes. Each face reads only its own cell (see
+  // lightShader), so the smaller levels only blend inside the texture.
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestMipmapLinearFilter; tex.generateMipmaps = true;
+  tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
   return { tex, N, C };
 }
