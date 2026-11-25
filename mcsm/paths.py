@@ -614,12 +614,15 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         swing_id = pk.get("swing_animation") if ex_on else None   # 26.3: entity id, hand (0 main, 1 off)
         link_id = pk.get("set_entity_link") if ex_on else None    # i32 tied entity, i32 holder (0: let go)
         bed_id = pk.get("block_entity_data") if ex_on else None   # block pos, type, NBT (signs' text)
+        crack_id = pk.get("block_destruction") if ex_on else None   # breaker, block pos, stage 0-9 (else: stopped)
+        lev_id = pk.get("level_event") if ex_on else None          # i32 event, block pos, i32 data, bool
+        block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
         hangs: dict[int, str] = {}                                # paintings and item frames in view
         new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id)
+                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -827,6 +830,24 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 else:
                                     val = []
                                 extras["events"].append([tick, others[tied], "lead", val])
+                        elif pid == crack_id and size >= 11:  # a block being mined: its crack's stage
+                            _e, kk = _varint(b, k)
+                            from .moment import block_pos
+                            st = b[kk + 8]
+                            extras["events"].append([tick, None, "mc", list(block_pos(struct.unpack_from(">q", b, kk)[0]))
+                                                     + [st if st < 10 else -1]])
+                        elif pid == lev_id and size >= 17:    # 2001: a block broken (its particles), data: its state id
+                            ev = struct.unpack_from(">i", b, k)[0]
+                            if ev == 2001:
+                                from .moment import block_pos
+                                if block_names is None:
+                                    from . import protocol as proto_mod2
+                                    block_names = proto_mod2.block_states(tbl) or []
+                                sid = struct.unpack_from(">i", b, k + 12)[0]
+                                nm = block_names[sid] if 0 <= sid < len(block_names) else ""
+                                if nm:
+                                    extras["events"].append([tick, None, "bb", list(block_pos(struct.unpack_from(">q", b, k + 4)[0]))
+                                                             + [nm.split("[")[0].replace("minecraft:", "")]])
                         elif pid == bed_id and size >= 12:    # a block entity's data: a sign's text written
                             sg = sign_written(bytes(b[k:i + size]))
                             if sg:
@@ -1107,7 +1128,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact16.json.gz"    # 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact17.json.gz"    # 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

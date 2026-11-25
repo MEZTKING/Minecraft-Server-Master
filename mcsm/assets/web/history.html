@@ -4844,6 +4844,89 @@ function leadsStep(now) {
   }
 }
 
+// ---------- mining cracks and blocks breaking (from the recordings) ----------
+// "mc" [x, y, z, stage 0-9, -1 stopped]: the game's crack picture (block/destroy_stage_N) over the block, blended
+// as the game does (twice what's under it times the crack). "bb" [x, y, z, block]: the game's burst of bits (4 x 4
+// x 4 of the block's picture, each a small square flying out and falling, gone after 4 to 20 ticks).
+const BREAK = { group: new THREE.Group(), cracks: new Map(), mats: [], parts: [], seen: new Set(), last: 0 };
+scene.add(BREAK.group);
+const CRACK_GEO = new THREE.BoxGeometry(1.004, 1.004, 1.004);
+function crackMat(n) {
+  if (!BREAK.mats[n]) {
+    BREAK.mats[n] = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, polygonOffset: true,
+      polygonOffsetFactor: -2, polygonOffsetUnits: -2, blending: THREE.CustomBlending,
+      blendSrc: THREE.DstColorFactor, blendDst: THREE.SrcColorFactor });
+    texOnce(`block/destroy_stage_${n}`).then(t => { if (t) { BREAK.mats[n].map = t; BREAK.mats[n].needsUpdate = true; } });
+  }
+  return BREAK.mats[n];
+}
+async function blockPicture(name) {                      // the block's own picture, for its bits
+  for (const n of [name, `${name}_side`, `${name}_top`, name.replace(/_(stairs|slab|wall|fence|fence_gate)$/, "_planks"),
+    name.replace(/_(stairs|slab|wall)$/, ""), name.replace(/_log$/, "_log")]) {
+    const t = await texOnce(`block/${n}`); if (t) return t;
+  }
+  return itemTexture(name);
+}
+function breakStep(now) {
+  if (now - BREAK.last < 33) return; BREAK.last = now;
+  const cracks = new Map(), bursts = [];
+  if (EXACT.on) for (const ev of Object.values(EXACT.ev)) {
+    for (const [t, v] of ev.mc || []) {
+      if (t > T || T - t > 3000) continue;
+      const k = `${v[0]},${v[1]},${v[2]}`, cur = cracks.get(k);
+      if (!cur || cur.t < t) cracks.set(k, { t, v });
+    }
+    for (const [t, v] of ev.bb || []) if (t <= T && T - t < 1000) bursts.push([t, v]);
+  }
+  for (const [k, m] of BREAK.cracks) if (!cracks.has(k) || cracks.get(k).v[3] < 0) { BREAK.group.remove(m); BREAK.cracks.delete(k); }
+  for (const [k, c] of cracks) {
+    if (c.v[3] < 0) continue;
+    let m = BREAK.cracks.get(k);
+    if (!m) { m = new THREE.Mesh(CRACK_GEO, crackMat(c.v[3])); m.position.set(c.v[0] + 0.5, c.v[1] + 0.5, c.v[2] + 0.5); BREAK.group.add(m); BREAK.cracks.set(k, m); }
+    m.material = crackMat(c.v[3]);
+  }
+  // bursts: built once per break (the same one seen by several recordings: once), flown by the game's physics
+  const want = new Set();
+  for (const [t, v] of bursts) {
+    const key = `${Math.round(t / 100)}|${v[0]},${v[1]},${v[2]}`; want.add(key);
+    if (BREAK.seen.has(key)) continue;
+    BREAK.seen.add(key);
+    const g = new THREE.Group(); g.userData = { key, t, bits: [] }; BREAK.group.add(g); BREAK.parts.push(g);
+    blockPicture(v[3]).then(tex => {
+      if (!tex) return;
+      let h = (v[0] * 73856093) ^ (v[1] * 19349663) ^ (v[2] * 83492791);
+      const rnd = () => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) & 0xffff) / 0xffff; };
+      const mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.3, side: THREE.DoubleSide });
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) {
+        const size = 0.1 * (rnd() * 0.5 + 0.5) * 2, geo = new THREE.PlaneGeometry(size, size), uv = geo.attributes.uv;
+        const u0 = rnd() * 0.75, v0 = rnd() * 0.75;
+        for (let n = 0; n < 4; n++) uv.setXY(n, u0 + uv.getX(n) * 0.25, v0 + uv.getY(n) * 0.25);
+        const q = new THREE.Mesh(geo, mat);
+        const px = v[0] + (i + 0.5) / 4, py = v[1] + (j + 0.5) / 4, pz = v[2] + (k + 0.5) / 4;
+        // TerrainParticle: velocity out from the middle plus a little random, gravity 0.04 a tick, drag 0.98
+        const vx = (px - v[0] - 0.5) * 0.4 + (rnd() - 0.5) * 0.08, vy = (py - v[1] - 0.5) * 0.4 + (rnd() - 0.5) * 0.08 + 0.1,
+          vz = (pz - v[2] - 0.5) * 0.4 + (rnd() - 0.5) * 0.08;
+        q.userData = { p: [px, py, pz], v: [vx, vy, vz], life: Math.floor(4 / (rnd() * 0.8 + 0.2)) };
+        g.add(q); g.userData.bits.push(q);
+      }
+    });
+  }
+  for (const g of BREAK.parts.slice()) {
+    const age = (T - g.userData.t) / 50;
+    if (!want.has(g.userData.key) || age < 0 || age > 25) {
+      BREAK.group.remove(g); g.traverse(o => o.isMesh && o.geometry.dispose());
+      BREAK.parts.splice(BREAK.parts.indexOf(g), 1); BREAK.seen.delete(g.userData.key); continue;
+    }
+    for (const q of g.userData.bits) {
+      const d = q.userData; q.visible = age < d.life;
+      if (!q.visible) continue;
+      let [x, y, z] = d.p, [vx, vy, vz] = d.v;
+      for (let n = 0; n < Math.floor(age); n++) { x += vx; y += vy; z += vz; vy -= 0.04; vx *= 0.98; vy *= 0.98; vz *= 0.98; }
+      q.position.set(x, y, z); q.quaternion.copy(camera.quaternion);
+    }
+  }
+}
+
 // ---------- player heads: in their owner's skin ----------
 // From the backup shown (/api/heads/...): the skin's texture hash, drawn with the game's player head model (head and
 // hat layer) just over the block builder's plain head, at its exact turn (standing: 16 ways; on a wall: against it)
@@ -5166,6 +5249,7 @@ function frame(now) {
   chestsStep(now);                                     // chests' lids opening
   hangingStep(now);                                    // paintings and item frames
   leadsStep(now);                                      // leads
+  breakStep(now);                                      // mining cracks, blocks breaking
   gfxStep(now);
   renderer.render(scene, camera);
 }
