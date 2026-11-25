@@ -862,7 +862,8 @@ class HistoryMap(TerrainServer):
 
     def moment_changes(self, dim: str, t0: int, t1: int) -> dict:
         """Every block change the recordings saw from *t0* to *t1* (ms, at most 10 minutes), in *dim*:
-        ``{"changes": [[t, x, y, z], ...]}`` sorted by time (for showing them as they happen)."""
+        ``{"changes": [[t, x, y, z, block], ...]}`` sorted by time (for showing them as they happen; block: the new
+        block's name, without "minecraft:" and its properties, "" when not known)."""
         from . import moment
         t1 = min(t1, t0 + 600_000)
         seen, out = set(), []
@@ -870,14 +871,17 @@ class HistoryMap(TerrainServer):
             if rec["zip"] in seen:
                 continue
             seen.add(rec["zip"])
-            for tick, d, x, y, z, _sid in moment.edits_between(rec["zip"], rec["tick_of"](t0), rec["tick_of"](t1)):
+            names = moment.state_names(rec["zip"])
+            for tick, d, x, y, z, sid in moment.edits_between(rec["zip"], rec["tick_of"](t0), rec["tick_of"](t1)):
                 t = rec["when"](tick)
                 if d == dim and t0 <= t <= t1:
-                    out.append([int(t), x, y, z])
+                    nm = names[sid] if 0 <= sid < len(names) else ""
+                    out.append([int(t), x, y, z, nm.split("[")[0].replace("minecraft:", "")])
         lg = self.ledger()                             # and every change the Ledger log has (anyone, anywhere)
         if lg:
             far = 30_000_000
-            out += [[ms, x, y, z] for ms, x, y, z, _new, _old in lg.changes(dim, -far, -far, far, far, t0, t1)]
+            out += [[ms, x, y, z, str(new or "").split("[")[0].replace("minecraft:", "")]
+                    for ms, x, y, z, new, _old in lg.changes(dim, -far, -far, far, far, t0, t1)]
         out.sort()
         return {"changes": out}
 

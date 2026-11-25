@@ -331,8 +331,8 @@ swirls round players) aren't in the recordings, so they can't be shown.
 saddles, horses their horse armour (leather in its dye), llamas their carpets, wolves their armour and happy ghasts
 their harnesses, as the recordings saw them; it all moves with the animal.
 
-**Pistons** push out and pull back over the game's two ticks when they did in the recordings (the blocks they push
-move to their new place at once).
+**Pistons** push out and pull back over the game's two ticks when they did in the recordings, and the blocks they
+push (or a sticky piston pulls) slide with them.
 
 **Boats** sit on the water as in the game, and their paddles row when the player in them rowed.
 

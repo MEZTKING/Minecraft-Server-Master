@@ -558,6 +558,24 @@ def world_at(recordings: list[dict], chunks_wanted: set[tuple[int, int]], dim: s
     return out
 
 
+_NAMES: dict = {}
+
+
+def state_names(zip_path: str) -> list[str]:
+    """A recording's block state names by state id (its game version's list)."""
+    if zip_path not in _NAMES:
+        names: list[str] = []
+        try:
+            with zipfile.ZipFile(zip_path) as z:
+                proto = paths_mod._protocol(z)
+                version = json.loads(z.read("metadata.json")).get("version_string")
+            names = protocol.block_states(protocol.table(proto, version))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            pass
+        _remember(_NAMES, zip_path, names, 16)
+    return _NAMES[zip_path]
+
+
 def edits_between(zip_path: str, tick0: int, tick1: int) -> list[list]:
     """Every block change a recording saw from *tick0* to *tick1*: ``[[tick, dim, x, y, z, state id], ...]``."""
     try:

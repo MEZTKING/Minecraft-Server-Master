@@ -1168,7 +1168,7 @@ async function liveStep(now) {
     LIVE.loading = true;
     try {
       const r = await (await fetch(`api/momentchanges/${dim.replace("minecraft:", "")}/${EXACT.lo}/${EXACT.hi}`)).json();
-      LIVE.byChunk = new Map();
+      LIVE.byChunk = new Map(); LIVE.list = r.changes || [];
       for (const [t, x, , z] of r.changes || []) {
         const k = `${x >> 4},${z >> 4}`;
         if (!LIVE.byChunk.has(k)) LIVE.byChunk.set(k, []);
@@ -5000,8 +5000,32 @@ function levelFxStep(want) {
   }
 }
 // pistons ("pi" [x, y, z, 0 out / 1-2 back, direction, sticky]): the head slides a block out or back over the
-// game's 2 ticks (the blocks are as recorded before and after)
-const PISTON = { group: new THREE.Group(), heads: new Map() };
+// game's 2 ticks, and so do the blocks it moves: the blocks that turn up at each place in front of it (pushing) or
+// next to it (a sticky piston pulling) within a moment of the push, each sliding in from the place before
+const PISTON = { group: new THREE.Group(), heads: new Map(), moved: new Map() };
+const PISTON_CUBE = new THREE.BoxGeometry(0.998, 0.998, 0.998);
+function pistonMoved(v, t) {                             // [[from x, y, z], [to x, y, z], block] for one push or pull
+  const d = PISTON_DIR[v[4]], out = [], list = LIVE.list || [];
+  const at = (x, y, z) => {                             // the block that turned up there just after
+    let best = null;
+    for (const c of list) {
+      if (c[0] < t - 60 || c[0] > t + 400 || c[1] !== x || c[2] !== y || c[3] !== z) continue;
+      if (c[4] && !/^(air|moving_piston|piston_head)$/.test(c[4])) best = c[4];
+    }
+    return best;
+  };
+  if (v[3] === 0) {                                     // pushed: up to 12 blocks, each one place on
+    for (let k = 2; k <= 13; k++) {
+      const to = [v[0] + d[0] * k, v[1] + d[1] * k, v[2] + d[2] * k], b = at(...to);
+      if (!b) break;
+      out.push([[to[0] - d[0], to[1] - d[1], to[2] - d[2]], to, b]);
+    }
+  } else if (v[5]) {                                    // a sticky piston pulling the block in front back one
+    const to = [v[0] + d[0], v[1] + d[1], v[2] + d[2]], b = at(...to);
+    if (b) out.push([[to[0] + d[0], to[1] + d[1], to[2] + d[2]], to, b]);
+  }
+  return out;
+}
 scene.add(PISTON.group);
 const PISTON_DIR = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
 function pistonStep() {
@@ -5009,9 +5033,10 @@ function pistonStep() {
   if (EXACT.on) for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.pi || []) {
     const age = T - t; if (age < 0 || age > 100) continue;
     const f = age / 100, prog = v[3] === 0 ? f : 1 - f;
-    want.set(`${v[0]},${v[1]},${v[2]}`, { v, prog });
+    want.set(`${v[0]},${v[1]},${v[2]}`, { v, prog, t });
   }
   for (const [k, m] of PISTON.heads) if (!want.has(k)) { PISTON.group.remove(m); PISTON.heads.delete(k); }
+  for (const [k, m] of PISTON.moved) if (!want.has(k.split("|")[0])) { PISTON.group.remove(m); PISTON.moved.delete(k); }
   for (const [k, { v, prog }] of want) {
     let m = PISTON.heads.get(k);
     if (!m) {
@@ -5027,6 +5052,18 @@ function pistonStep() {
     }
     const d = PISTON_DIR[v[4]];
     m.position.set(v[0] + 0.5 + d[0] * prog, v[1] + 0.5 + d[1] * prog, v[2] + 0.5 + d[2] * prog);
+    if (!m.userData.moved) m.userData.moved = pistonMoved(v, m.userData.t ?? want.get(k).t);
+    m.userData.moved.forEach(([from, to, block], i) => {
+      const mk = `${k}|${i}`;
+      let c = PISTON.moved.get(mk);
+      if (!c) {
+        c = new THREE.Mesh(PISTON_CUBE, new THREE.MeshLambertMaterial({ color: 0x999999 }));
+        blockPicture(block).then(t => { if (t) { c.material.map = t; c.material.color.set(0xffffff); c.material.needsUpdate = true; } });
+        PISTON.group.add(c); PISTON.moved.set(mk, c);
+      }
+      const f = v[3] === 0 ? prog : 1 - prog;          // how far along (pulled back: as the head comes in)
+      c.position.set(from[0] + 0.5 + (to[0] - from[0]) * f, from[1] + 0.5 + (to[1] - from[1]) * f, from[2] + 0.5 + (to[2] - from[2]) * f);
+    });
   }
 }
 function breakStep(now) {
