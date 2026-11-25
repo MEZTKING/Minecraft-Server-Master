@@ -3980,6 +3980,22 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(e["glowing"]["category"], "neutral")
         self.assertEqual(effects.read_effects("no such jar"), {})
 
+    def test_mob_anim(self):
+        """Mobs' moves from entity data: a creeper swelling (a signed VarInt) and charged, an enderman's carried block
+        (its state id's name; none), a wolf's head tilt one index on in 26.x, a horse's flags."""
+        from mcsm import paths
+        V, B, BY = paths.SER_VARINT, paths.SER_BOOL, paths.SER_BYTE
+        self.assertEqual(paths.mob_anim("creeper", {16: (V, 4294967295), 17: (B, True)}, False, None),
+                         [["cs", -1], ["cp", 1]])
+        names = ["minecraft:air", "minecraft:grass_block[snowy=false]"]
+        self.assertEqual(paths.mob_anim("enderman", {16: (15, 1), 17: (B, False)}, True, names), [["eb", "grass_block"], ["ec", 0]])
+        self.assertEqual(paths.mob_anim("enderman", {16: (15, 0)}, True, names), [["eb", None]])
+        self.assertEqual(paths.mob_anim("enderman", {16: (15, 1)}, True, None), [["eb", "?"]])   # names wanted
+        self.assertEqual(paths.mob_anim("wolf", {20: (B, True)}, True, None), [["wi", 1]])
+        self.assertEqual(paths.mob_anim("wolf", {20: (B, True)}, False, None), [])
+        self.assertEqual(paths.mob_anim("horse", {17: (BY, 0x20)}, False, None), [["hf", 0x20]])
+        self.assertIn(4, paths.ENTITY_FX)
+
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
         a name tag as a compound text component with extra parts."""

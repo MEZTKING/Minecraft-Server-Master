@@ -423,6 +423,12 @@ What the recordings say about each player and mob is shown too:
 - **The other hand, through their eyes:** what they hold in their off hand shows at the bottom left as the game draws
   it (a shield, a torch, a totem...), swinging when that hand swings and a shield raised while they block with it. A
   map in one hand while the other holds something is held low in that hand over the arm, its picture as it was.
+- **Mobs' own moves:** a creeper about to explode swells and flashes white (a charged one wears its blue swirl);
+  an enderman carries the block it picked up, low in front of it with both arms forward, and opens its jaw when
+  someone stares at it; an iron golem swings its arms when it attacks and holds out a poppy to villagers; a wolf
+  tilts its head when it's interested, shakes itself dry after water or rain, and holds its tail higher when tamed
+  or angry; horses lower their heads to eat grass and rear up; a ghast opens its mouth before it shoots. A sheep's
+  wool and other layers move with the body.
 - **Angry wolves and bees:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as
   the recording said (tamed wolves keep their tame face, as in the game). Bees show their angry eyes when angry and
   their pollen when carrying nectar.

@@ -26,7 +26,8 @@ POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc"}
 # boats' paddles, arrows in the ground, mining stages) or say nothing on their own (left view)
 NOISY = {"f", "s", "hs", "hp", "h", "pl", "pr", "ig", "asp", "gone", "mc", "ar", "air", "fz"}
 
-ENTITY_EVENTS = {6: "taming failed (smoke)", 7: "tamed (hearts)", 10: "eating grass", 12: "villager hearts", 13: "villager angry",
+ENTITY_EVENTS = {4: "attacking", 8: "shaking itself dry", 11: "holding out a poppy", 34: "putting the poppy away",
+                 6: "taming failed (smoke)", 7: "tamed (hearts)", 10: "eating grass", 12: "villager hearts", 13: "villager angry",
                  14: "villager happy", 18: "in love (hearts)", 20: "appeared from a spawner (poof)",
                  60: "body vanished after dying (poof)"}
 POSES = {0: "standing", 1: "flying with elytra", 2: "sleeping", 3: "swimming", 4: "spin attack", 5: "sneaking",
@@ -110,6 +111,18 @@ def event_text(kind: str, value, lang: dict | None = None) -> str | None:
         return f"experience level {value[1]} ({value[2]} points)"
     if kind == "eff" and isinstance(value, list):
         return "effects: " + (", ".join(f"{e[0].replace('_', ' ')} {e[1] + 1}" for e in value) or "none")
+    if kind == "cs":
+        return "swelling (about to explode)" if value == 1 else "calming down"
+    if kind == "cp":
+        return "charged" if value else "not charged"
+    if kind == "eb":
+        return f"carrying {value}" if value else "carrying nothing"
+    if kind == "ec":
+        return "screaming (stared at)" if value else "calm"
+    if kind == "gc":
+        return "about to shoot" if value else "not shooting"
+    if kind in ("wi", "hf"):
+        return None
     if kind == "ee":
         return ENTITY_EVENTS.get(value, f"entity event {value}")
     if kind == "ang":

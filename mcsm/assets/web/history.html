@@ -1322,7 +1322,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -1516,7 +1516,8 @@ function mobMaterials(path, t, glass) {
   if (!mobMats.has(key)) {
     const mk = col => new THREE.MeshLambertMaterial({ map: t, color: col, alphaTest: glass ? 0.02 : 0.1,
       transparent: !!glass, opacity: glass ? 0.75 : 1, depthWrite: !glass, side: THREE.DoubleSide });
-    mobMats.set(key, { n: mk(0xffffff), hurt: mk(0xff5959), burn: mk(0xffb060) });
+    const white = mk(0xffffff); white.emissive = new THREE.Color(0xffffff); white.emissiveIntensity = 0.75;
+    mobMats.set(key, { n: mk(0xffffff), hurt: mk(0xff5959), burn: mk(0xffb060), white });
   }
   return mobMats.get(key);
 }
@@ -1554,6 +1555,9 @@ function mobLook(label, kind) {
   if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
   if (kind === "copper_golem") look.weather = stateAt(label, "weather", T, 0);
   if (kind === "bee") look.nectar = !!(stateAt(label, "bnf", T, 0) & 8);   // carrying pollen
+  if (kind === "creeper") look.powered = !!stateAt(label, "cp", T, 0);         // struck by lightning: charged
+  if (kind === "enderman") { const eb = stateAt(label, "eb", T, null); if (eb && eb !== "?") look.carry = eb; }
+  if (kind === "ghast") look.shoot = !!stateAt(label, "gc", T, 0);
   if (kind === "wolf" || kind === "bee") {             // angry: for the ticks the recording said, from then
     const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ang, i = ev ? lower(ev, T, r => r[0]) - 1 : -1;
     look.angry = i >= 0 && T - ev[i][0] < ev[i][1] * 50;
@@ -1592,6 +1596,7 @@ async function buildMob(o, label, kind) {
   if (look.tame && kind === "wolf") tex = tex + "_tame";                        // a tamed wolf's own picture
   else if (look.angry && kind === "wolf") tex = tex + "_angry";                 // (WolfRenderer: tame first, then angry)
   if (kind === "bee") tex = `bee/bee${look.angry ? "_angry" : ""}${look.nectar ? "_nectar" : ""}`;   // BeeRenderer
+  if (kind === "ghast" && look.shoot) tex = `${tex}_shooting`;                  // GhastRenderer: its mouth open
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
@@ -1605,6 +1610,7 @@ async function buildMob(o, label, kind) {
   const marks = kind === "horse" && look.variant != null && HORSE_MARKS[(look.variant >> 8) & 255];
   if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, 1]);
   if (kind === "copper_golem" && MOBM.COPPER_GOLEM_EYES) extras.push(["COPPER_GOLEM_EYES", `copper_golem/copper_golem_eyes${golemAge}`, false, 1]);
+  if (kind === "creeper" && look.powered) extras.push(["CREEPER_ARMOR", "creeper/creeper_armor", true, 0]);   // the charge's swirl
   if (look.tame) extras.push(kind === "cat" ? ["CAT_COLLAR", "cat/cat_collar", false, 0, false, look.collar]
     : [layer, "wolf/wolf_collar", false, 1, false, look.collar]);
   if (look.vd) {                                        // villagers: their biome's clothes, job and level badge on top
@@ -1620,6 +1626,15 @@ async function buildMob(o, label, kind) {
     }
   }
   const extraParts = [];
+  if (kind === "enderman" && look.carry) heldItem(look.carry, MPX, null, { dropped: true }).then(b => {
+    // CarriedBlockLayer, in the model's space (ours turned (x, -y, -z)): in front, low, between its hands
+    if (!b || o.lookKey !== key) return;
+    const D = Math.PI / 180, M = new THREE.Matrix4().makeScale(1, -1, -1), Q = new THREE.Matrix4();
+    M.multiply(Q.makeTranslation(0, 0.6875, -0.75)).multiply(Q.makeRotationX(20 * D)).multiply(Q.makeRotationY(45 * D));
+    M.multiply(Q.makeTranslation(0.25, 0.1875, 0.25)).multiply(Q.makeScale(-0.5, -0.5, 0.5)).multiply(Q.makeRotationY(90 * D));
+    M.multiply(Q.makeTranslation(0.5, 0.5, 0.5));                                    // (the block drawn from its corner)
+    const h = new THREE.Group(); h.matrixAutoUpdate = false; h.matrix.copy(M); h.add(b); inner.add(h);
+  });
   for (let [xl, xt, glass, over, babyTex, dye, hide] of extras) {
     if (babyTex) xl = layer + "_BABY";
     else if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
@@ -1740,6 +1755,77 @@ async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
   const g = new THREE.Group(), inner = buildPart(L.root, "ARROW", "", L.tw, L.th, mobMaterials(tex, t), {}, "");
   inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
   g.add(inner); return g;
+}
+// ---------- mobs' own moves, as their renderers and models draw them ----------
+const TRI = (x, p) => (Math.abs(((x % p) + p) % p - p * 0.5) - p * 0.25) / (p * 0.25);   // Mth.triangleWave
+function sinceEvent(label, st, within) {                // ms since the mob's last entity event *st* (within *within*)
+  const f = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ee; if (!f) return null;
+  for (let i = lower(f, T, r => r[0]) - 1; i >= 0 && T - f[i][0] < within; i--) if (f[i][1] === st) return T - f[i][0];
+  return null;
+}
+function setRot(q, xr, yr, zr) { q.g.rotation.set(xr, -yr, -zr, "ZYX"); }           // the model's turns, in ours
+function mobMoves(o, label, kind) {
+  const P = o.parts; if (!P) return;
+  const ev = (EXACT.on && EXACT.ev[label]) || {}, D = Math.PI / 180;
+  if (o.model && o.model.userData.s == null) o.model.userData.s = o.model.scale.x;
+  o.flash = false;
+  if (kind === "creeper") {
+    // Creeper: swell grows 1 a tick while it means to blow (+1), shrinks while not (-1), 0 .. 30; CreeperRenderer
+    // scales it by swell / 28 and flashes it white on every other tenth
+    let sw = 0, dir = -1, last = null;
+    for (const [t, v] of ev.cs || []) { if (t > T) break; if (last !== null) sw = Math.max(0, Math.min(30, sw + dir * (t - last) / 50)); dir = v; last = t; }
+    if (last !== null) sw = Math.max(0, Math.min(30, sw + dir * (T - last) / 50));
+    let f = sw / 28;
+    const f1 = 1 + Math.sin(f * 100) * f * 0.01;
+    const g = Math.pow(Math.max(0, Math.min(1, f)), 4), sx = (1 + g * 0.4) * f1, sy = (1 + g * 0.1) / f1, s0 = o.model.userData.s;
+    o.model.scale.set(s0 * sx, s0 * sy, s0 * sx);
+    o.flash = Math.floor(f * 10) % 2 === 1;
+    if (o.look && o.look.powered && mobMats.has("creeper/creeper_armor|glass")) {      // the charge's swirl drifting
+      const m = mobMats.get("creeper/creeper_armor|glass").n; if (m.map) { m.map.wrapS = m.map.wrapT = THREE.RepeatWrapping;
+        m.map.offset.set(T / 50 * 0.01, T / 50 * 0.01); m.blending = THREE.AdditiveBlending; }
+    }
+  } else if (kind === "enderman") {
+    // EndermanModel: carrying, both arms forward; screaming (stared at), the head raised 5 pixels (its jaw open)
+    if (o.look && o.look.carry) { if (P.right_arm) setRot(P.right_arm, -0.5, 0, 0.05); if (P.left_arm) setRot(P.left_arm, -0.5, 0, -0.05); }
+    if (P.head) P.head.g.position.y = P.head.p.y + (stateAt(label, "ec", T, 0) ? 5 * MPX : 0);
+  } else if (kind === "iron_golem") {
+    // IronGolemModel: an attack (event 4) swings both arms up and down for 10 ticks; holding out a poppy (11, until
+    // 34 or 20 s) the right arm raised a little
+    const at = sinceEvent(label, 4, 600), fl = sinceEvent(label, 11, 20000), put = sinceEvent(label, 34, 20000);
+    if (at !== null && at < 500) { const a = 10 - at / 50, x = -2 + 1.5 * TRI(a, 10);
+      if (P.right_arm) setRot(P.right_arm, x, 0, 0); if (P.left_arm) setRot(P.left_arm, x, 0, 0); }
+    else if (fl !== null && (put === null || put > fl)) { const a = 400 - fl / 50;
+      if (P.right_arm) setRot(P.right_arm, -0.8 + 0.025 * TRI(a, 70), 0, 0); if (P.left_arm) setRot(P.left_arm, 0, 0, 0); }
+  } else if (kind === "wolf") {
+    // WolfModel: interested, the head tilts (0.15 pi); shaking itself dry (event 8, 2 s) the body rolls, each part
+    // a little after the one before; the tail high when tamed, higher when angry
+    const wi = stateAt(label, "wi", T, 0); o.roll = (o.roll || 0) + ((wi ? 1 : 0) - (o.roll || 0)) * 0.2;
+    const sh = sinceEvent(label, 8, 2100), shake = sh === null ? null : sh / 50 * 0.05;
+    const body = off => { if (shake === null) return 0; const f = Math.max(0, Math.min(1, (shake - off) / 1.8));
+      return Math.sin(f * Math.PI) * Math.sin(f * Math.PI * 11) * 0.15 * Math.PI; };
+    if (P.real_head) setRot(P.real_head, 0, 0, o.roll * 0.15 * Math.PI + body(0));
+    if (P.upper_body) setRot(P.upper_body, Math.PI / 2, 0, body(-0.08));
+    if (P.body) setRot(P.body, Math.PI / 2, 0, body(-0.16));
+    if (P.real_tail) setRot(P.real_tail, 0, 0, body(-0.2));
+    if (P.tail) setRot(P.tail, o.look && o.look.angry ? 1.5393804 : o.look && o.look.tame ? 0.55 * Math.PI : Math.PI / 5, 0, 0);
+  } else if (/^(horse|donkey|mule|skeleton_horse|zombie_horse)$/.test(kind)) {
+    // AbstractEquineModel: eating (0x10) the head goes down to the grass and nibbles; rearing (0x20) it stands up
+    const hf = stateAt(label, "hf", T, 0), k = 0.25;
+    o.eatA = (o.eatA || 0) + (((hf & 0x10) ? 1 : 0) - (o.eatA || 0)) * k;
+    o.standA = (o.standA || 0) + (((hf & 0x20) ? 1 : 0) - (o.standA || 0)) * k;
+    const e = o.eatA, st = o.standA, rest = 1 - Math.max(e, st), age = T / 50;
+    if (P.head_parts && (e > 0.01 || st > 0.01)) {
+      const q = P.head_parts, m = q.m;
+      q.g.rotation.x = st * (Math.PI / 12) + e * (2.1816616 + Math.sin(age) * 0.05) + rest * q.x;
+      q.g.position.y = -(st * -4 + e * 11 + rest * m[1]) * MPX;
+      q.g.position.z = -(st * -4 + e * -12 + rest * m[2]) * MPX;
+    } else if (P.head_parts) { P.head_parts.g.position.copy(P.head_parts.p); }
+    if (P.body) P.body.g.rotation.x = st * (-Math.PI / 4) + (1 - st) * P.body.x;
+    for (const n of ["left_front_leg", "right_front_leg"]) if (P[n] && st > 0.01) {
+      const q = P[n]; q.g.position.y = -(2 * st + 14 * (1 - st)) * MPX; q.g.position.z = -(-6 * st - 10 * (1 - st)) * MPX;
+      q.g.rotation.x = (-Math.PI / 3 + (n.startsWith("left") ? 1 : -1) * Math.cos(age * 0.6 + Math.PI) * 0.2) * st + (1 - st) * q.g.rotation.x;
+    }
+  }
 }
 // a sheep eating grass (entity event 10): its head down and nibbling for 40 ticks (Sheep.getHeadEatPositionScale and
 // getHeadEatAngleScale; SheepModel: the head 9 lower at most, turned down)
@@ -1956,7 +2042,7 @@ function mobTint(o, label) {                             // red when hurt or dyi
   if (o.mesh.scale.x !== sc) o.mesh.scale.setScalar(sc);
   const sz = MOB_SIZE[o.kind] || [0.6, 0.9];
   fireOn(o.mesh, sz[0], sz[1], !!burn && !(died !== null && died >= 1000));
-  const st = (h !== null && h < 500) || (died !== null && died < 1000) ? "hurt" : burn ? "burn" : "n";
+  const st = (h !== null && h < 500) || (died !== null && died < 1000) ? "hurt" : o.flash ? "white" : burn ? "burn" : "n";
   if (!o.model) { o.base = o.base || o.box.material.color.clone(); hurtTint(o.box.material, label, o.base); return; }
   if (st === o.state) return;
   o.state = st;
@@ -2042,6 +2128,7 @@ function updateMobs() {
         hp.g.rotation.y = hp.y - rel * Math.PI / 180; hp.g.rotation.x = hp.x + Math.max(-60, Math.min(60, pt)) * Math.PI / 180;
       }
       if (hp && mob.type === "sheep") sheepEat(hp, label);
+      mobMoves(o, label, mob.type);
       syncExtras(o);
       updateMobGear(o, label);
       mobTint(o, label);

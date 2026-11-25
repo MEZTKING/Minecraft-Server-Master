@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 35: mob moves; parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1408,7 +1408,32 @@ when there are effects (Crow_Shroom, 7 April).
   2 s after "hs" changes, fading over the last 0.5 s; the item's custom name, else its English name).
 Checked: Crow_Shroom under water with Breath of the Nautilus on 7 April 20:48 UTC (the icon top right; 8 hearts;
 low food). Not seen: the blink, the bubbles (that effect keeps their air), poisoned hearts, the item name. Not done:
-absorption hearts (not found in the player data), the mount's health and jump bar, durability bars. Not seen: the hurt roll, fire, water, pumpkin and frost overlays (no moment tried). Not done: the
+absorption hearts (not found in the player data), the mount's health and jump bar, durability bars.
+
+**Round 35 (2026-11-25, owner: "Keep going"; audit item 5, first part).** Indexes read from the owner's recordings
+(1.21.x and 26.x): creeper swell 16 (signed VarInt) and powered 17; enderman carried block 16 (optional block state)
+and creepy 17; ghast charging 16; wolf interested 19 / 20 (26.x); horses' flags 17 / 18 (0x10 eating, 0x20 standing).
+`paths.mob_anim` records "cs", "cp", "eb" (the block's name: the version's block states read when first needed),
+"ec", "gc", "wi", "hf"; `ENTITY_FX` adds 4 (attack), 8 (a wolf shaking), 11 / 34 (a golem's poppy). `EXACT_SUFFIX`
+34. Page `mobMoves` (called after the head's turn, before the layers copy the pose):
+- creeper: swell replayed from "cs" (+1 / -1 a tick, 0 .. 30), CreeperRenderer's scale (f = swell / 28,
+  (1 + f^4 x 0.4) x (1 + sin(100 f) f / 100) across, (1 + f^4 x 0.1) / that up) and the white flash on every other
+  tenth (a "white" material: emissive); charged: CREEPER_ARMOR with creeper/creeper_armor, additive, drifting.
+- enderman: CarriedBlockLayer (in model space: (0, 0.6875, -0.75), 20 and 45 degrees, (0.25, 0.1875, 0.25), scale
+  -0.5 / -0.5 / 0.5, 90 degrees) with the block's held model; arms -0.5 forward when carrying; head 5 px up when
+  creepy.
+- iron golem: the attack's swing (-2 + 1.5 triangleWave(10 - ticks, 10), 10 ticks) and the poppy arm (-0.8 + 0.025
+  triangleWave(t, 70), until 34 or 20 s); the poppy itself not drawn.
+- wolf: the head roll (interest eased 0.2 a frame, x 0.15 pi), the shake's roll on head, upper body, body and tail
+  (getBodyRollAngle with their offsets, 2 s), the tail's height (tamed 0.55 pi at full health, angry 1.5393804).
+- horses: eating (the head down to 2.18 rad, nibbling) and rearing (the body -pi/4, the front legs up), eased.
+- ghast: ghast_shooting while charging.
+Checked in the mob gallery with recorded-style events: the enderman with a grass block, the charged and swelling
+creeper flashing white, the horse eating. In recordings: endermen carrying dirt and gravel, 28,870 wolf shakes in
+four recordings (rain), horses eating and rearing, a creeper swelling. Not seen in a real moment (those mobs were
+out of the mob range). Not done (next): slime squish, horse rearing's hind legs, bee and phantom wings, shulkers,
+guardians' beams, the keyframed mobs (camel, sniffer, armadillo, frog, warden, allay), the golem's poppy. Test:
+`test_mob_anim`. Not seen: the hurt roll, fire, water, pumpkin and frost overlays (no moment tried). Not done: the
 in-block view (inside a solid block), nausea and the portal overlay.
 
 ### 0zd. Use the Ledger database (raised 2026-11-23)
@@ -2129,6 +2154,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 35**: creepers about to explode (swelling, flashing), charged creepers; endermen carrying blocks
+  and screaming; iron golems attacking; wolves shaking dry, tilting their heads; horses eating and rearing; ghasts
+  shooting.
 - **Parity round 34**: relive someone: effect icons at the top right after a potion or a beacon; hearts blinking
   when hit, green when poisoned; air bubbles under water; the item's name when they switch slots.
 - **Parity round 33**: relive through their eyes: the view widening when they sprint, rolling when hit; flames on
@@ -2366,6 +2394,9 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 35 (backlog 0zh): mobs' own moves (creepers, endermen, iron
+  golems, wolves, horses, ghasts) from their recorded data and events. Tests: `test_mob_anim`.
 
 - **2026-11-25:** Owner: "Keep going". Parity round 34 (backlog 0zh): the HUD while reliving: effect icons, the hearts'
   kinds, blink, shake and hop, air bubbles, the item's name, the experience bar when recorded; effects read from the
