@@ -102,6 +102,13 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcTitle .t { position: absolute; left: 0; right: 0; top: -80px; font: 64px/64px monospace; --sh: 8px; }
 #mcTitle .s { position: absolute; left: 0; right: 0; top: 20px; font: 32px/32px monospace; --sh: 4px; }
 #mcBar span, #mcTitle span, #mcChat span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
+/* boss bars: the top of the screen, 182 x 5 game pixels each, 19 apart, the name over each */
+#mcBoss { position: fixed; left: 50%; top: 0; transform: translateX(-50%); width: 364px; z-index: 21; pointer-events: none; }
+#mcBoss .bar { position: relative; height: 38px; }
+#mcBoss .bar img { position: absolute; left: 0; top: 24px; height: 10px; image-rendering: pixelated; object-fit: cover; object-position: left; }
+#mcBoss .name { position: absolute; left: -200px; right: -200px; top: 6px; text-align: center; color: #fff; font: 16px/16px monospace;
+  white-space: pre; --sh: 2px; }
+#mcBoss span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -153,7 +160,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -204,6 +211,11 @@ body.relive #relive .sub { display: none; }
 #toggle { display: none; }
 #chgList li { padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
 #dev { position: absolute; right: 16px; top: 120px; width: 380px; max-height: calc(100% - 260px); overflow: auto; padding: 10px 12px; z-index: 6; font-size: 12px; }
+#devFind { margin-top: 6px; border-top: 1px solid var(--line, #3334); padding-top: 6px; }
+#devHits { max-height: 320px; overflow: auto; font: 11px/1.4 ui-monospace, Consolas, monospace; }
+#devHits div { padding: 2px 4px; cursor: pointer; border-radius: 4px; }
+#devHits div:hover { background: rgba(127,127,127,.18); }
+#devHits .k { opacity: .6; }
 #dev pre { margin: 6px 0; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; color: var(--text); }
 #hlProg .bar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; margin: 6px 0 2px; }
 #hlProgFill { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
@@ -281,7 +293,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="mcBar" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -510,6 +522,12 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
     <button id="devExact" type="button" title="Fetch the exact recording of this moment again">Reload exact</button>
   </div>
   <div class="row"><input id="devGo" type="text" placeholder="Go to: x y z  or  2026-05-24 20:31:09"><button id="devGoBtn" type="button">Go</button></div>
+  <div id="devFind">
+    <div class="row"><input id="devQ" type="text" placeholder="Search what happened: e.g. diamond_ore, wolf angry, died, Stella"
+      title="Every word must match (any case): the server logs, what the recordings saw, the Ledger block log. Click a line to go there."><button id="devQBtn" type="button">Search</button></div>
+    <div id="devQInfo" class="meta"></div>
+    <div id="devHits"></div>
+  </div>
 </div>
 <div id="help" class="card">Drag to rotate · right-drag to pan · scroll to zoom · click the timeline to jump (Shift-drag: fine) · , / . one tick back / on · Space plays/pauses · I / O mark a highlight's start / end · F: free camera (WASD, Space/Shift, drag to look)</div>
 
@@ -1287,7 +1305,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -1518,6 +1536,10 @@ function mobLook(label, kind) {
   if (kind === "villager" || kind === "zombie_villager") look.vd = stateAt(label, "vd", T, null);
   if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
   if (kind === "copper_golem") look.weather = stateAt(label, "weather", T, 0);
+  if (kind === "wolf") {                               // angry: for the ticks the recording said, from then
+    const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ang, i = ev ? lower(ev, T, r => r[0]) - 1 : -1;
+    look.angry = i >= 0 && T - ev[i][0] < ev[i][1] * 50;
+  }
   if (kind === "cat" || kind === "wolf") {               // tamed: a collar in its dye (red unless dyed)
     look.tame = stateAt(label, "tame", T, 0) & 4;
     if (look.tame) look.collar = stateAt(label, "collar", T, 14);
@@ -1545,6 +1567,7 @@ async function buildMob(o, label, kind) {
   let L = MOBM[baby ? layer + "_BABY" : layer];
   if (!L) return;                                      // no model: stays a box
   if (look.tame && kind === "wolf") tex = tex + "_tame";                        // a tamed wolf's own picture
+  else if (look.angry && kind === "wolf") tex = tex + "_angry";                 // (WolfRenderer: tame first, then angry)
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
@@ -3978,6 +4001,48 @@ $("#devGoBtn").onclick = () => {
   if (Number.isFinite(t)) seek(t); else toastStatus("Go to: type x y z, or a date and time like 2026-05-24 20:31:09");
 };
 $("#devGo").addEventListener("keydown", e => { if (e.key === "Enter") $("#devGoBtn").click(); });
+// ---------- dev mode: search what happened (mcsm/search.py): the logs, the recordings, the Ledger log ----------
+// Every word must be in the line. A line: when, who, what. Clicking one goes to that moment (and spectates that
+// player, or puts the camera at that block for the Ledger's lines).
+async function devSearch() {
+  const q = $("#devQ").value.trim(); if (!q) return;
+  $("#devQInfo").textContent = "Searching... (the first search reads each recording's data once: it can take a while)";
+  $("#devHits").replaceChildren();
+  let r;
+  try { r = await (await fetch(`api/search/${encodeURIComponent(q)}`)).json(); }
+  catch (e) { $("#devQInfo").textContent = "Search failed: " + e; return; }
+  const rec = r.recordings || {};
+  const info = document.createElement("span");
+  info.textContent = `${r.total} found${r.total > r.hits.length ? ` (the newest ${r.hits.length} shown)` : ""} · ${rec.searched || 0} recordings searched` +
+    (rec.unread ? `, ${rec.unread} not read in full yet ` : " ") + (r.ledger ? "· Ledger log searched" : "· no Ledger log");
+  $("#devQInfo").replaceChildren(info);
+  if (rec.unread) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Read them all";
+    b.title = "Read every recording in full in the background (a few at a time; it can take a long while), then search again";
+    b.onclick = async () => { const x = await (await fetch("api/searchread")).json(); toastStatus(`Reading ${x.queued} recordings in the background`); };
+    $("#devQInfo").append(" ", b);
+  }
+  const rows = r.hits.slice().reverse().map(h => {
+    const d = document.createElement("div");
+    const who = h.who && h.who.startsWith("#") ? h.who.split("#")[1].replace(/_/g, " ") + " #" + h.who.split("#")[2] : (h.who || "");
+    const k = document.createElement("span"); k.className = "k"; k.textContent = `${fmt(h.t)} · `;
+    const w = document.createElement("b"); w.textContent = who ? who + " " : "";
+    const txt = document.createElement("span"); txt.textContent = h.text + (h.x != null ? ` @ ${h.x} ${h.y} ${h.z}` : "");
+    d.append(k, w, txt); d.title = `${h.kind}`;
+    d.onclick = () => {
+      seek(h.t);
+      if (h.x != null) {                                 // a Ledger line: the camera at the block
+        if (h.dim && $("#dim").value !== h.dim && [...$("#dim").options].some(o => o.value === h.dim)) { $("#dim").value = h.dim; $("#dim").dispatchEvent(new Event("change")); }
+        if (SPEC.name) setSpec(""); if (FREE.on) setFree(false);
+        controls.target.set(h.x + 0.5, h.y + 0.5, h.z + 0.5); camera.position.set(h.x + 6, h.y + 5, h.z + 6); controls.update();
+      } else if (h.who && !h.who.startsWith("#") && markers[h.who]) setSpec(h.who);
+    };
+    return d;
+  });
+  $("#devHits").replaceChildren(...rows);
+}
+$("#devQBtn").onclick = devSearch;
+$("#devQ").addEventListener("keydown", e => { if (e.key === "Enter") devSearch(); e.stopPropagation(); });
 // a view link: #t=..&c=x,y,z&g=x,y,z&d=overworld[&spec=name&mode=first][&free=1]
 function applyViewLink() {
   if (!location.hash || location.hash.length < 3) return;
@@ -4259,8 +4324,11 @@ function fpArm(F, slim) {                                // renderPlayerArm: the
   const geo = skinBox(aw, 12, 4, 40, 16);
   const mesh = new THREE.Mesh(geo, F.mat.clone()); mesh.material.transparent = false; mesh.material.visible = true;
   mesh.scale.setScalar(1 / 16 / PX);                     // skinBox is in figure pixels: to blocks
-  mesh.position.set((-5 - (slim ? 2 : 3) + aw / 2) / 16, (2 - 2 + 6) / 16, 0);
-  g.add(mesh); g.matrixAutoUpdate = false;
+  // the game's model space is ours turned half round x (its y points down the arm, from the shoulder): the arm at
+  // its place there (pivot -5, 2; the box from -3 (slim -2), -2), drawn the right way up
+  const inner = new THREE.Group(); inner.rotation.x = Math.PI;
+  mesh.position.set((-5 - (slim ? 2 : 3) + aw / 2) / 16, -(2 - 2 + 6) / 16, 0);
+  inner.add(mesh); g.add(inner); g.matrixAutoUpdate = false;
   return g;
 }
 function fpArmMatrix(p) {
@@ -4294,6 +4362,36 @@ function fpMapMatrix(pitch, p) {
   M.multiply(T.makeRotationX(-Math.PI / 2 * 0));          // (the game turns the map to face you: it already does)
   return M;
 }
+// GameRenderer.bobView: walking sways the view (and the hand with it): walkDist grows 0.6 a block walked, bob eases
+// (0.4 a tick) towards the horizontal speed (at most 0.1) on the ground
+const FPB = { walk: 0, bob: 0, last: null, lastT: null, xb: null, yb: null, eqT: -1e9 };
+function fpBob(R) {
+  const p = R.eye;
+  if (FPB.last && FPB.lastT !== null && T > FPB.lastT && T - FPB.lastT < 1000) {
+    const ticks = (T - FPB.lastT) / 50, dist = Math.hypot(p.x - FPB.last.x, p.z - FPB.last.z);
+    const ground = Math.abs(p.y - FPB.last.y) < 0.05 * ticks + 0.01;
+    FPB.walk += dist * 0.6;
+    const target = ground ? Math.min(0.1, dist / ticks) : 0;
+    FPB.bob += (target - FPB.bob) * (1 - Math.pow(0.6, ticks));
+  } else if (T !== FPB.lastT) { FPB.bob = 0; }
+  FPB.prevT = FPB.lastT; FPB.last = p.clone(); FPB.lastT = T;
+  const g = -FPB.walk * Math.PI, h = FPB.bob, D = Math.PI / 180, M = new THREE.Matrix4(), Q = new THREE.Matrix4();
+  M.makeTranslation(Math.sin(g) * h * 0.5, -Math.abs(Math.cos(g) * h), 0);
+  M.multiply(Q.makeRotationZ(Math.sin(g) * h * 3 * D)); M.multiply(Q.makeRotationX(Math.abs(Math.cos(g - 0.2) * h) * 5 * D));
+  return M;
+}
+const FP_FOOD = /^(apple|golden_apple|enchanted_golden_apple|bread|cookie|melon_slice|sweet_berries|glow_berries|carrot|golden_carrot|potato|baked_potato|poisonous_potato|beetroot|beetroot_soup|mushroom_stew|rabbit_stew|suspicious_stew|pumpkin_pie|chorus_fruit|dried_kelp|spider_eye|rotten_flesh|pufferfish|tropical_fish|(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)|cake|honey_bottle|milk_bucket|potion|ominous_bottle)$/;
+function fpEat(M, item, R) {                               // applyEatTransform: bobbing at the mouth, then raised to it
+  if (!item || !FP_FOOD.test(item)) return;
+  const hv = EXACT.on && EXACT.ev[R.name] && EXACT.ev[R.name].h; if (!hv) return;
+  const i = lower(hv, T, r => r[0]) - 1; if (i < 0 || !(hv[i][1] & 1)) return;
+  const dur = item === "dried_kelp" ? 16 : item === "honey_bottle" ? 40 : 32;
+  const left = Math.max(0, dur - (T - hv[i][0]) / 50), f = left + 1, gg = f / dur, D = Math.PI / 180, Q = new THREE.Matrix4();
+  if (gg < 0.8) M.multiply(Q.makeTranslation(0, Math.abs(Math.cos(f / 4 * Math.PI) * 0.1), 0));
+  const k = 1 - Math.pow(gg, 27);
+  M.multiply(Q.makeTranslation(k * 0.6, k * -0.5, 0));
+  M.multiply(Q.makeRotationY(k * 90 * D)); M.multiply(Q.makeRotationX(k * 10 * D)); M.multiply(Q.makeRotationZ(k * 30 * D));
+}
 function fpStep() {
   const R = RELIVE, on = R.on && R.view === "first" && R.d < 0.6;
   if (!camera.parent) scene.add(camera);
@@ -4309,7 +4407,20 @@ function fpStep() {
   const mapId = item === "filled_map" && look && look.map != null && !(off && off[0]) ? look.map : null;
   const key = mapId != null ? `map|${mapId}` : item ? `item|${item}|${JSON.stringify(look || {})}` : `arm|${m.F.mat.map && m.F.mat.map.uuid}`;
   const sw = swingAt(R.name, T), p = sw !== null && sw < 300 ? sw / 300 : 0;
+  // the view's bob, and the hand lagging a little behind turns (xBob / yBob: half the way each tick)
+  const B = fpBob(R), D = Math.PI / 180, Q = new THREE.Matrix4();
+  camera.matrixAutoUpdate = true;
+  { const e = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); const inv = B.clone().invert();
+    camera.updateMatrix(); const C = camera.matrix.clone().multiply(inv); C.decompose(e, q, sc); camera.position.copy(e); camera.quaternion.copy(q); }
+  const pd = R.pitch / D, yd = R.yaw / D;
+  if (FPB.xb === null || Math.abs(yd - FPB.yb) > 180) { FPB.xb = pd; FPB.yb = yd; }
+  const kk = 1 - Math.pow(0.5, Math.min(10, (performance.now() - (FPB.wt || performance.now())) / 50)); FPB.wt = performance.now();
+  FPB.xb += (pd - FPB.xb) * kk; FPB.yb += (yd - FPB.yb) * kk;
+  const G = new THREE.Matrix4().makeScale(kf, kf, 1).multiply(B).multiply(Q.makeRotationX((pd - FPB.xb) * 0.1 * D)).multiply(Q.makeRotationY((yd - FPB.yb) * 0.1 * D));
+  FPV.group.matrixAutoUpdate = false; FPV.group.matrix.copy(G); FPV.group.matrixWorldNeedsUpdate = true;
   if (FPV.key !== key) {
+    // a new item while it plays on: it comes up from below (0.4 a tick); after a jump in time it's just there
+    if (FPV.key && FPB.prevT !== null && T > FPB.prevT && T - FPB.prevT < 500) FPB.eqT = T;
     FPV.key = key; const mine = ++FPV.tok;
     for (const ch of FPV.group.children.slice()) FPV.group.remove(ch);
     if (mapId != null) { const g = fpMap(mapId); FP_ON_TOP(g); FPV.group.add(g); }
@@ -4325,9 +4436,11 @@ function fpStep() {
     else { const g = fpArm(m.F, !!m.F.slim); FP_ON_TOP(g); FPV.group.add(g); }
   }
   const g = FPV.group.children[0]; if (!g) return;
-  if (mapId != null) g.matrix.copy(fpMapMatrix(c.pitch || 0, p));
-  else if (item) { const obj = g.children[0]; if (obj) g.matrix.copy(fpItemMatrix(obj.userData.fp, p)); }
-  else g.matrix.copy(fpArmMatrix(p));
+  const up = Math.min(1, Math.max(0, (T - FPB.eqT) / 50 * 0.4));   // applyItemArmTransform: -0.6 x (1 - equipped)
+  const E = new THREE.Matrix4().makeTranslation(0, (1 - up) * -0.6, 0);
+  if (mapId != null) g.matrix.copy(E.multiply(fpMapMatrix(c.pitch || 0, p)));
+  else if (item) { const obj = g.children[0]; if (obj) { fpEat(E, item, R); g.matrix.copy(E.multiply(fpItemMatrix(obj.userData.fp, p))); } }
+  else g.matrix.copy(E.multiply(fpArmMatrix(p)));
 }
 $("#reliveBtn").onclick = () => {
   let who = $("#spec").value;
@@ -4694,6 +4807,23 @@ function titleAt(name) {                                 // Gui.setTitle / setSu
   const a = Math.max(0, Math.min(1, left > fo + sy ? (total - left) / Math.max(1, fi) : left <= fo ? left / Math.max(1, fo) : 1));
   return a * 255 > 8 ? { title, sub, a, key: `${start}` } : null;
 }
+function bossStep(who) {                                // the boss bars they saw (BossHealthOverlay)
+  const bars = who ? stateAt(who, "bo", T, null) : null;
+  const key = bars && bars.length ? JSON.stringify(bars) + !!MCTEXT.lang : "";
+  $("#mcBoss").hidden = !key;
+  if (key === HUD.bossKey) return; HUD.bossKey = key;
+  const NOTCH = { 1: 6, 2: 10, 3: 12, 4: 20 }, els = [];
+  for (const b of bars || []) {
+    const d = document.createElement("div"); d.className = "bar";
+    const im = (n, w) => { const e = document.createElement("img"); e.src = `blocktex/0/gui/sprites/boss_bar/${n}.png`; e.style.width = `${w}px`; d.append(e); };
+    const w = Math.round(Math.max(0, Math.min(1, b.health)) * 182) * 2;
+    im(`${b.color}_background`, 364); if (NOTCH[b.notches]) im(`notched_${NOTCH[b.notches]}_background`, 364);
+    if (w > 0) { im(`${b.color}_progress`, w); if (NOTCH[b.notches]) im(`notched_${NOTCH[b.notches]}_progress`, w); }
+    const n = document.createElement("div"); n.className = "name"; n.replaceChildren(...mcText(b.title)); d.append(n);
+    els.push(d);
+  }
+  $("#mcBoss").replaceChildren(...els);
+}
 function screenTextStep() {
   const on = RELIVE.on && RELIVE.phase !== "load", who = on && RELIVE.name;
   // the action bar: three seconds, fading over the last one
@@ -4716,8 +4846,8 @@ function hudStep(now) {
   const first = on && RELIVE.view === "first" && RELIVE.d < 0.6;
   $("#mcCross").hidden = !first;
   if (first && !$("#mcCross").src) $("#mcCross").src = hudSprite("crosshair");
-  if (!on) { $("#mcBar").hidden = true; $("#mcTitle").hidden = true; }
-  else { mcLang(); screenTextStep(); }
+  if (!on) { $("#mcBar").hidden = true; $("#mcTitle").hidden = true; $("#mcBoss").hidden = true; }
+  else { mcLang(); screenTextStep(); bossStep(RELIVE.name); }
   if (!on || now - HUD.last < 150) return; HUD.last = now;
   const who = RELIVE.name, ex = exactHotbar(who), b = INV.backup[`${who}|${Math.floor(T / 600_000)}`];
   const bs = b && b.available ? b.slots : {};

@@ -3889,6 +3889,29 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(paths.component_at(plain, 0), ("hi", 5))
         self.assertIn(60, paths.ENTITY_FX)                     # a body vanishing: the poof
 
+    def test_boss_bars(self):
+        """Boss bars from boss_event: added with title, health, colour, notches and flags; health, title, style and
+        flags updated; removed. A long in entity data (a wolf's anger end) is read signed (-1: none)."""
+        import struct as st
+        from mcsm import paths
+        uid = bytes(range(16))
+        title = bytes([8]) + st.pack(">H", 11) + b"Ender Dragon"[:11]
+        bars = {}
+        add = uid + bytes([0]) + title + st.pack(">f", 1.0) + bytes([5, 0, 1])
+        self.assertTrue(paths.boss_event(add, 0, len(add), bars))
+        bid = uid.hex()[:12]
+        self.assertEqual(bars[bid], {"title": "Ender Drago", "health": 1.0, "color": "purple", "notches": 0, "flags": 1})
+        hp = uid + bytes([2]) + st.pack(">f", 0.25)
+        self.assertTrue(paths.boss_event(hp, 0, len(hp), bars))
+        style = uid + bytes([4, 2, 4])
+        paths.boss_event(style, 0, len(style), bars)
+        self.assertEqual((bars[bid]["health"], bars[bid]["color"], bars[bid]["notches"]), (0.25, "red", 4))
+        rm = uid + bytes([1])
+        self.assertTrue(paths.boss_event(rm, 0, len(rm), bars))
+        self.assertEqual(bars, {})
+        body = bytes([22, paths.SER_VARLONG]) + bytes([0xFF] * 9) + bytes([1]) + bytes([0xFF])
+        self.assertEqual(paths.entity_data_all(body, 0, len(body))[22], (paths.SER_VARLONG, -1))
+
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
         a name tag as a compound text component with extra parts."""
@@ -5946,6 +5969,52 @@ class TestLedger(unittest.TestCase):
                         " old_block_state, source, rolled_back) values (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 1, ?)", rows)
         con.commit()
         con.close()
+
+    def test_search(self):
+        """Dev mode's search: recorded events as text lines (messages translated, repeats within 10 s dropped, noisy
+        kinds left out, block events with their place), every word must match, the Ledger searched by action, block,
+        source and player."""
+        from datetime import datetime, timezone
+        from mcsm import ledger, search
+        lang = {"sleep.skipping_night": "Sleeping through this night", "death.attack.player": "%1$s was slain by %2$s"}
+        self.assertEqual(search.component_plain({"translate": "death.attack.player", "with": ["Alex", {"text": "Steve"}]}, lang),
+                         "Alex was slain by Steve")
+        self.assertEqual(search.component_plain({"text": "a", "extra": ["§cb", {"text": "c"}]}), "abc")
+        evs = [[0, None, "ab", {"translate": "sleep.skipping_night"}], [20, None, "ab", {"translate": "sleep.skipping_night"}],
+               [40, None, "f", 2], [60, "#wolf#5", "ang", 400], [80, None, "bb", [1, 64, -2, "diamond_ore"]],
+               [90, None, ["eq", "mainhand"][0], ["mainhand", "diamond_axe", 1]], [100, "#zombie#9", "ee", 60]]
+        rows = search.index_events(evs, lambda t: 1000 + t * 50, {}, "Alex", lang)
+        self.assertEqual([r[3] for r in rows], ["action bar: Sleeping through this night", "angry (400 ticks)",
+                                                "block broken: diamond_ore", "holds (mainhand) diamond_axe",
+                                                "body vanished after dying (poof)"])
+        self.assertEqual(rows[0][:3], [1000, "Alex", "ab"])
+        self.assertEqual(rows[2][4:], [1, 64, -2])                       # the place of a block event
+        self.assertEqual(search.who_text("#wolf#5"), "wolf #5")
+        self.assertTrue(search.matches("wolf #5 angry (400 ticks)", search.terms_of("Wolf  ANGRY")))
+        self.assertFalse(search.matches("wolf #5 calm", ["wolf", "angry"]))
+        self.assertEqual(search.exact_version(".exact29.json.gz"), 29)
+        tmp = tempfile.mkdtemp()
+        try:
+            p = os.path.join(tmp, "ledger.sqlite")
+            self._db(p)
+            con = sqlite3.connect(p)
+            con.execute("create table sources (id integer primary key, name text)")
+            con.execute("insert into sources values (1, 'player'), (2, 'creeper')")
+            con.execute("create table players (id integer primary key, player_id blob, player_name text, first_join text, last_join text)")
+            con.execute("insert into players values (1, x'00', 'Alex', '', '')")
+            con.execute("update actions set player_id = 1 where x = 5")
+            con.commit()
+            con.close()
+            lg = ledger.Ledger(p)
+            hits = ledger_hits = search.ledger_search(lg, ["stairs", "alex"])
+            self.assertEqual([(h["text"], h["who"], h["x"]) for h in hits],
+                             [("block-break air (was oak_stairs)", "Alex", 5), ("block-place oak_stairs", "Alex", 5)])
+            self.assertEqual(hits[0]["t"], int(datetime(2026, 3, 1, 11, tzinfo=timezone.utc).timestamp() * 1000))
+            self.assertEqual(search.ledger_search(lg, ["stone", "alex"]), [])  # the stone wasn't Alex's
+            self.assertEqual(search.ledger_search(lg, ["nothing_like_this"]), [])
+            del ledger_hits
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_moment(self):
         from datetime import datetime, timezone

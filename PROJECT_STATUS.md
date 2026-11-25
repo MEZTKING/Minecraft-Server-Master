@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1198,10 +1198,51 @@ warped spores 0.0143, soul sand valley ash 0.00625). Picks inside solid blocks a
 the blocks there; they are hidden by them anyway). Not seen here (no nether moment tried). Tests:
 `test_text_components`.
 
-Still different: angry wolves' look; villagers' profession hats over other hats; view bobbing and the equip animation
-in first person; eating and drinking (the game's arm bob in first person only); spyglass and trident 3D models; the
-boss bar and the tab list; the scoreboard (not recorded: `ignore_scoreboard_packets`); a jukebox's "Now playing" in
-rainbow colours (shown plain); particles from other mobs' animations (a bee's nectar, a sheep eating, glow squids).
+**Round 28 (2026-11-25, owner: "Keep going"; mid-round: "add a dev tool so i can search by anything that happens by
+text also").**
+
+*Boss bars.* `protocols.json` has boss_event (id 9 in 1.21.10 to 26.3). `paths.boss_event` applies each packet (UUID,
+action 0 add: title component, health, colour, notches, flags; 1 remove; 2 health; 3 title; 4 style; 5 flags) to the
+bars shown, and `decode_entities` records "bo" with all of them after each change (a state, carried from before the
+window). Page: `bossStep` draws them at the top (GUI scale 2, 19 game pixels apart, the boss_bar sprites: colour
+background and progress cut to the health, notched_6/10/12/20 over them, the name above). Not seen: no boss bar in 14
+recordings looked at; `test_boss_bars`.
+
+*Angry wolves.* A long in entity data is now read signed (`SER_VARLONG`: -1 is none). 26.x wolves: index 22 is the
+game time their anger ends (1.21.x: index 21, ticks left). set_time's first number is the game time; `decode_entities`
+keeps the last one and records "ang" (ticks left, 0 calm; carried). Page: `mobLook` angry while the time since the
+event is under those ticks; WolfRenderer's texture choice (tame, else angry, else wild: `<variant>_angry`). Checked: a
+wild woods wolf on 27 May 20:34:44 UTC (its angry face). Wolves chasing something refresh it every tick (many
+events; the exact data is a little bigger).
+
+*First-person motion.* `fpBob`: GameRenderer.bobView from the relived player's movement (walkDist 0.6 a block, bob
+eased 0.4 a tick to the horizontal speed, at most 0.1, 0 off the ground); applied to the camera (in view space) and to
+the hand together, as the game does; the hand's lag (xBob / yBob: half the way each tick, 0.1 of the difference); the
+equip rise (applyItemArmTransform's -0.6 x (1 - equipped), 0.4 a tick; only while it plays on, not after a jump);
+`fpEat` (applyEatTransform: the bob at the mouth, then the raise; 32 ticks, 16 dried kelp, 40 honey) while they use
+food or drink. The fov scale is now part of the hand's matrix. Fixed: the bare arm (renderPlayerArm) was upside down
+(its skin's shoulder at the hand end): the game's model space is ours turned half round x. Checked: D_HumanCrafter's
+eyes view on 27 May 20:34:49 UTC, walking with an empty hand (arm from the right, bob running). Not compared side by
+side with the game; eating not seen.
+
+*Dev search* (`mcsm/search.py`, `/api/search/<words>`, `/api/searchread`; dev mode's "Search what happened").
+Lines from: the logs' events; each recording's exact data (`search.index_events`: every event kind as English text
+(`event_text`; text components through the game's en_us.json, `component_plain`), noisy kinds left out (`NOISY`:
+flags, swings, the held slot, health, hand use, paddles, mining stages, left view), a repeat of the same line by the
+same one within 10 s left out, block events with their place); the Ledger (`ledger_search`: each word must match the
+action, the new or old block or item, the source or the player; newest first, at most 400). A recording's lines are
+kept as `<key>.search3-x<N>.json.gz` (N: the exact-data version it came from; any version is used, newest first, so
+recordings read by earlier rounds are searched too). Hits in time order, the newest 400 returned with the total.
+`HistoryServer.lang()` is shared with `/api/lang`. Checked: `diamond_ore D_HumanCrafter` (5 recorded breaks and the
+same 5 in the Ledger, 24 May; clicking one goes to 20:13:25 UTC with the camera at the block), `angry` (505 lines),
+`sleeping`. Times: first search after a start ~20-60 s (reads the 69 read recordings), then a few seconds; the Ledger
+part ~15 s (2 million rows). 1,574 recordings have never been read in full: "Read them all" starts that. Tests:
+`test_search`.
+
+Still different: villagers' profession hats over other hats; spyglass and trident 3D models; the tab list (only shown
+while Tab is held in the game); the scoreboard (not recorded: `ignore_scoreboard_packets`); a jukebox's "Now playing"
+in rainbow colours (shown plain); particles from other mobs' animations (a bee's nectar, a sheep eating, glow
+squids); bow drawing, shield blocking and the spyglass in first person.
 
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
@@ -1921,6 +1962,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 28**: dev mode (the ` key) → "Search what happened": try a block, a player, "died", "angry",
+  "Sleeping"; click a line. Relive someone through their eyes while they walk (the view bobs), eat, or switch items;
+  an empty hand (their arm from the right). A wild wolf attacking (its angry face). A boss bar if a recording has
+  the dragon, the wither or a raid.
 - **Parity round 27**: relive someone: the action bar above their hotbar ("You can sleep only at night"...),
   titles in the middle, and the server's messages (deaths, joins, "Respawn point set", command replies) in the
   chat, in their colours. Mobs: the puff when a killed mob vanishes, hearts when breeding or taming, villagers'
@@ -2138,6 +2183,11 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going", then "add a dev tool so i can search by anything that happens by text also".
+  Parity round 28 (backlog 0zh): boss bars from the recordings; angry wolves; view bobbing, the hand's lag, the
+  equip rise and eating in first person; the bare arm the right way up. Dev mode: search everything that happened
+  (logs, recordings, Ledger) by text. Tests: `test_boss_bars`, `test_search`.
 
 - **2026-11-25:** Owner: "Keep going". Parity round 27 (backlog 0zh): the action bar, titles and server messages from
   the recordings on the reliving player's screen; mobs' particles (death poofs, hearts, villagers, blazes, endermen);

@@ -176,8 +176,8 @@ def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | No
             v, k = _varint(b, k)
             out[idx] = (SER_VARINT, v)
         elif ser == SER_VARLONG:
-            _v, k = _varlong(b, k)
-            out[idx] = (ser, None)
+            v, k = _varlong(b, k)
+            out[idx] = (ser, v - (1 << 64) if v >= 1 << 63 else v)   # (signed: -1 is "none")
         elif ser == SER_OPT_BLOCK_POS:
             k += 9 if b[k] else 1
             out[idx] = (ser, None)
@@ -239,6 +239,41 @@ HANGING = {"painting", "item_frame", "glow_item_frame"}
 # entity events the game answers with particles round the mob: taming failed (smoke) 6, tamed (hearts) 7, a villager's
 # hearts 12 / anger 13 / happiness 14, an animal in love 18, a mob appearing from a spawner 20, a body vanishing 60
 ENTITY_FX = {6, 7, 12, 13, 14, 18, 20, 60}
+BOSS_COLOURS = ["pink", "blue", "red", "green", "yellow", "purple", "white"]
+
+
+def boss_event(b, k: int, end: int, bars: dict) -> bool:
+    """Apply a boss_event body to *bars* (``{id: {"title", "health", "color", "notches", "flags"}}``): the bar's UUID,
+    then the action (0 add: title, health, colour, notches, flags; 1 remove; 2 health; 3 title; 4 colour and
+    notches; 5 flags). True when it changed something."""
+    bid = bytes(b[k:k + 16]).hex()[:12]
+    act, k = _varint(b, k + 16)
+    if act == 1:
+        return bars.pop(bid, None) is not None
+    if act == 0:
+        title, k = component_at(b, k)
+        health = struct.unpack_from(">f", b, k)[0]
+        col, k = _varint(b, k + 4)
+        notch, k = _varint(b, k)
+        bars[bid] = {"title": title, "health": round(health, 4), "color": BOSS_COLOURS[col] if 0 <= col < 7 else "white",
+                     "notches": notch, "flags": b[k] if k < end else 0}
+        return True
+    bar = bars.get(bid)
+    if bar is None:
+        return False
+    if act == 2:
+        bar["health"] = round(struct.unpack_from(">f", b, k)[0], 4)
+    elif act == 3:
+        bar["title"] = component_at(b, k)[0]
+    elif act == 4:
+        col, k = _varint(b, k)
+        bar["color"] = BOSS_COLOURS[col] if 0 <= col < 7 else "white"
+        bar["notches"] = _varint(b, k)[0]
+    elif act == 5:
+        bar["flags"] = b[k]
+    else:
+        return False
+    return True
 # level events the game shows with particles (LevelEvent): bone meal 1505, composter 1500, lava fizz 1501, torch
 # burnt out 1502, eye in a portal frame 1503, smoke 2000 / 2010, potion splash 2002 / 2007 (data: colour), ender eye
 # breaking 2003, spawner 2004, dragon breath 2006, explosion 2008, steam 2009, wax on / off 3003 / 3004, scrape 3005,
@@ -840,6 +875,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         st_id = pk.get("set_subtitle_text") if ex_on else None
         ta_id = pk.get("set_titles_animation") if ex_on else None   # i32 fade in, stay, fade out (ticks)
         tc_id = pk.get("clear_titles") if ex_on else None           # bool: reset the times too
+        boss_id = pk.get("boss_event") if ex_on else None           # boss bars (the dragon, the wither, raids...)
+        bars: dict = {}
+        game_now: tuple | None = None                               # (the world's game time, at which tick)
         block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
         hangs: dict[int, str] = {}                                # paintings and item frames in view
@@ -847,7 +885,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
                              pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id,
-                             attr_id, info_id, part_id, ab_id, sys_id, ti_id, st_id, ta_id, tc_id)
+                             attr_id, info_id, part_id, ab_id, sys_id, ti_id, st_id, ta_id, tc_id, boss_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -1000,8 +1038,18 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 who = None if eid == me else others[eid]
                                 if who and who.startswith("#"):          # a mob: baby, wool, size, name tag
                                     mk = who.split("#")[1]
-                                    for ev in mob_details(mk, entity_data_all(b, k, i + size, mk in VARIANT_REG or mk == "copper_golem"), new_ids):
+                                    md = entity_data_all(b, k, i + size, mk in VARIANT_REG or mk == "copper_golem")
+                                    for ev in mob_details(mk, md, new_ids):
                                         extras["events"].append([tick, who] + ev)
+                                    if mk == "wolf":           # angry: 26.x the game time it ends (-1 none); before, ticks left
+                                        an = md.get(22 if new_ids else 21)
+                                        left = None
+                                        if an and an[0] == SER_VARLONG and isinstance(an[1], int):
+                                            left = 0 if an[1] < 0 or game_now is None else max(0, an[1] - (game_now[0] + tick - game_now[1]))
+                                        elif an and an[0] == SER_VARINT and not new_ids:
+                                            left = max(0, an[1])
+                                        if left is not None:
+                                            extras["events"].append([tick, who, "ang", min(left, 1_000_000)])
                                 da = entity_data_all(b, k, i + size, parts=tbl.get("particles"))
                                 if da.get(10, (None,))[0] == SER_PARTICLES:   # potion swirls: which, and faint (beacon)?
                                     amb = da.get(11, (None, None))
@@ -1053,6 +1101,12 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     extras["events"].append([tick, None, kind, comp])
                             except (IndexError, ValueError, struct.error):
                                 pass
+                        elif pid == boss_id and size >= 17:   # boss bars: every change, all the bars shown
+                            try:
+                                if boss_event(b, k, i + size, bars):
+                                    extras["events"].append([tick, None, "bo", [dict(v, id=key) for key, v in bars.items()]])
+                            except (IndexError, ValueError, struct.error):
+                                pass
                         elif pid == ta_id and size >= 12:
                             extras["events"].append([tick, None, "ta", list(struct.unpack_from(">iii", b, k))])
                         elif pid == tc_id and size >= 1:
@@ -1069,6 +1123,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 extras["events"].append([tick, others[got], "pk", None if by == me else others[by]])
                         elif pid == stime_id and size >= 9:   # the time of day (two layouts, see _day_time)
                             dt = _day_time(b, k, i + size)
+                            game_now = (struct.unpack_from(">q", b, k)[0], tick)    # the game time comes first
                             if dt is not None:
                                 extras["world"].append([tick, "time", dt[0], dt[1]])
                         elif pid == game_id and size >= 6:    # weather: 1 rain starts, 2 stops, 7 rain level, 8 thunder level
@@ -1420,7 +1475,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact28.json.gz"    # (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact29.json.gz"    # 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

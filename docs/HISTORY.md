@@ -399,7 +399,11 @@ What the recordings say about each player and mob is shown too:
 - **Size:** players and mobs made bigger or smaller (the scale attribute) are drawn at their size.
 - **Their hand, through their eyes:** reliving someone through their eyes (V), you see what they hold at the
   bottom right as the game shows it (or their bare arm), swinging when they swing; a map held with the other hand
-  free is held up in both hands, showing its picture as it was then.
+  free is held up in both hands, showing its picture as it was then. Walking sways the view and the hand with it as
+  the game's view bobbing does; the hand lags a little behind turns; a new item comes up from below; food and drink
+  are raised to the mouth and bob while they eat or drink.
+- **Angry wolves:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as the
+  recording said (tamed wolves keep their tame face, as in the game).
 - **Capes:** a player's cape, as their recordings had it, hanging from the shoulders and swinging out as they move
   (not with an elytra on). Capes come from Mojang's texture server like the skins.
 
@@ -454,6 +458,8 @@ furnace's smelting (input turning into output) isn't logged.
 it, from their own recording:
 - **The action bar** just above their hotbar and armour ("You can sleep only at night", "Sleeping through this
   night", a plugin's or command's messages): three seconds, fading over the last one.
+- **Boss bars** at the top of the screen (the ender dragon, the wither, raids, a server's own bars): their colour,
+  notches, how full and their name, as the server set them.
 - **Titles and subtitles** big in the middle of the screen, fading in and out with the times the server set.
 - **Messages the server sent them** in the chat at the bottom left, with the players' chat from the logs: deaths,
   joins and leaves, advancements, "Respawn point set", replies to their commands, in their colours.
@@ -690,6 +696,22 @@ Its buttons:
 - **Copy debug info:** all of the above as text.
 - **Reload blocks** and **Reload exact:** load them again.
 - **Go to:** type `x y z` or a date and time such as `2026-05-24 20:31:09`.
+- **Search what happened:** type words and press Enter (or **Search**). Every line holding all the words (any
+  case) is listed, newest first, from three places:
+  - the server logs: joins, leaves, chat, commands, deaths, advancements, server starts and crashes;
+  - what the recordings saw: messages and the action bar, titles and boss bars, deaths and hurts, blocks broken,
+    what was held and worn, the hotbar, items dropped and picked up, signs written, chests opened, mobs (named,
+    babies, variants, angry, tamed, hearts, villagers' moods, bodies vanishing), potion effects, particles, game
+    modes, totems, leads, paintings and frames...;
+  - the Ledger block log: blocks broken, placed or changed, items put in or taken from containers, picked up or
+    dropped, mobs killed or changed, by whom or by what (a creeper, fire, lava...).
+
+  For example `diamond_ore D_HumanCrafter`, `wolf angry`, `slain`, `Sleeping`, `creeper block-break`. Click a line to
+  go to that moment: the camera goes to the block for lines with a place (shown after @), or spectates the player.
+  Only recordings already read in full are searched (any version of the viewer); the line under the box says how
+  many weren't, and **Read them all** reads those in the background (a few at a time: it can take a long while; search
+  again afterwards). The first search after starting reads each recording's data once (it can take a minute); then it
+  is kept and searches are quick. At most the newest 400 are listed (the count says how many there were).
 
 **Players** are shown as Minecraft figures with their own skins, including the skin's outer layer (hat, jacket,
 sleeves, trousers) and slim arms for players with the slim model. Each has a ring in their colour at their feet,

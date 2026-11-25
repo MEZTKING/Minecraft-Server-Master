@@ -206,6 +206,8 @@ class HistoryMap(TerrainServer):
         self._exact_jobs: set[str] = set()
         self._exact_slots = threading.Semaphore(3)
         self._exact_mem: dict[str, dict] = {}
+        self._search_idx: dict[str, list] = {}         # recording -> its searchable lines (mcsm.search)
+        self._search_lock = threading.Lock()
         self._prep = {"running": False, "cancel": False, "done": 0, "total": 0, "phase": "", "errors": 0}
         self._skins, self._skin_lock = None, threading.Lock()
         if not highlights_file and data.library_world:      # a library world keeps its own highlights
@@ -458,19 +460,11 @@ class HistoryMap(TerrainServer):
                 self.__dict__["_particletex"] = cache
             return {"particles": cache}
         if path == "/api/lang":                      # the game's English text (translation keys in action bars...)
-            cache = self.__dict__.get("_lang")
-            if cache is None:
-                cache = {}
-                try:
-                    import json
-                    import zipfile as zf_mod
-                    from . import blockmesh as bm
-                    with zf_mod.ZipFile(bm.find_client_jar(None)) as zf:
-                        cache = json.loads(zf.read("assets/minecraft/lang/en_us.json"))
-                except (OSError, TypeError, ValueError, KeyError):
-                    pass
-                self.__dict__["_lang"] = cache
-            return {"lang": cache}
+            return {"lang": self.lang()}
+        if path.startswith("/api/search/"):           # dev mode: everything that happened, by text: /api/search/<words>
+            return self.search(path[len("/api/search/"):])
+        if path == "/api/searchread":                 # dev mode: read the recordings not read in full yet (background)
+            return self.search_read_all()
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
@@ -782,7 +776,7 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef")
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef", "ang", "bo")
                         or slotted) and t < t0:                # (mobs' looks: kept from when they were first seen)
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)
@@ -1194,6 +1188,118 @@ class HistoryMap(TerrainServer):
                 jobs.discard(key)
         threading.Thread(target=work, daemon=True).start()
         return {"pending": True}
+
+    def lang(self) -> dict:
+        """The game's English text (assets/minecraft/lang/en_us.json in the newest jar), read once."""
+        cache = self.__dict__.get("_lang")
+        if cache is None:
+            cache = {}
+            try:
+                import json
+                from . import blockmesh as bm
+                with zipfile.ZipFile(bm.find_client_jar(None)) as zf:
+                    cache = json.loads(zf.read("assets/minecraft/lang/en_us.json"))
+            except (OSError, TypeError, ValueError, KeyError, zipfile.BadZipFile):
+                pass
+            self.__dict__["_lang"] = cache
+        return cache
+
+    def _search_recordings(self):
+        """Each Flashback recording with its clock: ``(replay, zip path, when(tick) -> ms)``."""
+        self.paths()
+        players = paths_mod.player_uuids(self.data)
+        cache = self.cache_dir or paths_mod.default_cache_dir()
+        for r in self.data.replays:
+            if r.format != "flashback" or r.unfinished or r.start is None or r.raw_meta.get("duration_note") \
+                    or any(c in r.path for c in APP_COPIES) or self.replay_file is None:
+                continue
+            try:
+                zp = self.replay_file(r)
+            except (OSError, ValueError):
+                continue
+            track = os.path.join(cache, paths_mod._cache_key(zp, players) + ".jsonl")
+            off = self._offsets.get(track)
+            clock = (self._metas.get(track) or {}).get("clock")
+            s_ms = int(r.start.timestamp() * 1000)
+
+            def when(tick, off=off, clock=clock, s_ms=s_ms):
+                return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
+            yield r, zp, players, when
+
+    def search(self, q: str, limit: int = 400) -> dict:
+        """Everything that happened matching every word of *q*: the logs, the recordings read in full so far, the
+        Ledger log (mcsm.search). ``{"hits": [{t, who, kind, text, x?, y?, z?, dim?}] (time order), "total",
+        "recordings": {"searched", "unread"}, "ledger": bool}``."""
+        from . import search as s_mod
+        terms = s_mod.terms_of(q)
+        if not terms:
+            return {"hits": [], "total": 0, "recordings": {"searched": 0, "unread": 0}, "ledger": False}
+        hits = []
+        for e in self._payload.get("events", []) if self._payload else []:
+            text = e.get("text") or e.get("type") or ""
+            if s_mod.matches(f"{e.get('player') or ''} {e.get('type')} {text}", terms):
+                hits.append({"t": e.get("t"), "who": e.get("player"), "kind": f"log: {e.get('type')}", "text": text})
+        lang = self.lang()
+        aliases = (self._payload or {}).get("aliases", {})
+        searched = unread = 0
+        cache = self.cache_dir or paths_mod.default_cache_dir()
+        for r, zp, players, when in self._search_recordings():
+            with self._search_lock:
+                rows = self._search_idx.get(zp)
+            if rows is None:
+                # its lines, from the newest read of it (an earlier version's read will do), each kept as a file
+                key = paths_mod._cache_key(zp, players)
+                rows, n = None, s_mod.exact_version(paths_mod.EXACT_SUFFIX)
+                for v in range(n, 0, -1):
+                    ipath = os.path.join(cache, f"{key}{s_mod.index_suffix(v)}")
+                    rows = s_mod.load_index(ipath)
+                    if rows is not None:
+                        break
+                    data = s_mod.exact_of(cache, key, v)
+                    if data is not None:
+                        rows = s_mod.index_events(data.get("events", []), when, aliases, r.recorded_player, lang)
+                        try:
+                            s_mod.save_index(ipath, rows)
+                        except OSError:
+                            pass
+                        break
+                if rows is None:
+                    unread += 1
+                    continue
+                with self._search_lock:
+                    self._search_idx[zp] = rows
+            searched += 1
+            for row in rows:
+                if s_mod.matches(f"{s_mod.who_text(row[1])} {row[3]}", terms):
+                    hit = {"t": row[0], "who": row[1], "kind": row[2], "text": row[3]}
+                    if len(row) >= 7:
+                        hit.update(x=row[4], y=row[5], z=row[6])
+                    hits.append(hit)
+        led = []
+        lg = None
+        try:
+            lg = self.ledger()
+            led = s_mod.ledger_search(lg, terms, limit)
+        except Exception:                               # noqa: BLE001 -- a broken or locked log: no ledger hits
+            led = []
+        hits.extend(led)
+        hits = [h for h in hits if h.get("t") is not None]
+        hits.sort(key=lambda h: h["t"])
+        total = len(hits)
+        if total > limit:                               # the newest *limit*
+            hits = hits[-limit:]
+        return {"hits": hits, "total": total, "recordings": {"searched": searched, "unread": unread},
+                "ledger": lg is not None}
+
+    def search_read_all(self) -> dict:
+        """Start reading in full (background, three at a time) every recording not read yet, so search finds
+        what happened in it."""
+        n = 0
+        for _r, zp, players, _when in self._search_recordings():
+            if paths_mod.exact_rows(zp, self.cache_dir, players, build=False) is None:
+                self._exact_build(zp, players)
+                n += 1
+        return {"queued": n}
 
     def _exact_build(self, zp: str, players) -> None:
         """Read a recording in full for exact playback in the background (three at a time; each once)."""
