@@ -410,7 +410,10 @@ What the recordings say about each player and mob is shown too:
   shield's own models (the shield with its banner pattern), the spyglass's tube, a spear's long in-hand picture. A
   thrown trident flies as its model, prongs first. While one is being used it's held the game's way for that: a
   shield raised to block, a trident drawn back to throw (and through their eyes, the shield raised when it's in their
-  main hand; what's in the other hand isn't drawn through their eyes yet).
+  main hand).
+- **The other hand, through their eyes:** what they hold in their off hand shows at the bottom left as the game draws
+  it (a shield, a torch, a totem...), swinging when that hand swings and a shield raised while they block with it. A
+  map in one hand while the other holds something is held low in that hand over the arm, its picture as it was.
 - **Angry wolves and bees:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as
   the recording said (tamed wolves keep their tame face, as in the game). Bees show their angry eyes when angry and
   their pollen when carrying nectar.

@@ -781,15 +781,17 @@ class Look:
         hand = self._display(mname)
         hand_left = self._display(mname, which="thirdperson_lefthand") or hand   # the game's own left-hand values
         fp = self._display(mname, which="firstperson_righthand")                # and in first person
+        fpl = {"fp_left": self._display(mname, which="firstperson_lefthand")}   # (the other hand: its own values)
         use = {}
         uname = use_model(d.get("model")) if d else None
         if uname and uname.replace("minecraft:", "") != mname.replace("minecraft:", "") and "pulling" not in uname:
             # held while being used (a shield raised, a trident about to be thrown): its own display values
             uh = self._display(uname)
             use = {"hand_use": uh, "hand_left_use": self._display(uname, which="thirdperson_lefthand") or uh,
-                   "fp_use": self._display(uname, which="firstperson_righthand")}
+                   "fp_use": self._display(uname, which="firstperson_righthand"),
+                   "fp_left_use": self._display(uname, which="firstperson_lefthand")}
         if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            out = {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp, **use}
+            out = {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp, **fpl, **use}
             if special.get("type"):                           # held: drawn by the game's code (a trident's model)
                 out["special"] = special["type"]
             elif mname.replace("minecraft:", "") != f"item/{item}":   # held: its own 3D model (a spyglass)
@@ -805,7 +807,7 @@ class Look:
                         out["hand_tex"] = ht.replace("minecraft:", "")
             return out
         if special.get("type") == "shield":                  # no picture of its own: the game draws the shield
-            return {"tex": None, "cube": False, "special": "shield", "hand": hand, "hand_left": hand_left, "fp": fp, **use}
+            return {"tex": None, "cube": False, "special": "shield", "hand": hand, "hand_left": hand_left, "fp": fp, **fpl, **use}
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")
@@ -823,10 +825,10 @@ class Look:
             side = pick("side", "all", "north", "front", "texture", "end", "top")
             if side:
                 return {"tex": side, "cube": True, "top": pick("top", "up", "end", "all") or side,
-                        "bottom": pick("bottom", "down", "end", "all") or side, "hand": hand, "hand_left": hand_left, "fp": fp}
+                        "bottom": pick("bottom", "down", "end", "all") or side, "hand": hand, "hand_left": hand_left, "fp": fp, **fpl}
         t = pick("layer0", "side", "all", "texture", "front", "top", "end", "cross")   # not "particle" (beds: planks)
         if t:
-            return {"tex": t, "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp}
+            return {"tex": t, "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp, **fpl}
         return {"tex": f"block/{item}", "cube": False} if self.has_texture(f"block/{item}") else None
 
     def texture_png(self, tex: str) -> bytes | None:

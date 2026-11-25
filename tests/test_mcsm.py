@@ -3760,6 +3760,7 @@ class TestRealBlocks(unittest.TestCase):
                                                 "faces": {"north": {"uv": [0, 2, 2, 7], "texture": "item/spyglass_model"}}}])
             self.assertEqual(spy["hand"]["translation"], [0, -2, 0])
             self.assertEqual(tri["hand_use"]["translation"], [8, -17, 9])       # held to throw: trident_throwing
+            self.assertIn("fp_left", tri)                                     # the other hand's own values (None: as the right's)
             spear = look.item_icon("copper_spear")
             self.assertEqual((spear["tex"], spear["hand_tex"]), ("item/copper_spear", "item/copper_spear_in_hand"))
             self.assertNotIn("hand_use", spear)
