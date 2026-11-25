@@ -457,6 +457,20 @@ class HistoryMap(TerrainServer):
                     pass
                 self.__dict__["_particletex"] = cache
             return {"particles": cache}
+        if path == "/api/lang":                      # the game's English text (translation keys in action bars...)
+            cache = self.__dict__.get("_lang")
+            if cache is None:
+                cache = {}
+                try:
+                    import json
+                    import zipfile as zf_mod
+                    from . import blockmesh as bm
+                    with zf_mod.ZipFile(bm.find_client_jar(None)) as zf:
+                        cache = json.loads(zf.read("assets/minecraft/lang/en_us.json"))
+                except (OSError, TypeError, ValueError, KeyError):
+                    pass
+                self.__dict__["_lang"] = cache
+            return {"lang": cache}
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>
@@ -776,7 +790,11 @@ class HistoryMap(TerrainServer):
                     if (name, kind) not in state_after or state_after[(name, kind)][0] > t:
                         state_after[(name, kind)] = (t, value)
                 elif t0 <= t <= t1:
-                    events.setdefault(name, {}).setdefault(kind, {})[t] = value
+                    dk = events.setdefault(name, {}).setdefault(kind, {})
+                    if kind == "sm":                    # several messages in one tick: each its own (1 ms apart)
+                        while t in dk and dk[t] != value:
+                            t += 1
+                    dk[t] = value
             for tick, kind, value, rate in data.get("world", []):
                 t = when(tick)
                 if t < t0:

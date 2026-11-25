@@ -236,6 +236,9 @@ def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | No
 
 
 HANGING = {"painting", "item_frame", "glow_item_frame"}
+# entity events the game answers with particles round the mob: taming failed (smoke) 6, tamed (hearts) 7, a villager's
+# hearts 12 / anger 13 / happiness 14, an animal in love 18, a mob appearing from a spawner 20, a body vanishing 60
+ENTITY_FX = {6, 7, 12, 13, 14, 18, 20, 60}
 # level events the game shows with particles (LevelEvent): bone meal 1505, composter 1500, lava fizz 1501, torch
 # burnt out 1502, eye in a portal frame 1503, smoke 2000 / 2010, potion splash 2002 / 2007 (data: colour), ender eye
 # breaking 2003, spawner 2004, dragon breath 2006, explosion 2008, steam 2009, wax on / off 3003 / 3004, scrape 3005,
@@ -469,6 +472,59 @@ def _text_of(b, k: int) -> tuple[str, int]:
     if t == 10:
         return _text_compound(b, k + 1)
     return "", _nbt_skip(b, k)
+
+
+def nbt_any(b, t: int, pos: int, depth: int = 0):
+    """Any network-NBT value of tag *t* at *pos* as plain Python (compounds as dicts, lists as lists) and where it
+    ends."""
+    from . import terrain
+    if depth > 40:
+        raise ValueError("NBT too deep")
+    if t == 10:
+        out = {}
+        while b[pos] != 0:
+            tt = b[pos]
+            n = struct.unpack_from(">H", b, pos + 1)[0]
+            name = b[pos + 3:pos + 3 + n].decode("utf-8", "replace")
+            out[name], pos = nbt_any(b, tt, pos + 3 + n, depth + 1)
+        return out, pos + 1
+    if t == 9:
+        et, n = b[pos], struct.unpack_from(">i", b, pos + 1)[0]
+        pos += 5
+        lst = []
+        for _ in range(max(0, min(n, 10000))):
+            v, pos = nbt_any(b, et, pos, depth + 1)
+            lst.append(v)
+        return lst, pos
+    if t == 5:
+        return round(struct.unpack_from(">f", b, pos)[0], 4), pos + 4
+    if t == 6:
+        return struct.unpack_from(">d", b, pos)[0], pos + 8
+    return terrain._value(b, t, pos)
+
+
+def _component_clean(c):
+    """A text component as JSON text would have it: a compound list entry wrapped as {"": value} unwrapped, bytes as
+    booleans for the style flags."""
+    if isinstance(c, dict):
+        if set(c) == {""}:
+            return _component_clean(c[""])
+        out = {}
+        for k, v in c.items():
+            if k in ("bold", "italic", "underlined", "strikethrough", "obfuscated") and isinstance(v, int):
+                v = bool(v)
+            out[k] = _component_clean(v) if isinstance(v, (dict, list)) else v
+        return out
+    if isinstance(c, list):
+        return [_component_clean(x) for x in c]
+    return c
+
+
+def component_at(b, k: int):
+    """A network-NBT text component (a string or a compound, with colours, translation keys and parts) and where it
+    ends."""
+    v, k = nbt_any(b, b[k], k + 1)
+    return _component_clean(v), k
 
 
 def _text_compound(b, pos: int) -> tuple[str, int]:
@@ -777,6 +833,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         info_id = pk.get("player_info_update") if ex_on else None    # game modes
         part_id = pk.get("level_particles") if ex_on and (tbl or {}).get("particles") else None   # particles
         lev_id = pk.get("level_event") if ex_on else None          # i32 event, block pos, i32 data, bool
+        # text on the recorded player's screen: the action bar, titles, system messages (deaths, joins, commands)
+        ab_id = pk.get("set_action_bar_text") if ex_on else None    # a text component
+        sys_id = pk.get("system_chat") if ex_on else None           # a text component, overlay (the action bar)
+        ti_id = pk.get("set_title_text") if ex_on else None
+        st_id = pk.get("set_subtitle_text") if ex_on else None
+        ta_id = pk.get("set_titles_animation") if ex_on else None   # i32 fade in, stay, fade out (ticks)
+        tc_id = pk.get("clear_titles") if ex_on else None           # bool: reset the times too
         block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
         hangs: dict[int, str] = {}                                # paintings and item frames in view
@@ -784,7 +847,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
                              pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id,
-                             attr_id, info_id, part_id)
+                             attr_id, info_id, part_id, ab_id, sys_id, ti_id, st_id, ta_id, tc_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -967,6 +1030,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 extras["events"].append([tick, None if eid == me else others[eid], "d", 1])
                             elif b[k + 4] == 35 and (eid == me or eid in others):   # a totem of undying saved them
                                 extras["events"].append([tick, None if eid == me else others[eid], "totem", 1])
+                            elif b[k + 4] in ENTITY_FX and eid in others and others[eid].startswith("#"):
+                                extras["events"].append([tick, others[eid], "ee", b[k + 4]])   # hearts, poofs...
                         elif pid == attr_id and size >= 4:   # attributes: the scale one (a bigger or smaller player or mob)
                             sc = scale_of(bytes(b[k:i + size]), tbl["attributes"])
                             if sc and (sc[0] == me or sc[0] in others):
@@ -978,6 +1043,20 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             pt = particles_sent(bytes(b[k:i + size]), tbl["particles"], block_names)
                             if pt and pt[8]:
                                 extras["events"].append([tick, None, "pt", pt])
+                        elif pid in (ab_id, sys_id, ti_id, st_id) and size >= 2:   # text on their screen
+                            try:
+                                comp, kk = component_at(b, k)
+                                kind = {ab_id: "ab", ti_id: "ti", st_id: "st"}.get(pid)
+                                if pid == sys_id:
+                                    kind = "ab" if kk < i + size and b[kk] else "sm"
+                                if len(str(comp)) < 4000:
+                                    extras["events"].append([tick, None, kind, comp])
+                            except (IndexError, ValueError, struct.error):
+                                pass
+                        elif pid == ta_id and size >= 12:
+                            extras["events"].append([tick, None, "ta", list(struct.unpack_from(">iii", b, k))])
+                        elif pid == tc_id and size >= 1:
+                            extras["events"].append([tick, None, "tc", bool(b[k])])
                         elif pid == info_id and size >= 3:   # the tab list: game modes (3 = spectator)
                             for uid, nm, mode in game_modes(bytes(b[k:i + size])):
                                 who = players.get(uid) or nm
@@ -1341,7 +1420,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact27.json.gz"    # 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact28.json.gz"    # (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

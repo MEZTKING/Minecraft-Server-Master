@@ -339,6 +339,13 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+Mobs make their own particles too: blazes trail smoke and endermen and endermites trail purple specks, all the time.
+When the server tells the game something happened to a mob, the game's particles show it: the puff of smoke when a
+mob's body vanishes after it dies, a mob appearing from a spawner, hearts when animals fall in love or a pet is
+tamed (smoke when taming fails), and villagers' hearts, anger and happiness. In the nether, the air has the
+biome's particles round the camera: ash in soul sand valleys and basalt deltas, red spores in crimson forests and
+blue ones in warped forests (the biome is the backup's at the camera).
+
 **Potion swirls.** Players and mobs under a potion effect give off swirls in the effect's colour, as the game shows
 them: Speed light blue, Invisibility pale grey, and so on, mixed when they have several. They come from what the
 recordings saw (each player's and mob's list of effect particles), so they start and stop when the effect did.
@@ -442,6 +449,16 @@ up to that moment. The items and counts follow the log; which slot a moved item 
 furnace's smelting (input turning into output) isn't logged.
 
 **Health and food.** Above their hotbar: their hearts and food, from their own recording.
+
+**Text on their screen.** While you relive someone, what the server put on their screen shows where the game shows
+it, from their own recording:
+- **The action bar** just above their hotbar and armour ("You can sleep only at night", "Sleeping through this
+  night", a plugin's or command's messages): three seconds, fading over the last one.
+- **Titles and subtitles** big in the middle of the screen, fading in and out with the times the server set.
+- **Messages the server sent them** in the chat at the bottom left, with the players' chat from the logs: deaths,
+  joins and leaves, advancements, "Respawn point set", replies to their commands, in their colours.
+
+The text is in the game's English (the game's own wording for each message), with its colours, bold and italic.
 
 **Maps and map art.** Maps hang in the world where they hang in the game: every map in an item frame (or glow
 item frame) is drawn on its wall, floor or ceiling, turned as it was, close up where the real blocks are shown.

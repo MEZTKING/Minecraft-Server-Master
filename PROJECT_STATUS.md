@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1162,11 +1162,46 @@ seen on screen (it was in a cave out of view); faint beacon swirls not seen. Spi
 (`MOB_RADIUS`) aren't drawn, so their swirls aren't either. Test: `test_effect_particles_in_entity_data`.
 
 Still different (list checked against the code this round; collars, signs written during a recording, item frames,
-paintings, leads and the server's particles were done in rounds 14 to 22 and are off it): biome particles (ash in
-basalt deltas, spores in crimson and warped forests); particles from mobs' own animation (a blaze's smoke, an
-enderman's portal specks, a sheep eating, hearts when breeding is shown only if the server sent it); angry wolves'
-look; villagers' profession hats over other hats; action-bar messages; view bobbing and the equip animation in first
-person; eating and drinking (the game's arm bob in first person only); spyglass and trident 3D models.
+paintings, leads and the server's particles were done in rounds 14 to 22 and are off it): see round 27 below.
+
+**Round 27 (2026-11-25, owner: "Keep going").** Three things.
+
+*Text on the recorded player's screen.* `assets/protocols.json` has the ids of set_action_bar_text, system_chat,
+set_title_text, set_subtitle_text, set_titles_animation and clear_titles for 1.21.10 to 26.3 (from each version's
+data generator report). `paths.component_at` reads a network-NBT text component whole (`nbt_any`: compounds, lists,
+numbers; `_component_clean`: {"": x} list entries unwrapped, style bytes as booleans). `decode_entities` records, for
+the recorded player: "ab" (the action bar; also system_chat with its overlay flag), "sm" (other system messages),
+"ti" / "st" (title, subtitle), "ta" ([fade in, stay, fade out] ticks), "tc" (cleared; true: times reset). Over 4,000
+characters: dropped. `history.py` keeps several "sm" in one tick apart (1 ms each). `/api/lang`: the newest jar's
+en_us.json. Page (`screenTextStep`, in `hudStep` while reliving): `mcText` turns a component into spans: the 16
+named colours and #rrggbb, each with the game's shadow (a quarter as bright), bold, italic, underlined, struck,
+`translate` with its `with` arguments (%s, %1$s, %%), `keybind` (default keys), score, selector, legacy section-sign
+codes. The action bar: GUI scale 2, 64 game pixels above the bottom, 3 s, fading over the last 20 ticks (as
+Gui.overlayMessageTime). Titles: Gui.setTitle / setSubtitle / setTimes / clear replayed up to the time shown, the title
+at 4x and the subtitle at 2x round the middle, alpha as Gui.renderTitle (fade in, stay, fade out). The chat at the
+bottom left now also has the system messages of the last 10 s (10 lines). Checked: D_HumanCrafter, 21 October
+22:21:05 UTC: "Sleeping through this night" above the armour row and "Respawn point set" in the chat. A real
+recording also had command errors in red with a grey hint. Not seen here: titles (none in the recordings looked at).
+
+*Particles from mobs.* Entity events with particles (`paths.ENTITY_FX`: 6 taming failed, 7 tamed, 12 / 13 / 14 a
+villager's hearts / anger / happiness, 18 in love, 20 appearing from a spawner, 60 a body vanishing) recorded for
+mobs as "ee". The page spawns them when the time slider passes them (`ambEntityEvents`, as handleEntityEvent: 20
+poofs, 7 hearts or smokes, 5 villager particles, round the mob's box). Blazes (2 large smokes a tick), endermen and
+endermites (2 portal specks a tick) as their client aiStep (`ambMobs`). Checked: a glow squid dying on 26 May
+19:45:49 UTC (20 poofs where it was). A mob out of the mob range has no position, so nothing is drawn for it (a
+zombie dying the same minute). Blazes and endermen: not seen here.
+
+*Nether biome particles.* `ambBiome` asks the backup for the biome at the camera (`/api/blockat`, every 16 blocks or
+1.5 s); each game tick 1,334 picks round the camera (the game's 667 within 16 and 667 within 32), each one making the
+biome's particle with its chance (basalt deltas white ash 0.118, crimson forest crimson spores 0.025, warped forest
+warped spores 0.0143, soul sand valley ash 0.00625). Picks inside solid blocks aren't skipped (the page doesn't know
+the blocks there; they are hidden by them anyway). Not seen here (no nether moment tried). Tests:
+`test_text_components`.
+
+Still different: angry wolves' look; villagers' profession hats over other hats; view bobbing and the equip animation
+in first person; eating and drinking (the game's arm bob in first person only); spyglass and trident 3D models; the
+boss bar and the tab list; the scoreboard (not recorded: `ignore_scoreboard_packets`); a jukebox's "Now playing" in
+rainbow colours (shown plain); particles from other mobs' animations (a bee's nectar, a sheep eating, glow squids).
 
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
@@ -1886,6 +1921,11 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 27**: relive someone: the action bar above their hotbar ("You can sleep only at night"...),
+  titles in the middle, and the server's messages (deaths, joins, "Respawn point set", command replies) in the
+  chat, in their colours. Mobs: the puff when a killed mob vanishes, hearts when breeding or taming, villagers'
+  particles, blaze smoke and enderman specks. In the nether: ash and spores in the air. (Recordings are read once
+  more the first time.)
 - **Parity round 26**: a player or mob under a potion effect (or near a beacon) should give off swirls in the
   effect's colour, starting and stopping with the effect; Hard difficulty spiders with effects near you too.
   (Recordings are read once more the first time: a short wait.)
@@ -2098,6 +2138,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 27 (backlog 0zh): the action bar, titles and server messages from
+  the recordings on the reliving player's screen; mobs' particles (death poofs, hearts, villagers, blazes, endermen);
+  the nether's ash and spores. Protocol tables: text packets for 1.21.10 to 26.3. Tests: `test_text_components`.
 
 - **2026-11-25:** Owner: "Keep going", "make sure to document everything". Parity round 26 (backlog 0zh): potion swirls
   round players and mobs from the recorded effect particles; the "Still different" list brought up to date. Tests:

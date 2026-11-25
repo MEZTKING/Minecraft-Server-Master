@@ -3868,6 +3868,27 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(d[11], (paths.SER_BOOL, True))
         self.assertEqual(paths.entity_data_all(body, 0, len(body))[10][1], ("?", 2))      # without the names: stops
 
+    def test_text_components(self):
+        """Text on the player's screen (action bar, titles, system messages) is kept whole: a network-NBT component
+        with its colour, flags (bytes as booleans), translation key and arguments, and list entries wrapped as
+        {"": ...} unwrapped; a plain string tag is a string."""
+        import struct as st
+        from mcsm import paths
+
+        def s(name, v):
+            e = v.encode()
+            return bytes([8]) + st.pack(">H", len(name)) + name.encode() + st.pack(">H", len(e)) + e
+        comp = (bytes([10]) + s("translate", "sleep.skipping_night") + s("color", "red")
+                + bytes([1]) + st.pack(">H", 4) + b"bold" + bytes([1])
+                + bytes([9]) + st.pack(">H", 4) + b"with" + bytes([10]) + st.pack(">i", 1) + s("", "D_HumanCrafter") + bytes([0])
+                + bytes([0]))
+        c, k = paths.component_at(comp + b"rest", 0)
+        self.assertEqual(c, {"translate": "sleep.skipping_night", "color": "red", "bold": True, "with": ["D_HumanCrafter"]})
+        self.assertEqual(k, len(comp))
+        plain = bytes([8]) + st.pack(">H", 2) + b"hi"
+        self.assertEqual(paths.component_at(plain, 0), ("hi", 5))
+        self.assertIn(60, paths.ENTITY_FX)                     # a body vanishing: the poof
+
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
         a name tag as a compound text component with extra parts."""

@@ -94,6 +94,14 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
   text-shadow: 2px 0 #000, -2px 0 #000, 0 2px #000, 0 -2px #000; }
 #mcCross { position: fixed; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; z-index: 21;
   image-rendering: pixelated; pointer-events: none; mix-blend-mode: difference; }
+/* the action bar (just above the hotbar, GUI scale 2) and titles (4x and 2x, the middle of the screen) */
+#mcBar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(9vh + 2px + 128px); z-index: 21;
+  pointer-events: none; color: #fff; font: 16px/16px monospace; white-space: pre; --sh: 2px; }
+#mcTitle { position: fixed; left: 0; right: 0; top: 50%; z-index: 21; pointer-events: none; text-align: center;
+  white-space: pre; color: #fff; }
+#mcTitle .t { position: absolute; left: 0; right: 0; top: -80px; font: 64px/64px monospace; --sh: 8px; }
+#mcTitle .s { position: absolute; left: 0; right: 0; top: 20px; font: 32px/32px monospace; --sh: 4px; }
+#mcBar span, #mcTitle span, #mcChat span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -145,7 +153,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -273,7 +281,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="mcBar" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -4601,12 +4609,115 @@ const HUD = { key: "", last: 0 };
 const ARMOR_PTS = { leather: [1, 3, 2, 1], chainmail: [2, 5, 4, 1], iron: [2, 6, 5, 2], golden: [2, 5, 3, 1],
   diamond: [3, 8, 6, 3], netherite: [3, 8, 6, 3], copper: [2, 4, 3, 1], turtle: [2, 0, 0, 0] };
 const hudSprite = n => `blocktex/0/gui/sprites/hud/${n}.png`;
+// ---------- text on their screen (from the recording): the action bar, titles, system messages ----------
+// Text components as the game draws them: its colours (and each colour's shadow, a quarter as bright), bold, italic,
+// translation keys in English (the game's en_us.json, /api/lang) with their arguments, legacy section-sign codes.
+const MCTEXT = { lang: null, asked: false };
+const MC_COLOURS = { black: "000000", dark_blue: "0000aa", dark_green: "00aa00", dark_aqua: "00aaaa", dark_red: "aa0000",
+  dark_purple: "aa00aa", gold: "ffaa00", gray: "aaaaaa", dark_gray: "555555", blue: "5555ff", green: "55ff55", aqua: "55ffff",
+  red: "ff5555", light_purple: "ff55ff", yellow: "ffff55", white: "ffffff" };
+const MC_CODES = "0123456789abcdef".split("").reduce((o, c, i) => (o[c] = Object.values(MC_COLOURS)[i], o), {});
+const MC_KEYS = { "key.sneak": "Left Shift", "key.jump": "Space", "key.use": "Right Button", "key.attack": "Left Button",
+  "key.inventory": "E", "key.drop": "Q", "key.sprint": "Left Control", "key.forward": "W", "key.back": "S", "key.left": "A",
+  "key.right": "D", "key.chat": "T", "key.swapOffhand": "F", "key.playerlist": "Tab", "key.command": "/" };
+function mcLang() {
+  if (!MCTEXT.asked) { MCTEXT.asked = true; fetch("api/lang").then(r => r.json()).then(r => { MCTEXT.lang = r.lang || {}; HUD.text = ""; }).catch(() => { MCTEXT.lang = {}; }); }
+  return MCTEXT.lang || {};
+}
+function mcSpan(out, text, st) {
+  if (!text) return;
+  const sp = document.createElement("span"); sp.textContent = text;
+  const hex = st.color || "ffffff", n = parseInt(hex, 16);
+  sp.style.color = "#" + hex;
+  sp.style.setProperty("--shc", `rgb(${((n >> 16) & 255) >> 2},${((n >> 8) & 255) >> 2},${(n & 255) >> 2})`);
+  if (st.bold) sp.style.fontWeight = "700";
+  if (st.italic) sp.style.fontStyle = "italic";
+  const dec = [st.underlined && "underline", st.strikethrough && "line-through"].filter(Boolean).join(" ");
+  if (dec) sp.style.textDecoration = dec;
+  out.push(sp);
+}
+function mcLegacy(out, text, st) {                       // "\u00a7c" colour codes inside plain text
+  const parts = String(text).split("\u00a7");
+  mcSpan(out, parts[0], st);
+  let cur = { ...st };
+  for (const p of parts.slice(1)) {
+    const c = p[0] && p[0].toLowerCase();
+    if (MC_CODES[c]) cur = { ...st, color: MC_CODES[c] };
+    else if (c === "l") cur = { ...cur, bold: true }; else if (c === "o") cur = { ...cur, italic: true };
+    else if (c === "n") cur = { ...cur, underlined: true }; else if (c === "m") cur = { ...cur, strikethrough: true };
+    else if (c === "r") cur = { ...st };
+    mcSpan(out, p.slice(1), cur);
+  }
+}
+function mcText(c, st = {}, out = [], depth = 0) {      // a component -> spans
+  if (c == null || depth > 20) return out;
+  if (typeof c === "string" || typeof c === "number") { mcLegacy(out, String(c), st); return out; }
+  if (Array.isArray(c)) { if (c.length) { mcText(c[0], st, out, depth + 1); const s0 = typeof c[0] === "object" && !Array.isArray(c[0]) ? mcStyle(c[0], st) : st;
+    for (const x of c.slice(1)) mcText(x, s0, out, depth + 1); } return out; }
+  const s2 = mcStyle(c, st);
+  if (c.translate != null) {
+    const fmt = mcLang()[c.translate] ?? c.fallback ?? c.translate, args = c.with || [];
+    let i = 0, last = 0; const re = /%(?:(\d+)\$)?([s%])/g; let m;
+    while ((m = re.exec(fmt))) {
+      mcLegacy(out, fmt.slice(last, m.index), s2); last = re.lastIndex;
+      if (m[2] === "%") { mcSpan(out, "%", s2); continue; }
+      const a = args[m[1] ? +m[1] - 1 : i++]; mcText(a, s2, out, depth + 1);
+    }
+    mcLegacy(out, fmt.slice(last), s2);
+  } else if (c.keybind != null) mcSpan(out, MC_KEYS[c.keybind] || mcLang()[c.keybind] || c.keybind, s2);
+  else if (c.score) mcSpan(out, String(c.score.value ?? ""), s2);
+  else if (c.selector) mcSpan(out, c.selector, s2);
+  else mcLegacy(out, c.text ?? "", s2);
+  for (const x of c.extra || []) mcText(x, s2, out, depth + 1);
+  return out;
+}
+function mcStyle(c, st) {
+  const o = { ...st };
+  if (c.color) o.color = c.color[0] === "#" ? c.color.slice(1).padStart(6, "0") : MC_COLOURS[c.color] || o.color;
+  for (const k of ["bold", "italic", "underlined", "strikethrough"]) if (c[k] != null) o[k] = !!c[k];
+  return o;
+}
+function titleAt(name) {                                 // Gui.setTitle / setSubtitle / setTimes / clear, replayed up to now
+  const ev = EXACT.on && EXACT.ev[name]; if (!ev || !ev.ti) return null;
+  const all = [];
+  for (const k of ["ti", "st", "ta", "tc"]) for (const [t, v] of ev[k] || []) if (t <= T) all.push([t, k, v]);
+  all.sort((a, b) => a[0] - b[0]);
+  let fi = 10, sy = 70, fo = 20, title = null, sub = null, start = null, total = 0;
+  for (const [t, k, v] of all) {
+    if (k === "ta") { fi = v[0]; sy = v[1]; fo = v[2]; if (start !== null && (t - start) / 50 < total) { start = t; total = fi + sy + fo; } }
+    else if (k === "st") sub = v;
+    else if (k === "ti") { title = v; start = t; total = fi + sy + fo; }
+    else { title = null; sub = null; start = null; if (v) { fi = 10; sy = 70; fo = 20; } }
+  }
+  if (start === null || title === null) return null;
+  const left = total - (T - start) / 50; if (left <= 0) return null;
+  const a = Math.max(0, Math.min(1, left > fo + sy ? (total - left) / Math.max(1, fi) : left <= fo ? left / Math.max(1, fo) : 1));
+  return a * 255 > 8 ? { title, sub, a, key: `${start}` } : null;
+}
+function screenTextStep() {
+  const on = RELIVE.on && RELIVE.phase !== "load", who = on && RELIVE.name;
+  // the action bar: three seconds, fading over the last one
+  let bar = null;
+  const ab = who && EXACT.on && EXACT.ev[who] && EXACT.ev[who].ab;
+  if (ab) { const i = lower(ab, T, r => r[0]) - 1; if (i >= 0 && T - ab[i][0] < 3000) bar = [ab[i], Math.min(1, (3000 - (T - ab[i][0])) / 1000)]; }
+  if (bar && bar[1] * 255 <= 8) bar = null;
+  const bk = bar ? `${bar[0][0]}|${!!MCTEXT.lang}` : "";
+  if (bk !== HUD.barKey) { HUD.barKey = bk; $("#mcBar").replaceChildren(...(bar ? mcText(bar[0][1]) : [])); }
+  $("#mcBar").hidden = !bar; if (bar) $("#mcBar").style.opacity = bar[1];
+  const ti = who ? titleAt(who) : null;
+  const tk = ti ? `${ti.key}|${JSON.stringify(ti.sub)}|${!!MCTEXT.lang}` : "";
+  if (tk !== HUD.titleKey) { HUD.titleKey = tk;
+    $("#mcTitle .t").replaceChildren(...(ti ? mcText(ti.title) : [])); $("#mcTitle .s").replaceChildren(...(ti && ti.sub ? mcText(ti.sub) : [])); }
+  $("#mcTitle").hidden = !ti; if (ti) $("#mcTitle").style.opacity = ti.a;
+}
 function hudStep(now) {
   const on = RELIVE.on && RELIVE.phase !== "load";
   $("#mcHud").hidden = !on; $("#mcChat").hidden = !on;
   const first = on && RELIVE.view === "first" && RELIVE.d < 0.6;
   $("#mcCross").hidden = !first;
   if (first && !$("#mcCross").src) $("#mcCross").src = hudSprite("crosshair");
+  if (!on) { $("#mcBar").hidden = true; $("#mcTitle").hidden = true; }
+  else { mcLang(); screenTextStep(); }
   if (!on || now - HUD.last < 150) return; HUD.last = now;
   const who = RELIVE.name, ex = exactHotbar(who), b = INV.backup[`${who}|${Math.floor(T / 600_000)}`];
   const bs = b && b.available ? b.slots : {};
@@ -4655,9 +4766,13 @@ function hudStep(now) {
   const lines = [];
   for (const [n, list] of Object.entries(chatBy)) for (let i = lower(list, T, e => e.t) - 1; i >= 0 && T - list[i].t <= 10_000; i--)
     lines.push([list[i].t, `<${n}> ${list[i].text}`]);
+  // the messages the server sent them (the recording): deaths, joins, advancements, command replies, in their colours
+  const sm = EXACT.on && EXACT.ev[who] && EXACT.ev[who].sm;
+  if (sm) for (let i = lower(sm, T, r => r[0]) - 1; i >= 0 && T - sm[i][0] <= 10_000; i--) lines.push([sm[i][0], sm[i][1], true]);
   lines.sort((a, c) => a[0] - c[0]);
-  const ck = lines.map(l => l[1]).join("|");
-  if (ck !== HUD.chat) { HUD.chat = ck; $("#mcChat").replaceChildren(...lines.slice(-6).map(([, t]) => { const d = document.createElement("div"); d.textContent = t; return d; })); }
+  const ck = lines.map(l => `${l[0]}|${l[2] ? "c" : l[1]}`).join("|") + `|${!!MCTEXT.lang}`;
+  if (ck !== HUD.chat) { HUD.chat = ck; $("#mcChat").replaceChildren(...lines.slice(-10).map(([, t, comp]) => { const d = document.createElement("div");
+    if (comp) d.replaceChildren(...mcText(t)); else d.textContent = t; return d; })); }
 }
 
 // ---------- containers: what the player saw when they opened a chest, barrel, furnace... ----------
@@ -5540,6 +5655,91 @@ function ambEffects() {
     else ambEffect(x, y, z, 0xffffffff);
   }
 }
+// mobs' own particles every tick (their aiStep on the client): blazes smoke, endermen and endermites trail portal specks
+function ambMobs() {
+  const c = camera.position;
+  for (const [name, o] of mobMeshes) {
+    const kind = o.kind || name.split("#")[1];
+    if (kind !== "blaze" && kind !== "enderman" && kind !== "endermite") continue;
+    const m = o.mesh; if (!m || !m.visible) continue;
+    const p = m.position; if (Math.abs(p.x - c.x) > 48 || Math.abs(p.y - c.y) > 48 || Math.abs(p.z - c.z) > 48) continue;
+    const [w, h] = MOB_SIZE[kind] || [0.6, 0.9];
+    for (let i = 0; i < 2; i++) {
+      const x = p.x + w * (2 * R() - 1) * 0.5, y = p.y + h * R(), z = p.z + w * (2 * R() - 1) * 0.5;
+      if (kind === "blaze") ambSmoke(x, y, z, 0, 0, 0, 2.5, "large_smoke");
+      else ambPortal(x, kind === "enderman" ? y - 0.25 : y, z, (R() - 0.5) * 2, -R(), (R() - 0.5) * 2);
+    }
+  }
+}
+function ambPortal(px, py, pz, vx, vy, vz) {             // PortalParticle: drawn back in towards where it came from
+  const j = R() * 0.6 + 0.4;
+  return ambAdd({ x: px + vx, y: py + vy + 1, z: pz + vz, portal: [px, py, pz, vx, vy, vz], life: Math.floor(R() * 10) + 40,
+    size: 0.1 * (R() * 0.2 + 0.5) * 2, col: [j * 0.9, j * 0.3, j, 1], bright: true, frames: ambFrames("portal"), anim: false });
+}
+// entity events with particles ("ee"): spawned when the time passes them, as the game's handleEntityEvent does
+const AMB_HEART = (x, y, z, name) => ambAdd({ x, y, z, vx: GAUSS() * 0.02 * 0.01, vy: GAUSS() * 0.02 * 0.01 + 0.1, vz: GAUSS() * 0.02 * 0.01,
+  fr: 0.86, life: 16, size: 0.1 * (R() * 0.5 + 0.5) * 2 * 1.5 * 2, frames: ambFrames(name), anim: false, day: true });
+function ambPoof(x, y, z, vx, vy, vz) {                   // ExplodeParticle (poof): grey, rising a little
+  const c = R() * 0.3 + 0.7;
+  return ambAdd({ x, y, z, vx: vx + (R() * 2 - 1) * 0.05, vy: vy + (R() * 2 - 1) * 0.05, vz: vz + (R() * 2 - 1) * 0.05,
+    g: -0.1 * 0.04, fr: 0.9, life: Math.floor(16 / (R() * 0.8 + 0.2)) + 2, size: 0.1 * (R() * R() * 6 + 1) * 2,
+    col: [c, c, c, 1], frames: ambFrames("poof"), day: true });
+}
+function ambEntityEvents(t0, t1) {
+  if (!EXACT.on) return;
+  for (const [name, ev] of Object.entries(EXACT.ev)) {
+    if (!ev.ee) continue;
+    const o = mobMeshes.get(name), m = o && o.mesh; if (!m) continue;
+    const kind = name.split("#")[1], [w, h] = MOB_SIZE[kind] || [0.6, 0.9], p = m.position;
+    const RX = () => p.x + w * (2 * R() - 1), RY = () => p.y + h * R(), RZ = () => p.z + w * (2 * R() - 1);
+    for (let i = lower(ev.ee, t0, r => r[0]); i < ev.ee.length && ev.ee[i][0] <= t1; i++) {
+      const st = ev.ee[i][1];
+      if (st === 60 || st === 20) for (let n = 0; n < 20; n++) {          // a body vanishing / a mob appearing
+        const d = GAUSS() * 0.02, e = GAUSS() * 0.02, f = GAUSS() * 0.02;
+        if (st === 60) ambPoof(RX(), RY(), RZ(), d, e, f); else ambPoof(RX() - d * 10, RY() - e * 10, RZ() - f * 10, d, e, f);
+      }
+      else if (st === 18) for (let n = 0; n < 7; n++) AMB_HEART(RX(), RY() + 0.5, RZ(), "heart");   // in love
+      else if (st === 6 || st === 7) for (let n = 0; n < 7; n++) {       // taming failed / tamed
+        if (st === 7) AMB_HEART(RX(), RY() + 0.5, RZ(), "heart"); else ambSmoke(RX(), RY() + 0.5, RZ(), GAUSS() * 0.02, GAUSS() * 0.02, GAUSS() * 0.02);
+      }
+      else for (let n = 0; n < 5; n++) {                                 // a villager's hearts, anger, happiness
+        if (st === 14) ambAdd({ x: RX(), y: RY() + 1, z: RZ(), vx: GAUSS() * 0.02, vy: GAUSS() * 0.02, vz: GAUSS() * 0.02, fr: 0.96,
+          life: Math.floor(8 / (R() * 0.8 + 0.2)) + 4, size: 0.1 * (R() * 0.5 + 0.5) * 2, frames: ambFrames("happy_villager"), anim: false, day: true });
+        else AMB_HEART(RX(), RY() + (st === 13 ? 1.5 : 1), RZ(), st === 13 ? "angry_villager" : "heart");
+      }
+    }
+  }
+}
+// the nether's air: ash in soul sand valleys and basalt deltas, spores in crimson and warped forests (the biome's
+// ambient particle: each block the game picks round the camera makes one with the biome's chance)
+const AMB_BIOME = { "minecraft:basalt_deltas": ["white_ash", 0.118093334], "minecraft:crimson_forest": ["crimson_spore", 0.025],
+  "minecraft:warped_forest": ["warped_spore", 0.01428], "minecraft:soul_sand_valley": ["ash", 0.00625] };
+const AMB_BIO = { at: 0, key: "", biome: null };
+function ambBiome(now) {
+  const dim = $("#dim").value;
+  if (dim !== "minecraft:the_nether") { AMB_BIO.biome = null; return; }
+  const c = camera.position, key = `${Math.round(c.x / 16)},${Math.round(c.y / 16)},${Math.round(c.z / 16)}`;
+  if (key === AMB_BIO.key || now - AMB_BIO.at < 1500) return;
+  AMB_BIO.key = key; AMB_BIO.at = now;
+  const layer = shownLayer[dim] ?? 0;
+  fetch(`api/blockat/${layer}/the_nether/${Math.floor(c.x)}/${Math.floor(c.y)}/${Math.floor(c.z)}`).then(r => r.json())
+    .then(r => { AMB_BIO.biome = r && r.biome || null; }).catch(() => {});
+}
+function ambBiomeTick() {
+  const b = AMB_BIOME[AMB_BIO.biome]; if (!b) return;
+  const cx = Math.floor(camera.position.x), cy = Math.floor(camera.position.y), cz = Math.floor(camera.position.z);
+  const tri = r => Math.floor(R() * r) - Math.floor(R() * r);
+  for (let i = 0; i < 1334; i++) {                       // 667 within 16, 667 within 32
+    if (R() >= b[1]) continue;
+    const r = i < 667 ? 16 : 32, x = cx + tri(r), y = cy + tri(r), z = cz + tri(r);
+    const sp = b[0].endsWith("spore");
+    ambAdd({ x: x + R(), y: y + R(), z: z + R(), vx: sp ? 0 : (R() - 0.5) * 0.02, vy: sp ? -0.002 : -0.01, vz: sp ? 0 : (R() - 0.5) * 0.02,
+      fr: 0.98, life: sp ? Math.floor(16 / (R() * 0.8 + 0.2)) * 10 : Math.floor(20 / (R() * 0.8 + 0.2)),
+      size: 0.1 * (R() * 0.5 + 0.5) * 2 * (sp ? 1 : 0.75), frames: ambFrames(b[0]), anim: false,
+      col: b[0] === "crimson_spore" ? [0.9, 0.4, 0.5, 1] : b[0] === "warped_spore" ? [0.1, 0.1, 0.7, 1] : b[0] === "ash" ? [0.4, 0.4, 0.4, 1] : [0.6, 0.6, 0.6, 1],
+      day: true });
+  }
+}
 function ambCode(s) {
   if (!AMB.codes.has(s)) { const a = s.split(","); AMB.codes.set(s, { kind: a[0], a, n: a.slice(1).map(Number) }); }
   return AMB.codes.get(s);
@@ -5639,7 +5839,7 @@ function ambGameTick() {
     const p = 667 * (AMB_P16(dx) * AMB_P16(dy) * AMB_P16(dz) + AMB_P32(dx) * AMB_P32(dy) * AMB_P32(dz));
     if (R() < p) ambTick(s);
   }
-  ambEffects();
+  ambEffects(); ambMobs(); ambBiomeTick();
   // rain: LevelRenderer.tickRain, splashes on the open tops round the camera
   const rain = $("#lFollow").checked && EXACT.on && $("#dim").value === "minecraft:overworld" ? (worldAt("rain", T) ?? 0) : 0;
   for (let i = Math.floor(100 * rain * rain); i > 0; i--) {
@@ -5689,7 +5889,8 @@ function ambStep(now) {
     ambAtlas(); }
   const on = REAL.tiles.size > 0 && $("#dim").value !== undefined;
   if (!on || AMB.lastT === null || T < AMB.lastT || T - AMB.lastT > 3000) { AMB.ps = []; AMB.acc = 0; }
-  else AMB.acc += (T - AMB.lastT) / 50;
+  else { AMB.acc += (T - AMB.lastT) / 50; if (T > AMB.lastT) ambEntityEvents(AMB.lastT, T); }
+  if (on) ambBiome(now);
   AMB.lastT = T;
   if (on) {
     ambSources(now);
