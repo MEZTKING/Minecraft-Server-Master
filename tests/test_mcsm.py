@@ -3857,6 +3857,17 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(d.get(6), 5)
             self.assertEqual(d.get(8), 1)
 
+    def test_effect_particles_in_entity_data(self):
+        """A living thing's potion swirls (index 10, a particle list): each particle's kind and, for entity_effect,
+        its ARGB colour; the faint flag (index 11, a beacon's effects) after it is still read."""
+        from mcsm import paths
+        parts = ["entity_effect", "infested"]
+        body = bytes([10, paths.SER_PARTICLES, 2, 0]) + bytes.fromhex("ff33ebff") + bytes([1]) + bytes([11, paths.SER_BOOL, 1, 0xFF])
+        d = paths.entity_data_all(body, 0, len(body), parts=parts)
+        self.assertEqual(d[10], (paths.SER_PARTICLES, [["entity_effect", 0xFF33EBFF], ["infested", None]]))
+        self.assertEqual(d[11], (paths.SER_BOOL, True))
+        self.assertEqual(paths.entity_data_all(body, 0, len(body))[10][1], ("?", 2))      # without the names: stops
+
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
         a name tag as a compound text component with extra parts."""

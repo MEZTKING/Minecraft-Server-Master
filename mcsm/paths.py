@@ -144,8 +144,13 @@ def _varlong(b, i: int) -> tuple[int, int]:
 SER_BYTE, SER_VARINT, SER_VARLONG, SER_FLOAT, SER_BOOL, SER_OPT_BLOCK_POS = 0, 1, 2, 3, 8, 11
 
 
+# particle kinds whose options are one int, a colour (ARGB): the rest of a living thing's effect particles have none
+_COLOUR_PARTICLES = {"entity_effect", "flash", "tinted_leaves"}
+SER_PARTICLES = 17                                      # a list of particles (a living thing's effect swirls)
+
+
 def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | None = None,
-                    comps: list | None = None) -> dict[int, tuple[int, object]]:
+                    comps: list | None = None, parts: list | None = None) -> dict[int, tuple[int, object]]:
     """``{index: (serializer, value)}`` for every entry of an entity-data packet body we can read past (from *k*,
     after the entity id): bytes, VarInts, floats and booleans with their value, a text component (a mob's name)
     as its text, the rest None. Stops at the first unknown kind; with *holders* (mobs whose only unknown kinds are
@@ -204,6 +209,18 @@ def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | No
         elif ser == 13:                                   # an optional entity (its UUID): an owner
             k += 17 if b[k] else 1
             out[idx] = (ser, None)
+        elif ser == SER_PARTICLES and parts is not None:  # effect particles: [[name, colour or None], ...]
+            n, k = _varint(b, k)
+            lst = []
+            for _ in range(min(n, 64)):
+                t, k = _varint(b, k)
+                name = parts[t] if 0 <= t < len(parts) else ""
+                col = None
+                if name in _COLOUR_PARTICLES:
+                    col = struct.unpack_from(">I", b, k)[0]
+                    k += 4
+                lst.append([name, col])
+            out[idx] = (ser, lst)
         elif ser == 18:                                   # villager data: type, profession, level
             t, k = _varint(b, k)
             pr, k = _varint(b, k)
@@ -922,7 +939,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     mk = who.split("#")[1]
                                     for ev in mob_details(mk, entity_data_all(b, k, i + size, mk in VARIANT_REG or mk == "copper_golem"), new_ids):
                                         extras["events"].append([tick, who] + ev)
-                                da = entity_data_all(b, k, i + size)
+                                da = entity_data_all(b, k, i + size, parts=tbl.get("particles"))
+                                if da.get(10, (None,))[0] == SER_PARTICLES:   # potion swirls: which, and faint (beacon)?
+                                    amb = da.get(11, (None, None))
+                                    extras["events"].append([tick, who, "ef", [da[10][1], amb[1] if amb[0] == SER_BOOL else None]])
                                 if da.get(12, (None,))[0] == SER_VARINT and not (who and any(
                                         x in who for x in ("boat", "raft", "minecart", "arrow", "trident"))):
                                     extras["events"].append([tick, who, "ar", da[12][1]])   # arrows stuck in them
@@ -1321,7 +1341,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact26.json.gz"    # 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact27.json.gz"    # 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

@@ -337,7 +337,14 @@ torches in their colours, redstone torches' red dust), lit candles, furnaces, bl
 campfire smoke rising in a column, lava popping, drips under blocks with water or lava on them, nether portals, end
 rods and leaves falling (cherry petals, pale oak and the rest), and rain splashing on the ground as it rains. Each
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
-player saw. Potion swirls round players aren't made up yet.
+player saw.
+
+**Potion swirls.** Players and mobs under a potion effect give off swirls in the effect's colour, as the game shows
+them: Speed light blue, Invisibility pale grey, and so on, mixed when they have several. They come from what the
+recordings saw (each player's and mob's list of effect particles), so they start and stop when the effect did.
+Faint ones (from a beacon) appear five times less often, and an invisible player or mob shows only an occasional
+swirl, as in the game. Spiders spawned with effects on Hard difficulty show theirs too. Mobs are only shown near the
+recorded player, so a spider with effects further away shows nothing.
 
 **Saddles and armour on animals.** Horses, donkeys, mules, pigs, striders, camels and nautiluses wear their
 saddles, horses their horse armour (leather in its dye), llamas their carpets, wolves their armour and happy ghasts

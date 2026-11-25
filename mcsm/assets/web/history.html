@@ -1279,7 +1279,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -5512,6 +5512,34 @@ function ambSplash(x, y, z, floor) {                     // WaterDropParticle (r
     life: Math.floor(8 / (R() * 0.8 + 0.2)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 2, frames: ambFrames("rain"), anim: false,
     floor, day: true, col: [1, 1, 1, 1] });
 }
+function ambEffect(x, y, z, argb) {                     // SpellParticle (entity_effect): a potion swirl
+  const b = ambBaseVel(0.5 - R(), 1, 0.5 - R());
+  return ambAdd({ x, y, z, vx: b[0], vy: b[1] * 0.2, vz: b[2], g: -0.1 * 0.04, fr: 0.96,
+    life: Math.floor(8 / (R() * 0.8 + 0.2)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * 2,
+    col: [((argb >>> 16) & 255) / 255, ((argb >>> 8) & 255) / 255, (argb & 255) / 255, ((argb >>> 24) & 255) / 255],
+    frames: ambFrames("entity_effect"), day: true });
+}
+// players and mobs under potion effects ("ef": the recorded list of their effect particles, faint for a beacon's):
+// LivingEntity.tickEffects, one in 4 ticks (15 when invisible; 5 times rarer when faint), somewhere in their box
+function ambEffects() {
+  if (!EXACT.on) return;
+  for (const [name, ev] of Object.entries(EXACT.ev)) {
+    if (!ev.ef) continue;
+    const st = stateAt(name, "ef", T, null);
+    if (!st || !st[0] || !st[0].length) continue;
+    const mob = name.startsWith("#"), o = mob ? mobMeshes.get(name) : markers[name];
+    const holder = o && (mob ? o.mesh : o.group);
+    if (!holder || !holder.visible) continue;
+    const inv = flagsAt(name, T) & 0x20;
+    if (Math.floor(R() * (inv ? 15 : 4) * (st[1] ? 5 : 1)) !== 0) continue;
+    const kind = mob ? name.split("#")[1] : "player";
+    const [w, h] = kind === "player" ? [0.6, (flagsAt(name, T) & 0x02) ? 1.5 : 1.8] : (MOB_SIZE[kind] || [0.6, 0.9]);
+    const pt = st[0][Math.floor(R() * st[0].length)], p = holder.position;
+    const x = p.x + w * (2 * R() - 1) * 0.5, y = p.y + h * R(), z = p.z + w * (2 * R() - 1) * 0.5;
+    if (pt[1] != null) ambEffect(x, y, z, pt[1]);
+    else ambEffect(x, y, z, 0xffffffff);
+  }
+}
 function ambCode(s) {
   if (!AMB.codes.has(s)) { const a = s.split(","); AMB.codes.set(s, { kind: a[0], a, n: a.slice(1).map(Number) }); }
   return AMB.codes.get(s);
@@ -5611,6 +5639,7 @@ function ambGameTick() {
     const p = 667 * (AMB_P16(dx) * AMB_P16(dy) * AMB_P16(dz) + AMB_P32(dx) * AMB_P32(dy) * AMB_P32(dz));
     if (R() < p) ambTick(s);
   }
+  ambEffects();
   // rain: LevelRenderer.tickRain, splashes on the open tops round the camera
   const rain = $("#lFollow").checked && EXACT.on && $("#dim").value === "minecraft:overworld" ? (worldAt("rain", T) ?? 0) : 0;
   for (let i = Math.floor(100 * rain * rain); i > 0; i--) {
