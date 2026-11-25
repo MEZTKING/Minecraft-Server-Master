@@ -372,36 +372,57 @@ const AO_LEVEL = [1.0, 0.8, 0.64, 0.5];
 // The real blocks of a block list (``info`` from the server, ``buf`` its records: int16 x, y, z, dir, look; uint16
 // extra) as meshes: dir 0-5 one side of a full block, 7 a whole model (see mcsm/blockmesh.py).
 function blockMeshes(info, buf, atlas) {
+  // Built straight into typed arrays sized beforehand (a first pass counts each geometry's quads), faces grouped by
+  // chunk with numeric keys, each block kind's tests worked out once: several times faster than growing arrays.
   const REC = 20;                                       // bytes a face (blockmesh.RECORD)
   const dv = new DataView(buf), n = buf.byteLength / REC, [ox, oz] = info.origin, N = atlas.N;
-  const G = () => ({ p: [], u: [], n: [], ln: [], l: [], t: [], c: [], i: [] });
   const half = 0.5 / (N * (atlas.C || 16));                 // half a texel: the cell's edge, see lightShader
-  const geo = { solid: G(), water: G(), glass: G() };
   const e = 0.001;
   const lin = v => Math.pow(v, 2.2);
+  // per block kind: which geometry (0 solid, 1 water, 2 glass), glowing, a chest
+  const infos = info.infos, nk = infos.length;
+  const kGeo = new Uint8Array(nk), kGlow = new Uint8Array(nk), kChest = new Uint8Array(nk);
+  for (let j = 0; j < nk; j++) { const b = infos[j]; if (!b) continue;
+    kGeo[j] = b.kind === "water" ? 1 : b.translucent ? 2 : 0; kGlow[j] = GLOW.test(b.name) ? 1 : 0;
+    kChest[j] = kGeo[j] === 0 && /chest$|shulker_box$/.test(b.name) ? 1 : 0; }
+  // pass 1: quads per geometry (upper bound) and each face's chunk
+  const cnt = [0, 0, 0], ckey = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const o = k * REC, b = infos[dv.getInt16(o + 8, true)];
+    ckey[k] = (((dv.getInt16(o, true) + ox) >> 4) + 2097152) * 4194304 + (((dv.getInt16(o + 4, true) + oz) >> 4) + 2097152);
+    if (!b) continue;
+    const d = dv.getInt16(o + 6, true);
+    cnt[kGeo[dv.getInt16(o + 8, true)]] += d === 7 ? b.quads.length : (b.quads[d] ? 1 : 0);
+  }
+  const G = q => ({ p: new Float32Array(q * 12), u: new Float32Array(q * 8), n: new Float32Array(q * 12), ln: new Float32Array(q * 12),
+    l: new Float32Array(q * 12), t: new Float32Array(q * 16), c: new Float32Array(q * 16), i: new Uint32Array(q * 6), v: 0, ii: 0 });
+  const geo = { solid: G(cnt[0]), water: G(cnt[1]), glass: G(cnt[2]) }, GS = [geo.solid, geo.water, geo.glass];
   const quad = (Gr, q, x, y, z, sky, blk, ao, tint) => {
     const mode = q[23] || 0;
-    const base = Gr.p.length / 3, t = q[0], col = t % N, row = Math.floor(t / N);
-    const P = k => [x + q[3 + k * 3], y + q[4 + k * 3], z + q[5 + k * 3]];
-    const p0 = P(0), p1 = P(1), p3 = P(3);
+    const base = Gr.v, t = q[0], col = t % N, row = Math.floor(t / N);
     let nx = 0, ny = 0, nz = 0;
     if (q[2]) {                                          // normal = down x right (the face points outwards)
-      const ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2], bx = p3[0] - p0[0], by = p3[1] - p0[1], bz = p3[2] - p0[2];
+      const ax = q[6] - q[3], ay = q[7] - q[4], az = q[8] - q[5], bx = q[12] - q[3], by = q[13] - q[4], bz = q[14] - q[5];
       nx = by * az - bz * ay; ny = bz * ax - bx * az; nz = bx * ay - by * ax;
       const len = Math.hypot(nx, ny, nz) || 1; nx /= len; ny /= len; nz /= len;
     }
     const axis = Math.max(Math.abs(nx), Math.abs(ny), Math.abs(nz)) > 0.99;
     const lx = axis ? nx : 0, ly = axis ? ny : 1, lz = axis ? nz : 0;
+    const c0 = col / N + half, c1 = 1 - (row + 1) / N + half, c2 = (col + 1) / N - half, c3 = 1 - row / N - half;
+    const sn = typeof sky === "number", bn = typeof blk === "number";
     for (let k = 0; k < 4; k++) {
-      const p = P(k);
-      Gr.p.push(p[0], p[1], p[2]); Gr.n.push(nx, ny, nz); Gr.ln.push(lx, ly, lz);
+      const v3 = (base + k) * 3, v2 = (base + k) * 2, v4 = (base + k) * 4;
+      Gr.p[v3] = x + q[3 + k * 3]; Gr.p[v3 + 1] = y + q[4 + k * 3]; Gr.p[v3 + 2] = z + q[5 + k * 3];
+      Gr.n[v3] = nx; Gr.n[v3 + 1] = ny; Gr.n[v3 + 2] = nz; Gr.ln[v3] = lx; Gr.ln[v3 + 1] = ly; Gr.ln[v3 + 2] = lz;
       const u = Math.min(1 - e, Math.max(e, q[15 + k * 2])), v = Math.min(1 - e, Math.max(e, q[16 + k * 2]));
-      Gr.u.push((col + u) / N, 1 - (row + v) / N);
-      Gr.l.push(typeof sky === "number" ? sky : sky[k], typeof blk === "number" ? blk : blk[k], AO_LEVEL[(ao >> (2 * k)) & 3]);
-      Gr.t.push(tint[0], tint[1], tint[2], mode);
-      Gr.c.push(col / N + half, 1 - (row + 1) / N + half, (col + 1) / N - half, 1 - row / N - half);
+      Gr.u[v2] = (col + u) / N; Gr.u[v2 + 1] = 1 - (row + v) / N;
+      Gr.l[v3] = sn ? sky : sky[k]; Gr.l[v3 + 1] = bn ? blk : blk[k]; Gr.l[v3 + 2] = AO_LEVEL[(ao >> (2 * k)) & 3];
+      Gr.t[v4] = tint[0]; Gr.t[v4 + 1] = tint[1]; Gr.t[v4 + 2] = tint[2]; Gr.t[v4 + 3] = mode;
+      Gr.c[v4] = c0; Gr.c[v4 + 1] = c1; Gr.c[v4 + 2] = c2; Gr.c[v4 + 3] = c3;
     }
-    Gr.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    const I = Gr.ii;
+    Gr.i[I] = base; Gr.i[I + 1] = base + 1; Gr.i[I + 2] = base + 2; Gr.i[I + 3] = base; Gr.i[I + 4] = base + 2; Gr.i[I + 5] = base + 3;
+    Gr.ii += 6; Gr.v += 4;
   };
   const tints = new Map();                               // RGB565 -> linear colour
   const CS = [0, 0, 0, 0], CB = [0, 0, 0, 0];            // a face's 4 corners' sky and block light
@@ -409,23 +430,23 @@ function blockMeshes(info, buf, atlas) {
   const tops = new Map();                                // open-sky tops (rain splashes): x * 65536 + z -> y
   const ups = new Map();                                 // blocks with a top showing (what's walked on): x * 65536 + z -> [y, name, ...]
   // faces grouped by chunk, so one chunk's faces can be hidden later (a live block change drawn over it):
-  // each geometry remembers where each chunk's indices are ("cx,cz" -> [start, end])
-  const ck = k => `${(dv.getInt16(k * REC, true) + ox) >> 4},${(dv.getInt16(k * REC + 4, true) + oz) >> 4}`;
-  const keys = new Array(n);
-  for (let k = 0; k < n; k++) keys[k] = ck(k);
-  const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => (keys[a] < keys[b] ? -1 : keys[a] > keys[b] ? 1 : a - b));
-  geo.solid.ranges = new Map(); geo.water.ranges = new Map(); geo.glass.ranges = new Map();
+  // each geometry remembers where each chunk's indices are ("cx,cz" -> [start, end]); within a chunk, file order
+  const order = new Uint32Array(n);
+  for (let k = 0; k < n; k++) order[k] = k;
+  order.sort((p0, p1) => (ckey[p0] - ckey[p1]) || (p0 - p1));
+  for (const Gr of GS) Gr.ranges = new Map();
   geo.solid.blocks = new Map();                          // chests: "x,y,z" -> their index ranges (drawn on their own when open)
-  let curKey = null;
+  let curKey = null, curNum = NaN;
   const close = () => { if (curKey === null) return;
-    for (const Gr of [geo.solid, geo.water, geo.glass]) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.i.length; } };
-  for (const k of order) {
-    if (keys[k] !== curKey) {
-      close(); curKey = keys[k];
-      for (const Gr of [geo.solid, geo.water, geo.glass]) Gr.ranges.set(curKey, [Gr.i.length, Gr.i.length]);
+    for (const Gr of GS) { const r = Gr.ranges.get(curKey); if (r) r[1] = Gr.ii; } };
+  for (let oi = 0; oi < n; oi++) {
+    const k = order[oi];
+    if (ckey[k] !== curNum) {
+      close(); curNum = ckey[k]; curKey = `${Math.floor(curNum / 4194304) - 2097152},${(curNum % 4194304) - 2097152}`;
+      for (const Gr of GS) Gr.ranges.set(curKey, [Gr.ii, Gr.ii]);
     }
     const o = k * REC, x = dv.getInt16(o, true) + ox, y = dv.getInt16(o + 2, true), z = dv.getInt16(o + 4, true) + oz;
-    const d = dv.getInt16(o + 6, true), b = info.infos[dv.getInt16(o + 8, true)], ex = dv.getUint16(o + 10, true);
+    const d = dv.getInt16(o + 6, true), bi = dv.getInt16(o + 8, true), b = infos[bi], ex = dv.getUint16(o + 10, true);
     const t5 = dv.getUint16(o + 12, true);
     if (!b) continue;
     let tint = tints.get(t5);
@@ -433,40 +454,41 @@ function blockMeshes(info, buf, atlas) {
     const sky = ((ex >> 12) & 15) / 15, blk = ((ex >> 8) & 15) / 15;
     // smooth light: each corner's sky and block light (sums of 4 cells, 0..60), 12 bits a corner in 48 bits
     const lo = dv.getUint32(o + 14, true), hi = dv.getUint16(o + 18, true);
-    const cw = [lo & 0xfff, (lo >>> 12) & 0xfff, ((lo >>> 24) | (hi << 8)) & 0xfff, (hi >>> 4) & 0xfff];
-    for (let c = 0; c < 4; c++) { CS[c] = (cw[c] & 63) / 60; CB[c] = (cw[c] >> 6) / 60; }
-    const Gr = b.kind === "water" ? geo.water : b.translucent ? geo.glass : geo.solid;
-    if (d === 0 && sky === 1) { const tk = x * 65536 + z, ty = y + (b.kind === "water" ? 0.9 : 1); if (!(tops.get(tk) >= ty)) tops.set(tk, ty); }
-    if ((d === 0 || d === 7) && b.kind !== "water") { const tk = x * 65536 + z; let u = ups.get(tk); if (!u) ups.set(tk, u = []);
+    const cw0 = lo & 0xfff, cw1 = (lo >>> 12) & 0xfff, cw2 = ((lo >>> 24) | (hi << 8)) & 0xfff, cw3 = (hi >>> 4) & 0xfff;
+    CS[0] = (cw0 & 63) / 60; CB[0] = (cw0 >> 6) / 60; CS[1] = (cw1 & 63) / 60; CB[1] = (cw1 >> 6) / 60;
+    CS[2] = (cw2 & 63) / 60; CB[2] = (cw2 >> 6) / 60; CS[3] = (cw3 & 63) / 60; CB[3] = (cw3 >> 6) / 60;
+    const g = kGeo[bi], Gr = GS[g];
+    if (d === 0 && sky === 1) { const tk = x * 65536 + z, ty = y + (g === 1 ? 0.9 : 1); if (!(tops.get(tk) >= ty)) tops.set(tk, ty); }
+    if ((d === 0 || d === 7) && g !== 1) { const tk = x * 65536 + z; let u = ups.get(tk); if (!u) ups.set(tk, u = []);
       if (u[u.length - 2] !== y) u.push(y, b.name); }
-    if (GLOW.test(b.name) && (d === 7 || d === 0)) {
+    if (kGlow[bi] && (d === 7 || d === 0)) {
       const soul = b.name.startsWith("soul_");
       glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
     }
-    const chest = Gr === geo.solid && /chest$|shulker_box$/.test(b.name), i0 = Gr.i.length;
+    const i0 = Gr.ii;
     if (d === 7) {                                        // a whole model: its quads not hidden by a neighbour
       const mask = ex & 63;
       for (const q of b.quads) if (q[1] < 0 || !((mask >> q[1]) & 1)) quad(Gr, q, x, y, z, sky, blk, 0, tint);
     } else if (b.quads[d]) quad(Gr, b.quads[d], x, y, z, CS, CB, ex & 255, tint);
-    if (chest && Gr.i.length > i0) {
+    if (kChest[bi] && Gr.ii > i0) {
       const bk = `${x},${y},${z}`;
       if (!Gr.blocks.has(bk)) Gr.blocks.set(bk, []);
-      Gr.blocks.get(bk).push([i0, Gr.i.length]);
+      Gr.blocks.get(bk).push([i0, Gr.ii]);
     }
   }
   close();
   const mesh = (Gr, mat) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(Gr.p, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(Gr.u, 2));
-    g.setAttribute("aN", new THREE.Float32BufferAttribute(Gr.n, 3));
+    const g = new THREE.BufferGeometry(), V = Gr.v;
+    g.setAttribute("position", new THREE.BufferAttribute(Gr.p.subarray(0, V * 3), 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(Gr.u.subarray(0, V * 2), 2));
+    g.setAttribute("aN", new THREE.BufferAttribute(Gr.n.subarray(0, V * 3), 3));
     // the lit material (Fancy) shades with "normal": a face's outward normal; plants and other slanted or unshaded
     // quads are lit as if facing up (like the game lights plants evenly). See lightShader: no back-face flip.
-    g.setAttribute("normal", new THREE.Float32BufferAttribute(Gr.ln, 3));
-    g.setAttribute("aL", new THREE.Float32BufferAttribute(Gr.l, 3));
-    g.setAttribute("aT", new THREE.Float32BufferAttribute(Gr.t, 4));
-    g.setAttribute("aC", new THREE.Float32BufferAttribute(Gr.c, 4));
-    g.setIndex(Gr.i);
+    g.setAttribute("normal", new THREE.BufferAttribute(Gr.ln.subarray(0, V * 3), 3));
+    g.setAttribute("aL", new THREE.BufferAttribute(Gr.l.subarray(0, V * 3), 3));
+    g.setAttribute("aT", new THREE.BufferAttribute(Gr.t.subarray(0, V * 4), 4));
+    g.setAttribute("aC", new THREE.BufferAttribute(Gr.c.subarray(0, V * 4), 4));
+    g.setIndex(new THREE.BufferAttribute(Gr.i.subarray(0, Gr.ii), 1));
     g.computeBoundingSphere();
     const me = new THREE.Mesh(g, mat);
     me.userData.kind = mat.transparent ? "water" : "solid";
@@ -478,8 +500,8 @@ function blockMeshes(info, buf, atlas) {
   const out = [mesh(geo.solid, blockMaterial("solid", atlas))];
   out[0].userData.fx = info.fx && info.fx.length ? { list: info.fx, codes: info.fxk || [] } : null;   // particle sources
   out[0].userData.tops = tops; out[0].userData.ups = ups;
-  if (geo.water.i.length) out.push(mesh(geo.water, blockMaterial("water", atlas)));
-  if (geo.glass.i.length) { const gm = mesh(geo.glass, blockMaterial("glass", atlas)); gm.userData.kind = "glass"; gm.renderOrder = 1; out.push(gm); }
+  if (geo.water.ii) out.push(mesh(geo.water, blockMaterial("water", atlas)));
+  if (geo.glass.ii) { const gm = mesh(geo.glass, blockMaterial("glass", atlas)); gm.userData.kind = "glass"; gm.renderOrder = 1; out.push(gm); }
   if (glows.length) {
     const g = new THREE.BufferGeometry(), n6 = glows.length / 6, pos = new Float32Array(n6 * 3), col = new Float32Array(n6 * 3);
     for (let k = 0; k < n6; k++) { pos.set(glows.slice(k * 6, k * 6 + 3), k * 3); col.set(glows.slice(k * 6 + 3, k * 6 + 6), k * 3); }

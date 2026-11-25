@@ -626,7 +626,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, animateAtlases, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
+import { buildAtlas, animateAtlases, blockMeshes as blockMeshes0, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -1343,7 +1343,8 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.frames = 0; return "on"; }
+    const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -7472,9 +7473,17 @@ addEventListener("keydown", e => {
 const tmp = new THREE.Vector3();
 let lastLayerCheck = 0;
 const FPSC = { last: 0, n: 0, t0: 0 };
+// building pieces' meshes (main thread): how long, how many, how many faces
+const BMT = { ms: 0, n: 0, faces: 0, max: 0 };
+function blockMeshes(info, buf, atlas) { const t = performance.now(), r = blockMeshes0(info, buf, atlas), d = performance.now() - t;
+  BMT.ms += d; BMT.n++; BMT.faces += buf.byteLength / 20; BMT.max = Math.max(BMT.max, d); return r; }
+// a timer for each step of the frame (window.__history.prof(true) starts it; prof() reads the average ms a frame)
+const PROF = { on: false, t: {}, frames: 0 };
+function prof(k, f) { if (!PROF.on) return f(); const a = performance.now(); const r = f(); PROF.t[k] = (PROF.t[k] || 0) + performance.now() - a; return r; }
 function frame(now) {
   requestAnimationFrame(frame);
   if (RSET.fps > 0 && now - FPSC.last < 1000 / RSET.fps - 2) return;      // the FPS cap: skip this screen refresh
+  if (PROF.on) PROF.frames++;
   FPSC.last = now; FPSC.n++;
   if (now - FPSC.t0 > 500) {
     if (RSET.showFps) $("#fpsBadge").textContent = `${Math.round(FPSC.n * 1000 / (now - FPSC.t0))} fps${RSET.fps ? ` (cap ${RSET.fps})` : ""}`;
@@ -7482,12 +7491,12 @@ function frame(now) {
   }
   const dt = Math.min(250, now - lastFrame); lastFrame = now;
   LIGHT.uClock.value = now / 1000;                     // pieces building in, the loading grid
-  realStep(now);                                       // real blocks around where you look
-  liveStep(now);                                       // and blocks placed or broken since, as they happen
-  caveStep(now);                                       // and caves when the camera is underground
+  prof("realStep", () => realStep(now));// real blocks around where you look
+  prof("liveStep", () => liveStep(now));// and blocks placed or broken since, as they happen
+  prof("caveStep", () => caveStep(now));// and caves when the camera is underground
   if (now - (HEAT.last || 0) > 400) { HEAT.last = now; heatStep(); }   // the activity heatmap (Ledger)
-  exactStep(now);                                      // every recorded movement, close up at 1x / 10x
-  updateMobs();
+  prof("exactStep", () => exactStep(now));// every recorded movement, close up at 1x / 10x
+  prof("updateMobs", () => updateMobs());
   if (H && H.range) {
     if (RELIVE.on) reliveTick(now, dt);              // reliving a moment: its own clock
     else if (playing && storyOn && playUntil == null) {   // Play on one moment/highlight plays just that
@@ -7508,6 +7517,7 @@ function frame(now) {
       if (!terrainBusy[d] && wantedLayer() !== shownLayer[d]) loadTerrain(d);
       if ($("#chgOn").checked) drawChanges();                 // the outlines follow the backup shown
     }
+    const pf0 = PROF.on ? performance.now() : 0;
     for (const [name, m] of Object.entries(markers)) {
       if (!m.group.visible) { m.label.style.display = "none"; m.bubble.style.display = "none"; continue; }
       m.group.scale.setScalar(FREE.on ? 1 : Math.max(1, camera.position.distanceTo(m.group.position) / 70));
@@ -7528,35 +7538,36 @@ function frame(now) {
       m.label.classList.toggle("stale", !!m.cur?.stale);
       if (on) { m.label.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; m.label.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
     }
+    if (PROF.on) PROF.t.figures = (PROF.t.figures || 0) + performance.now() - pf0;
   }
   if (RELIVE.on) { /* the memory camera: below, after the sky */ } else if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
-  devUpdate(now);
-  worldStep(now, dt);
-  cloudsStep();                                        // the clouds drifting over
-  if (RELIVE.on) reliveStep(dt);
-  invStep(now);                                        // the hotbar and inventory of who you watch
-  jobsStep(now);                                       // the Activity card
+  prof("devUpdate", () => devUpdate(now));
+  prof("worldStep", () => worldStep(now, dt));
+  prof("cloudsStep", () => cloudsStep());// the clouds drifting over
+  if (RELIVE.on) prof("reliveStep", () => reliveStep(dt));
+  prof("invStep", () => invStep(now));// the hotbar and inventory of who you watch
+  prof("jobsStep", () => jobsStep(now));// the Activity card
   if (T !== FINE.lastT || now - FINE.lastW > 1000) { FINE.lastT = T; FINE.lastW = now; drawFine(); }   // the fine strip
-  hudStep(now);                                        // reliving: the game's own HUD
-  fpStep();                                            // reliving through their eyes: their hand and what it holds
-  explStep(now);                                       // explosions (from the Ledger log)
-  mapsStep(now);                                       // maps on their item frames
-  contStep(now);                                       // a chest or furnace the watched player has open
-  bannersStep(now);                                    // banners' flags where the real blocks are
-  signsStep(now);                                      // signs' text
-  headsStep(now);                                      // player heads in their skins
-  chestsStep(now);                                     // chests' lids opening
-  glintStep();                                         // enchanted things' glint moving
-  hangingStep(now);                                    // paintings and item frames
-  leadsStep(now);                                      // leads
-  liveMapStep(now);                                    // maps as they were at the time
-  animateAtlases(Math.floor(performance.now() / 50));  // water, lava, fire, portals... moving (the game's client ticks)
-  breakStep(now);                                      // mining cracks, blocks breaking
-  boltStep(); bobberStep();                            // lightning; fishing lines
-  blockEntitiesStep();                                 // books, bells, beacon beams
-  ambStep(now);                                        // particles the player's game makes up (torches, smoke, rain...)
-  gfxStep(now);
-  renderer.render(scene, camera);
+  prof("hudStep", () => hudStep(now));// reliving: the game's own HUD
+  prof("fpStep", () => fpStep());// reliving through their eyes: their hand and what it holds
+  prof("explStep", () => explStep(now));// explosions (from the Ledger log)
+  prof("mapsStep", () => mapsStep(now));// maps on their item frames
+  prof("contStep", () => contStep(now));// a chest or furnace the watched player has open
+  prof("bannersStep", () => bannersStep(now));// banners' flags where the real blocks are
+  prof("signsStep", () => signsStep(now));// signs' text
+  prof("headsStep", () => headsStep(now));// player heads in their skins
+  prof("chestsStep", () => chestsStep(now));// chests' lids opening
+  prof("glintStep", () => glintStep());// enchanted things' glint moving
+  prof("hangingStep", () => hangingStep(now));// paintings and item frames
+  prof("leadsStep", () => leadsStep(now));// leads
+  prof("liveMapStep", () => liveMapStep(now));// maps as they were at the time
+  prof("animateAtlases", () => animateAtlases(Math.floor(performance.now() / 50)));// water, lava, fire, portals... moving (the game's client ticks)
+  prof("breakStep", () => breakStep(now));// mining cracks, blocks breaking
+  prof("boltStep", () => boltStep()); prof("bobberStep", () => bobberStep());// lightning; fishing lines
+  prof("blockEntitiesStep", () => blockEntitiesStep());// books, bells, beacon beams
+  prof("ambStep", () => ambStep(now));// particles the player's game makes up (torches, smoke, rain...)
+  prof("gfxStep", () => gfxStep(now));
+  prof("render", () => renderer.render(scene, camera));
 }
 
 // ---------- loading ----------

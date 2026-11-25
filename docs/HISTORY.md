@@ -347,6 +347,11 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**Speed.** Real blocks are turned into the 3D picture about three and a half times faster than before, so frames
+stutter far less while pieces of the world load around you. (For checking where time goes, the browser console's
+`__history.prof(true)` starts a timer of each step of a frame and `__history.prof()` shows the milliseconds each
+takes a frame.)
+
 **Dust, crumbs and crits.** More of the particles a player's own game makes up: a player sprinting on the ground
 kicks up bits of the block they run on (grass and dirt show dirt, as in the game); someone eating sends crumbs of
 the food from their mouth every few bites; a critical hit (the recordings keep these) bursts stars from whoever was
