@@ -2307,7 +2307,7 @@ async function setGear(m, slot, v) {
           polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
         tm.position.y = y * PX; F.parts[part].add(tm); objs.push(tm);
       }
-      if (look.glint) { const gm = new THREE.Mesh(g, glintMat()); gm.position.y = y * PX; F.parts[part].add(gm); objs.push(gm); }
+      if (look.glint) { const gm = glintOn(o); gm.position.y = y * PX; F.parts[part].add(gm); objs.push(gm); }
     }
   }
   F.gear[slot] = objs;
@@ -2321,6 +2321,7 @@ function glintMat() {
     texOnce("misc/enchanted_glint_armor").then(t => t || texOnce("misc/enchanted_glint_item")).then(t => {
       if (!t) return; const g = t.clone(); g.wrapS = g.wrapT = THREE.RepeatWrapping; g.repeat.set(0.5, 0.5);
       g.magFilter = THREE.LinearFilter; g.needsUpdate = true; GLINT.map = g; GLINT.needsUpdate = true;
+      for (const m of GLINT_WAIT.splice(0)) { m.map = g; m.needsUpdate = true; }
     });
   }
   return GLINT;
@@ -2328,10 +2329,36 @@ function glintMat() {
 function glintStep() {                                    // the game scrolls it diagonally, slowly
   if (GLINT && GLINT.map) { const s = performance.now() / 1000; GLINT.map.offset.set((s * 0.16) % 1, (s * 0.1) % 1); }
 }
+// the glint only where the thing itself is: masked by its picture's see-through parts (alpha copied into an
+// alpha map, which three.js reads from green)
+const GLINT_MASKS = new Map();
+function glintMask(tex) {
+  if (!tex || !tex.image || !tex.image.width) return null;
+  if (!GLINT_MASKS.has(tex.uuid)) {
+    const im = tex.image, c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+    const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height);
+    for (let i = 0; i < d.data.length; i += 4) { const a = d.data[i + 3]; d.data[i] = d.data[i + 1] = d.data[i + 2] = a; d.data[i + 3] = 255; }
+    g.putImageData(d, 0, 0);
+    const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    t.repeat.copy(tex.repeat); t.offset.copy(tex.offset);
+    GLINT_MASKS.set(tex.uuid, t);
+  }
+  return GLINT_MASKS.get(tex.uuid);
+}
+function glintOn(mesh) {                                   // a glint layer over one mesh, masked by its picture
+  const base = glintMat(), mask = glintMask([].concat(mesh.material)[0] && [].concat(mesh.material)[0].map);
+  const mat = mask ? base.clone() : base;
+  if (mask) { mat.alphaMap = mask; mat.alphaTest = 0.1; mat.needsUpdate = true;
+    if (!base.map) GLINT_WAIT.push(mat); else mat.map = base.map; }
+  const g = new THREE.Mesh(mesh.geometry, mat); g.userData.glint = true; g.renderOrder = mesh.renderOrder;
+  return g;
+}
+const GLINT_WAIT = [];
 function addGlint(obj) {
   const add = [];
   obj.traverse(o => { if (o.isMesh && o.material && !o.userData.glint) add.push(o); });
-  for (const o of add) { const g = new THREE.Mesh(o.geometry, glintMat()); g.userData.glint = true; o.add(g); }
+  for (const o of add) o.add(glintOn(o));
 }
 // an armour trim: the trim pattern's grey picture recoloured from the trim palette's 8 shades to the material's (the
 // "darker" palette when the armour is of that material), as the game's paletted atlas does
@@ -2438,7 +2465,7 @@ async function setMobGear(o, slot, v) {
     for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * 2);
     g.setAttribute("uv", uv); sk.dispose();
     const b = new THREE.Mesh(g, material); b.position.set(x * MPX, y * MPX, z * MPX); P[part].g.add(b); o.gear[slot].push(b);
-    if (v[3] && v[3].glint) { const gm = new THREE.Mesh(g, glintMat()); gm.position.copy(b.position); P[part].g.add(gm); o.gear[slot].push(gm); }
+    if (v[3] && v[3].glint) { const gm = glintOn(b); gm.position.copy(b.position); P[part].g.add(gm); o.gear[slot].push(gm); }
   }
 }
 // which layer and picture the game draws for a mob's saddle or body slot (equipment/*.json)
@@ -4192,6 +4219,108 @@ function reliveStep(dt) {
   camera.lookAt(lookOther.lerp(lookFirst, f));
   m.F.fig.visible = dd > 1.0;
 }
+// ---------- through their eyes: their hand and what it holds (the game's ItemInHandRenderer) ----------
+// In the eyes view the game draws the right hand's item (or the bare arm) fixed to the view: moved to (0.56, -0.52,
+// -0.72), then the item model's firstperson_righthand values; a swing pushes it out and turns it; a map held with the
+// other hand free is held up in both hands, its picture as it was then.
+const FPV = { group: new THREE.Group(), key: "", tok: 0 };
+const FP_ON_TOP = o => o.traverse(x => { if (x.isMesh) { x.renderOrder = 1000; x.frustumCulled = false;
+  for (const mm of [].concat(x.material)) { mm.depthTest = false; mm.depthWrite = false; } } });
+function fpSwing(M, side, p) {                            // renderArmWithItem + applyItemArmAttackTransform
+  const D = Math.PI / 180, T = new THREE.Matrix4(), sq = Math.sqrt(p);
+  M.multiply(T.makeTranslation(side * -0.4 * Math.sin(sq * Math.PI), 0.2 * Math.sin(sq * Math.PI * 2), -0.2 * Math.sin(p * Math.PI)));
+  return () => {                                         // (after the arm's own placement)
+    const f = Math.sin(p * p * Math.PI), g = Math.sin(sq * Math.PI);
+    M.multiply(T.makeRotationY(side * (45 + f * -20) * D)); M.multiply(T.makeRotationZ(side * g * -20 * D));
+    M.multiply(T.makeRotationX(g * -80 * D)); M.multiply(T.makeRotationY(side * -45 * D));
+  };
+}
+function fpItemMatrix(d, p) {
+  const D = Math.PI / 180, M = new THREE.Matrix4(), T = new THREE.Matrix4();
+  const after = fpSwing(M, 1, p);
+  M.multiply(T.makeTranslation(0.56, -0.52, -0.72));      // applyItemArmTransform (fully equipped)
+  after();
+  const tr = d.translation || [0, 0, 0], ro = d.rotation || [0, 0, 0], sc = d.scale || [1, 1, 1];
+  M.multiply(T.makeTranslation(tr[0] / 16, tr[1] / 16, tr[2] / 16));
+  M.multiply(T.makeRotationFromEuler(new THREE.Euler(ro[0] * D, ro[1] * D, ro[2] * D, "XYZ")));
+  M.multiply(T.makeScale(sc[0], sc[1], sc[2]));
+  return M;
+}
+function fpArm(F, slim) {                                // renderPlayerArm: the right arm, from the skin
+  const g = new THREE.Group(), aw = slim ? 3 : 4;
+  const geo = skinBox(aw, 12, 4, 40, 16);
+  const mesh = new THREE.Mesh(geo, F.mat.clone()); mesh.material.transparent = false; mesh.material.visible = true;
+  mesh.scale.setScalar(1 / 16 / PX);                     // skinBox is in figure pixels: to blocks
+  mesh.position.set((-5 - (slim ? 2 : 3) + aw / 2) / 16, (2 - 2 + 6) / 16, 0);
+  g.add(mesh); g.matrixAutoUpdate = false;
+  return g;
+}
+function fpArmMatrix(p) {
+  const D = Math.PI / 180, M = new THREE.Matrix4(), T = new THREE.Matrix4(), sq = Math.sqrt(p);
+  M.multiply(T.makeTranslation(-0.3 * Math.sin(sq * Math.PI) + 0.64, 0.4 * Math.sin(sq * Math.PI * 2) - 0.6, -0.4 * Math.sin(p * Math.PI) - 0.72));
+  M.multiply(T.makeRotationY(45 * D));
+  M.multiply(T.makeRotationY(Math.sin(sq * Math.PI) * 70 * D)); M.multiply(T.makeRotationZ(Math.sin(p * p * Math.PI) * -20 * D));
+  M.multiply(T.makeTranslation(-1, 3.6, 3.5));
+  M.multiply(T.makeRotationZ(120 * D)); M.multiply(T.makeRotationX(200 * D)); M.multiply(T.makeRotationY(-135 * D));
+  M.multiply(T.makeTranslation(5.6, 0, 0));
+  return M;
+}
+function fpMap(id) {                                     // renderTwoHandedMap: the map's picture on its paper
+  const g = new THREE.Group(); g.matrixAutoUpdate = false;
+  const layer = shownLayer[$("#dim").value] ?? 0;
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(142 / 128, 142 / 128), new THREE.MeshBasicMaterial({ color: 0xd8c8a0 }));
+  texOnce("map/map_background").then(t => { if (t) { paper.material.map = t; paper.material.color.set(0xffffff); paper.material.needsUpdate = true; } });
+  const pic = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: mapTexture(layer, id), transparent: true, alphaTest: 0.05 }));
+  pic.position.z = 0.002; pic.userData.mapId = id;
+  g.add(paper, pic);
+  return g;
+}
+function fpMapMatrix(pitch, p) {
+  const D = Math.PI / 180, M = new THREE.Matrix4(), T = new THREE.Matrix4(), sq = Math.sqrt(p);
+  M.multiply(T.makeTranslation(0, 0.2 * Math.sin(p * Math.PI) / 2, -0.4 * Math.sin(sq * Math.PI)));
+  let tilt = Math.max(0, Math.min(1, 1 - pitch / 45 + 0.1)); tilt = -Math.cos(tilt * Math.PI) * 0.5 + 0.5;   // calculateMapTilt
+  M.multiply(T.makeTranslation(0, 0.04 + tilt * -0.5, -0.72));
+  M.multiply(T.makeRotationX(tilt * -85 * D));
+  M.multiply(T.makeRotationX(Math.sin(sq * Math.PI) * 20 * D));
+  M.multiply(T.makeScale(2 * 0.38, 2 * 0.38, 2 * 0.38));
+  M.multiply(T.makeRotationX(-Math.PI / 2 * 0));          // (the game turns the map to face you: it already does)
+  return M;
+}
+function fpStep() {
+  const R = RELIVE, on = R.on && R.view === "first" && R.d < 0.6;
+  if (!camera.parent) scene.add(camera);
+  if (FPV.group.parent !== camera) camera.add(FPV.group);
+  FPV.group.visible = !!on;
+  if (!on) return;
+  // the game draws the hand as if seen at 70 degrees whatever the view: across and up scaled to our camera's angle
+  const kf = Math.tan(camera.fov * Math.PI / 360) / Math.tan(35 * Math.PI / 180);
+  FPV.group.scale.set(kf, kf, 1);
+  const m = markers[R.name], c = m && m.cur; if (!m || !c) { FPV.group.visible = false; return; }
+  const main = stateAt(R.name, "eq:mainhand", T, null), off = stateAt(R.name, "eq:offhand", T, null);
+  const item = main && main[0], look = main && main[3];
+  const mapId = item === "filled_map" && look && look.map != null && !(off && off[0]) ? look.map : null;
+  const key = mapId != null ? `map|${mapId}` : item ? `item|${item}|${JSON.stringify(look || {})}` : `arm|${m.F.mat.map && m.F.mat.map.uuid}`;
+  const sw = swingAt(R.name, T), p = sw !== null && sw < 300 ? sw / 300 : 0;
+  if (FPV.key !== key) {
+    FPV.key = key; const mine = ++FPV.tok;
+    for (const ch of FPV.group.children.slice()) FPV.group.remove(ch);
+    if (mapId != null) { const g = fpMap(mapId); FP_ON_TOP(g); FPV.group.add(g); }
+    else if (item) itemInfo(item).then(async ic => {
+      const obj = await heldItem(item, PX, look || null, {});
+      if (!obj || mine !== FPV.tok) return;
+      obj.userData.fp = (ic && ic.fp) || { rotation: [0, -90, 25], translation: [1.13, 3.2, 1.13], scale: [0.68, 0.68, 0.68] };
+      if (look && look.glint) addGlint(obj);
+      const holder = new THREE.Group(); holder.matrixAutoUpdate = false; holder.add(obj);
+      obj.matrixAutoUpdate = false; obj.matrix.identity();
+      FP_ON_TOP(holder); FPV.group.add(holder);
+    });
+    else { const g = fpArm(m.F, !!m.F.slim); FP_ON_TOP(g); FPV.group.add(g); }
+  }
+  const g = FPV.group.children[0]; if (!g) return;
+  if (mapId != null) g.matrix.copy(fpMapMatrix(c.pitch || 0, p));
+  else if (item) { const obj = g.children[0]; if (obj) g.matrix.copy(fpItemMatrix(obj.userData.fp, p)); }
+  else g.matrix.copy(fpArmMatrix(p));
+}
 $("#reliveBtn").onclick = () => {
   let who = $("#spec").value;
   if (!who) {                                           // nobody chosen: the shown player nearest the view
@@ -4988,6 +5117,7 @@ function liveMapStep(now) {
   };
   for (const m of MAPS.meshes.values()) m.traverse(o => { if (o.isMesh && o.userData.mapId != null) use(o, o.userData.mapId); });
   for (const e of HANG_REC.shown.values()) e.g.traverse(o => { if (o.isMesh && o.userData.mapId != null) use(o, o.userData.mapId); });
+  FPV.group.traverse(o => { if (o.isMesh && o.userData.mapId != null) use(o, o.userData.mapId); });
 }
 function hangRecStep(now) {
   if (now - HANG_REC.last < 400) return; HANG_REC.last = now;
@@ -5694,6 +5824,7 @@ function frame(now) {
   jobsStep(now);                                       // the Activity card
   if (T !== FINE.lastT || now - FINE.lastW > 1000) { FINE.lastT = T; FINE.lastW = now; drawFine(); }   // the fine strip
   hudStep(now);                                        // reliving: the game's own HUD
+  fpStep();                                            // reliving through their eyes: their hand and what it holds
   explStep(now);                                       // explosions (from the Ledger log)
   mapsStep(now);                                       // maps on their item frames
   contStep(now);                                       // a chest or furnace the watched player has open

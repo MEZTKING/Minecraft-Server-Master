@@ -378,6 +378,9 @@ What the recordings say about each player and mob is shown too:
 - **Spectator mode:** a player in spectator mode shows as the game shows them to other spectators: just their
   head, see-through.
 - **Size:** players and mobs made bigger or smaller (the scale attribute) are drawn at their size.
+- **Their hand, through their eyes:** reliving someone through their eyes (V), you see what they hold at the
+  bottom right as the game shows it (or their bare arm), swinging when they swing; a map held with the other hand
+  free is held up in both hands, showing its picture as it was then.
 - **Capes:** a player's cape, as their recordings had it, hanging from the shoulders and swinging out as they move
   (not with an elytra on). Capes come from Mojang's texture server like the skins.
 
