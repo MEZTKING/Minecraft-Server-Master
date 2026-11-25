@@ -1323,7 +1323,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -1758,6 +1758,106 @@ async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
   const g = new THREE.Group(), inner = buildPart(L.root, "ARROW", "", L.tw, L.th, mobMaterials(tex, t), {}, "");
   inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
   g.add(inner); return g;
+}
+// ---------- block entities the game draws itself: the enchanting table's book, a lectern's book, bells, beacon beams ----------
+// Their places come with each piece's list of special blocks ("be,..." and "beam,..." codes from blockmesh).
+const BE = { g: new THREE.Group(), shown: new Map(), key: "", beamTex: null };
+scene.add(BE.g);
+function rawModel(layer, tex) {                         // a block entity's model as the game draws it (no flip)
+  const L = MOBM && MOBM[layer]; if (!L) return null;
+  const parts = {}, outer = new THREE.Group(), w = new THREE.Group();
+  w.rotation.x = Math.PI;                               // (buildPart turns the model (x, -y, -z): turned back)
+  mobTexture(tex).then(t => { if (!t) return; w.add(buildPart(L.root, layer, "", L.tw, L.th, mobMaterials(tex, t), parts, "")); });
+  outer.add(w); outer.userData.parts = parts; return outer;
+}
+function bookPose(P, time, flipR, flipL, open) {        // BookModel.setupAnim
+  const f = (Math.sin(time * 0.02) * 0.1 + 1.25) * open, set = (n, y) => { if (P[n]) P[n].g.rotation.set(P[n].x, -y, P[n].g.rotation.z, "ZYX"); };
+  set("left_lid", Math.PI + f); set("right_lid", -f); set("left_pages", f); set("right_pages", -f);
+  set("flip_page1", f - f * 2 * flipR); set("flip_page2", f - f * 2 * flipL);
+  for (const n of ["left_pages", "right_pages", "flip_page1", "flip_page2"]) if (P[n]) P[n].g.position.x = Math.sin(f) * MPX;
+}
+function beamMesh(x, y, z, sections) {                  // BeaconRenderer: a square beam, inside opaque, a glow round it
+  const g = new THREE.Group();
+  if (!BE.beamTex) { BE.beamTex = mobTexture("beacon/beacon_beam").then(t => { if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; } return t; }); }
+  sections.forEach(([col, from], i) => {
+    const to = i + 1 < sections.length ? sections[i + 1][1] : 1024, h = to - from;
+    for (const [r, a] of [[0.2, 1], [0.25, 0.125]]) {
+      const m = new THREE.MeshBasicMaterial({ color: col, transparent: a < 1, opacity: a, depthWrite: a >= 1, side: THREE.DoubleSide,
+        blending: a < 1 ? THREE.AdditiveBlending : THREE.NormalBlending });
+      BE.beamTex.then(t => { if (t) { const tt = t.clone(); tt.needsUpdate = true; tt.repeat.set(1, h); m.map = tt; m.needsUpdate = true; m.userData.scroll = tt; } });
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r * Math.SQRT2, r * Math.SQRT2, h, 4, 1, true), m);
+      c.position.set(x + 0.5, y + 1 + from + h / 2, z + 0.5); c.rotation.y = Math.PI / 4; c.userData.inner = a >= 1;
+      g.add(c);
+    }
+  });
+  return g;
+}
+function blockEntitiesStep() {
+  if (!MOBM) return;                                    // (the models not here yet)
+  // which: every piece's special blocks (a piece redrawn for a moment stands for its chunk)
+  const key = `${REAL.tiles.size}|${LIVE.chunks.size}|${[...REAL.tiles.keys()].join(";")}`;
+  if (key !== BE.key) {
+    BE.key = key;
+    const want = new Map(), take = (fx, skip) => {
+      if (!fx) return;
+      for (let i = 0; i < fx.list.length; i += 5) {
+        const code = fx.codes[fx.list[i + 3]]; if (!code || !(code.startsWith("be,") || code.startsWith("beam,"))) continue;
+        const x = fx.list[i], y = fx.list[i + 1], z = fx.list[i + 2]; if (skip && skip(x, z)) continue;
+        want.set(`${x},${y},${z}|${code}`, { x, y, z, code });
+      }
+    };
+    for (const T0 of REAL.tiles.values()) if (T0.meshes[0]) take(T0.meshes[0].userData.fx, (x, z) => LIVE.chunks.has(`${x >> 4},${z >> 4}`));
+    for (const c of LIVE.chunks.values()) if (c.meshes[0]) take(c.meshes[0].userData.fx);
+    for (const [k, o] of BE.shown) if (!want.has(k)) { BE.g.remove(o); BE.shown.delete(k); }
+    for (const [k, e] of want) {
+      if (BE.shown.has(k)) continue;
+      const a = e.code.split(","), D = Math.PI / 180;
+      let o = null;
+      if (a[0] === "beam") o = beamMesh(e.x, e.y, e.z, a.slice(1).map(v => { const [c, h] = v.split(":"); return [parseInt(c, 16), +h]; }));
+      else if (a[1] === "table" || a[1] === "lectern") {
+        const book = rawModel("BOOK", "enchantment/enchanting_table_book"); if (!book) continue;
+        o = new THREE.Group(); o.add(book); o.userData = { kind: a[1], book, x: e.x, y: e.y, z: e.z, open: 0, rot: 0, tRot: 0, at: null };
+        if (a[1] === "lectern") {                       // LecternRenderer: open at a slant, its spine to the reader
+          const yr = { south: 0, west: 90, north: 180, east: 270 }, cw = { north: "east", east: "south", south: "west", west: "north" }[a[2]] || "east";
+          o.position.set(e.x + 0.5, e.y + 1.0625, e.z + 0.5); o.rotation.order = "YZX"; o.rotation.y = -(yr[cw] || 0) * D;
+          o.rotation.z = 67.5 * D; book.position.y = -0.125;
+        } else o.position.set(e.x + 0.5, e.y + 0.75, e.z + 0.5);
+      } else if (a[1] === "bell") {
+        const bell = rawModel("BELL", "bell/bell_body"); if (!bell) continue;
+        o = new THREE.Group(); bell.position.set(e.x, e.y, e.z); o.add(bell); o.userData = { kind: "bell", bell, x: e.x, y: e.y, z: e.z };
+      }
+      if (o) { BE.g.add(o); BE.shown.set(k, o); }
+    }
+  }
+  // each frame: the books turn and open, the bells swing, the beams turn and scroll
+  const age = T / 50;
+  for (const o of BE.g.children) {
+    const u = o.userData;
+    if (u.kind === "table") {                           // EnchantTableBlockEntity: open towards a player within 3 blocks
+      const ticks = u.at === null ? 0 : Math.max(0, Math.min(20, (T - u.at) / 50)); u.at = T;
+      let near = null, best = 9;
+      for (const m of Object.values(markers)) if (m.group.visible) { const p = m.group.position, d = (p.x - u.x - 0.5) ** 2 + (p.y - u.y) ** 2 + (p.z - u.z - 0.5) ** 2; if (d < best) { best = d; near = p; } }
+      if (near) { u.tRot = Math.atan2(near.z - u.z - 0.5, near.x - u.x - 0.5); u.open = Math.min(1, u.open + 0.1 * ticks); }
+      else { u.tRot += 0.02 * ticks; u.open = Math.max(0, u.open - 0.1 * ticks); }
+      let d = u.tRot - u.rot; d = Math.atan2(Math.sin(d), Math.cos(d)); u.rot += d * Math.min(1, 0.4 * ticks);
+      o.position.y = u.y + 0.75 + 0.1 + Math.sin(age * 0.1) * 0.01;
+      o.rotation.order = "YZX"; o.rotation.y = -u.rot; o.rotation.z = 80 * Math.PI / 180;
+      const P = u.book.userData.parts, fl = (Math.sin(age * 0.07) + 1) / 2;
+      bookPose(P, age, fl, 1 - fl, u.open);
+    } else if (u.kind === "lectern") bookPose(u.book.userData.parts, 0, 0.1, 0.9, 1.2);
+    else if (u.kind === "bell") {                       // BellRenderer: rung, it swings away from the hit for 50 ticks
+      const P = u.bell.userData.parts, body = P.bell_body; if (!body) continue;
+      let ring = null;
+      if (EXACT.on) for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.bl || []) if (v[0] === u.x && v[1] === u.y && v[2] === u.z && t <= T && T - t < 2500 && (!ring || t > ring[0])) ring = [t, v[3]];
+      let xr = 0, zr = 0;
+      if (ring) { const f = (T - ring[0]) / 50, a = Math.sin(f / Math.PI) / (4 + f / 3);
+        if (ring[1] === 2) xr = -a; else if (ring[1] === 3) xr = a; else if (ring[1] === 5) zr = -a; else if (ring[1] === 4) zr = a; }
+      body.g.rotation.set(xr, 0, -zr, "ZYX");
+    } else {                                            // a beam: turning (2.25 degrees a tick) and its texture sliding
+      for (const c of o.children) { c.rotation.y = Math.PI / 4 + (c.userData.inner ? 1 : -1) * ((age % 40) * 2.25) * Math.PI / 180;
+        const sc = c.material.userData.scroll; if (sc) sc.offset.y = -((age * 0.1) % 1); }
+    }
+  }
 }
 // ---------- lightning (LightningBoltRenderer), fireworks (FireworkParticles), fishing lines (FishingHookRenderer) ----------
 // A strike ("lb", where it hit): the game's bolt, 8 steps of 16 blocks up from the ground, each wandering up to 5
@@ -5735,7 +5835,7 @@ async function contStep(now) {
 const DYE = { white: 0xF9FFFE, orange: 0xF9801D, magenta: 0xC74EBD, light_blue: 0x3AB3DA, yellow: 0xFED83D, lime: 0x80C71F,
   pink: 0xF38BAA, gray: 0x474F52, light_gray: 0x9D9D97, cyan: 0x169C9C, purple: 0x8932B8, blue: 0x3C44AA,
   brown: 0x835432, green: 0x5E7C16, red: 0xB02E26, black: 0x1D1D21 };
-const BAN = { tiles: new Map(), asking: new Set(), tex: new Map(), img: new Map(), group: new THREE.Group(), last: 0 };
+const BAN = { tiles: new Map(), asking: new Set(), tex: new Map(), img: new Map(), group: new THREE.Group(), last: 0, waves: new Set() };
 scene.add(BAN.group);
 function banImg(name) {
   if (!BAN.img.has(name)) BAN.img.set(name, new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null);
@@ -5770,21 +5870,28 @@ const BAN_WOOD = new THREE.MeshLambertMaterial({ color: 0x9c7f4e });
 function banMesh(b) {
   const g = new THREE.Group();
   const f = new THREE.Mesh(BAN_FLAG, new THREE.MeshLambertMaterial({ map: banTexture(b.base, b.patterns), side: THREE.DoubleSide, alphaTest: 0.1 }));
-  g.add(f);
+  const pivot = new THREE.Group(); pivot.add(f); g.add(pivot);   // the flag swings from its top (BannerRenderer)
+  pivot.userData.phase = b.x * 7 + b.y * 9 + b.z * 13; BAN.waves.add(pivot);
   if (b.wall) {                                         // hangs from its bar against the block behind
     const n = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] }[b.facing] || [0, 1];
     g.position.set(b.x + 0.5 - n[0] * 0.4375, b.y, b.z + 0.5 - n[1] * 0.4375);
     g.rotation.y = { south: 0, north: Math.PI, east: Math.PI / 2, west: -Math.PI / 2 }[b.facing] || 0;
-    f.position.y = 0.875 - 20 / 24;                     // its top at the bar
+    pivot.position.y = 0.875; f.position.y = -20 / 24;  // its top at the bar
   } else {                                              // on its pole, turned in sixteenths of a circle
     g.position.set(b.x + 0.5, b.y, b.z + 0.5);
     g.rotation.y = -b.rotation * Math.PI / 8;
-    f.position.set(0, 1.875 - 20 / 24, 0.07);
+    pivot.position.set(0, 1.875, 0.07); f.position.set(0, -20 / 24, 0);
     const bar = new THREE.Mesh(BAN_BAR, BAN_WOOD); bar.position.set(0, 1.94, 0.07); g.add(bar);
   }
   return g;
 }
 function bannersStep(now) {
+  // the flag's sway: (-0.0125 + 0.01 cos(2 pi t / 100)) pi, t = (x 7 + y 9 + z 13 + game time) % 100
+  for (const pv of BAN.waves) {
+    if (!pv.parent || !pv.parent.parent) { BAN.waves.delete(pv); continue; }
+    const t = (pv.userData.phase + T / 50) % 100;
+    pv.rotation.x = (-0.0125 + 0.01 * Math.cos(2 * Math.PI * t / 100)) * Math.PI;
+  }
   if (now - BAN.last < 500) return; BAN.last = now;
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
   for (const [k, e] of BAN.tiles) {                     // a piece gone (or another backup): its banners go
@@ -7253,6 +7360,7 @@ function frame(now) {
   animateAtlases(Math.floor(performance.now() / 50));  // water, lava, fire, portals... moving (the game's client ticks)
   breakStep(now);                                      // mining cracks, blocks breaking
   boltStep(); bobberStep();                            // lightning; fishing lines
+  blockEntitiesStep();                                 // books, bells, beacon beams
   ambStep(now);                                        // particles the player's game makes up (torches, smoke, rain...)
   gfxStep(now);
   renderer.render(scene, camera);

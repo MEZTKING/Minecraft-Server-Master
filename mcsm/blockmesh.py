@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 13                    # bump when the output changes (cached tiles are built again); 13: particle sources; 12: dark where a light block was taken away; 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 14                    # bump when the output changes (cached tiles are built again); 14: block entities' places (books, bells, beacon beams); 13: particle sources; 12: dark where a light block was taken away; 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 # x, y, z, dir, look, light/shading, tint (RGB565), then the smooth light of the face's 4 corners: 12 bits each
@@ -294,6 +294,40 @@ _CANDLES = {1: [(0.5, 0.5, 0.5)], 2: [(0.375, 0.44, 0.5), (0.625, 0.5, 0.44)],
             4: [(0.44, 0.313, 0.56), (0.625, 0.44, 0.56), (0.375, 0.44, 0.375), (0.56, 0.5, 0.375)]}
 
 
+def beacon_beam(x: int, y: int, z: int, block, infos, top: int = 320) -> list | None:
+    """The beam of a beacon at (x, y, z), or None when it's off: at least the 3 x 3 layer under it of iron, gold,
+    diamond, emerald or netherite blocks, and nothing opaque above (glass, panes and the rest let it through). Its
+    sections ``[(colour, from height above the beacon)]``: white, the first stained glass's colour, then each later
+    glass mixing its colour in (the average with the last)."""
+    for dx in (-1, 0, 1):
+        for dz in (-1, 0, 1):
+            i = block(x + dx, y - 1, z + dz)
+            if i is None or infos[i]["name"] not in BEACON_BASE:
+                return None
+    sections = [(0xFFFFFF, 0)]
+    coloured = False
+    for yy in range(y + 1, top):
+        i = block(x, yy, z)
+        if i is None:
+            continue
+        info = infos[i]
+        nm = info["name"]
+        dye = nm[:-len("_stained_glass_pane")] if nm.endswith("_stained_glass_pane") else \
+            nm[:-len("_stained_glass")] if nm.endswith("_stained_glass") else None
+        if dye in GLASS_DYE:
+            c = GLASS_DYE[dye]
+            if not coloured and len(sections) == 1:
+                sections[0] = (c, 0)
+            else:
+                c = _avg_rgb(sections[-1][0], c)
+                if c != sections[-1][0]:
+                    sections.append((c, yy - y))
+            coloured = True
+        elif info["opaque"] and nm != "bedrock":
+            return None                                 # blocked: the beacon is off
+    return sections
+
+
 def ambient_code(name: str, props: dict) -> str | None:
     """The particles the player's own game makes up round this block (its ``animateTick``; not in recordings), as a
     short code for the page: ``kind,args...``. None: none."""
@@ -329,7 +363,27 @@ def ambient_code(name: str, props: dict) -> str | None:
         return f"leaves,{name}"
     if name == "spore_blossom":
         return "spore"
+    # block entities the page draws (not particles): the enchanting table's book, a lectern's book, a bell
+    if name == "enchanting_table":
+        return "be,table"
+    if name == "lectern" and props.get("has_book") == "true":
+        return f"be,lectern,{props.get('facing', 'north')}"
+    if name == "bell":
+        return f"be,bell,{props.get('facing', 'north')},{props.get('attachment', 'floor')}"
     return None
+
+
+# beacon base blocks (the pyramid) and the glass colours a beam takes (DyeColor's texture colours)
+BEACON_BASE = {"iron_block", "gold_block", "diamond_block", "emerald_block", "netherite_block"}
+GLASS_DYE = {"white": 0xF9FFFE, "orange": 0xF9801D, "magenta": 0xC74EBD, "light_blue": 0x3AB3DA, "yellow": 0xFED83D,
+             "lime": 0x80C71F, "pink": 0xF38BAA, "gray": 0x474F52, "light_gray": 0x9D9D97, "cyan": 0x169C9C,
+             "purple": 0x8932B8, "blue": 0x3C44AA, "brown": 0x835432, "green": 0x5E7C16, "red": 0xB02E26,
+             "black": 0x1D1D21}
+
+
+def _avg_rgb(a: int, b: int) -> int:
+    return (((a >> 16 & 255) + (b >> 16 & 255)) // 2 << 16) | (((a >> 8 & 255) + (b >> 8 & 255)) // 2 << 8) | \
+        (((a & 255) + (b & 255)) // 2)
 
 
 def _matches(when, props: dict) -> bool:
@@ -1433,6 +1487,10 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                     add_fx(x, y, z, code, fall(x, y, z) + 64 * (tint(x, y, z, info["tint"]) if info.get("tint") else 0))
             else:
                 add_fx(x, y, z, code)
+        elif info["name"] == "beacon":                 # an active beacon's beam (BeaconBlockEntity.tick)
+            beam = beacon_beam(x, y, z, block, infos)
+            if beam:
+                add_fx(x, y, z, "beam," + ",".join(f"{c:06x}:{h}" for c, h in beam))
         elif kind == "lava":                            # lava under air: pops now and then
             if block(x, y + 1, z) is None:
                 add_fx(x, y, z, "lava")

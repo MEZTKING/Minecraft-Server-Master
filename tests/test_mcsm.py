@@ -4432,6 +4432,34 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_block_entities(self):
+        """The block entities the page draws itself: the enchanting table's book, a lectern's book, bells (and the
+        search line for one rung); a beacon's beam with its glass colours, off when something opaque is over it or its
+        base isn't whole."""
+        from mcsm import blockmesh as bm, search
+        self.assertEqual(bm.ambient_code("enchanting_table", {}), "be,table")
+        self.assertEqual(bm.ambient_code("lectern", {"has_book": "true", "facing": "west"}), "be,lectern,west")
+        self.assertIsNone(bm.ambient_code("lectern", {"has_book": "false", "facing": "west"}))
+        self.assertEqual(bm.ambient_code("bell", {"facing": "east", "attachment": "ceiling"}), "be,bell,east,ceiling")
+        infos = [{"name": "iron_block", "opaque": True}, {"name": "beacon", "opaque": False},
+                 {"name": "red_stained_glass", "opaque": False}, {"name": "blue_stained_glass_pane", "opaque": False},
+                 {"name": "stone", "opaque": True}, {"name": "glass", "opaque": False}]
+        world = {(dx, 63, dz): 0 for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+        world[(0, 64, 0)] = 1
+        def at(x, y, z):
+            return world.get((x, y, z))
+        self.assertEqual(bm.beacon_beam(0, 64, 0, at, infos), [(0xFFFFFF, 0)])
+        world[(0, 66, 0)] = 5                                   # clear glass lets it through as it is
+        world[(0, 70, 0)] = 2
+        world[(0, 75, 0)] = 3
+        red, blue = bm.GLASS_DYE["red"], bm.GLASS_DYE["blue"]
+        self.assertEqual(bm.beacon_beam(0, 64, 0, at, infos), [(red, 0), (bm._avg_rgb(red, blue), 11)])
+        world[(0, 80, 0)] = 4                                   # stone over it: off
+        self.assertIsNone(bm.beacon_beam(0, 64, 0, at, infos))
+        del world[(0, 80, 0)], world[(1, 63, 1)]                # a corner of its base missing: off
+        self.assertIsNone(bm.beacon_beam(0, 64, 0, at, infos))
+        self.assertIn("bell", search.event_text("bl", [1, 2, 3, 2]))
+
     def test_particle_sources(self):
         """Blocks whose particles the player's own game makes up are listed with each tile: torches (their flame
         0.27 back towards the wall), candles, campfires, leaves over air; drips under a block with water on it."""

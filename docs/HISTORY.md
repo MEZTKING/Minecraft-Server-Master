@@ -222,7 +222,8 @@ have them simply appear.
 
 **Banners** show their real patterns, as saved in the backup shown: each flag is painted from the game's own
 pattern pictures in the game's dye colours, layer by layer (any number of layers, as with your Limitless Banners
-mod), and hangs at its exact angle (standing banners turn in sixteenths of a circle, as in the game). Ominous
+mod), and hangs at its exact angle (standing banners turn in sixteenths of a circle, as in the game). Flags sway
+gently in the wind, each a little out of step with its neighbours, as in the game. Ominous
 banners at pillager outposts too. Shields carry their patterns and base colour, banners held show as small flags,
 and a banner worn on the head (pillager captains) stands on it, all from the recordings.
 
@@ -345,6 +346,14 @@ campfire smoke rising in a column, lava popping, drips under blocks with water o
 rods and leaves falling (cherry petals, pale oak and the rest), and rain splashing on the ground as it rains. Each
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
+
+**Books, bells and beacons.** Block entities the game draws itself are drawn too: an enchanting table's book floats
+over it, slowly turning, and opens and turns towards a recorded player who comes within 3 blocks, its pages
+flipping; a lectern with a book shows it open at a slant; bells hang or stand as placed and swing when someone rings
+one in a recording (away from the side hit, dying down over two and a half seconds). Active beacons (a full 3 x 3
+base of iron, gold, diamond, emerald or netherite blocks under them and nothing opaque above) send up their beam,
+turning and scrolling as in the game, in the colours of any stained glass it passes through (each new glass mixing
+its colour with the one below), and visible from far away.
 
 **Lightning, fireworks, fishing.** Lightning strikes the recordings saw (even far off) come down as the game's
 jagged bolt from high in the sky, flicker a few times and light up the sky. Fireworks burst where they burst, in the

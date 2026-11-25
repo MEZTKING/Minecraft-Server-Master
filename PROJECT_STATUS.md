@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 38: lightning, fireworks, fishing lines, end crystals; parity round 37: player poses; parity round 36: slimes, bees, phantoms, shulkers; parity round 35: mob moves; parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 39: books, bells, beacon beams, banners swaying; parity round 38: lightning, fireworks, fishing lines, end crystals; parity round 37: player poses; parity round 36: slimes, bees, phantoms, shulkers; parity round 35: mob moves; parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1487,6 +1487,28 @@ the bolt, bursts, lines, crystals. Not done: area effect clouds, evoker fangs, s
 star and creeper firework shapes. Not seen: the hurt roll, fire, water, pumpkin and frost overlays (no moment tried). Not done: the
 in-block view (inside a solid block), nausea and the portal overlay.
 
+**Round 39 (2026-11-25, owner: "Keep going"; audit: block entities).**
+- `blockmesh` (VERSION 14): `ambient_code` also gives places of block entities the page draws: "be,table"
+  (enchanting table), "be,lectern,<facing>" (with a book), "be,bell,<facing>,<attachment>". `beacon_beam` (as
+  BeaconBlockEntity's tick: the 3 x 3 layer under it of beacon base blocks, nothing opaque above but bedrock; the
+  sections' colours from stained glass and panes, each later glass averaged with the last; `GLASS_DYE` from
+  DyeColor) gives "beam,<rrggbb>:<from>,...".
+- `paths`: a block event on a bell is a ring, "bl" [x, y, z, direction] (they were read as chests opening, "ce").
+  `EXACT_SUFFIX` 37. Search lines for bells rung.
+- Page: `blockEntitiesStep` (from each piece's special-block list, the redrawn chunks' lists standing for their
+  piece): the BOOK model with `enchantment/enchanting_table_book` (EnchantTableBlockEntity: bobbing, turning 0.02 a
+  tick, opening 0.1 a tick towards a marker within 3 blocks; BookModel.setupAnim with the flipping pages),
+  LecternRenderer's book (open 1.2 at 67.5 degrees), BELL (`bell/bell_body`; on "bl" BellRenderer's swing,
+  sin(t / pi) / (4 + t / 3) for 50 ticks, about x for north / south, z for east / west), `beamMesh` (BeaconRenderer:
+  an inner beam 0.2 wide in the section's colour, an outer glow 0.25 at 1/8, the `beacon/beacon_beam` texture
+  scrolling, turning; up to 1024 above). Banners: the flag hangs from a pivot at its top and sways as
+  BannerRenderer, (-0.0125 + 0.01 cos(2 pi t / 100)) pi with t = x 7 + y 9 + z 13 + game time.
+  Debug hooks: `__history.BE`, `beStep()`, `beamMesh()`.
+Checked: an enchanting table (1425 58 -1953) and a bell (1468 67 -1993) found and built; the book open with its
+pages, the bell's shape, a two-colour beam drawn on their own (the pane was hidden, so not in the world). Not done:
+conduits, end gateway beams, decorated pots wobbling, the creaking heart, spawners' spinning mob, the enchanting
+book's exact turn rate when several players are near.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -2205,6 +2227,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 39:** an enchanting table (the floating book, opening as a player walks up), a lectern with a
+  book, a bell being rung in a recording (it should swing away from the side hit), Crow_Shroom's beacon beam from
+  near and far (and its colour through any stained glass), banners swaying.
 - **Parity round 38** (not looked at on screen here): lightning in a storm (the bolt and the sky flash); fireworks
   (their colours and shapes); someone fishing (the line from their rod); end crystals on the End's pillars.
 - **Parity round 37**: someone gliding with an elytra (leaning in, banking, wings spread), using a riptide trident
@@ -2451,6 +2476,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 39 (backlog 0zh): enchanting table and lectern books, bells
+  swinging when rung (bell rings were misread as chests opening), beacon beams with their glass colours, banners
+  swaying. Tests: `test_block_entities`.
 
 - **2026-11-25:** Owner: "Keep going". Parity round 38 (backlog 0zh): lightning bolts and the sky flash, firework
   bursts in their colours, fishing lines, end crystals. Tests: `test_firework_component`.
