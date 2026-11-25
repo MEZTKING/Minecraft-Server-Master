@@ -368,6 +368,7 @@ function blockMeshes(info, buf, atlas) {
   const tints = new Map();                               // RGB565 -> linear colour
   const CS = [0, 0, 0, 0], CB = [0, 0, 0, 0];            // a face's 4 corners' sky and block light
   const glows = [];                                      // light sources: a glow each (Fancy)
+  const tops = new Map();                                // open-sky tops (rain splashes): x * 65536 + z -> y
   // faces grouped by chunk, so one chunk's faces can be hidden later (a live block change drawn over it):
   // each geometry remembers where each chunk's indices are ("cx,cz" -> [start, end])
   const ck = k => `${(dv.getInt16(k * REC, true) + ox) >> 4},${(dv.getInt16(k * REC + 4, true) + oz) >> 4}`;
@@ -396,6 +397,7 @@ function blockMeshes(info, buf, atlas) {
     const cw = [lo & 0xfff, (lo >>> 12) & 0xfff, ((lo >>> 24) | (hi << 8)) & 0xfff, (hi >>> 4) & 0xfff];
     for (let c = 0; c < 4; c++) { CS[c] = (cw[c] & 63) / 60; CB[c] = (cw[c] >> 6) / 60; }
     const Gr = b.kind === "water" ? geo.water : b.translucent ? geo.glass : geo.solid;
+    if (d === 0 && sky === 1) { const tk = x * 65536 + z, ty = y + (b.kind === "water" ? 0.9 : 1); if (!(tops.get(tk) >= ty)) tops.set(tk, ty); }
     if (GLOW.test(b.name) && (d === 7 || d === 0)) {
       const soul = b.name.startsWith("soul_");
       glows.push(x + 0.5, y + (d === 7 ? 0.6 : 1.05), z + 0.5, soul ? 0.35 : 1.0, soul ? 0.8 : 0.72, soul ? 1.0 : 0.38);
@@ -433,6 +435,8 @@ function blockMeshes(info, buf, atlas) {
     return me;
   };
   const out = [mesh(geo.solid, blockMaterial("solid", atlas))];
+  out[0].userData.fx = info.fx && info.fx.length ? { list: info.fx, codes: info.fxk || [] } : null;   // particle sources
+  out[0].userData.tops = tops;
   if (geo.water.i.length) out.push(mesh(geo.water, blockMaterial("water", atlas)));
   if (geo.glass.i.length) { const gm = mesh(geo.glass, blockMaterial("glass", atlas)); gm.userData.kind = "glass"; gm.renderOrder = 1; out.push(gm); }
   if (glows.length) {

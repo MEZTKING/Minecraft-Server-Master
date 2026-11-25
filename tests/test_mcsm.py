@@ -4280,6 +4280,38 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_particle_sources(self):
+        """Blocks whose particles the player's own game makes up are listed with each tile: torches (their flame
+        0.27 back towards the wall), candles, campfires, leaves over air; drips under a block with water on it."""
+        from mcsm import blockmesh as bm
+        self.assertEqual(bm.ambient_code("torch", {}), "torch,flame,0.5,0.7,0.5")
+        self.assertEqual(bm.ambient_code("soul_wall_torch", {"facing": "east"}), "torch,soul_fire_flame,0.23,0.92,0.5")
+        self.assertIsNone(bm.ambient_code("redstone_torch", {"lit": "false"}))
+        self.assertEqual(bm.ambient_code("white_candle", {"lit": "true", "candles": "2"}), "candle,0.375,0.44,0.5,0.625,0.5,0.44")
+        self.assertIsNone(bm.ambient_code("candle", {"lit": "false", "candles": "1"}))
+        self.assertEqual(bm.ambient_code("campfire", {"lit": "true", "signal_fire": "true"}), "campfire,1")
+        self.assertEqual(bm.ambient_code("cherry_leaves", {}), "leaves,cherry_leaves")
+        self.assertIsNone(bm.ambient_code("stone", {}))
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            self._jar(jar)
+
+            def b(x, y, z):
+                if (x, z) == (3, 3):                      # a stone with water on it, over two blocks of air
+                    return {65: "minecraft:water[level=0]", 64: "minecraft:stone"}.get(y, "minecraft:stone" if y < 62 else None)
+                if (x, y, z) == (10, 65, 10):
+                    return "minecraft:lava[level=0]"
+                return "minecraft:stone" if y < 64 else "minecraft:grass_block[snowy=false]" if y == 64 else None
+            world = self._world(tmp, b)
+            r = bm.build(os.path.join(tmp, "srv"), world, [(8.0, 8.0)], bm.Look(jar), radius=40)
+            fx = [tuple(r["fx"][k:k + 5]) for k in range(0, len(r["fx"]), 5)]
+            got = {(x, y, z): (r["fxk"][c], e) for x, y, z, c, e in fx}
+            self.assertEqual(got.get((3, 64, 3)), ("drip,water", 2))
+            self.assertEqual(got.get((10, 65, 10)), ("lava", 0))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_biomes_water_and_stand_ins(self):
         """Grass takes its biome's colour (blended at the edge), waterlogged blocks have water round them, double
         chests reach each other, skulls are drawn, uvlock keeps a turned stair's texture lined up."""

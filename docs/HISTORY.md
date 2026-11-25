@@ -331,8 +331,13 @@ as in the game. Other effects the recordings keep show with the game's particles
 meal (green sparkles), potions splashing (in the potion's colour), fires put out, lava fizzing, smoke from
 dispensers, spawners, wax put on or scraped off copper. Particles the server sends are drawn as well, with the
 game's pictures: fishing (the bobber's wake, splashes, bubbles), sword sweeps, the hearts from a hit, block dust and
-others. Particles a player's own game makes up by itself (smoke from campfires and torches, rain splashes, potion
-swirls round players) aren't in the recordings, so they can't be shown.
+others. Particles a player's own game makes up by itself aren't in the recordings, so the viewer makes them up the
+same way, from the blocks round the camera while the time slider moves: torch flames and smoke (soul and copper
+torches in their colours, redstone torches' red dust), lit candles, furnaces, blast furnaces and smokers, fire,
+campfire smoke rising in a column, lava popping, drips under blocks with water or lava on them, nether portals, end
+rods and leaves falling (cherry petals, pale oak and the rest), and rain splashing on the ground as it rains. Each
+block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
+player saw. Potion swirls round players aren't made up yet.
 
 **Saddles and armour on animals.** Horses, donkeys, mules, pigs, striders, camels and nautiluses wear their
 saddles, horses their horse armour (leather in its dye), llamas their carpets, wolves their armour and happy ghasts

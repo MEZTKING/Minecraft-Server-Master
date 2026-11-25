@@ -35,7 +35,7 @@ from collections import deque
 
 from . import terrain
 
-VERSION = 12                    # bump when the output changes (cached tiles are built again); 12: dark where a light block was taken away; 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
+VERSION = 13                    # bump when the output changes (cached tiles are built again); 13: particle sources; 12: dark where a light block was taken away; 11: signs shaped as the game's; 10: smooth light per corner, light from blocks placed since the backup; 9: translucent glass; 8: water shaped by level; 7: cherry leaves untinted; 6: banners' poles only; 5: under water
 DEPTH = 40                      # how far under a spot's surface open space is followed (caves, cellars)
 MAX_OPEN = 1_500_000            # safety limit on the open cells followed per build
 # x, y, z, dir, look, light/shading, tint (RGB565), then the smooth light of the face's 4 corners: 12 bits each
@@ -285,6 +285,51 @@ def parse_state(state: str) -> tuple[str, dict]:
             if k:
                 props[k] = v
     return name.split(":", 1)[-1], props
+
+
+_STEP = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0), "up": (0, 0), "down": (0, 0)}
+_FLAME = {"torch": "flame", "soul_torch": "soul_fire_flame", "copper_torch": "copper_fire_flame"}
+_CANDLES = {1: [(0.5, 0.5, 0.5)], 2: [(0.375, 0.44, 0.5), (0.625, 0.5, 0.44)],
+            3: [(0.5, 0.313, 0.625), (0.375, 0.44, 0.5), (0.56, 0.5, 0.44)],
+            4: [(0.44, 0.313, 0.56), (0.625, 0.44, 0.56), (0.375, 0.44, 0.375), (0.56, 0.5, 0.375)]}
+
+
+def ambient_code(name: str, props: dict) -> str | None:
+    """The particles the player's own game makes up round this block (its ``animateTick``; not in recordings), as a
+    short code for the page: ``kind,args...``. None: none."""
+    lit = props.get("lit") == "true"
+    if name in _FLAME:
+        return f"torch,{_FLAME[name]},0.5,0.7,0.5"
+    if name == "redstone_torch":
+        return "rtorch,0.5,0.7,0.5" if lit else None
+    wall = {"wall_torch": "flame", "soul_wall_torch": "soul_fire_flame", "copper_wall_torch": "copper_fire_flame",
+            "redstone_wall_torch": "dust"}.get(name)
+    if wall:                                            # 0.27 back towards the wall, 0.22 higher
+        if wall == "dust" and not lit:
+            return None
+        sx, sz = _STEP.get(props.get("facing", "north"), (0, 0))
+        at = f"{0.5 - 0.27 * sx:g},0.92,{0.5 - 0.27 * sz:g}"
+        return f"rtorch,{at}" if wall == "dust" else f"torch,{wall},{at}"
+    if (name == "candle" or name.endswith("_candle")) and lit:
+        spots = _CANDLES.get(int(props.get("candles", "1") or 1), _CANDLES[1])
+        return "candle," + ",".join(f"{a:g},{b:g},{c:g}" for a, b, c in spots)
+    if name.endswith("candle_cake") and lit:
+        return "candle,0.5,1,0.5"
+    if name in ("campfire", "soul_campfire") and lit:
+        return f"campfire,{1 if props.get('signal_fire') == 'true' else 0}"
+    if name in ("fire", "soul_fire"):
+        return "fire"
+    if name in ("furnace", "blast_furnace", "smoker") and lit:
+        return f"furnace,{name},{props.get('facing', 'north')}"
+    if name == "nether_portal":
+        return f"portal,{props.get('axis', 'x')}"
+    if name == "end_rod":
+        return f"endrod,{props.get('facing', 'up')}"
+    if name.endswith("leaves"):
+        return f"leaves,{name}"
+    if name == "spore_blossom":
+        return "spore"
+    return None
 
 
 def _matches(when, props: dict) -> bool:
@@ -643,7 +688,8 @@ class Look:
                 "cutout": cutout, "water": props.get("waterlogged") == "true",
                 "tint": tint_kind(name, props) if tinted else None,
                 # see-through (blended, not cut out): stained glass and panes, ice, slime, honey
-                "translucent": "stained_glass" in name or name in ("ice", "slime_block", "honey_block")}
+                "translucent": "stained_glass" in name or name in ("ice", "slime_block", "honey_block"),
+                "fx": ambient_code(name, props)}
         if kind in ("water", "lava"):
             info["level"] = int(props.get("level", "0") or 0)
         self.index[state] = len(self.infos)
@@ -1298,12 +1344,41 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
     x0, z0 = (min(xs) >> 4) * 16, (min(zs) >> 4) * 16
     faces = bytearray()
     pack = RECORD.pack
+    fx: list[int] = []                                  # particle sources: x, y, z, code, extra (see ambient_code)
+    fx_codes: dict[str, int] = {}
+
+    def add_fx(x, y, z, code, extra=0):
+        if code not in fx_codes:
+            fx_codes[code] = len(fx_codes)
+        fx.extend((x, y, z, fx_codes[code], extra))
+
+    def fall(x, y, z):                                  # air below a block: how far down to the next block (max 32)
+        for d in range(1, 33):
+            if block(x, y - d, z) is not None:
+                return d - 1
+        return 32
     for x, y, z in sorted(cand):
         i = block(x, y, z)
         if i is None:
             continue
         info = infos[i]
         kind = info["kind"]
+        code = info.get("fx")
+        if code:
+            if code.startswith("leaves,") or code == "spore":   # leaves: from their underside, into air
+                if code == "spore" or block(x, y - 1, z) is None:
+                    add_fx(x, y, z, code, fall(x, y, z) + 64 * (tint(x, y, z, info["tint"]) if info.get("tint") else 0))
+            else:
+                add_fx(x, y, z, code)
+        elif kind == "lava":                            # lava under air: pops now and then
+            if block(x, y + 1, z) is None:
+                add_fx(x, y, z, "lava")
+        elif kind == "cube" and not info["cutout"] and block(x, y - 1, z) is None:
+            up = block(x, y + 1, z)                     # water or lava on top: drips from its underside
+            if up is not None:
+                uk = infos[up]["kind"]
+                if uk in ("water", "lava") or infos[up].get("water"):
+                    add_fx(x, y, z, "drip,lava" if uk == "lava" else "drip,water", fall(x, y, z))
         if kind == "model":
             if not visible(x, y, z):
                 continue
@@ -1387,7 +1462,7 @@ def build(root: str, world: str, points: list[tuple[float, float]], look: Look, 
                 sm = flat | (flat << 12) | (flat << 24) | (flat << 36)
             faces += pack(x - x0, y, z - z0, d, draw, ao | (lc << 8), tint(x, y, z, info["tint"]), sm & 0xFFFFFFFF, sm >> 32)
     return {"origin": [x0, z0], "infos": infos, "textures": look.textures, "faces": bytes(faces),
-            "chunks": len(chunks), "open": len(seen)}
+            "chunks": len(chunks), "open": len(seen), "fx": fx, "fxk": list(fx_codes)}
 
 
 def client_infos(infos: list[dict]) -> list[dict]:

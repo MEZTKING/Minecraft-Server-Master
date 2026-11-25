@@ -1279,7 +1279,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -5426,6 +5426,269 @@ function particleStep(want) {
     }
   }
 }
+// ---------- particles the player's own game makes up (never recorded): from the blocks round the camera ----------
+// The game's animateTick, run on the recording's ticks: each tick it picks 667 blocks near the camera (offsets
+// nextInt(16) - nextInt(16), so the nearest are picked most) and 667 within 32, and each picked block makes its
+// particles: torch flames and smoke, candles, furnaces, fire, lava pops, drips under water and lava, portals, end
+// rods, falling leaves; campfires smoke every tick (their block entity); rain splashes round the camera as it rains.
+// The particles fly by each one's own rules (lifetime, gravity, friction, size) with the game's pictures.
+const AMB = { N: 6000, ps: [], lastT: null, acc: 0, src: [], srcAt: 0, srcKey: "", codes: new Map(), cells: new Map(),
+  canvas: null, tex: null, pts: null, frac: 0, extra: [] };   // extra: sources added by hand (checking)
+function ambAtlas() {
+  if (AMB.canvas) return;
+  const c = document.createElement("canvas"); c.width = c.height = 512; AMB.canvas = c;
+  const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; AMB.tex = t;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(AMB.N * 3), 3));
+  g.setAttribute("aSize", new THREE.BufferAttribute(new Float32Array(AMB.N), 1));
+  g.setAttribute("aCol", new THREE.BufferAttribute(new Float32Array(AMB.N * 4), 4));
+  g.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(AMB.N), 1));
+  g.setDrawRange(0, 0);
+  const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false,
+    uniforms: { uMap: { value: t }, uScale: { value: 400 } },
+    vertexShader: `attribute float aSize; attribute vec4 aCol; attribute float aCell; uniform float uScale;
+      varying vec4 vCol; varying float vCell;
+      void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
+        gl_PointSize = aSize * uScale / max(0.05, -mv.z); vCol = aCol; vCell = aCell; }`,
+    fragmentShader: `uniform sampler2D uMap; varying vec4 vCol; varying float vCell;
+      void main() { float c = mod(vCell, 32.0), r = floor(vCell / 32.0);
+        vec4 t = texture2D(uMap, vec2((c + gl_PointCoord.x) / 32.0, 1.0 - (r + gl_PointCoord.y) / 32.0));
+        if (t.a * vCol.a < 0.1) discard; gl_FragColor = vec4(t.rgb * vCol.rgb, t.a * vCol.a); }` });
+  AMB.pts = new THREE.Points(g, m); AMB.pts.frustumCulled = false; AMB.pts.renderOrder = 2; scene.add(AMB.pts);
+}
+function ambCell(name) {                                 // a particle picture's place in the atlas (drawn once loaded)
+  if (!AMB.cells.has(name)) {
+    const i = AMB.cells.size; AMB.cells.set(name, i);
+    texOnce(`particle/${name}`).then(t => { if (!t || !t.image) return;
+      const g = AMB.canvas.getContext("2d"); g.imageSmoothingEnabled = false;
+      g.drawImage(t.image, (i % 32) * 16, Math.floor(i / 32) * 16, 16, 16); AMB.tex.needsUpdate = true; });
+  }
+  return AMB.cells.get(name);
+}
+function ambFrames(particle) { const t = PT_TEX.map && PT_TEX.map[particle]; return (t && t.length ? t : ["generic_0"]).map(ambCell); }
+const R = () => Math.random();
+const GAUSS = () => { let u = 0, v = 0; while (!u) u = R(); while (!v) v = R(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+// a new particle (the game's Particle constructor: a little random speed, then the kind's own changes)
+function ambAdd(p) {
+  if (AMB.ps.length >= AMB.N) return null;
+  const q = Object.assign({ age: 0, g: 0, fr: 0.98, size: 0.1 * (R() * 0.5 + 0.5) * 2, col: [1, 1, 1, 1], bright: false,
+    shrink: 0, anim: true, floor: -1e9 }, p);
+  q.o = [q.x, q.y, q.z];
+  if (!q.frames) q.frames = [0];
+  q.cell = q.anim ? q.frames[0] : q.frames[Math.floor(R() * q.frames.length)];
+  AMB.ps.push(q); return q;
+}
+function ambBaseVel(vx, vy, vz) {                        // Particle(...): the speed given, nudged and rescaled
+  let x = vx + (R() * 2 - 1) * 0.4, y = vy + (R() * 2 - 1) * 0.4, z = vz + (R() * 2 - 1) * 0.4;
+  const d = (R() + R() + 1) * 0.15, e = Math.hypot(x, y, z) || 1;
+  return [x / e * d * 0.4, y / e * d * 0.4 + 0.1, z / e * d * 0.4];
+}
+function ambSmoke(x, y, z, vx = 0, vy = 0, vz = 0, scale = 1, name = "smoke") {   // BaseAshSmokeParticle (smoke, large_smoke)
+  const b = ambBaseVel(vx, vy, vz), c = R() * 0.3;
+  return ambAdd({ x, y, z, vx: b[0] * 0.1 + vx, vy: b[1] * 0.1 + vy, vz: b[2] * 0.1 + vz, g: -0.1 * 0.04, fr: 0.96,
+    life: Math.max(1, Math.floor(8 / (R() * 0.8 + 0.2) * scale)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * scale * 2,
+    col: [c, c, c, 1], frames: ambFrames(name), day: true });
+}
+function ambFlame(x, y, z, name = "flame", small = false) {   // FlameParticle (a RisingParticle)
+  const b = ambBaseVel(0, 0, 0);
+  return ambAdd({ x: x + (R() - R()) * 0.05, y: y + (R() - R()) * 0.05, z: z + (R() - R()) * 0.05,
+    vx: b[0] * 0.01, vy: b[1] * 0.01, vz: b[2] * 0.01, fr: 0.96, life: Math.floor(8 / (R() * 0.8 + 0.2)) + 4,
+    size: 0.1 * (R() * 0.5 + 0.5) * 2 * 2 * (small ? 0.5 : 1), shrink: 0.5, bright: true, frames: ambFrames(name), anim: false });
+}
+function ambDust(x, y, z) {                              // redstone dust (DustParticle, red)
+  const b = ambBaseVel(0, 0, 0), k = R() * 0.4 + 0.6;
+  return ambAdd({ x, y, z, vx: b[0] * 0.1, vy: b[1] * 0.1, vz: b[2] * 0.1, fr: 0.96, life: Math.max(1, Math.floor(8 / (R() * 0.8 + 0.2))),
+    size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * 2, col: [k, 0, 0, 1], bright: true, frames: ambFrames("dust") });
+}
+function ambLava(x, y, z) {                              // LavaParticle: pops up, falls, trails smoke
+  const b = ambBaseVel(0, 0, 0);
+  return ambAdd({ x, y, z, vx: b[0] * 0.8, vy: R() * 0.4 + 0.05, vz: b[2] * 0.8, g: 0.75 * 0.04, fr: 0.999,
+    life: Math.floor(16 / (R() * 0.8 + 0.2)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * (R() * 2 + 0.2) * 2, shrink: 1, bright: true,
+    frames: ambFrames("lava"), anim: false, lava: true });
+}
+function ambSplash(x, y, z, floor) {                     // WaterDropParticle (rain, splash)
+  const b = ambBaseVel(0, 0, 0);
+  return ambAdd({ x, y, z, vx: b[0] * 0.3, vy: R() * 0.2 + 0.1, vz: b[2] * 0.3, g: 0.06, fr: 0.98,
+    life: Math.floor(8 / (R() * 0.8 + 0.2)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 2, frames: ambFrames("rain"), anim: false,
+    floor, day: true, col: [1, 1, 1, 1] });
+}
+function ambCode(s) {
+  if (!AMB.codes.has(s)) { const a = s.split(","); AMB.codes.set(s, { kind: a[0], a, n: a.slice(1).map(Number) }); }
+  return AMB.codes.get(s);
+}
+const AMB_STEP = { north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0], up: [0, 1, 0], down: [0, -1, 0] };
+const AMB_LEAF = { cherry_leaves: 0.1, pale_oak_leaves: 0.02 };
+function ambTick(s) {                                    // one picked block's animateTick
+  const c = s.c, x = s.x, y = s.y, z = s.z;
+  switch (c.kind) {
+    case "torch": { const px = x + c.n[1], py = y + c.n[2], pz = z + c.n[3]; ambSmoke(px, py, pz); ambFlame(px, py, pz, c.a[1]); break; }
+    case "rtorch": ambDust(x + c.n[0] + (R() - 0.5) * 0.2, y + c.n[1] + (R() - 0.5) * 0.2, z + c.n[2] + (R() - 0.5) * 0.2); break;
+    case "candle": for (let i = 0; i + 2 < c.n.length; i += 3) {
+      const px = x + c.n[i], py = y + c.n[i + 1], pz = z + c.n[i + 2];
+      if (R() < 0.3) ambSmoke(px, py, pz); ambFlame(px, py, pz, "small_flame", true); } break;
+    case "campfire": if (Math.floor(R() * 5) === 0) ambLava(x + 0.5, y + 0.5, z + 0.5); break;
+    case "fire": for (let i = 0; i < 3; i++) ambSmoke(x + R(), y + R() * 0.5 + 0.5, z + R(), 0, 0, 0, 2.5, "large_smoke"); break;
+    case "furnace": {
+      const st = AMB_STEP[c.a[2]] || [0, 0, -1], h = R() * 0.6 - 0.3;
+      if (c.a[1] === "smoker") { ambSmoke(x + 0.5, y + 1.1, z + 0.5); break; }
+      const px = x + 0.5 + (st[0] ? st[0] * 0.52 : h), pz = z + 0.5 + (st[2] ? st[2] * 0.52 : h);
+      const py = y + R() * (c.a[1] === "blast_furnace" ? 9 : 6) / 16;
+      ambSmoke(px, py, pz); if (c.a[1] === "furnace") ambFlame(px, py, pz); break;
+    }
+    case "portal": for (let i = 0; i < 4; i++) {         // NetherPortalBlock: out from a side, then drawn back in
+      let px = x + R(), py = y + R(), pz = z + R(), vx = (R() - 0.5) * 0.5, vy = (R() - 0.5) * 0.5, vz = (R() - 0.5) * 0.5;
+      const k = Math.floor(R() * 2) * 2 - 1;
+      if (c.a[1] === "z") { px = x + 0.5 + 0.25 * k; vx = R() * 2 * k; } else { pz = z + 0.5 + 0.25 * k; vz = R() * 2 * k; }
+      const j = R() * 0.6 + 0.4;
+      ambAdd({ x: px + vx, y: py + vy + 1, z: pz + vz, portal: [px, py, pz, vx, vy, vz], life: Math.floor(R() * 10) + 40,
+        size: 0.1 * (R() * 0.2 + 0.5) * 2, col: [j * 0.9, j * 0.3, j, 1], bright: true, frames: ambFrames("portal"), anim: false });
+    } break;
+    case "endrod": if (Math.floor(R() * 5) === 0) {
+      const st = AMB_STEP[c.a[1]] || [0, 1, 0], g = 0.4 - (R() + R()) * 0.4;
+      ambAdd({ x: x + 0.55 - R() * 0.1 + st[0] * g, y: y + 0.55 - R() * 0.1 + st[1] * g, z: z + 0.55 - R() * 0.1 + st[2] * g,
+        vx: GAUSS() * 0.005, vy: GAUSS() * 0.005, vz: GAUSS() * 0.005, fr: 0.91, life: 60 + Math.floor(R() * 12),
+        size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * 2, bright: true, frames: ambFrames("end_rod"), fade: true });
+    } break;
+    case "leaves": {
+      const name = c.a[1], chance = AMB_LEAF[name] ?? 0.01;
+      if (R() >= chance) break;
+      const part = PT_TEX.map && PT_TEX.map[name] ? name : "tinted_leaves", tint = Math.floor(s.e / 64), fall = s.e % 64;
+      const col = part === "tinted_leaves" ? (tint ? [((tint >> 11) & 31) / 31, ((tint >> 5) & 63) / 63, (tint & 31) / 31, 1] : [0.28, 0.71, 0.09, 1]) : [1, 1, 1, 1];
+      ambAdd({ x: x + R(), y: y - 0.05, z: z + R(), vx: 0, vy: 0, vz: 0, leaf: R() * Math.PI * 2, life: 300, size: 0.1 * (R() * 0.5 + 0.5) * 2 * 1.5,
+        col, frames: ambFrames(part), anim: false, floor: y - fall, day: true });
+      break;
+    }
+    case "lava": if (Math.floor(R() * 100) === 0) ambLava(x + R(), y + 1, z + R()); break;
+    case "drip": if (Math.floor(R() * 10) === 0) {       // under a block with water or lava on it: hangs, falls, lands
+      const lava = c.a[1] === "lava";
+      ambAdd({ x: x + R(), y: y - 0.05, z: z + R(), vx: 0, vy: 0, vz: 0, hang: lava ? 40 : Math.floor(64 / (R() * 0.8 + 0.2)) / 4,
+        life: 400, g: 0.06, fr: 0.98, floor: y - s.e, col: lava ? [1, 0.2857, 0.0833, 1] : [0.2, 0.3, 1, 1],
+        frames: ambFrames(lava ? "dripping_lava" : "dripping_water"), fall: ambFrames(lava ? "falling_lava" : "falling_water"),
+        land: lava ? ambFrames("landing_lava") : null, anim: false, bright: lava, drip: true });
+    } break;
+  }
+}
+// the sources near the camera (the shown pieces' lists; a piece redrawn for a moment stands for its chunk)
+function ambSources(now) {
+  const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+  const key = `${REAL.tiles.size}|${LIVE.chunks.size}|${CAVE.tiles.size}|${Math.round(cx / 8)},${Math.round(cy / 8)},${Math.round(cz / 8)}`;
+  if (key === AMB.srcKey && now - AMB.srcAt < 2000) return;
+  AMB.srcKey = key; AMB.srcAt = now;
+  const out = [], take = (fx, skip) => {
+    if (!fx) return;
+    const L = fx.list;
+    for (let i = 0; i < L.length; i += 5) {
+      const x = L[i], y = L[i + 1], z = L[i + 2], code = fx.codes[L[i + 3]];
+      const r = code === "campfire,0" || code === "campfire,1" ? 64 : 34;
+      if (Math.abs(x + 0.5 - cx) > r || Math.abs(y + 0.5 - cy) > r || Math.abs(z + 0.5 - cz) > r) continue;
+      if (skip && skip(x, z)) continue;
+      out.push({ x, y, z, c: ambCode(code), e: L[i + 4] });
+    }
+  };
+  for (const T0 of REAL.tiles.values()) if (T0.meshes[0]) take(T0.meshes[0].userData.fx, (x, z) => LIVE.chunks.has(`${x >> 4},${z >> 4}`));
+  for (const c of LIVE.chunks.values()) if (c.meshes[0]) take(c.meshes[0].userData.fx);
+  for (const T0 of CAVE.tiles.values()) if (T0.meshes[0] && T0.meshes[0].visible) take(T0.meshes[0].userData.fx);
+  AMB.src = out.concat(AMB.extra);
+}
+function ambTop(x, z) {                                  // the open-sky top there (rain), or null
+  const k = x * 65536 + z;
+  for (const T0 of REAL.tiles.values()) { const t = T0.meshes[0] && T0.meshes[0].userData.tops; if (t && t.has(k)) return t.get(k); }
+  return null;
+}
+const AMB_P16 = d => Math.max(0, 16 - Math.abs(d)) / 256, AMB_P32 = d => Math.max(0, 32 - Math.abs(d)) / 1024;
+function ambGameTick() {
+  const cx = Math.floor(camera.position.x), cy = Math.floor(camera.position.y), cz = Math.floor(camera.position.z);
+  for (const s of AMB.src) {
+    if (s.c.kind === "campfire" && R() < 0.11) {         // CampfireBlockEntity: every tick, wherever it is
+      const sig = s.c.n[0] === 1;
+      for (let i = Math.floor(R() * 2) + 2; i > 0; i--)
+        ambAdd({ x: s.x + 0.5 + R() / 3 * (R() < 0.5 ? 1 : -1), y: s.y + R() + R(), z: s.z + 0.5 + R() / 3 * (R() < 0.5 ? 1 : -1),
+          vx: 0, vy: 0.07, vz: 0, g: 3e-6, fr: 1, life: Math.floor(R() * 50) + (sig ? 280 : 80), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 3 * 2,
+          col: [1, 1, 1, sig ? 0.95 : 0.9], frames: ambFrames(sig ? "campfire_signal_smoke" : "campfire_cosy_smoke"), anim: false,
+          cosy: true, day: true });
+    }
+    const dx = s.x - cx, dy = s.y - cy, dz = s.z - cz;
+    const p = 667 * (AMB_P16(dx) * AMB_P16(dy) * AMB_P16(dz) + AMB_P32(dx) * AMB_P32(dy) * AMB_P32(dz));
+    if (R() < p) ambTick(s);
+  }
+  // rain: LevelRenderer.tickRain, splashes on the open tops round the camera
+  const rain = $("#lFollow").checked && EXACT.on && $("#dim").value === "minecraft:overworld" ? (worldAt("rain", T) ?? 0) : 0;
+  for (let i = Math.floor(100 * rain * rain); i > 0; i--) {
+    const x = cx + Math.floor(R() * 21) - 10, z = cz + Math.floor(R() * 21) - 10, top = ambTop(x, z);
+    if (top === null || top > cy + 10 || top < cy - 10) continue;
+    ambSplash(x + R(), top, z + R(), top);
+  }
+  // each particle's own tick
+  const keep = [];
+  for (const q of AMB.ps) {
+    q.o[0] = q.x; q.o[1] = q.y; q.o[2] = q.z;
+    if (++q.age >= q.life) continue;
+    if (q.portal) {                                      // PortalParticle: back in towards where it came from
+      const f = q.age / q.life, h = 1 - (-f + f * f * 2), P = q.portal;
+      q.x = P[0] + P[3] * h; q.y = P[1] + P[4] * h + (1 - f); q.z = P[2] + P[5] * h; keep.push(q); continue;
+    }
+    if (q.cosy) {                                        // CampfireSmokeParticle: straight up, drifting, fading at the end
+      q.vx += R() / 5000 * (R() < 0.5 ? 1 : -1); q.vz += R() / 5000 * (R() < 0.5 ? 1 : -1); q.vy -= q.g;
+      q.x += q.vx; q.y += q.vy; q.z += q.vz;
+      if (q.age >= q.life - 60 && q.col[3] > 0.01) q.col[3] -= 0.015;
+      if (q.col[3] <= 0.01) continue; keep.push(q); continue;
+    }
+    if (q.leaf != null) {                                // falling leaves: drift down, swaying, then lie there
+      if (q.y > q.floor) { q.leaf += 0.08; q.x += Math.sin(q.leaf) * 0.02; q.z += Math.cos(q.leaf * 0.7) * 0.01; q.y = Math.max(q.floor, q.y - 0.03); }
+      if (q.age > q.life - 20) q.col[3] = (q.life - q.age) / 20;
+      keep.push(q); continue;
+    }
+    if (q.drip && q.hang > 0) { q.hang--; if (q.hang <= 0) { q.frames = q.fall; q.cell = q.fall[0]; } keep.push(q); continue; }
+    if (q.lava && R() > q.age / q.life) ambSmoke(q.x, q.y, q.z, q.vx, q.vy, q.vz);
+    q.vy -= q.g; q.x += q.vx; q.y += q.vy; q.z += q.vz;
+    q.vx *= q.fr; q.vy *= q.fr; q.vz *= q.fr;
+    if (q.y < q.floor) {                                 // on the ground
+      q.y = q.floor;
+      if (q.drip) { if (q.land) ambAdd({ x: q.x, y: q.floor, z: q.z, vx: 0, vy: 0, vz: 0, life: Math.floor(16 / (R() * 0.8 + 0.2)),
+        col: q.col, frames: q.land, anim: false, bright: true, floor: q.floor });
+        else ambSplash(q.x, q.floor, q.z, q.floor); continue; }
+      if (R() < 0.5 && !q.lava) continue;
+      q.vy = 0; q.vx *= 0.7; q.vz *= 0.7;
+    }
+    keep.push(q);
+  }
+  AMB.ps = keep;
+}
+function ambStep(now) {
+  if (!AMB.pts) { if (!PT_TEX.map) { if (!PT_TEX.asked) { PT_TEX.asked = true;
+    fetch("api/particletex").then(r => r.json()).then(r => { PT_TEX.map = r.particles || {}; }).catch(() => { PT_TEX.map = {}; }); } return; }
+    ambAtlas(); }
+  const on = REAL.tiles.size > 0 && $("#dim").value !== undefined;
+  if (!on || AMB.lastT === null || T < AMB.lastT || T - AMB.lastT > 3000) { AMB.ps = []; AMB.acc = 0; }
+  else AMB.acc += (T - AMB.lastT) / 50;
+  AMB.lastT = T;
+  if (on) {
+    ambSources(now);
+    let n = Math.floor(AMB.acc); AMB.acc -= n; n = Math.min(n, 8);
+    while (n-- > 0) ambGameTick();
+  }
+  // draw: each particle between its last two ticks
+  const g = AMB.pts.geometry, P = g.attributes.position.array, S = g.attributes.aSize.array, C = g.attributes.aCol.array,
+    K = g.attributes.aCell.array, f = Math.min(1, AMB.acc), day = Math.max(0.25, LIGHTS.day || 1);
+  let k = 0;
+  for (const q of AMB.ps) {
+    P[k * 3] = q.o[0] + (q.x - q.o[0]) * f; P[k * 3 + 1] = q.o[1] + (q.y - q.o[1]) * f; P[k * 3 + 2] = q.o[2] + (q.z - q.o[2]) * f;
+    const a = (q.age + f) / q.life;
+    let size = q.size;
+    if (q.shrink) size *= 1 - a * a * q.shrink;
+    if (q.portal) { const b = 1 - a; size *= 1 - b * b; }
+    S[k] = size;
+    const L = q.bright ? 1 : day;
+    C[k * 4] = q.col[0] * L; C[k * 4 + 1] = q.col[1] * L; C[k * 4 + 2] = q.col[2] * L;
+    C[k * 4 + 3] = q.fade && a > 0.5 ? q.col[3] * (1 - (a - 0.5) * 2) : q.col[3];
+    K[k] = q.anim && q.frames.length > 1 ? q.frames[Math.min(q.frames.length - 1, Math.floor(a * q.frames.length))] : q.cell;
+    k++;
+  }
+  g.setDrawRange(0, k);
+  for (const n of ["position", "aSize", "aCol", "aCell"]) g.attributes[n].needsUpdate = true;
+  const hgt = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
+  AMB.pts.material.uniforms.uScale.value = hgt / (2 * Math.tan(camera.fov * Math.PI / 360));
+}
 function breakStep(now) {
   pistonStep();
   if (now - BREAK.last < 33) return; BREAK.last = now;
@@ -5837,6 +6100,7 @@ function frame(now) {
   leadsStep(now);                                      // leads
   liveMapStep(now);                                    // maps as they were at the time
   breakStep(now);                                      // mining cracks, blocks breaking
+  ambStep(now);                                        // particles the player's game makes up (torches, smoke, rain...)
   gfxStep(now);
   renderer.render(scene, camera);
 }

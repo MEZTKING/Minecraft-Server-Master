@@ -195,7 +195,7 @@ class BuildWorld:
             os.replace(base + ".bin.part", base + ".bin")
         info = {"faces": len(r["faces"]) // bm.RECORD.size, "origin": r["origin"],
                 "tile": [tx, tz, self.TILE if len(only) > 1 else 16],
-                "infos": bm.client_infos(r["infos"]),
+                "infos": bm.client_infos(r["infos"]), "fx": r.get("fx", []), "fxk": r.get("fxk", []),
                 "textures": r["textures"], "tints": {}, "sizes": bm.texture_sizes(look, r["textures"]),
                 "jar": os.path.basename(self.jar or ""), "mc": self.mc,
                 "exact_jar": bool(self.jar and self.mc and self.mc in os.path.basename(self.jar))}
