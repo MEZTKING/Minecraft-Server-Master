@@ -3951,6 +3951,21 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_game_modes_and_scale(self):
+        """player_info_update: each player's game mode (with the add-player and listed entries read past); and
+        update_attributes: the scale attribute with its modifiers applied as the game does."""
+        from mcsm import paths
+        u1, u2 = bytes(range(16)), bytes(range(16, 32))
+        name = b"\x05Steve" + b"\x01" + b"\x08textures" + b"\x03abc" + b"\x00"     # name, one property, no signature
+        body = bytes([0x01 | 0x04 | 0x08]) + bytes([2]) + u1 + name + bytes([3, 1]) + u2 + b"\x04Alex\x00" + bytes([0, 1])
+        self.assertEqual(paths.game_modes(body), [(u1, "Steve", 3), (u2, "Alex", 0)])
+        attrs = ["armor", "scale", "max_health"]
+        mod = b"\x0bmc:shrinker" + struct.pack(">d", -0.5) + bytes([2])           # multiply the total by 1 - 0.5
+        body = bytes([7, 2]) + bytes([2]) + struct.pack(">d", 20.0) + bytes([0]) \
+            + bytes([1]) + struct.pack(">d", 1.0) + bytes([1]) + mod
+        self.assertEqual(paths.scale_of(body, attrs), (7, 0.5))
+        self.assertIsNone(paths.scale_of(bytes([7, 1, 0]) + struct.pack(">d", 2.0) + bytes([0]), attrs))   # armour only
+
     def test_item_glint_and_trim(self):
         """An item's look: glint when it has enchantments (or the override says so), and its trim's material and
         pattern by name from the recording's registries (holders: id + 1)."""

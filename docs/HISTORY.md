@@ -373,6 +373,9 @@ What the recordings say about each player and mob is shown too:
 - **Burning:** the game's fire around them (and an orange flicker on mobs).
 - **Invisible** (a potion of invisibility, or an invisible armour stand): only their armour and what they hold
   show, as in the game.
+- **Spectator mode:** a player in spectator mode shows as the game shows them to other spectators: just their
+  head, see-through.
+- **Size:** players and mobs made bigger or smaller (the scale attribute) are drawn at their size.
 - **Capes:** a player's cape, as their recordings had it, hanging from the shoulders and swinging out as they move
   (not with an elytra on). Capes come from Mojang's texture server like the skins.
 

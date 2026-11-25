@@ -1862,6 +1862,8 @@ function fireOn(holder, w, h, on) {
 function mobTint(o, label) {                             // red when hurt or dying, orange when burning (swaps shared materials)
   const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01, died = sinceLast(label, "d", T);
   if (o.model) o.model.visible = !(flagsAt(label, T) & 0x20);          // invisible (a potion, or an invisible armour stand)
+  const sc = stateAt(label, "sc", T, 1);                 // a size set with the scale attribute
+  if (o.mesh.scale.x !== sc) o.mesh.scale.setScalar(sc);
   const sz = MOB_SIZE[o.kind] || [0.6, 0.9];
   fireOn(o.mesh, sz[0], sz[1], !!burn && !(died !== null && died >= 1000));
   const st = (h !== null && h < 500) || (died !== null && died < 1000) ? "hurt" : burn ? "burn" : "n";
@@ -2627,6 +2629,17 @@ function animateFigure(m, now) {
   // invisible (flag 0x20, a potion): the game draws only their armour and what they hold
   const inv = !!(fl & 0x20);
   m.F.mat.visible = !inv; if (P.cape) P.cape.visible = P.cape.visible && !inv;
+  // spectator mode (game mode 3): hidden from players; to other spectators the game shows just their head, see-through
+  const spec = c && c.exact && stateAt(m.name, "gm", T, 0) === 3;
+  if (spec !== !!m.spectating) {
+    m.spectating = spec;
+    for (const [n, part] of Object.entries(P)) if (n !== "head" && part && part.isObject3D) part.visible = !spec;
+    m.F.mat.transparent = true; m.F.mat.opacity = spec ? 0.4 : 1; m.F.mat.needsUpdate = true;
+    for (const objs of Object.values(m.F.gear || {})) for (const o of objs) o.visible = !spec;
+  }
+  // a size set with the scale attribute (1: normal)
+  const sc = c && c.exact ? stateAt(m.name, "sc", T, 1) : 1;
+  if (m.F.fig.scale.x !== sc) m.F.fig.scale.setScalar(sc);
   fireOn(m.F.fig, 0.6, 1.8, !!(fl & 0x01));
   m.last = p.clone(); m.lastT = now;
 }

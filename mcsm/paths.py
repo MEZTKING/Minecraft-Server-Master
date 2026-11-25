@@ -263,6 +263,85 @@ def sign_written(body: bytes) -> list | None:
     return list(block_pos(pos)) + [txt["front"], txt["back"]]
 
 
+def game_modes(body: bytes) -> list[tuple[bytes, str | None, int]]:
+    """``[(UUID, name or None, game mode)]`` from a player_info_update body: an action set (one byte: add player,
+    chat session, game mode, listed, latency, display name, list order, hat), then each player's UUID and the data of
+    each action set. Only entries with a game mode; stops at anything it can't read."""
+    out = []
+    try:
+        acts = body[0]
+        n, k = _varint(body, 1)
+        for _ in range(min(n, 500)):
+            uuid = bytes(body[k:k + 16])
+            k += 16
+            name, mode = None, None
+            if acts & 0x01:                                # add player: name, properties
+                name, k = _string(body, k)
+                cnt, k = _varint(body, k)
+                for _ in range(cnt):
+                    k = _string(body, k)[1]
+                    k = _string(body, k)[1]
+                    if body[k]:
+                        k = _string(body, k + 1)[1]
+                    else:
+                        k += 1
+            if acts & 0x02:                                # chat session (optional)
+                if body[k]:
+                    k += 1 + 16 + 8
+                    ln, k = _varint(body, k)
+                    k += ln
+                    ln, k = _varint(body, k)
+                    k += ln
+                else:
+                    k += 1
+            if acts & 0x04:
+                mode, k = _varint(body, k)
+            if acts & 0x08:
+                k += 1
+            if acts & 0x10:
+                k = _varint(body, k)[1]
+            if acts & 0x20:
+                k = _nbt_skip(body, k + 1) if body[k] else k + 1
+            if acts & 0x40:
+                k = _varint(body, k)[1]
+            if acts & 0x80:
+                k += 1
+            if mode is not None:
+                out.append((uuid, name, mode))
+    except (IndexError, ValueError, struct.error):
+        pass
+    return out
+
+
+def scale_of(body: bytes, attrs: list) -> tuple[int, float] | None:
+    """``(entity id, scale)`` from an update_attributes body when it carries the scale attribute: its base value
+    with its modifiers applied as the game does (add; add base x; multiply total)."""
+    try:
+        eid, k = _varint(body, 0)
+        n, k = _varint(body, k)
+        for _ in range(min(n, 64)):
+            aid, k = _varint(body, k)
+            base = struct.unpack_from(">d", body, k)[0]
+            k += 8
+            m, k = _varint(body, k)
+            mods = []
+            for _ in range(m):
+                k = _string(body, k)[1]
+                amt = struct.unpack_from(">d", body, k)[0]
+                mods.append((amt, body[k + 8]))
+                k += 9
+            if 0 <= aid < len(attrs) and attrs[aid] == "scale":
+                v = base + sum(a for a, op in mods if op == 0)
+                v += base * sum(a for a, op in mods if op == 1)
+                for a, op in mods:
+                    if op == 2:
+                        v *= 1 + a
+                return eid, round(max(0.0625, min(16.0, v)), 4)
+    except (IndexError, ValueError, struct.error):
+        return None
+    return None
+
+
 def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
     """What a mob's entity data says that changes how it looks: ``["baby", 0/1]``, ``["wool", byte]`` (a sheep:
     colour in the low 4 bits, 0x10 sheared), ``["variant", n]`` (a horse: coat + 256 x markings), ``["size", n]`` (slimes, magma cubes), ``["name", text]`` (a name
@@ -642,6 +721,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         bed_id = pk.get("block_entity_data") if ex_on else None   # block pos, type, NBT (signs' text)
         crack_id = pk.get("block_destruction") if ex_on else None   # breaker, block pos, stage 0-9 (else: stopped)
         take_id = pk.get("take_item_entity") if ex_on else None     # collected, collector, amount
+        attr_id = pk.get("update_attributes") if ex_on and (tbl or {}).get("attributes") else None   # sizes
+        info_id = pk.get("player_info_update") if ex_on else None    # game modes
         lev_id = pk.get("level_event") if ex_on else None          # i32 event, block pos, i32 data, bool
         block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
@@ -649,7 +730,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id)
+                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id,
+                             attr_id, info_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -828,6 +910,15 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 extras["events"].append([tick, None if eid == me else others[eid], "d", 1])
                             elif b[k + 4] == 35 and (eid == me or eid in others):   # a totem of undying saved them
                                 extras["events"].append([tick, None if eid == me else others[eid], "totem", 1])
+                        elif pid == attr_id and size >= 4:   # attributes: the scale one (a bigger or smaller player or mob)
+                            sc = scale_of(bytes(b[k:i + size]), tbl["attributes"])
+                            if sc and (sc[0] == me or sc[0] in others):
+                                extras["events"].append([tick, None if sc[0] == me else others[sc[0]], "sc", sc[1]])
+                        elif pid == info_id and size >= 3:   # the tab list: game modes (3 = spectator)
+                            for uid, nm, mode in game_modes(bytes(b[k:i + size])):
+                                who = players.get(uid) or nm
+                                if who:
+                                    extras["events"].append([tick, who, "gm", mode])
                         elif pid == take_id and size >= 3:   # picked up: the item (or orb), who by
                             got, kk = _varint(b, k)
                             by, kk = _varint(b, kk)
@@ -1186,7 +1277,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact23.json.gz"    # 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact24.json.gz"    # 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,
