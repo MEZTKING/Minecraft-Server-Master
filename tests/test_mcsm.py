@@ -3980,6 +3980,17 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(e["glowing"]["category"], "neutral")
         self.assertEqual(effects.read_effects("no such jar"), {})
 
+    def test_firework_component(self):
+        """A rocket's fireworks component: flight, then each explosion's shape, colours, fade colours, trail, twinkle."""
+        import struct as st
+        from mcsm import paths
+        body = bytes([1, 1, 1, 2]) + st.pack(">ii", 0xFF0000, 0x00FF00) + bytes([1]) + st.pack(">i", 0x0000FF) + bytes([1, 0])
+        k, val = paths._component("fireworks", body, 0)
+        self.assertEqual(k, len(body))
+        self.assertEqual(val, ("fw", [[1, [0xFF0000, 0x00FF00], [0x0000FF], True, False]]))
+        self.assertNotIn("lightning_bolt", paths.PROJECTILES)
+        self.assertNotIn("end_crystal", paths.SKIP_ENTITIES)                 # followed now (its model)
+
     def test_mob_anim(self):
         """Mobs' moves from entity data: a creeper swelling (a signed VarInt) and charged, an enderman's carried block
         (its state id's name; none), a wolf's head tilt one index on in 26.x, a horse's flags."""

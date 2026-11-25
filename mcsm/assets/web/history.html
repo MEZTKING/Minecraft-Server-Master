@@ -126,6 +126,7 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcEff img { position: absolute; image-rendering: pixelated; }
 #mcName { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(9vh + 2px + 118px - 16px); z-index: 21;
   pointer-events: none; color: #fff; font: 16px/16px monospace; white-space: pre; text-shadow: 2px 2px 0 #3f3f3f; }
+#skyFlash { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #dfe6ff; mix-blend-mode: screen; opacity: 0; }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -310,7 +311,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="skyFlash"></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -1476,7 +1477,7 @@ const MOB_EXTRA = {                                      // extra layers drawn o
   stray: [["STRAY_OUTER_LAYER", "skeleton/stray_overlay"]], bogged: [["BOGGED_OUTER_LAYER", "skeleton/bogged_overlay"]],
   slime: [["SLIME_OUTER", "slime/slime", true]],
 };
-const MOB_SCALE = { wither_skeleton: 1.2, ghast: 4.5, happy_ghast: 4, elder_guardian: 2.35, giant: 6, slime: 2, magma_cube: 2,
+const MOB_SCALE = { end_crystal: 2, wither_skeleton: 1.2, ghast: 4.5, happy_ghast: 4, elder_guardian: 2.35, giant: 6, slime: 2, magma_cube: 2,
   horse: 1.1, donkey: 0.87, mule: 0.92, skeleton_horse: 1.1, zombie_horse: 1.1, polar_bear: 1.2, cave_spider: 0.7 };
 const UNDEAD_ARMS = new Set(["zombie", "husk", "drowned", "zombie_villager", "zombified_piglin", "giant"]);
 function mobLayerAndTex(kind, label) {
@@ -1758,6 +1759,124 @@ async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
   inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
   g.add(inner); return g;
 }
+// ---------- lightning (LightningBoltRenderer), fireworks (FireworkParticles), fishing lines (FishingHookRenderer) ----------
+// A strike ("lb", where it hit): the game's bolt, 8 steps of 16 blocks up from the ground, each wandering up to 5
+// blocks across (branches up to 15) from its seed, in four ever wider glowing layers; it shows for 2 ticks, then
+// flickers 1 to 3 more times, and the sky flashes.
+const BOLTS = { g: new THREE.Group(), shown: new Map() };
+scene.add(BOLTS.g);
+function javaRandom(seed) {                             // the game's RandomSource is LCG-like: a stable stand-in per strike
+  let h = seed | 0; return n => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) % n + n) % n; };
+}
+function boltMesh(x, y, z, seed) {
+  const pos = [], col = [];
+  const rnd0 = javaRandom(seed), af = [], af1 = []; let f = 0, f1 = 0;
+  for (let i = 7; i >= 0; i--) { af[i] = f; af1[i] = f1; f += rnd0(11) - 5; f1 += rnd0(11) - 5; }
+  const quad = (x1, z1, y1, x2, z2, w1, w2) => {    // a segment from height y1 to y1 + 1 (x 16), four sides
+    for (const [ax, az, bx, bz] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]]) {
+      const p = [[x1 + ax * w1, y1 * 16, z1 + az * w1], [x1 + bx * w1, y1 * 16, z1 + bz * w1],
+        [x2 + bx * w2, (y1 + 1) * 16, z2 + bz * w2], [x2 + ax * w2, (y1 + 1) * 16, z2 + az * w2]];
+      for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(x + p[k][0], y + p[k][1], z + p[k][2]); col.push(0.45 * 0.3, 0.45 * 0.3, 0.5 * 0.3); }
+    }
+  };
+  for (let j = 0; j < 4; j++) {
+    const r1 = javaRandom(seed);
+    for (let k = 0; k < 3; k++) {
+      const l = k > 0 ? 7 - k : 7, i1 = k > 0 ? l - 2 : 0;
+      let f2 = af[l] - f, f3 = af1[l] - f1;
+      for (let j1 = l; j1 >= i1; j1--) {
+        const f4 = f2, f5 = f3;
+        if (k === 0) { f2 += r1(11) - 5; f3 += r1(11) - 5; } else { f2 += r1(31) - 15; f3 += r1(31) - 15; }
+        let w1 = 0.1 + j * 0.2, w2 = 0.1 + j * 0.2;
+        if (k === 0) { w1 *= j1 * 0.1 + 1; w2 *= (j1 - 1) * 0.1 + 1; }
+        quad(f2, f3, j1, f4, f5, w1, w2);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide }));
+}
+function boltStep() {
+  const want = new Set(); let flash = 0;
+  if (EXACT.on) for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.lb || []) {
+    const age = (T - t) / 50; if (age < 0 || age > 30) continue;
+    const key = `${t}|${v.join(",")}`, rnd = javaRandom(t), flashes = rnd(3) + 1;
+    // LightningBolt.tick: shown while life >= 0: 2 ticks, then each flash after a pause of up to 10 ticks, 1 tick
+    let on = age < 2, at = 2;
+    for (let i = 0; i < flashes; i++) { at += 1 + rnd(10); if (age >= at && age < at + 1) on = true; at += 1; }
+    if (age < at + 1) flash = Math.max(flash, on ? 1 : 0.4);
+    if (!on) continue;
+    want.add(key);
+    if (!BOLTS.shown.has(key)) { const m = boltMesh(v[0], v[1], v[2], t); BOLTS.g.add(m); BOLTS.shown.set(key, m); }
+  }
+  for (const [k, m] of BOLTS.shown) if (!want.has(k)) { BOLTS.g.remove(m); m.geometry.dispose(); BOLTS.shown.delete(k); }
+  $("#skyFlash").style.opacity = flash * 0.18;          // the sky lights up (ClientLevel's sky flash)
+}
+// A firework bursting ("fwb", where; its explosions from "fwx"): FireworkParticles.Starter's shapes (small and
+// large balls, a burst; stars and creeper faces as large balls here) of sparks in its colours fading to its fade
+// colours, with trails and twinkling, and the white flash.
+function fireworkBursts(t0, t1) {
+  if (!EXACT.on) return;
+  for (const [name, ev] of Object.entries(EXACT.ev)) {
+    if (!ev.fwb) continue;
+    for (let i = lower(ev.fwb, t0, r => r[0]); i < ev.fwb.length && ev.fwb[i][0] <= t1; i++) {
+      const [x, y, z] = ev.fwb[i][1], exps = stateAt(name, "fwx", ev.fwb[i][0] + 1, null) || [[0, [0xffffff], [], false, false]];
+      ambAdd({ x, y, z, vx: 0, vy: 0, vz: 0, life: 4, size: 7.1, col: [1, 1, 1, 0.8], bright: true, frames: ambFrames("flash"), anim: false, flash: true });
+      for (const [shape, cols, fades, trail, twinkle] of exps) {
+        const spark = (vx, vy, vz) => {
+          const c = cols[Math.floor(R() * cols.length)] ?? 0xffffff, fd = fades.length ? fades[Math.floor(R() * fades.length)] : null;
+          ambAdd({ x, y, z, vx, vy, vz, g: 0.004, fr: 0.91, life: 48 + Math.floor(R() * 12), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * 2,
+            col: [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1], fade: fd, bright: true,
+            frames: ambFrames("firework"), twinkle, trail, spark: true });
+        };
+        if (shape === 4) {                              // a burst: up and out
+          const d0 = GAUSS() * 0.05, d1 = GAUSS() * 0.05;
+          for (let n = 0; n < 70; n++) spark(GAUSS() * 0.15 + d0, R() * 0.5, GAUSS() * 0.15 + d1);
+        } else {                                        // a ball: small (0.25, 2) or large (0.5, 4)
+          const [speed, size] = shape === 0 ? [0.25, 2] : [0.5, 4];
+          for (let a = -size; a <= size; a++) for (let b = -size; b <= size; b++) for (let c = -size; c <= size; c++) {
+            const d3 = b + (R() - R()) * 0.5, d4 = a + (R() - R()) * 0.5, d5 = c + (R() - R()) * 0.5;
+            const d6 = Math.hypot(d3, d4, d5) / speed + GAUSS() * 0.05;
+            spark(d3 / d6, d4 / d6, d5 / d6);
+            if (a !== -size && a !== size && b !== -size && b !== size) c += size * 2 - 1;   // only the shell
+          }
+        }
+      }
+    }
+  }
+}
+// A fishing line: the bobber (the hook picture) and the line from the rod in its owner's hand ("fo"), sagging as
+// FishingHookRenderer draws it in 16 pieces
+const BOBBERS = { lines: new Map() };
+function bobberStep() {
+  const seen = new Set();
+  for (const [label, o] of mobMeshes) {
+    if (o.kind !== "fishing_bobber" || !o.mesh.visible) continue;
+    seen.add(label);
+    let L = BOBBERS.lines.get(label);
+    if (!L) {
+      const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(17 * 3), 3));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x000000 })); line.frustumCulled = false;
+      const hook = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, alphaTest: 0.1 })); hook.scale.set(0.5, 0.5, 1);
+      mobTexture("fishing/fishing_hook").then(t => { if (t) { hook.material.map = t; hook.material.needsUpdate = true; } });
+      L = { line, hook }; scene.add(line, hook); BOBBERS.lines.set(label, L);
+    }
+    const p = o.mesh.position; L.hook.position.set(p.x, p.y + 0.25, p.z);
+    const owner = stateAt(label, "fo", T, null), m = owner && markers[owner];
+    L.line.visible = !!(m && m.group.visible);
+    if (L.line.visible) {
+      const b = -(m.F.fig.rotation.y), q = m.group.position, sneak = flagsAt(owner, T) & 0x02;
+      const hx = q.x - Math.cos(b) * 0.35 - Math.sin(b) * 0.8, hy = q.y + (sneak ? 1.27 : 1.62) - 0.45, hz = q.z - Math.sin(b) * 0.35 + Math.cos(b) * 0.8;
+      const dx = hx - p.x, dy = hy - (p.y + 0.25), dz = hz - p.z, a = L.line.geometry.attributes.position;
+      for (let k = 0; k <= 16; k++) { const f = k / 16; a.setXYZ(k, p.x + dx * f, p.y + 0.25 + dy * (f * f + f) * 0.5, p.z + dz * f); }
+      a.needsUpdate = true;
+    }
+  }
+  for (const [label, L] of BOBBERS.lines) if (!seen.has(label)) { scene.remove(L.line, L.hook); BOBBERS.lines.delete(label); }
+}
 // ---------- mobs' own moves, as their renderers and models draw them ----------
 const TRI = (x, p) => (Math.abs(((x % p) + p) % p - p * 0.5) - p * 0.25) / (p * 0.25);   // Mth.triangleWave
 function sinceEvent(label, st, within) {                // ms since the mob's last entity event *st* (within *within*)
@@ -1810,6 +1929,14 @@ function mobMoves(o, label, kind) {
     if (P.body) setRot(P.body, Math.PI / 2, 0, body(-0.16));
     if (P.real_tail) setRot(P.real_tail, 0, 0, body(-0.2));
     if (P.tail) setRot(P.tail, o.look && o.look.angry ? 1.5393804 : o.look && o.look.tame ? 0.55 * Math.PI : Math.PI / 5, 0, 0);
+  } else if (kind === "end_crystal") {
+    // EndCrystalModel: the glass cubes tumble (3 degrees a tick about a tilted axis, each inside the last) and bob
+    const age = T / 50, f = age * 3 * D, y0 = Math.sin(age * 0.2) / 2 + 0.5, bob = ((y0 * y0 + y0) * 0.4 - 1.4) * 16;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), f)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(Math.SQRT1_2, 0, Math.SQRT1_2), 60 * D));
+    if (P.outer_glass) { P.outer_glass.g.position.y = P.outer_glass.p.y - (bob / 2) * MPX; P.outer_glass.g.quaternion.copy(q); }
+    if (P.inner_glass) P.inner_glass.g.quaternion.copy(q);
+    if (P.cube) P.cube.g.quaternion.copy(q);
   } else if (kind === "slime" || kind === "magma_cube") {
     // Slime.tick: landing squashes it (targetSquish -0.5), jumping stretches it (1); squish follows half way a tick
     // and the target fades (x 0.6; magma cubes 0.9); SlimeRenderer: across x 1 / (squish / (size / 2 + 1) + 1)
@@ -1895,7 +2022,7 @@ const PROJ = { egg: "egg", snowball: "snowball", ender_pearl: "ender_pearl", arr
   trident: "trident", experience_bottle: "experience_bottle", splash_potion: "splash_potion", lingering_potion: "lingering_potion",
   potion: "splash_potion", fireball: "fire_charge", small_fireball: "fire_charge", wind_charge: "wind_charge",
   breeze_wind_charge: "wind_charge", firework_rocket: "firework_rocket", eye_of_ender: "ender_eye", dragon_fireball: "",
-  wither_skull: "", llama_spit: "", shulker_bullet: "", fishing_bobber: "" };
+  wither_skull: "", llama_spit: "", shulker_bullet: "", fishing_bobber: "" };   // (a bobber: its hook and line, see bobberStep)
 const PROJ_PHYS = { arrow: [0.05, 0.99, 60], spectral_arrow: [0.05, 0.99, 60], trident: [0.05, 0.99, 60],
   splash_potion: [0.05, 0.99], lingering_potion: [0.05, 0.99], potion: [0.05, 0.99], experience_bottle: [0.07, 0.99],
   fireball: [0, 1], small_fireball: [0, 1], wind_charge: [0, 1], breeze_wind_charge: [0, 1], firework_rocket: [-0.04, 1, 40] };
@@ -6652,6 +6779,14 @@ function ambGameTick() {
     }
     if (q.drip && q.hang > 0) { q.hang--; if (q.hang <= 0) { q.frames = q.fall; q.cell = q.fall[0]; } keep.push(q); continue; }
     if (q.lava && R() > q.age / q.life) ambSmoke(q.x, q.y, q.z, q.vx, q.vy, q.vz);
+    if (q.spark) {                                       // SparkParticle: past half its life, fading to its fade colour
+      if (q.age > q.life / 2) { q.col[3] = 1 - (q.age - q.life / 2) / q.life;
+        if (q.fade != null) { const fc = [((q.fade >> 16) & 255) / 255, ((q.fade >> 8) & 255) / 255, (q.fade & 255) / 255];
+          for (let c = 0; c < 3; c++) q.col[c] += (fc[c] - q.col[c]) * 0.2; } }
+      if (q.trail && q.age < q.life / 2 && (q.age + q.life) % 2 === 0)
+        ambAdd({ x: q.x, y: q.y, z: q.z, vx: 0, vy: 0, vz: 0, g: 0.004, fr: 0.91, life: Math.floor(q.life / 2), size: q.size,
+          col: q.col.slice(), fade: q.fade, bright: true, frames: q.frames, spark: true });
+    }
     q.vy -= q.g; q.x += q.vx; q.y += q.vy; q.z += q.vz;
     q.vx *= q.fr; q.vy *= q.fr; q.vz *= q.fr;
     if (q.y < q.floor) {                                 // on the ground
@@ -6672,7 +6807,7 @@ function ambStep(now) {
     ambAtlas(); }
   const on = REAL.tiles.size > 0 && $("#dim").value !== undefined;
   if (!on || AMB.lastT === null || T < AMB.lastT || T - AMB.lastT > 3000) { AMB.ps = []; AMB.acc = 0; }
-  else { AMB.acc += (T - AMB.lastT) / 50; if (T > AMB.lastT) ambEntityEvents(AMB.lastT, T); }
+  else { AMB.acc += (T - AMB.lastT) / 50; if (T > AMB.lastT) { ambEntityEvents(AMB.lastT, T); fireworkBursts(AMB.lastT, T); } }
   if (on) ambBiome(now);
   AMB.lastT = T;
   if (on) {
@@ -6693,7 +6828,9 @@ function ambStep(now) {
     S[k] = size;
     const L = q.bright ? 1 : day;
     C[k * 4] = q.col[0] * L; C[k * 4 + 1] = q.col[1] * L; C[k * 4 + 2] = q.col[2] * L;
-    C[k * 4 + 3] = q.fade && a > 0.5 ? q.col[3] * (1 - (a - 0.5) * 2) : q.col[3];
+    C[k * 4 + 3] = q.fade === true && a > 0.5 ? q.col[3] * (1 - (a - 0.5) * 2) : q.col[3];
+    if (q.twinkle && q.age >= q.life / 3 && Math.floor((q.age + q.life) / 3) % 2 === 1) C[k * 4 + 3] = 0;   // twinkling
+    if (q.flash) S[k] = q.size * Math.sin((q.age + f) / q.life * Math.PI) * 0.5;   // the flash swells and goes
     K[k] = q.anim && q.frames.length > 1 ? q.frames[Math.min(q.frames.length - 1, Math.floor(a * q.frames.length))] : q.cell;
     k++;
   }
@@ -7115,6 +7252,7 @@ function frame(now) {
   liveMapStep(now);                                    // maps as they were at the time
   animateAtlases(Math.floor(performance.now() / 50));  // water, lava, fire, portals... moving (the game's client ticks)
   breakStep(now);                                      // mining cracks, blocks breaking
+  boltStep(); bobberStep();                            // lightning; fishing lines
   ambStep(now);                                        // particles the player's game makes up (torches, smoke, rain...)
   gfxStep(now);
   renderer.render(scene, camera);

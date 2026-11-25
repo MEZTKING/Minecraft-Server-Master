@@ -114,7 +114,7 @@ SKIP_ENTITIES = {"item", "arrow", "spectral_arrow", "trident", "snowball", "egg"
                  "area_effect_cloud", "marker", "interaction", "lightning_bolt", "firework_rocket",
                  "eye_of_ender", "fireball", "small_fireball", "dragon_fireball", "wither_skull", "shulker_bullet",
                  "llama_spit", "evoker_fangs", "wind_charge", "breeze_wind_charge", "leash_knot", "painting",
-                 "item_frame", "glow_item_frame", "ominous_item_spawner", "end_crystal"}
+                 "item_frame", "glow_item_frame", "ominous_item_spawner"}
 # things thrown or shot, followed every tick of their short flight (and shown as their item): entity -> item
 PROJECTILES = {"egg": "egg", "snowball": "snowball", "ender_pearl": "ender_pearl", "arrow": "arrow",
                "spectral_arrow": "spectral_arrow", "trident": "trident", "experience_bottle": "experience_bottle",
@@ -717,6 +717,24 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
             d, k = _varint(b, k)
             out.append([pat.split(":")[-1], DYES[d % 16]])
         return k, out
+    if name in ("fireworks", "firework_explosion"):     # a rocket's (or a star's) explosions: shape, colours...
+        if name == "fireworks":
+            _flight, k = _varint(b, k)
+            n, k = _varint(b, k)
+        else:
+            n = 1
+        out = []
+        for _ in range(min(n, 32)):
+            shape, k = _varint(b, k)
+            cols = []
+            for _l in range(2):                         # colours, then the colours they fade to
+                m, k = _varint(b, k)
+                cols.append([struct.unpack_from(">i", b, k + 4 * j)[0] & 0xFFFFFF for j in range(min(m, 64))])
+                k += 4 * m
+            trail, twinkle = bool(b[k]), bool(b[k + 1])
+            k += 2
+            out.append([shape, cols[0], cols[1], trail, twinkle])
+        return k, ("fw", out)
     if name == "enchantment_glint_override":
         return k + 1, ("glint", bool(b[k]))
     if name in ("dyed_color", "map_color"):
@@ -811,6 +829,8 @@ def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
                 look = {**(look or {}), "glint": val[1]}
             elif isinstance(val, tuple) and val[0] == "map":
                 look = {**(look or {}), "map": val[1]}
+            elif isinstance(val, tuple) and val[0] == "fw":
+                look = {**(look or {}), "fw": val[1]}
             elif isinstance(val, tuple) and val[0] == "trim" and val[1]:
                 look = {**(look or {}), "trim": val[1]}          # [material, pattern]
         for _ in range(rem):
@@ -1027,6 +1047,17 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     hangs[eid] = f"#{kinds_of[eid]}#{eid}"
                                     extras["events"].append([tick, hangs[eid], "hg", [kinds_of[eid], round(hx, 4), round(hy, 4),
                                                                                        round(hz, 4), facing]])
+                                if kinds_of[eid] == "lightning_bolt" and _k + 24 <= i + size:   # a strike (seen from afar)
+                                    lx, ly, lz = _XYZ.unpack_from(b, _k)
+                                    extras["events"].append([tick, None, "lb", [round(lx, 2), round(ly, 2), round(lz, 2)]])
+                                if kinds_of[eid] == "fishing_bobber" and _k + 24 <= i + size:   # whose line it is (the data field)
+                                    try:
+                                        kv = lp_vec3(b, _k + 24)[1] + 3 if proto is None or proto >= 773 else _k + 27
+                                        owner = _varint(b, kv)[0]
+                                        extras["events"].append([tick, f"#fishing_bobber#{eid}", "fo",
+                                                                 None if owner == me else others.get(owner)])
+                                    except (IndexError, struct.error):
+                                        pass
                                 if kinds_of[eid] == "leash_knot" and _k + 24 <= i + size:
                                     knots[eid] = tuple(round(v, 3) for v in struct.unpack_from(">ddd", b, _k))
                             if not name and extras is not None and eid != me:
@@ -1101,6 +1132,11 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                         anim = mob_anim(mk, md, new_ids, block_names, tbl)
                                     for ev in anim or []:
                                         extras["events"].append([tick, who] + ev)
+                                    if mk == "firework_rocket":   # what it will burst into (its item, index 8)
+                                        fd = entity_data_all(b, k, i + size, True, items_of, comps_of)
+                                        st = fd.get(8, (None, None))
+                                        if st[0] == SER_ITEM_STACK and st[1] and len(st[1]) > 4 and (st[1][4] or {}).get("fw"):
+                                            extras["events"].append([tick, who, "fwx", st[1][4]["fw"]])
                                     if mk == "bee":            # bees' flags (0x08 carrying nectar; 0x04 has stung)
                                         bf = md.get(18 if new_ids else 17)
                                         if bf and bf[0] == SER_BYTE:
@@ -1149,6 +1185,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 extras["events"].append([tick, None if eid == me else others[eid], "totem", 1])
                             elif b[k + 4] in ENTITY_FX and eid in others and others[eid].startswith("#"):
                                 extras["events"].append([tick, others[eid], "ee", b[k + 4]])   # hearts, poofs...
+                            elif b[k + 4] == 17 and eid in others and others[eid].startswith("#firework_rocket#"):
+                                c0 = cur.get(eid) or {}                 # a firework bursting: where (seen from afar too)
+                                extras["events"].append([tick, others[eid], "fwb", [round(c0.get("x", 0), 2), round(c0.get("y", 0), 2),
+                                                                                     round(c0.get("z", 0), 2)]])
                         elif pid == attr_id and size >= 4:   # attributes: the scale one (a bigger or smaller player or mob)
                             sc = scale_of(bytes(b[k:i + size]), tbl["attributes"])
                             if sc and (sc[0] == me or sc[0] in others):
@@ -1570,7 +1610,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact35.json.gz"    # 35: shulkers ("sha" face, "spk" peek, "sco" dye); 34: mobs' moves ("cs", "cp", "eb", "ec", "gc", "wi", "hf"; "ee" 4 / 8 / 11 / 34); 33: experience ("xp" [bar, level, total]), effects ("eff" [[name, amplifier, duration ticks (-1 for ever), flags, from tick], ...]); 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact36.json.gz"    # 36: lightning ("lb"), fireworks ("fwx" explosions, "fwb" bursts), bobbers' owners ("fo"), end crystals followed; 35: shulkers ("sha" face, "spk" peek, "sco" dye); 34: mobs' moves ("cs", "cp", "eb", "ec", "gc", "wi", "hf"; "ee" 4 / 8 / 11 / 34); 33: experience ("xp" [bar, level, total]), effects ("eff" [[name, amplifier, duration ticks (-1 for ever), flags, from tick], ...]); 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

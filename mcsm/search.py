@@ -21,7 +21,7 @@ import os
 import re
 
 # kinds whose value starts with x, y, z (a line for them takes the camera to the place)
-POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc"}
+POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc", "lb", "fwb"}
 # event kinds not worth a line: they change many times a second (flags, swings, the held slot, health, hand use,
 # boats' paddles, arrows in the ground, mining stages) or say nothing on their own (left view)
 NOISY = {"f", "s", "hs", "hp", "h", "pl", "pr", "ig", "asp", "gone", "mc", "ar", "air", "fz"}
@@ -111,6 +111,14 @@ def event_text(kind: str, value, lang: dict | None = None) -> str | None:
         return f"experience level {value[1]} ({value[2]} points)"
     if kind == "eff" and isinstance(value, list):
         return "effects: " + (", ".join(f"{e[0].replace('_', ' ')} {e[1] + 1}" for e in value) or "none")
+    if kind == "lb":
+        return "lightning struck at " + " ".join(str(round(v)) for v in value)
+    if kind == "fwb":
+        return "firework burst at " + " ".join(str(round(v)) for v in value)
+    if kind == "fwx":
+        return f"firework with {len(value)} explosion(s)"
+    if kind == "fo":
+        return f"fishing line of {value}" if value else "fishing line"
     if kind == "cs":
         return "swelling (about to explode)" if value == 1 else "calming down"
     if kind == "cp":

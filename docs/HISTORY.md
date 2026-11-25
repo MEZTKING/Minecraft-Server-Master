@@ -346,6 +346,12 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**Lightning, fireworks, fishing.** Lightning strikes the recordings saw (even far off) come down as the game's
+jagged bolt from high in the sky, flicker a few times and light up the sky. Fireworks burst where they burst, in the
+rocket's own colours and shapes (small or large balls, bursts; stars and creeper faces as balls), fading to their fade
+colours, trailing and twinkling as the rocket was made to. A fishing bobber shows its hook, with the line from the
+rod in its owner's hand, sagging as in the game. End crystals tumble and bob in their glass cubes.
+
 Mobs make their own particles too: blazes trail smoke and endermen and endermites trail purple specks, all the time;
 bees carrying nectar now and then drip a drop; glow squids give off glowing specks. A sheep eating grass lowers its
 head to the ground and nibbles for two seconds, as in the game (the recordings keep when it starts).
