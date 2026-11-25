@@ -4867,6 +4867,60 @@ async function blockPicture(name) {                      // the block's own pict
   }
   return itemTexture(name);
 }
+// level events with particles ("le" [x, y, z, event, data]): the game's particle picture (as the jar's
+// particles/<name>.json names it), how many, colour, how they
+// move (spread, rise or fall a tick) and how long they last (ticks)
+const LEVEL_FX_LOOK = {
+  1500: { tex: "glint", n: 10, rise: 0.01, spread: 0.4, life: 30, when: d => d > 0 },   // composter filled
+  1505: { tex: "glint", n: 15, rise: 0.01, spread: 0.5, life: 30 },                      // bone meal
+  1009: { tex: "generic_4", n: 8, rise: 0.04, spread: 0.3, life: 20, col: 0x9a9a9a },              // fire put out
+  1501: { tex: "generic_4", n: 8, rise: 0.05, spread: 0.3, life: 20, col: 0x6a6a6a },              // lava fizzing
+  1502: { tex: "generic_4", n: 5, rise: 0.04, spread: 0.2, life: 20, col: 0x5a5a5a },              // torch burnt out
+  2000: { tex: "generic_4", n: 9, rise: 0.03, spread: 0.3, life: 20, col: 0x5a5a5a },              // dispenser smoke
+  2010: { tex: "generic_4", n: 9, rise: 0.03, spread: 0.3, life: 20, col: 0xffffff },
+  2009: { tex: "generic_4", n: 8, rise: 0.06, spread: 0.4, life: 20, col: 0xffffff },              // water steaming
+  2004: { tex: "flame", n: 20, rise: 0.02, spread: 0.5, life: 20 },                                // spawner
+  2002: { tex: "effect_4", n: 30, rise: 0.0, spread: 0.9, life: 25, potion: true },                // potion splash
+  2007: { tex: "effect_4", n: 30, rise: 0.0, spread: 0.9, life: 25, potion: true },
+  2006: { tex: "effect_4", n: 30, rise: 0.0, spread: 1.2, life: 25, col: 0xb25ff0 },               // dragon's breath
+  2003: { tex: "effect_4", n: 20, rise: 0.02, spread: 0.6, life: 25, col: 0xc040ff },              // eye of ender gone
+  3003: { tex: "glow", n: 10, rise: 0.0, spread: 0.6, life: 20, col: 0xe88c14 },                  // wax on
+  3004: { tex: "glow", n: 10, rise: 0.0, spread: 0.6, life: 20, col: 0xffffff },                  // wax off
+  3005: { tex: "glow", n: 10, rise: 0.0, spread: 0.6, life: 20, col: 0x4a9482 },                  // scraped
+};
+const FX_MAT = new Map();
+function fxMat(tex, col) {
+  const k = tex + "|" + col;
+  if (!FX_MAT.has(k)) {
+    const m = new THREE.SpriteMaterial({ color: col, transparent: true, alphaTest: 0.1, depthWrite: false });
+    texOnce(`particle/${tex}`).then(t => { if (t) { m.map = t; m.needsUpdate = true; } });
+    FX_MAT.set(k, m);
+  }
+  return FX_MAT.get(k);
+}
+function levelFxStep(want) {
+  if (!EXACT.on) return;
+  for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.le || []) {
+    const L = LEVEL_FX_LOOK[v[3]];
+    if (!L || t > T || T - t > L.life * 50 || (L.when && !L.when(v[4]))) continue;
+    const key = `fx|${Math.round(t / 100)}|${v[0]},${v[1]},${v[2]}|${v[3]}`; want.add(key);
+    if (BREAK.seen.has(key)) continue;
+    BREAK.seen.add(key);
+    const col = L.potion ? (v[4] & 0xffffff) : (L.col ?? 0xffffff);
+    const g = new THREE.Group(); g.userData = { key, t, bits: [], fx: L }; BREAK.group.add(g); BREAK.parts.push(g);
+    let h = (v[0] * 73856093) ^ (v[1] * 19349663) ^ (v[2] * 83492791) ^ v[3];
+    const rnd = () => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) & 0xffff) / 0xffff; };
+    const mat = fxMat(L.tex, col);
+    for (let i = 0; i < L.n; i++) {
+      const sp = new THREE.Sprite(mat), size = 0.1 + rnd() * 0.12; sp.scale.set(size, size, 1);
+      const a = rnd() * Math.PI * 2, r = rnd() * L.spread;
+      sp.userData = { p: [v[0] + 0.5 + Math.cos(a) * r * 0.5, v[1] + 0.5 + rnd() * 0.6, v[2] + 0.5 + Math.sin(a) * r * 0.5],
+        v: [Math.cos(a) * r * 0.06, L.rise + rnd() * 0.02, Math.sin(a) * r * 0.06], life: Math.floor(L.life * (0.6 + rnd() * 0.4)),
+        gravity: L.rise ? 0 : 0.004 };
+      g.add(sp); g.userData.bits.push(sp);
+    }
+  }
+}
 function breakStep(now) {
   if (now - BREAK.last < 33) return; BREAK.last = now;
   const cracks = new Map(), bursts = [];
@@ -4887,6 +4941,7 @@ function breakStep(now) {
   }
   // bursts: built once per break (the same one seen by several recordings: once), flown by the game's physics
   const want = new Set();
+  levelFxStep(want);
   for (const [t, v] of bursts) {
     const key = `${Math.round(t / 100)}|${v[0]},${v[1]},${v[2]}`; want.add(key);
     if (BREAK.seen.has(key)) continue;
@@ -4913,7 +4968,7 @@ function breakStep(now) {
   }
   for (const g of BREAK.parts.slice()) {
     const age = (T - g.userData.t) / 50;
-    if (!want.has(g.userData.key) || age < 0 || age > 25) {
+    if (!want.has(g.userData.key) || age < 0 || age > (g.userData.fx ? g.userData.fx.life : 25)) {
       BREAK.group.remove(g); g.traverse(o => o.isMesh && o.geometry.dispose());
       BREAK.parts.splice(BREAK.parts.indexOf(g), 1); BREAK.seen.delete(g.userData.key); continue;
     }
@@ -4921,8 +4976,9 @@ function breakStep(now) {
       const d = q.userData; q.visible = age < d.life;
       if (!q.visible) continue;
       let [x, y, z] = d.p, [vx, vy, vz] = d.v;
-      for (let n = 0; n < Math.floor(age); n++) { x += vx; y += vy; z += vz; vy -= 0.04; vx *= 0.98; vy *= 0.98; vz *= 0.98; }
-      q.position.set(x, y, z); q.quaternion.copy(camera.quaternion);
+      const gr = d.gravity ?? 0.04;
+      for (let n = 0; n < Math.floor(age); n++) { x += vx; y += vy; z += vz; vy -= gr; vx *= 0.98; vy *= 0.98; vz *= 0.98; }
+      q.position.set(x, y, z); if (!q.isSprite) q.quaternion.copy(camera.quaternion);
     }
   }
 }

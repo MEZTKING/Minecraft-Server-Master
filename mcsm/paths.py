@@ -219,6 +219,11 @@ def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | No
 
 
 HANGING = {"painting", "item_frame", "glow_item_frame"}
+# level events the game shows with particles (LevelEvent): bone meal 1505, composter 1500, lava fizz 1501, torch
+# burnt out 1502, eye in a portal frame 1503, smoke 2000 / 2010, potion splash 2002 / 2007 (data: colour), ender eye
+# breaking 2003, spawner 2004, dragon breath 2006, explosion 2008, steam 2009, wax on / off 3003 / 3004, scrape 3005,
+# trial spawner 3011 / 3012 / 3013 ... (None: every one, for looking)
+LEVEL_FX = {1009, 1500, 1501, 1502, 1503, 1505, 2000, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 3003, 3004, 3005}
 # Mobs that can be babies (index 16, a boolean: ageable animals and villagers, the zombie family)
 BABY_KINDS = {"cow", "mooshroom", "pig", "sheep", "chicken", "horse", "donkey", "mule", "llama", "trader_llama",
               "skeleton_horse", "zombie_horse", "camel", "villager", "wolf", "cat", "ocelot", "fox", "rabbit", "panda",
@@ -848,6 +853,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 if nm:
                                     extras["events"].append([tick, None, "bb", list(block_pos(struct.unpack_from(">q", b, k + 4)[0]))
                                                              + [nm.split("[")[0].replace("minecraft:", "")]])
+                            elif LEVEL_FX is None or ev in LEVEL_FX:   # other effects the game shows with particles
+                                from .moment import block_pos
+                                extras["events"].append([tick, None, "le", list(block_pos(struct.unpack_from(">q", b, k + 4)[0]))
+                                                         + [ev, struct.unpack_from(">i", b, k + 12)[0]]])
                         elif pid == bed_id and size >= 12:    # a block entity's data: a sign's text written
                             sg = sign_written(bytes(b[k:i + size]))
                             if sg:
@@ -1128,7 +1137,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact17.json.gz"    # 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact18.json.gz"    # 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

@@ -322,7 +322,10 @@ game does it, red all the while, and is gone a second later.
 
 **Mining and breaking.** In close-up playback, a block someone is mining shows the game's cracks growing on it,
 and a block broken (by anyone the recordings saw) bursts into small bits of its own picture that fly out and fall,
-as in the game.
+as in the game. Other effects the recordings keep show with the game's particles too: composters filling and bone
+meal (green sparkles), potions splashing (in the potion's colour), fires put out, lava fizzing, smoke from
+dispensers, spawners, wax put on or scraped off copper. Other particles (smoke from campfires, splashes, potion
+swirls round players) aren't in the recordings, so they can't be shown.
 
 **Leads.** Animals on a lead are tied as the recordings saw them: a rope sagging like the game's from the animal
 to the player holding it, to a fence knot, or to a wandering trader leading his llamas.
