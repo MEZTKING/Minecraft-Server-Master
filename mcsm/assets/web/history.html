@@ -1596,6 +1596,9 @@ async function buildMob(o, label, kind) {
   }
   let s = (L.scale || 1) * (look.size != null ? Math.max(1, look.size) : (MOB_SCALE[kind] || 1));
   if (look.baby && !baby) s *= 0.5;                    // no baby model: the grown one at half size
+  if (/_(boat|raft)$/.test(kind)) {                    // BoatRenderer: the model 0.375 up (not 1.5 like a mob's) and turned
+    inner.position.y = 0.375 / s; inner.rotation.y = -Math.PI / 2;   // a quarter (its length along x)
+  }
   const model = new THREE.Group(); model.add(inner); model.scale.setScalar(s);
   if (o.model) o.mesh.remove(o.model);
   if (kind === "armor_stand") {                         // arms only when shown (0x04); the base plate unless hidden (0x08)
@@ -1758,6 +1761,27 @@ function petSit(o, label, kind) {
     if (v.xr !== undefined) q.g.rotation.x = v.xr;
   }
 }
+// a boat's paddles: while one is rowing its phase moves pi/8 a tick, and the game turns it between -60 and -15
+// degrees (up and down) and -45 to 45 (back and forth); still, it stays where it stopped
+function boatPaddles(o, label) {
+  if (!o.parts) return;
+  for (const [side, key] of [["left_paddle", "pl"], ["right_paddle", "pr"]]) {
+    const q = o.parts[side]; if (!q) continue;
+    const f = EXACT.ev[label] && EXACT.ev[label][key];
+    let phase = 0;
+    if (f && f.length) {                                 // rowing time so far: the spans it was on, up to T
+      let on = null, total = 0;
+      for (const [t, v] of f) { if (t > T) break; if (v && on === null) on = t; else if (!v && on !== null) { total += t - on; on = null; } }
+      if (on !== null) total += T - on;
+      phase = total / 50 * Math.PI / 8;
+    }
+    const lerp = (a, b, x) => a + (b - a) * Math.max(0, Math.min(1, x));
+    const xr = lerp(-Math.PI / 3, -0.2617994, (Math.sin(-phase) + 1) / 2);
+    let yr = lerp(-Math.PI / 4, Math.PI / 4, (Math.sin(-phase + 1) + 1) / 2);
+    if (side === "right_paddle") yr = Math.PI - yr;
+    q.g.rotation.set(xr, -yr, -0.19634955, "ZYX");
+  }
+}
 function standPose(o, label) {                           // an armour stand's head, body, arms and legs as set
   if (!o.parts) return;
   const poses = stateAt(label, "asp", T, null) || {}, D = Math.PI / 180;
@@ -1874,6 +1898,7 @@ function updateMobs() {
         continue;
       }
       if (mob.type === "armor_stand") standPose(o, label); else animateMob(o, label, speed);
+      if (/_(boat|raft)$/.test(mob.type)) boatPaddles(o, label);
       if (mob.type === "cat" || mob.type === "wolf") petSit(o, label, mob.type);
       mobNameTag(o, label);
       const hp = o.parts && o.parts.head;                    // the head turned and tilted as recorded
