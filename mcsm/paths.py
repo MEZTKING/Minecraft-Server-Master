@@ -144,7 +144,8 @@ def _varlong(b, i: int) -> tuple[int, int]:
 SER_BYTE, SER_VARINT, SER_VARLONG, SER_FLOAT, SER_BOOL, SER_OPT_BLOCK_POS = 0, 1, 2, 3, 8, 11
 
 
-def entity_data_all(b, k: int, end: int, holders: bool = False) -> dict[int, tuple[int, object]]:
+def entity_data_all(b, k: int, end: int, holders: bool = False, items: list | None = None,
+                    comps: list | None = None) -> dict[int, tuple[int, object]]:
     """``{index: (serializer, value)}`` for every entry of an entity-data packet body we can read past (from *k*,
     after the entity id): bytes, VarInts, floats and booleans with their value, a text component (a mob's name)
     as its text, the rest None. Stops at the first unknown kind; with *holders* (mobs whose only unknown kinds are
@@ -194,6 +195,9 @@ def entity_data_all(b, k: int, end: int, holders: bool = False) -> dict[int, tup
         elif ser == 10:                                   # a block position
             k += 8
             out[idx] = (ser, None)
+        elif ser == SER_ITEM_STACK and items is not None:  # an item (an item frame's)
+            st, k = item_stack(b, k, items, comps or [])
+            out[idx] = (ser, st)
         elif ser in (12, 14, 15, 19, 20):                 # direction, block state, optional ones, pose: a VarInt
             v, k = _varint(b, k)
             out[idx] = (ser, v)
@@ -214,6 +218,7 @@ def entity_data_all(b, k: int, end: int, holders: bool = False) -> dict[int, tup
     return out
 
 
+HANGING = {"painting", "item_frame", "glow_item_frame"}
 # Mobs that can be babies (index 16, a boolean: ageable animals and villagers, the zombie family)
 BABY_KINDS = {"cow", "mooshroom", "pig", "sheep", "chicken", "horse", "donkey", "mule", "llama", "trader_llama",
               "skeleton_horse", "zombie_horse", "camel", "villager", "wolf", "cat", "ocelot", "fox", "rabbit", "panda",
@@ -610,6 +615,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         link_id = pk.get("set_entity_link") if ex_on else None    # i32 tied entity, i32 holder (0: let go)
         bed_id = pk.get("block_entity_data") if ex_on else None   # block pos, type, NBT (signs' text)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
+        hangs: dict[int, str] = {}                                # paintings and item frames in view
         new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
@@ -690,6 +696,16 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if extras is not None and eid != me:
                                 t_id, _k = _varint(b, k + 16)
                                 kinds_of[eid] = types[t_id] if 0 <= t_id < len(types) else ""
+                                if kinds_of[eid] in HANGING and _k + 24 <= i + size:   # a painting or item frame
+                                    hx, hy, hz = _XYZ.unpack_from(b, _k)
+                                    try:
+                                        kv = lp_vec3(b, _k + 24)[1] + 3 if proto is None or proto >= 773 else _k + 27
+                                        facing = _varint(b, kv)[0] % 6
+                                    except (IndexError, struct.error):
+                                        facing = 3
+                                    hangs[eid] = f"#{kinds_of[eid]}#{eid}"
+                                    extras["events"].append([tick, hangs[eid], "hg", [kinds_of[eid], round(hx, 4), round(hy, 4),
+                                                                                       round(hz, 4), facing]])
                                 if kinds_of[eid] == "leash_knot" and _k + 24 <= i + size:
                                     knots[eid] = tuple(round(v, 3) for v in struct.unpack_from(">ddd", b, _k))
                             if not name and extras is not None and eid != me:
@@ -713,7 +729,28 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 last_move[eid] = tick
                         elif pid == data_id and size > 4:     # entity id, then (index, serializer, value)...
                             eid, k = _varint(b, k)
-                            if eid in others and others[eid].startswith("#item#"):
+                            if eid in hangs:                  # a painting's picture; an item frame's item and turn
+                                # (26.x: the facing first, index 8; then the picture, or the item and its turn)
+                                hd = entity_data_all(b, k, i + size, True, items_of, comps_of)
+                                if hangs[eid].startswith("#painting#"):
+                                    names = REGISTRIES.get("painting_variant") or []
+                                    for idx in sorted(hd):
+                                        v = hd[idx][1]
+                                        if idx >= 8 and isinstance(v, tuple) and v[0] == "?":
+                                            # (a holder that may be written out in full: id + 1, 0 = inline)
+                                            if 1 <= v[1] <= len(names):
+                                                extras["events"].append([tick, hangs[eid], "hv", names[v[1] - 1].split(":", 1)[-1]])
+                                            break
+                                else:
+                                    it = next((i2 for i2 in sorted(hd) if hd[i2][0] == SER_ITEM_STACK), None)
+                                    rot = hd.get(it + 1, (None, None)) if it is not None else (None, None)
+                                    if it is not None:
+                                        extras["events"].append([tick, hangs[eid], "hi", [(hd[it][1] or [""])[0],
+                                                                 rot[1] if rot[0] == SER_VARINT else 0]])
+                                    elif any(hd[i2][0] == SER_VARINT for i2 in hd if i2 >= 9):   # only turned
+                                        r2 = next(hd[i2][1] for i2 in sorted(hd) if i2 >= 9 and hd[i2][0] == SER_VARINT)
+                                        extras["events"].append([tick, hangs[eid], "hi", [None, r2]])
+                            elif eid in others and others[eid].startswith("#item#"):
                                 it = dropped_item(b, k, i + size, items_of, comps_of)
                                 if it:
                                     extras["events"].append([tick, others[eid], "it", it])   # which item
@@ -824,6 +861,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             n, k = _varint(b, k)
                             for _ in range(min(n, 10_000)):
                                 eid, k = _varint(b, k)
+                                if eid in hangs:              # out of sight or taken down
+                                    extras["events"].append([tick, hangs.pop(eid), "hgx", 1])
                                 for who in riders.pop(eid, ()) if extras is not None else ():
                                     extras["events"].append([tick, who, "r", ""])   # the vehicle went away
                                 if eid in others:
@@ -1068,7 +1107,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact15.json.gz"    # 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact16.json.gz"    # 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

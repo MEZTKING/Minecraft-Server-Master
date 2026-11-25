@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-24 (parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1003,7 +1003,17 @@ recording from `block_entity_data` (`paths.sign_written`: network NBT, the same 
 backup's text from then on (`EXACT_SUFFIX` `.exact15`). Checked: a happy ghast tied to a fence knot (17 March 01:21,
 Vakirath). Probed 14 recordings: many leads, no sign edits (a test covers those).
 
-Still different (worst first): pistons, copper golems; sign text written during a recording (the
+**Round 11 (2026-11-25, owner: "go").** Paintings and item frames from the recordings: add_entity gives the kind,
+the block they hang on and the facing (the data field); 26.x entity data has the facing at 8, then a painting's
+picture (a holder written out in full or by id + 1) or a frame's item (an item stack) and its turn. Events "hg"
+(put up / in view), "hgx" (taken down / out of view), "hv" (picture), "hi" (item, turn), kept as states
+(`EXACT_SUFFIX` `.exact16`). The viewer works out a painting's centre from its block and size as the game does,
+draws them while in view, and hides the backup's where the recording has one or a recorded player is within 40
+blocks and the recording has none. Checked: MEZTKING's 18 November 18:10 recording near 186, 170, -771: the same
+paintings and frames as the backup (Prairie Ride, Sunset, Graham; the clock, the stew), centres exact. Copper golems
+weren't near any of the ten recordings tried (left).
+
+Still different (worst first): pistons moving, copper golems (their weathering) and their statues; sign text written during a recording (the
 backup's is shown); eating and drinking (the game's arm bob in
 first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
 action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
@@ -1726,6 +1736,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 11**: a painting or item frame put up, taken down or changed during a recording should change at
+  that moment in close-up playback.
 - **Parity round 10**: leads (e.g. the happy ghast tied at 4764, 96, 411 on 17 March 01:21 UTC; wandering traders'
   llamas on 4 July around 20:12 with MEZTKING); a sign written during a recording.
 - **Parity round 9**: paintings and item frames (e.g. near 186, 170, -771: "Prairie Ride", "Sunset", a framed
@@ -1907,6 +1919,9 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "go". Parity round 11 (backlog 0zh): paintings and item frames as the recordings saw them
+  (put up, taken down, changed), over the backup's. Tests: `test_frame_item_in_entity_data`.
 
 - **2026-11-24:** Owner: "Yes, next batch". Parity round 10 (backlog 0zh): leads drawn from the recordings, and sign
   text written during a recording. Tests: `test_sign_written_packet`.

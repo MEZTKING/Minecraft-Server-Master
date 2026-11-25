@@ -3951,6 +3951,15 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_frame_item_in_entity_data(self):
+        """An item frame's entity data (26.x): facing (8, a direction), the item (9, an item stack) and its turn (10)."""
+        from mcsm import paths
+        body = bytes([8, 12, 4, 9, 7, 1, 3, 0, 0, 10, 1, 5, 0xFF])
+        d = paths.entity_data_all(body, 0, len(body), True, ["air", "stone", "dirt", "clock"], [])
+        self.assertEqual(d[8], (12, 4))
+        self.assertEqual(d[9][1][0], "clock")
+        self.assertEqual(d[10], (paths.SER_VARINT, 5))
+
     def test_sign_written_packet(self):
         """A block_entity_data packet with a sign's text (network NBT: no root name) gives its place and lines;
         other block entities give nothing."""

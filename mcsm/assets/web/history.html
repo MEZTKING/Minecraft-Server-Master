@@ -4653,9 +4653,15 @@ function hangTex(url) { if (!HANG_TEX.has(url)) HANG_TEX.set(url, texLoad(url));
 function paintingMesh(pt) {
   const g = new THREE.Group(), n = new THREE.Vector3(...N2D[pt.facing]);
   g.position.set(pt.x, pt.y, pt.z); g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  g.userData.hang = { x: pt.x, y: pt.y, z: pt.z };
   Promise.all([hangTex(`blocktex/0/painting/${pt.variant}.png`), hangTex("blocktex/0/painting/back.png")]).then(([t, back]) => {
     if (!t) return;
     const w = t.image.width / 16, h = t.image.height / 16;
+    if (pt.block) {                                     // (recordings: its block) the game's centre: back against the
+      const ccw = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]][pt.facing];   // wall, shifted half a block if even
+      g.position.set(pt.x + 0.5 - n.x * 0.46875 + ccw[0] * (w % 2 ? 0 : 0.5), pt.y + 0.5 + (h % 2 ? 0 : 0.5),
+        pt.z + 0.5 - n.z * 0.46875 + ccw[2] * (w % 2 ? 0 : 0.5));
+    }
     const bm = new THREE.MeshLambertMaterial({ map: back || null, color: back ? 0xffffff : 0x8a6a40 });
     const mats = [bm, bm, bm, bm, new THREE.MeshLambertMaterial({ map: t }), bm];   // +x -x +y -y front(+z) back
     g.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, 1 / 16), mats));
@@ -4665,6 +4671,8 @@ function paintingMesh(pt) {
 function frameMesh(f) {
   const g = new THREE.Group(), n = new THREE.Vector3(...N3D[f.facing]);
   g.position.set(f.x, f.y, f.z);
+  if (f.block) g.position.set(f.x + 0.5 - n.x * 0.46875, f.y + 0.5 - n.y * 0.46875, f.z + 0.5 - n.z * 0.46875);
+  g.userData.hang = { x: g.position.x, y: g.position.y, z: g.position.z };
   if (Math.abs(n.y) > 0.5) g.rotation.x = n.y > 0 ? -Math.PI / 2 : Math.PI / 2;
   else g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
   if (!f.invisible) Promise.all([hangTex(`blocktex/0/block/${f.glow ? "glow_item_frame" : "item_frame"}.png`), hangTex("blocktex/0/block/birch_planks.png")])
@@ -4687,7 +4695,49 @@ function frameMesh(f) {
   });
   return g;
 }
+// what the recordings saw (close-up playback): paintings and frames in view ("hg" put there / came into view, "hgx"
+// taken down / out of view, "hv" picture, "hi" item and turn). Those replace the backup's at the same place, and a
+// backup one near a recorded player that the recording doesn't have was taken down: hidden.
+const HANG_REC = { shown: new Map(), last: 0, group: new THREE.Group() };
+scene.add(HANG_REC.group);
+const lastAt = (name, kind) => { const f = EXACT.ev[name] && EXACT.ev[name][kind]; if (!f) return null;
+  const i = lower(f, T, r => r[0]); return i ? f[i - 1] : null; };
+function hangRecStep(now) {
+  if (now - HANG_REC.last < 400) return; HANG_REC.last = now;
+  const want = new Map();
+  if (EXACT.on) for (const name of Object.keys(EXACT.ev)) {
+    if (!/^#(painting|item_frame|glow_item_frame)#/.test(name)) continue;
+    const put = lastAt(name, "hg"), off = lastAt(name, "hgx");
+    if (!put || (off && off[0] >= put[0])) continue;
+    const [kind, x, y, z, facing] = put[1];
+    const v = kind === "painting" ? stateAt(name, "hv", T, null) : null, it = kind !== "painting" ? stateAt(name, "hi", T, null) : null;
+    if (kind === "painting" && !v) continue;
+    const spec = kind === "painting"
+      ? { x, y, z, facing: { 2: 2, 3: 0, 4: 1, 5: 3 }[facing] ?? 0, variant: v, block: true }
+      : { x, y, z, facing, rot: it ? it[1] || 0 : 0, item: it ? it[0] || "" : "", glow: kind === "glow_item_frame", block: true };
+    want.set(name, spec);
+  }
+  for (const [k, e] of HANG_REC.shown) {
+    const spec = want.get(k);
+    if (!spec || JSON.stringify(spec) !== e.key) { HANG_REC.group.remove(e.g); HANG_REC.shown.delete(k); }
+  }
+  for (const [k, spec] of want) if (!HANG_REC.shown.has(k)) {
+    const g = spec.variant ? paintingMesh(spec) : frameMesh(spec);
+    HANG_REC.group.add(g); HANG_REC.shown.set(k, { g, key: JSON.stringify(spec) });
+  }
+  // the backup's: hidden where the recordings have one, or where a recorded player is close and they don't
+  const near = [];
+  if (EXACT.on) for (const m of Object.values(markers)) if (m.cur && m.cur.exact && m.group.visible) near.push(m.group.position);
+  const rec = [...want.values()].map(sp => new THREE.Vector3(sp.x + 0.5, sp.y + 0.5, sp.z + 0.5));
+  for (const e of HANG.tiles.values()) for (const g of e.group.children) {
+    const h = g.userData.hang; if (!h) continue;
+    const p = new THREE.Vector3(h.x, h.y, h.z);
+    const covered = rec.some(r => r.distanceTo(p) < 1.6), watched = near.some(q => q.distanceTo(p) < 40);
+    g.visible = !(covered || (watched && want.size));
+  }
+}
 function hangingStep(now) {
+  hangRecStep(now);
   if (now - HANG.last < 700) return; HANG.last = now;
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
   for (const [k, e] of HANG.tiles) {
