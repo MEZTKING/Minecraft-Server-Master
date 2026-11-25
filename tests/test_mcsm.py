@@ -3966,6 +3966,20 @@ class TestRealBlocks(unittest.TestCase):
         body = bytes([22, paths.SER_VARLONG]) + bytes([0xFF] * 9) + bytes([1]) + bytes([0xFF])
         self.assertEqual(paths.entity_data_all(body, 0, len(body))[22], (paths.SER_VARLONG, -1))
 
+    def test_effects_from_the_jar(self):
+        """Potion effects' colours and kinds read from the game's MobEffects class (skipped without a jar here)."""
+        from mcsm import blockmesh as bm, effects
+        jar = bm.find_client_jar(None)
+        if not jar:
+            self.skipTest("no Minecraft client jar on this PC")
+        e = effects.read_effects(jar)
+        if not e:
+            self.skipTest("this jar's MobEffects can't be read (obfuscated)")
+        self.assertEqual(e["speed"], {"color": 0x33EBFF, "category": "beneficial"})
+        self.assertEqual(e["poison"]["category"], "harmful")
+        self.assertEqual(e["glowing"]["category"], "neutral")
+        self.assertEqual(effects.read_effects("no such jar"), {})
+
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
         a name tag as a compound text component with extra parts."""

@@ -476,7 +476,21 @@ contents are rebuilt: what the backup saved in it, with every item the Ledger lo
 up to that moment. The items and counts follow the log; which slot a moved item sits in is a best guess, and a
 furnace's smelting (input turning into output) isn't logged.
 
-**Health and food.** Above their hotbar: their hearts and food, from their own recording.
+**Health and food.** Above their hotbar: their hearts and food, from their own recording, as the game draws them:
+the hearts blink white for a moment after a hit, shake when they're low (4 health or less), hop in turn with
+Regeneration, and turn green when poisoned, black when withered and blue when freezing. Under water or short of
+breath, their air bubbles show above the food and burst one by one.
+
+**Effects.** At the top right, the icons of the effects they have (good ones on the top row, harmful ones below; a
+beacon's in its paler frame), as the game shows them. Their own recording keeps their effects when it can; otherwise
+the effect swirls round them tell which effects they have (each effect's swirls are its own colour), read from the
+game's own list of effects. Effects whose swirls are hidden don't show then.
+
+**The item's name.** Switching to another hotbar slot shows the item's name above the hotbar for two seconds, fading
+out, as in the game.
+
+The experience bar's progress isn't in the recordings (ServerReplay doesn't keep it); the level shown is from the
+backup (or the recording when it has it).
 
 **Text on their screen.** While you relive someone, what the server put on their screen shows where the game shows
 it, from their own recording:

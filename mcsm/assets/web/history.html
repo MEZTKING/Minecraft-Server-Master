@@ -121,6 +121,11 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcFx .water { inset: 0; background-repeat: repeat; image-rendering: pixelated; }
 #mcFx .pumpkin, #mcFx .snow, #mcFx .vignette { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 #mcFx .vignette { filter: invert(1); mix-blend-mode: multiply; }
+/* their effects' icons, top right (Gui.renderEffects, GUI scale 2), and the held item's name over the hotbar */
+#mcEff { position: fixed; top: 2px; right: 0; z-index: 21; pointer-events: none; }
+#mcEff img { position: absolute; image-rendering: pixelated; }
+#mcName { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(9vh + 2px + 118px - 16px); z-index: 21;
+  pointer-events: none; color: #fff; font: 16px/16px monospace; white-space: pre; text-shadow: 2px 2px 0 #3f3f3f; }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -172,7 +177,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope, body.clean #mcFx,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope, body.clean #mcFx, body.clean #mcEff, body.clean #mcName,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -305,7 +310,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -5193,9 +5198,74 @@ function screenTextStep() {
     $("#mcTitle .t").replaceChildren(...(ti ? mcText(ti.title) : [])); $("#mcTitle .s").replaceChildren(...(ti && ti.sub ? mcText(ti.sub) : [])); }
   $("#mcTitle").hidden = !ti; if (ti) $("#mcTitle").style.opacity = ti.a;
 }
+// the effects they have: the recording's own list when it has one ("eff"), else read from their effect swirls'
+// colours (each effect's swirls are its own colour; a beacon's are faint), without how long they have left
+const EFFECT_COLOURS = { speed: 0x33ebff, slowness: 0x8bafe0, haste: 0xd9c043, mining_fatigue: 0x4a4217, strength: 0xffc700,
+  instant_health: 0xf82423, instant_damage: 0xa9656a, jump_boost: 0xfdff84, nausea: 0x551d4a, regeneration: 0xcd5cab,
+  resistance: 0x9146f0, fire_resistance: 0xff9900, water_breathing: 0x98dac0, invisibility: 0xf6f6f6, blindness: 0x1f1f23,
+  night_vision: 0xc2ff66, hunger: 0x587653, weakness: 0x484d48, poison: 0x87a363, wither: 0x736156, health_boost: 0xf87d23,
+  absorption: 0x2552a5, glowing: 0x94a061, levitation: 0xceffff, luck: 0x59c106, unluck: 0xc0a44d,
+  slow_falling: 0xf3cfb9, conduit_power: 0x1dc2d1, dolphins_grace: 0x88a3be, bad_omen: 0x0b6138, hero_of_the_village: 0x44ff44,
+  darkness: 0x292721, trial_omen: 0x16a6a6, raid_omen: 0xde4058, wind_charged: 0xbdc9ff, weaving: 0x78695a, oozing: 0x99ffa3,
+  infested: 0x8c9b8c };
+const HARMFUL = new Set(["slowness", "mining_fatigue", "instant_damage", "nausea", "blindness", "hunger", "weakness", "poison",
+  "wither", "levitation", "unluck", "darkness", "wind_charged", "weaving", "oozing", "infested"]);
+let EFFECTS = null;                                      // the game's own list (/api/effects): {name: {color, category}}
+function effectInfo() {
+  if (EFFECTS === null) { EFFECTS = {}; fetch("api/effects").then(r => r.json()).then(r => { if (r.effects && Object.keys(r.effects).length) {
+    EFFECTS = r.effects; HUD.effKey = ""; } }).catch(() => {}); }
+  return Object.keys(EFFECTS).length ? EFFECTS
+    : Object.fromEntries(Object.entries(EFFECT_COLOURS).map(([n, c]) => [n, { color: c, category: HARMFUL.has(n) ? "harmful" : "beneficial" }]));
+}
+function hudEffects(who) {
+  const rec = stateAt(who, "eff", T, null);
+  if (rec) return rec.map(e => ({ name: e[0], amb: !!(e[3] & 1), icon: !!(e[3] & 4) }));   // (the server removes ended ones)
+  const ef = stateAt(who, "ef", T, null); if (!ef || !ef[0]) return [];
+  const out = [];
+  for (const [p, col] of ef[0]) {
+    if (p !== "entity_effect" || col == null) continue;
+    const info = effectInfo(), rgb = col & 0xffffff, name = Object.keys(info).find(n => info[n].color === rgb);
+    if (name && !out.some(e => e.name === name)) out.push({ name, amb: !!ef[1], icon: true });
+  }
+  return out;
+}
+function hudEffectIcons(effs) {                          // Gui.renderEffects: good ones on the top row, harmful below
+  const key = JSON.stringify(effs);
+  $("#mcEff").hidden = !effs.length;
+  if (key === HUD.effKey) return; HUD.effKey = key;
+  const els = []; let good = 0, bad = 0;
+  for (const e of effs) {
+    if (!e.icon) continue;
+    const harm = (effectInfo()[e.name] || {}).category === "harmful", n = harm ? ++bad : ++good, x = -n * 50, y = harm ? 52 : 0;
+    const bg = document.createElement("img"); bg.src = hudSprite(e.amb ? "effect_background_ambient" : "effect_background");
+    Object.assign(bg.style, { right: `${-x - 48}px`, top: `${y}px`, width: "48px", height: "48px" });
+    const ic = document.createElement("img"); ic.src = `blocktex/0/mob_effect/${e.name}.png`;
+    Object.assign(ic.style, { right: `${-x - 48 + 6}px`, top: `${y + 6}px`, width: "36px", height: "36px" });
+    els.push(bg, ic);
+  }
+  $("#mcEff").replaceChildren(...els);
+}
+function hudBlink(who) {                                // the last drop in health in the last second: {from, on}
+  const f = EXACT.on && EXACT.ev[who] && EXACT.ev[who].hp; if (!f) return null;
+  const i = lower(f, T, r => r[0]) - 1; if (i < 1) return null;
+  const dt = T - f[i][0]; if (dt > 1000 || !(f[i - 1][1] && f[i][1]) || f[i][1][0] >= f[i - 1][1][0]) return null;
+  const left = 20 - Math.floor(dt / 50);                 // healthBlinkTime: 20 ticks; shown on every other 3
+  return { from: Math.ceil(f[i - 1][1][0]), on: Math.floor(left / 3) % 2 === 1 };
+}
+function hudItemName(who, v) {                          // Gui.renderSelectedItemName: 2 s after switching, fading over the last 0.5
+  const hs = EXACT.on && EXACT.ev[who] && EXACT.ev[who].hs, i = hs ? lower(hs, T, r => r[0]) - 1 : -1;
+  const dt = i >= 0 ? T - hs[i][0] : 1e9, item = v && v[0];
+  const show = item && dt < 2000;
+  $("#mcName").hidden = !show; if (!show) return;
+  const lang = mcLang(), id = item.replace(/^minecraft:/, "");
+  const look = v[3] || {};
+  $("#mcName").textContent = look.name || lang[`item.minecraft.${id}`] || lang[`block.minecraft.${id}`] || id.replace(/_/g, " ");
+  $("#mcName").style.opacity = Math.min(1, (2000 - dt) / 500);
+}
 function hudStep(now) {
   const on = RELIVE.on && RELIVE.phase !== "load";
   $("#mcHud").hidden = !on; $("#mcChat").hidden = !on;
+  if (!on) { $("#mcEff").hidden = true; $("#mcName").hidden = true; }
   const first = on && RELIVE.view === "first" && RELIVE.d < 0.6;
   $("#mcCross").hidden = !first;
   if (first && !$("#mcCross").src) $("#mcCross").src = hudSprite("crosshair");
@@ -5210,7 +5280,15 @@ function hudStep(now) {
   let armor = 0;                                        // armour points from what they wear (as the game counts them)
   ["head", "chest", "legs", "feet"].forEach((k, i) => { const v = stateAt(who, `eq:${k}`, T, null);
     const mm = v && ARMOUR.exec(v[0]); if (mm) armor += (ARMOR_PTS[mm[1]] || [0, 0, 0, 0])[i]; });
-  const key = JSON.stringify([slots, sel, hp, armor, b && b.xp_level]);
+  // what else the game's HUD shows that the recordings tell: their effects (from their effect swirls' colours), the
+  // hearts' kind (poisoned, withered, frozen), the hearts blinking after a hit, the air left, the experience
+  const effs = hudEffects(who);
+  const has = n => effs.some(e => e.name === n);
+  const fz = stateAt(who, "fz", T, 0), air = stateAt(who, "air", T, 300);
+  const heartKind = has("poison") ? "poisoned_" : has("wither") ? "withered_" : fz >= 140 ? "frozen_" : "";
+  const blink = hudBlink(who), xp = stateAt(who, "xp", T, null);
+  const tick = Math.floor(T / 50), low = hp && Math.ceil(hp[0]) <= 4, regen = has("regeneration");
+  const key = JSON.stringify([slots, sel, hp, armor, b && b.xp_level, heartKind, blink, air, xp, low || regen ? tick : 0]);
   if (key !== HUD.key) {
     HUD.key = key;
     const els = [], img = (src, x, y, w, h) => { const im = document.createElement("img"); im.src = src;
@@ -5230,21 +5308,41 @@ function hudStep(now) {
     });
     const XY = Y - 14;                                    // the experience bar (182 x 5)
     img(hudSprite("experience_bar_background"), 0, XY, 364, 10);
-    if (b && b.available && b.xp_level) { const l = document.createElement("div"); l.className = "lvl"; l.style.top = `${XY - 14}px`;
-      l.textContent = b.xp_level; els.push(l); }
+    if (xp && xp[0] > 0) { const pr = img(hudSprite("experience_bar_progress"), 0, XY, Math.round(xp[0] * 182) * 2, 10);   // (when recorded)
+      pr.style.objectFit = "cover"; pr.style.objectPosition = "left"; }
+    const lvl = xp ? xp[1] : b && b.available ? b.xp_level : 0;
+    if (lvl) { const l = document.createElement("div"); l.className = "lvl"; l.style.top = `${XY - 14}px`;
+      l.textContent = lvl; els.push(l); }
     const RY = XY - 22;                                   // hearts on the left, food on the right (9 x 9, 8 apart)
     if (hp) {
-      const h = Math.ceil(hp[0]), f = hp[1];
+      // Gui.renderHearts: a hit blinks the containers and the hearts just lost (white) for a second; at 4 health or
+      // less they shake; with regeneration a heart hops up in turn; poisoned, withered or frozen hearts look so
+      const h = Math.ceil(hp[0]), f = hp[1], lost = blink ? Math.max(h, blink.from) : h, on = blink && blink.on;
+      let seed = tick * 312871;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
       for (let i = 0; i < 10; i++) {
-        img(hudSprite("heart/container"), i * 16, RY, 18, 18);
-        if (h >= 2 * i + 1) img(hudSprite(h >= 2 * i + 2 ? "heart/full" : "heart/half"), i * 16, RY, 18, 18);
+        let y = RY;
+        if (low) y += Math.floor(rnd() * 2) * 2;
+        if (regen && i === tick % 15) y -= 4;
+        img(hudSprite(on ? "heart/container_blinking" : "heart/container"), i * 16, y, 18, 18);
+        if (on && lost >= 2 * i + 1 && h < 2 * i + 2)          // the part just lost: white, blinking
+          img(hudSprite(lost >= 2 * i + 2 ? "heart/full_blinking" : "heart/half_blinking"), i * 16, y, 18, 18);
+        if (h >= 2 * i + 1) img(hudSprite(`heart/${heartKind}${h >= 2 * i + 2 ? "full" : "half"}`), i * 16, y, 18, 18);
         img(hudSprite(f >= 2 * i + 2 ? "food_full" : f === 2 * i + 1 ? "food_half" : "food_empty"), 346 - i * 16, RY, 18, 18);
       }
+    }
+    // Gui.renderAirBubbles: above the food while under water or short of air (of 300): full, one bursting, empty
+    if (air < 300) {
+      const full = Math.ceil(Math.max(0, air - 2) * 10 / 300), pop = Math.ceil(air * 10 / 300) - full;
+      for (let i = 0; i < 10; i++)
+        img(hudSprite(i < full ? "air" : i < full + pop ? "air_bursting" : "air_empty"), 346 - i * 16, RY - 20, 18, 18);
     }
     if (armor > 0) for (let i = 0; i < 10; i++)          // armour above the hearts
       img(hudSprite(armor >= 2 * i + 2 ? "armor_full" : armor === 2 * i + 1 ? "armor_half" : "armor_empty"), i * 16, RY - 20, 18, 18);
     $("#mcHud").replaceChildren(...els);
   }
+  hudEffectIcons(effs);
+  hudItemName(who, slots[sel]);
   // chat as in the game: bottom left, the last lines, fading after 10 seconds
   const lines = [];
   for (const [n, list] of Object.entries(chatBy)) for (let i = lower(list, T, e => e.t) - 1; i >= 0 && T - list[i].t <= 10_000; i--)

@@ -879,6 +879,10 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         ta_id = pk.get("set_titles_animation") if ex_on else None   # i32 fade in, stay, fade out (ticks)
         tc_id = pk.get("clear_titles") if ex_on else None           # bool: reset the times too
         boss_id = pk.get("boss_event") if ex_on else None           # boss bars (the dragon, the wither, raids...)
+        xp_id = pk.get("set_experience") if ex_on else None         # f32 bar, VarInt level, VarInt total
+        eff_id = pk.get("update_mob_effect") if ex_on and (tbl or {}).get("mob_effects") else None
+        reff_id = pk.get("remove_mob_effect") if ex_on and (tbl or {}).get("mob_effects") else None
+        my_effects: dict = {}                                       # the recorded player's effects (for the HUD)
         bars: dict = {}
         game_now: tuple | None = None                               # (the world's game time, at which tick)
         block_names: list | None = None                           # block state ids -> names (blocks broken)
@@ -888,7 +892,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
                              pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id,
-                             attr_id, info_id, part_id, ab_id, sys_id, ti_id, st_id, ta_id, tc_id, boss_id)
+                             attr_id, info_id, part_id, ab_id, sys_id, ti_id, st_id, ta_id, tc_id, boss_id, xp_id, eff_id, reff_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -1118,6 +1122,26 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 if boss_event(b, k, i + size, bars):
                                     extras["events"].append([tick, None, "bo", [dict(v, id=key) for key, v in bars.items()]])
                             except (IndexError, ValueError, struct.error):
+                                pass
+                        elif pid == xp_id and size >= 6:      # their experience bar and level
+                            bar = struct.unpack_from(">f", b, k)[0]
+                            lvl, kk = _varint(b, k + 4)
+                            tot = _varint(b, kk)[0]
+                            extras["events"].append([tick, None, "xp", [round(bar, 4), lvl, tot]])
+                        elif pid in (eff_id, reff_id) and size >= 2:   # their effects: all of them after each change
+                            try:
+                                eid, kk = _varint(b, k)
+                                if eid == me:
+                                    effn, kk = _varint(b, kk)
+                                    name = tbl["mob_effects"][effn] if 0 <= effn < len(tbl["mob_effects"]) else str(effn)
+                                    if pid == eff_id:
+                                        amp, kk = _varint(b, kk)
+                                        dur, kk = _varint(b, kk)
+                                        my_effects[name] = [name, amp, dur if dur < 2 ** 31 else -1, b[kk] if kk < i + size else 0, tick]
+                                    else:
+                                        my_effects.pop(name, None)
+                                    extras["events"].append([tick, None, "eff", [list(v) for v in my_effects.values()]])
+                            except (IndexError, struct.error):
                                 pass
                         elif pid == ta_id and size >= 12:
                             extras["events"].append([tick, None, "ta", list(struct.unpack_from(">iii", b, k))])
@@ -1493,7 +1517,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact32.json.gz"    # 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact33.json.gz"    # 33: experience ("xp" [bar, level, total]), effects ("eff" [[name, amplifier, duration ticks (-1 for ever), flags, from tick], ...]); 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,
