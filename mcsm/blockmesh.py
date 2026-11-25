@@ -760,21 +760,52 @@ class Look:
                     if m:
                         return m
             return None
+        def use_model(d, depth=0):                      # the model while it's being used (property using_item)
+            if not isinstance(d, dict) or depth > 8:
+                return None
+            if str(d.get("property", "")).endswith("using_item") and isinstance(d.get("on_true"), dict):
+                t = d["on_true"]
+                return t.get("base") or (t.get("model") if isinstance(t.get("model"), str) else first_model(t))
+            for k in ("fallback", "on_false", "model"):
+                m = use_model(d.get(k), depth + 1)
+                if m:
+                    return m
+            for c in d.get("cases") or []:
+                m = use_model(c.get("model") if isinstance(c, dict) else None, depth + 1)
+                if m:
+                    return m
+            return None
         d = self._json(f"assets/minecraft/items/{item}.json")
         name = first_model(d.get("model")) if d else None
         mname = name if name and name != "#special" else f"item/{item}"
         hand = self._display(mname)
         hand_left = self._display(mname, which="thirdperson_lefthand") or hand   # the game's own left-hand values
         fp = self._display(mname, which="firstperson_righthand")                # and in first person
+        use = {}
+        uname = use_model(d.get("model")) if d else None
+        if uname and uname.replace("minecraft:", "") != mname.replace("minecraft:", "") and "pulling" not in uname:
+            # held while being used (a shield raised, a trident about to be thrown): its own display values
+            uh = self._display(uname)
+            use = {"hand_use": uh, "hand_left_use": self._display(uname, which="thirdperson_lefthand") or uh,
+                   "fp_use": self._display(uname, which="firstperson_righthand")}
         if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            out = {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp}
+            out = {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp, **use}
             if special.get("type"):                           # held: drawn by the game's code (a trident's model)
                 out["special"] = special["type"]
             elif mname.replace("minecraft:", "") != f"item/{item}":   # held: its own 3D model (a spyglass)
                 els = self._hand_elements(mname)
                 if els:
                     out["elements"] = els
+                else:                                         # or its own picture (a spear's longer one)
+                    try:
+                        ht = self._tex(self._model(mname.replace("minecraft:", ""))["textures"], "#layer0")
+                    except (KeyError, ValueError, OSError):
+                        ht = None
+                    if ht and ht.replace("minecraft:", "") != f"item/{item}" and self.has_texture(ht.replace("minecraft:", "")):
+                        out["hand_tex"] = ht.replace("minecraft:", "")
             return out
+        if special.get("type") == "shield":                  # no picture of its own: the game draws the shield
+            return {"tex": None, "cube": False, "special": "shield", "hand": hand, "hand_left": hand_left, "fp": fp, **use}
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")

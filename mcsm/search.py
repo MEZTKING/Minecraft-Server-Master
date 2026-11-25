@@ -26,7 +26,7 @@ POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc"}
 # boats' paddles, arrows in the ground, mining stages) or say nothing on their own (left view)
 NOISY = {"f", "s", "hs", "hp", "h", "pl", "pr", "ig", "asp", "gone", "mc", "ar"}
 
-ENTITY_EVENTS = {6: "taming failed (smoke)", 7: "tamed (hearts)", 12: "villager hearts", 13: "villager angry",
+ENTITY_EVENTS = {6: "taming failed (smoke)", 7: "tamed (hearts)", 10: "eating grass", 12: "villager hearts", 13: "villager angry",
                  14: "villager happy", 18: "in love (hearts)", 20: "appeared from a spawner (poof)",
                  60: "body vanished after dying (poof)"}
 POSES = {0: "standing", 1: "flying with elytra", 2: "sleeping", 3: "swimming", 4: "spin attack", 5: "sneaking",

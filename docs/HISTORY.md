@@ -340,7 +340,8 @@ block makes them as often as in the game (the nearest most often), so they look 
 player saw.
 
 Mobs make their own particles too: blazes trail smoke and endermen and endermites trail purple specks, all the time;
-bees carrying nectar now and then drip a drop.
+bees carrying nectar now and then drip a drop; glow squids give off glowing specks. A sheep eating grass lowers its
+head to the ground and nibbles for two seconds, as in the game (the recordings keep when it starts).
 When the server tells the game something happened to a mob, the game's particles show it: the puff of smoke when a
 mob's body vanishes after it dies, a mob appearing from a spawner, hearts when animals fall in love or a pet is
 tamed (smoke when taming fails), and villagers' hearts, anger and happiness. In the nether, the air has the
@@ -405,8 +406,11 @@ What the recordings say about each player and mob is shown too:
   are raised to the mouth and bob while they eat or drink. Drawing a bow, loading a crossbow and raising a trident to
   throw show the game's poses (the bow and crossbow with their pulling pictures). Looking through a spyglass shows
   the scope over the screen and zooms in to a tenth, as the game does (the hand isn't drawn then).
-- **Tridents and spyglasses** in a hand are their 3D models (the trident's own model, the spyglass's tube), and a
-  thrown trident flies as its model, prongs first.
+- **Tridents, spyglasses, shields and spears** in a hand are drawn as the game draws them: the trident's and the
+  shield's own models (the shield with its banner pattern), the spyglass's tube, a spear's long in-hand picture. A
+  thrown trident flies as its model, prongs first. While one is being used it's held the game's way for that: a
+  shield raised to block, a trident drawn back to throw (and through their eyes, the shield raised when it's in their
+  main hand; what's in the other hand isn't drawn through their eyes yet).
 - **Angry wolves and bees:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as
   the recording said (tamed wolves keep their tame face, as in the game). Bees show their angry eyes when angry and
   their pollen when carrying nectar.

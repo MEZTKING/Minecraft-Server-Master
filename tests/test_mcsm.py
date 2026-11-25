@@ -3732,6 +3732,13 @@ class TestRealBlocks(unittest.TestCase):
                                  "on_true": {"type": "minecraft:special", "base": "minecraft:item/trident_throwing",
                                              "model": {"type": "minecraft:trident"}}}}},
                 "models/item/trident_in_hand.json": {"display": hand},
+                "models/item/trident_throwing.json": {"display": {"thirdperson_righthand": {"rotation": [0, 90, 180],
+                                                                                         "translation": [8, -17, 9]}}},
+                "items/copper_spear.json": {"model": {"type": "minecraft:select", "property": "minecraft:display_context",
+                    "cases": [{"when": ["gui"], "model": {"type": "minecraft:model", "model": "minecraft:item/copper_spear"}}],
+                    "fallback": {"type": "minecraft:model", "model": "minecraft:item/copper_spear_in_hand"}}},
+                "models/item/copper_spear_in_hand.json": {"textures": {"layer0": "minecraft:item/copper_spear_in_hand"},
+                                                          "display": {"thirdperson_righthand": {"rotation": [5, 270, -40]}}},
                 "items/spyglass.json": {"model": {"type": "minecraft:select", "property": "minecraft:display_context",
                     "cases": [{"when": ["gui"], "model": {"type": "minecraft:model", "model": "minecraft:item/spyglass"}}],
                     "fallback": {"type": "minecraft:model", "model": "minecraft:item/spyglass_in_hand"}}},
@@ -3742,7 +3749,7 @@ class TestRealBlocks(unittest.TestCase):
             with zipfile.ZipFile(jar, "w") as zf:
                 for name, data in files.items():
                     zf.writestr("assets/minecraft/" + name, js.dumps(data))
-                for t in ("item/trident", "item/spyglass", "item/spyglass_model"):
+                for t in ("item/trident", "item/spyglass", "item/spyglass_model", "item/copper_spear", "item/copper_spear_in_hand"):
                     zf.writestr(f"assets/minecraft/textures/{t}.png", bytes([0x89]) + b"PNG")
             look = bm.Look(jar)
             tri = look.item_icon("trident")
@@ -3752,6 +3759,10 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(spy["elements"], [{"from": [7, 8.5, 7], "to": [9, 13.5, 9], "rotation": None,
                                                 "faces": {"north": {"uv": [0, 2, 2, 7], "texture": "item/spyglass_model"}}}])
             self.assertEqual(spy["hand"]["translation"], [0, -2, 0])
+            self.assertEqual(tri["hand_use"]["translation"], [8, -17, 9])       # held to throw: trident_throwing
+            spear = look.item_icon("copper_spear")
+            self.assertEqual((spear["tex"], spear["hand_tex"]), ("item/copper_spear", "item/copper_spear_in_hand"))
+            self.assertNotIn("hand_use", spear)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -3929,6 +3940,7 @@ class TestRealBlocks(unittest.TestCase):
         plain = bytes([8]) + st.pack(">H", 2) + b"hi"
         self.assertEqual(paths.component_at(plain, 0), ("hi", 5))
         self.assertIn(60, paths.ENTITY_FX)                     # a body vanishing: the poof
+        self.assertIn(10, paths.ENTITY_FX)                     # a sheep eating grass
 
     def test_boss_bars(self):
         """Boss bars from boss_event: added with title, health, colour, notches and flags; health, title, style and

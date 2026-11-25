@@ -1606,6 +1606,7 @@ async function buildMob(o, label, kind) {
       if (prof && prof !== "none" && prof !== "nitwit") extras.push([layer, `${dir}/profession_level/${VILLAGER_LEVEL[Math.max(0, Math.min(4, lv - 1))]}`, false, 3]);
     }
   }
+  const extraParts = [];
   for (let [xl, xt, glass, over, babyTex, dye, hide] of extras) {
     if (babyTex) xl = layer + "_BABY";
     else if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
@@ -1631,6 +1632,7 @@ async function buildMob(o, label, kind) {
       mats.n.polygonOffset = true; mats.n.polygonOffsetFactor = -over; mats.n.polygonOffsetUnits = -over;
     }
     const pp = {}, part = buildPart(XL.root, xl, "", XL.tw, XL.th, mats, pp, "");
+    extraParts.push(pp);                                // (its parts follow the body's: see syncExtras)
     for (const n of hide || []) if (pp[n]) pp[n].g.visible = false;   // (the hat's rim is part of the hat)
     inner.add(part);
   }
@@ -1652,7 +1654,15 @@ async function buildMob(o, label, kind) {
     for (const n of ["right_arm", "left_arm"]) if (parts[n]) parts[n].g.visible = !!(look.flags & 4);
     if (parts.base_plate) parts.base_plate.g.visible = !(look.flags & 8);
   }
-  o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.state = "n"; o.gearKeys = {}; o.gear = {};
+  o.box.visible = false; o.mesh.add(model); o.model = model; o.parts = parts; o.extraParts = extraParts; o.state = "n"; o.gearKeys = {}; o.gear = {};
+}
+// the layers drawn over a mob (wool, clothes, markings) are models of their own: their parts take the body's pose
+function syncExtras(o) {
+  if (!o.parts || !o.extraParts) return;
+  for (const pp of o.extraParts) for (const [n, q] of Object.entries(pp)) {
+    const b = o.parts[n]; if (!b || b === q) continue;
+    q.g.position.copy(b.g.position); q.g.rotation.copy(b.g.rotation);
+  }
 }
 function mobMesh(label, kind, look = null) {
   let o = mobMeshes.get(label);
@@ -1718,6 +1728,17 @@ async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
   inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
   g.add(inner); return g;
 }
+// a sheep eating grass (entity event 10): its head down and nibbling for 40 ticks (Sheep.getHeadEatPositionScale and
+// getHeadEatAngleScale; SheepModel: the head 9 lower at most, turned down)
+function sheepEat(hp, label) {
+  const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ee; if (!ev) { if (hp.eating) { hp.g.position.copy(hp.p); hp.eating = false; } return; }
+  let t0 = null; for (let i = lower(ev, T, r => r[0]) - 1; i >= 0 && T - ev[i][0] < 2000; i--) if (ev[i][1] === 10) { t0 = ev[i][0]; break; }
+  const e = t0 === null ? 0 : 40 - (T - t0) / 50;      // eatAnimationTick: 40 down to 0
+  if (e <= 0) { if (hp.eating) { hp.g.position.copy(hp.p); hp.eating = false; } return; }
+  const pos = e >= 4 && e <= 36 ? 1 : e < 4 ? e / 4 : (40 - e) / 4;
+  const ang = e > 4 && e <= 36 ? Math.PI / 5 + 0.21991149 * Math.sin((e - 4) / 32 * 28.7) : Math.PI / 5;
+  hp.g.position.set(hp.p.x, hp.p.y - pos * 9 * MPX, hp.p.z); hp.g.rotation.x = ang; hp.eating = true;
+}
 // a thrown trident (ThrownTridentRenderer): its model, the prongs ahead along the flight (turned like an arrow: +x)
 async function tridentModel() {
   const L = MOBM && MOBM.TRIDENT; if (!L) return null;
@@ -1769,7 +1790,7 @@ async function setDroppedModel(o, item) {
       m = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), [sm, sm, mat(top, grass), mat(bottom), sm, sm]);
     }
   } else if (item === "shield" || /_banner$/.test(item)) {
-    m = await heldItem(item, 1 / 32);                   // drawn by the game's code: the held model, half size
+    m = await heldItem(item, 1 / 32, null, { dropped: true });   // drawn by the game's code: its model, half size
   } else if (item) {
     const t = await itemTexture(item);
     if (t && o.itemName === item) {
@@ -2007,6 +2028,8 @@ function updateMobs() {
         const rel = Math.max(-75, Math.min(75, ((((hy - yaw) % 360) + 540) % 360 - 180)));
         hp.g.rotation.y = hp.y - rel * Math.PI / 180; hp.g.rotation.x = hp.x + Math.max(-60, Math.min(60, pt)) * Math.PI / 180;
       }
+      if (hp && mob.type === "sheep") sheepEat(hp, label);
+      syncExtras(o);
       updateMobGear(o, label);
       mobTint(o, label);
     }
@@ -2238,7 +2261,7 @@ async function heldItem(item, px, look = null, opts = {}) {
     g.position.set(0, -10 * px, 1 * px);
     return g;
   }
-  if (item === "shield") {                              // drawn by the game's code: its plate (12 x 22 pixels, 1 thick)
+  if (item === "shield" && !(MOBM && MOBM.SHIELD)) {   // (no model read: its plate (12 x 22 pixels, 1 thick))
     const t = look && (look.base || (look.patterns || []).length) ? shieldTexture(look)
       : (await texOnce("entity/shield/shield_base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
     if (!t) return null;
@@ -2255,7 +2278,15 @@ async function heldItem(item, px, look = null, opts = {}) {
   }
   const ic = await itemInfo(item);
   let obj;
-  if (ic && ic.special === "trident" && MOBM && MOBM.TRIDENT) {   // the trident's own model (TridentSpecialRenderer)
+  if (ic && ic.special === "shield" && MOBM && MOBM.SHIELD) {     // the shield's own model (ShieldSpecialRenderer)
+    const t = look && (look.base || (look.patterns || []).length) ? shieldTexture(look)
+      : (await texOnce("entity/shield/shield_base_nopattern")) || (await texOnce("entity/shield_base_nopattern"));
+    if (t) {
+      const L = MOBM.SHIELD, w = new THREE.Group(); w.position.set(-0.5, -0.5, -0.5);   // as a trident, below
+      w.add(buildPart(L.root, "SHIELD", "", L.tw, L.th, mobMaterials("shield", t), {}, ""));
+      obj = new THREE.Group(); obj.add(w);
+    }
+  } else if (ic && ic.special === "trident" && MOBM && MOBM.TRIDENT) {   // the trident's own model (TridentSpecialRenderer)
     const L = MOBM.TRIDENT, t = await mobTexture("trident/trident");
     if (t) {
       // drawn in the item's space at its corner (the game's -0.5), its model turned (x, -y, -z) as buildPart does
@@ -2296,13 +2327,18 @@ async function heldItem(item, px, look = null, opts = {}) {
   } else {
     // the picture made solid like the game's item models: front and back, and an edge on every pixel that borders
     // an empty one; a bow or crossbow being drawn shows the game's pulling picture
-    const t = opts.tex ? (await texOnce(opts.tex)) || (await itemTexture(item)) : await itemTexture(item);
+    // (an item with its own picture in a hand, a spear's longer one: that)
+    const own = opts.tex || (!opts.dropped && ic && ic.hand_tex) || null;
+    const t = own ? (await texOnce(own)) || (await itemTexture(item)) : await itemTexture(item);
     if (!t) return null;
     obj = new THREE.Mesh(extrudedGeometry(t, 1), new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.3, side: THREE.DoubleSide,
       emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45 }));   // lit a little by itself: never black edge-on
   }
   obj.matrixAutoUpdate = false;
-  const disp = (ic && (opts.left ? ic.hand_left || ic.hand : ic.hand)) || { rotation: [0, 0, 0], translation: [0, 3, 1], scale: [0.55, 0.55, 0.55] };
+  if (opts.dropped) { obj.scale.setScalar(16 * px); return obj; }   // on the ground: its model, no hand (half size)
+  // held while being used (a shield raised, a trident about to be thrown): the model's own values for that
+  const useD = opts.use && ic && (opts.left ? ic.hand_left_use || ic.hand_use : ic.hand_use);
+  const disp = useD || (ic && (opts.left ? ic.hand_left || ic.hand : ic.hand)) || { rotation: [0, 0, 0], translation: [0, 3, 1], scale: [0.55, 0.55, 0.55] };
   obj.matrix.copy(handMatrix(disp, px, !!opts.left, opts.pivot || 0));
   return obj;
 }
@@ -2353,7 +2389,7 @@ async function setGear(m, slot, v) {
   const objs = [];
   if (slot === "mainhand" || slot === "offhand") {
     // our arm pivots at its top middle; the game's hand point is 1 px further in and 2 down (slim arms too)
-    const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: 1, tex: v[4] || null });
+    const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: 1, tex: v[4] || null, use: !!v[5] });
     if (!q || m.F !== F || F.tok[slot] !== mine) return;
     if (v[3] && v[3].glint) addGlint(q);                 // enchanted: the game's moving glint over it
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
@@ -2496,7 +2532,11 @@ function updateGear(m) {
       const st = pullStage(m.name, v[0]);
       if (st !== null) v = [v[0], v[1], v[2], v[3], `item/${v[0]}_pulling_${st}`];
     }
-    const key = gearKey(v) + (v && v[4] ? "|" + v[4] : "");
+    if (exact && v && (slot === "mainhand" || slot === "offhand")) {   // being used in this hand (flags 0x01; 0x02 off hand)
+      const hf = stateAt(m.name, "h", T, 0);
+      if ((hf & 1) && !!(hf & 2) === (slot === "offhand")) v = [v[0], v[1], v[2], v[3], v[4] || null, true];
+    }
+    const key = gearKey(v) + (v && v[4] ? "|" + v[4] : "") + (v && v[5] ? "|use" : "");
     m.gearKeys = m.gearKeys || {};
     if (m.gearKeys[slot] !== key || (m.gearFig !== m.F)) { m.gearKeys[slot] = key; setGear(m, slot, v); }
   }
@@ -4524,7 +4564,8 @@ function fpStep() {
     else if (item) itemInfo(item).then(async ic => {
       const obj = await heldItem(item, PX, look || null, stage !== null ? { tex: `item/${item}_pulling_${stage}` } : {});
       if (!obj || mine !== FPV.tok) return;
-      obj.userData.fp = (ic && ic.fp) || { rotation: [0, -90, 25], translation: [1.13, 3.2, 1.13], scale: [0.68, 0.68, 0.68] };
+      obj.userData.fp = ic ? (ic.fp || {}) : { rotation: [0, -90, 25], translation: [1.13, 3.2, 1.13], scale: [0.68, 0.68, 0.68] };
+      obj.userData.fpUse = ic && ic.fp_use;
       if (look && look.glint) addGlint(obj);
       const holder = new THREE.Group(); holder.matrixAutoUpdate = false; holder.add(obj);
       obj.matrixAutoUpdate = false; obj.matrix.identity();
@@ -4537,7 +4578,8 @@ function fpStep() {
   const E = new THREE.Matrix4().makeTranslation(0, (1 - up) * -0.6, 0);
   if (mapId != null) g.matrix.copy(E.multiply(fpMapMatrix(c.pitch || 0, p)));
   else if (item) { const obj = g.children[0]; if (obj) {
-    if (anim) g.matrix.copy(E.multiply(fpUseMatrix(anim, obj.userData.fp, (T - useT) / 50)));   // (no swing while using)
+    if (anim) g.matrix.copy(E.multiply(fpUseMatrix(anim, obj.userData.fpUse || obj.userData.fp, (T - useT) / 50)));   // (no swing while using)
+    else if (useT !== null && obj.userData.fpUse) g.matrix.copy(E.multiply(fpItemMatrix(obj.userData.fpUse, 0)));   // a shield raised
     else { fpEat(E, item, R); g.matrix.copy(E.multiply(fpItemMatrix(obj.userData.fp, p))); } } }
   else g.matrix.copy(E.multiply(fpArmMatrix(p)));
 }
@@ -5911,6 +5953,15 @@ function ambMobs() {
           life: Math.floor(16 / (R() * 0.8 + 0.2)), col: [0.92, 0.782, 0.72, 1], frames: ambFrames("falling_nectar"), anim: false, day: true });
       continue;
     }
+    if (kind === "glow_squid") {                         // GlowSquid.aiStep: a glow speck every tick, round it
+      const m = o.mesh; if (!m || !m.visible) continue;
+      const p = m.position; if (Math.abs(p.x - c.x) > 48 || Math.abs(p.y - c.y) > 48 || Math.abs(p.z - c.z) > 48) continue;
+      const [w, h] = MOB_SIZE.glow_squid || [0.8, 0.8], b = ambBaseVel(0.5 - R(), 0, 0.5 - R());
+      ambAdd({ x: p.x + w * (2 * R() - 1) * 0.6, y: p.y + h * R(), z: p.z + w * (2 * R() - 1) * 0.6, vx: b[0], vy: b[1] * 0.2, vz: b[2],
+        fr: 0.96, life: Math.floor(8 / (R() * 0.8 + 0.2)), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75 * 2,
+        col: R() < 0.5 ? [0.6, 1, 0.8, 1] : [0.08, 0.4, 0.4, 1], bright: true, frames: ambFrames("glow"), anim: false });
+      continue;
+    }
     if (kind !== "blaze" && kind !== "enderman" && kind !== "endermite") continue;
     const m = o.mesh; if (!m || !m.visible) continue;
     const p = m.position; if (Math.abs(p.x - c.x) > 48 || Math.abs(p.y - c.y) > 48 || Math.abs(p.z - c.z) > 48) continue;
@@ -5945,6 +5996,7 @@ function ambEntityEvents(t0, t1) {
     const RX = () => p.x + w * (2 * R() - 1), RY = () => p.y + h * R(), RZ = () => p.z + w * (2 * R() - 1);
     for (let i = lower(ev.ee, t0, r => r[0]); i < ev.ee.length && ev.ee[i][0] <= t1; i++) {
       const st = ev.ee[i][1];
+      if (st === 10) continue;                                            // (a sheep eating: its head, not particles)
       if (st === 60 || st === 20) for (let n = 0; n < 20; n++) {          // a body vanishing / a mob appearing
         const d = GAUSS() * 0.02, e = GAUSS() * 0.02, f = GAUSS() * 0.02;
         if (st === 60) ambPoof(RX(), RY(), RZ(), d, e, f); else ambPoof(RX() - d * 10, RY() - e * 10, RZ() - f * 10, d, e, f);
