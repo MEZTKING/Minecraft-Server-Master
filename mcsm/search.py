@@ -111,6 +111,8 @@ def event_text(kind: str, value, lang: dict | None = None) -> str | None:
         return f"experience level {value[1]} ({value[2]} points)"
     if kind == "eff" and isinstance(value, list):
         return "effects: " + (", ".join(f"{e[0].replace('_', ' ')} {e[1] + 1}" for e in value) or "none")
+    if kind == "cr":
+        return "critical hit" + (" (enchanted weapon)" if value == 5 else "")
     if kind == "bl":
         return "bell rung"
     if kind == "lb":

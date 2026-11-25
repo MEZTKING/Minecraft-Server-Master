@@ -189,6 +189,33 @@ def _inventory_of(d: dict) -> dict:
             "xp_level": d.get("XpLevel")}
 
 
+def read_advancements(jar) -> dict:
+    """The game's advancements as its jar defines them (``data/minecraft/advancement/**.json``): ``{title key:
+    [icon item, frame]}`` (frame "task", "goal" or "challenge"), for the toasts an advancement made shows; {} when
+    unreadable."""
+    import json
+    out = {}
+    try:
+        with zipfile.ZipFile(jar) as zf:
+            for n in zf.namelist():
+                if not (n.startswith("data/minecraft/advancement/") and n.endswith(".json")):
+                    continue
+                try:
+                    d = (json.loads(zf.read(n)) or {}).get("display") or {}
+                except ValueError:
+                    continue
+                title = d.get("title")
+                key = title.get("translate") if isinstance(title, dict) else None
+                if not key:
+                    continue
+                icon = d.get("icon") or {}
+                item = str(icon.get("id") or icon.get("item") or "").replace("minecraft:", "")
+                out[key] = [item, d.get("frame", "task")]
+    except (OSError, TypeError, KeyError, zipfile.BadZipFile):
+        return {}
+    return out
+
+
 class HistoryMap(TerrainServer):
     PAGE = "history.html"
 
@@ -476,6 +503,13 @@ class HistoryMap(TerrainServer):
                     cache = {}
                 self.__dict__["_effects"] = cache
             return {"effects": cache}
+        if path == "/api/advancements":              # each advancement's icon and frame, by its title's key
+            cache = self.__dict__.get("_advs")
+            if cache is None:
+                from . import blockmesh as bm
+                cache = read_advancements(bm.find_client_jar(None))
+                self.__dict__["_advs"] = cache
+            return {"advancements": cache}
         if path == "/api/villagerhats":              # villager clothes' hats (their .png.mcmeta): full / partial
             cache = self.__dict__.get("_vhats")
             if cache is None:

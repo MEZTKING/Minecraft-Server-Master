@@ -121,6 +121,26 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcFx .water { inset: 0; background-repeat: repeat; image-rendering: pixelated; }
 #mcFx .pumpkin, #mcFx .snow, #mcFx .vignette { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 #mcFx .vignette { filter: invert(1); mix-blend-mode: multiply; }
+/* the death screen (DeathScreen: red over the view, "You Died!" twice the size, the cause, the score, two buttons),
+   lying in bed (Gui's sleep darkness, the Leave Bed button), advancement toasts (top right, sliding in) */
+#mcDeath { position: fixed; inset: 0; z-index: 22; pointer-events: none; text-align: center; color: #fff; white-space: pre;
+  background: linear-gradient(rgba(80, 0, 0, 0.376), rgba(128, 48, 48, 0.627)); }
+#mcDeath .t { position: absolute; left: 0; right: 0; top: 120px; font: 32px/32px monospace; --sh: 4px; }
+#mcDeath .m { position: absolute; left: 0; right: 0; top: 170px; font: 16px/16px monospace; }
+#mcDeath .s { position: absolute; left: 0; right: 0; top: 200px; font: 16px/16px monospace; }
+#mcDeath span, #mcSleep span, #mcToasts span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
+.mcBtn { position: absolute; left: 50%; width: 400px; height: 40px; margin-left: -200px; image-rendering: pixelated;
+  background: url(blocktex/0/gui/sprites/widget/button.png) 0 0 / 100% 100%; font: 16px/40px monospace; color: #fff; text-align: center; }
+.mcBtn.off { background-image: url(blocktex/0/gui/sprites/widget/button_disabled.png); color: #a0a0a0; }
+#mcDeath .b1 { top: calc(25% + 144px); } #mcDeath .b2 { top: calc(25% + 192px); }
+#mcSleep { position: fixed; inset: 0; z-index: 18; pointer-events: none; background: #101020; }
+#mcSleep .mcBtn { bottom: 40px; }
+#mcToasts { position: fixed; top: 0; right: 0; z-index: 23; pointer-events: none; }
+#mcToasts .toast { position: relative; width: 320px; height: 64px; image-rendering: pixelated; white-space: pre; overflow: hidden;
+  background: url(blocktex/0/gui/sprites/toast/advancement.png) 0 0 / 100% 100%; }
+#mcToasts .toast img { position: absolute; left: 16px; top: 16px; width: 32px; height: 32px; image-rendering: pixelated; }
+#mcToasts .toast .h { position: absolute; left: 60px; top: 14px; font: 16px/16px monospace; }
+#mcToasts .toast .n { position: absolute; left: 60px; top: 36px; font: 16px/16px monospace; }
 /* their effects' icons, top right (Gui.renderEffects, GUI scale 2), and the held item's name over the hotbar */
 #mcEff { position: fixed; top: 2px; right: 0; z-index: 21; pointer-events: none; }
 #mcEff img { position: absolute; image-rendering: pixelated; }
@@ -178,7 +198,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope, body.clean #mcFx, body.clean #mcEff, body.clean #mcName,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcDeath, body.clean #mcSleep, body.clean #mcToasts, body.clean #mcBoss, body.clean #mcScope, body.clean #mcFx, body.clean #mcEff, body.clean #mcName,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -311,7 +331,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="skyFlash"></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="skyFlash"></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcSleep" hidden><div class="mcBtn"></div></div><div id="mcDeath" hidden><div class="t"></div><div class="m"></div><div class="s"></div><div class="mcBtn b1"></div><div class="mcBtn b2"></div></div><div id="mcToasts"></div><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -1323,7 +1343,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -5609,6 +5629,86 @@ function screenTextStep() {
     $("#mcTitle .t").replaceChildren(...(ti ? mcText(ti.title) : [])); $("#mcTitle .s").replaceChildren(...(ti && ti.sub ? mcText(ti.sub) : [])); }
   $("#mcTitle").hidden = !ti; if (ti) $("#mcTitle").style.opacity = ti.a;
 }
+// ---------- the game's screens over the view: dead, in bed, advancements made ----------
+const SCR = { dk: "", sk: "", tk: "", advs: null, asked: false };
+const mcPlain = c => c == null ? "" : typeof c !== "object" ? String(c) : Array.isArray(c) ? c.map(mcPlain).join("")
+  : (c.text ?? "") + (c.with && c.translate && !c.text ? "" : "") + (c.extra || []).map(mcPlain).join("");
+function mcFindKey(c, re, depth = 0) {                   // the first translate key in a component matching re
+  if (!c || typeof c !== "object" || depth > 12) return null;
+  if (Array.isArray(c)) { for (const x of c) { const k = mcFindKey(x, re, depth + 1); if (k) return k; } return null; }
+  if (c.translate && re.test(c.translate)) return c.translate;
+  for (const x of [...(c.with || []), ...(c.extra || [])]) { const k = mcFindKey(x, re, depth + 1); if (k) return k; }
+  return null;
+}
+const mcWho = c => c && typeof c === "object" && !Array.isArray(c) && c.with && c.with[0] != null
+  ? (typeof c.with[0] === "object" ? (c.with[0].insertion || mcPlain(c.with[0])) : String(c.with[0])) : null;
+function setMc(el, comp, key) { if (el.dataset.k !== key) { el.dataset.k = key; el.replaceChildren(...mcText(comp)); } }
+function deathAt(who) {                                   // [when they died, its message] while they lie dead, else null
+  const ev = EXACT.on && EXACT.ev[who]; if (!ev || !ev.d) return null;
+  const i = lower(ev.d, T, r => r[0]) - 1; if (i < 0) return null;
+  const td = ev.d[i][0]; if (T - td > 600_000) return null;
+  const hp = ev.hp || [];
+  for (let j = lower(hp, td + 1, r => r[0]); j < hp.length && hp[j][0] <= T; j++) if (hp[j][1] && hp[j][1][0] > 0) return null;   // respawned
+  let msg = null;
+  for (const [t, c] of ev.sm || []) if (Math.abs(t - td) < 2000 && mcFindKey(c, /^death\./) && mcWho(c) === who) { msg = c; break; }
+  return [td, msg];
+}
+function sleepTimer(who) {                               // Player.sleepCounter: up to 100 in bed, then 100-110 waking (fading)
+  const p = EXACT.on && EXACT.ev[who] && EXACT.ev[who].p; if (!p) return [0, false];
+  let i = lower(p, T, r => r[0]) - 1; if (i < 0) return [0, false];
+  if (p[i][1] === 2) { while (i > 0 && p[i - 1][1] === 2) i--; return [Math.min(100, (T - p[i][0]) / 50), true]; }
+  if (i > 0 && p[i - 1][1] === 2) { const t = 100 + (T - p[i][0]) / 50; if (t < 110) return [t, false]; }
+  return [0, false];
+}
+function screensStep(who) {
+  // dead: DeathScreen (its buttons usable after 20 ticks)
+  const dead = who ? deathAt(who) : null;
+  $("#mcDeath").hidden = !dead;
+  if (dead) {
+    const D = $("#mcDeath"), on = (T - dead[0]) / 50 >= 20, xp = stateAt(who, "xp", dead[0], null);
+    setMc(D.querySelector(".t"), { translate: "deathScreen.title" }, `t|${!!MCTEXT.lang}`);
+    setMc(D.querySelector(".m"), dead[1], `${dead[0]}|${!!MCTEXT.lang}`);
+    setMc(D.querySelector(".s"), xp ? { translate: "deathScreen.score.value", with: [{ text: String(xp[2]), color: "yellow" }] } : "",
+      `${xp ? xp[2] : "-"}|${!!MCTEXT.lang}`);          // (no score where the recording didn't keep their experience)
+    setMc(D.querySelector(".b1"), { translate: "deathScreen.respawn" }, `r|${!!MCTEXT.lang}`);
+    setMc(D.querySelector(".b2"), { translate: "deathScreen.titleScreen" }, `q|${!!MCTEXT.lang}`);
+    D.querySelector(".b1").classList.toggle("off", !on); D.querySelector(".b2").classList.toggle("off", !on);
+  }
+  // in bed: the screen darkens over 5 seconds (220/255 at most), the Leave Bed button; waking, it fades in half a second
+  const [st, inBed] = who && !dead ? sleepTimer(who) : [0, false];
+  const f = st > 100 ? 1 - (st - 100) / 10 : st / 100;
+  $("#mcSleep").hidden = !(f > 0);
+  if (f > 0) { $("#mcSleep").style.opacity = (220 * f / 255).toFixed(3);
+    const b = $("#mcSleep .mcBtn"); b.hidden = !inBed; setMc(b, { translate: "multiplayer.stopSleeping" }, `s|${!!MCTEXT.lang}`); }
+  // advancements made (their system message names them): ToastManager, 0.6 s in, 5 s shown, 0.6 s out, up to 5
+  const box = $("#mcToasts");
+  const sm = who && EXACT.on && EXACT.ev[who] && EXACT.ev[who].sm;
+  const list = [];
+  if (sm) for (let i = lower(sm, T - 6200, r => r[0]); i < sm.length && sm[i][0] <= T; i++) {
+    const c = sm[i][1], fr = mcFindKey(c, /^chat\.type\.advancement\./);
+    if (fr && mcWho(c) === who) list.push([sm[i][0], c, fr.split(".").pop()]);
+  }
+  if (list.length && !SCR.asked) { SCR.asked = true; fetch("api/advancements").then(r => r.json()).then(r => { SCR.advs = r.advancements || {}; SCR.tk = ""; }).catch(() => { SCR.advs = {}; }); }
+  const key = list.slice(-5).map(e => e[0]).join(",") + `|${!!MCTEXT.lang}|${!!SCR.advs}`;
+  if (key !== SCR.tk) {
+    SCR.tk = key;
+    box.replaceChildren(...list.slice(-5).map(([t, c, frame]) => {
+      const d = document.createElement("div"); d.className = "toast"; d.dataset.t = t;
+      const title = mcFindKey(c, /^advancements\..+\.title$/), info = (SCR.advs || {})[title] || null;
+      const fr = info ? info[1] : frame;
+      if (info && info[0]) { const im = document.createElement("img"); im.alt = ""; im.src = `itemtex/0/${info[0]}.png`; d.append(im); }
+      const h = document.createElement("div"); h.className = "h";
+      h.replaceChildren(...mcText({ translate: `advancements.toast.${fr === "challenge" ? "challenge" : fr === "goal" ? "goal" : "task"}`,
+        color: fr === "challenge" ? "#ff88ff" : "#ffff00" }));
+      const n = document.createElement("div"); n.className = "n"; n.replaceChildren(...mcText(title ? { translate: title } : c));
+      d.append(h, n); return d;
+    }));
+  }
+  for (const d of box.children) {
+    const age = T - +d.dataset.t, vis = age < 600 ? age / 600 : age > 5600 ? Math.max(0, (6200 - age) / 600) : 1;
+    d.style.transform = `translateX(${((1 - vis) * 100).toFixed(1)}%)`;
+  }
+}
 // the effects they have: the recording's own list when it has one ("eff"), else read from their effect swirls'
 // colours (each effect's swirls are its own colour; a beacon's are faint), without how long they have left
 const EFFECT_COLOURS = { speed: 0x33ebff, slowness: 0x8bafe0, haste: 0xd9c043, mining_fatigue: 0x4a4217, strength: 0xffc700,
@@ -5682,6 +5782,7 @@ function hudStep(now) {
   if (first && !$("#mcCross").src) $("#mcCross").src = hudSprite("crosshair");
   if (!on) { $("#mcBar").hidden = true; $("#mcTitle").hidden = true; $("#mcBoss").hidden = true; }
   else { mcLang(); screenTextStep(); bossStep(RELIVE.name); }
+  screensStep(on ? RELIVE.name : null);
   if (!on || now - HUD.last < 150) return; HUD.last = now;
   const who = RELIVE.name, ex = exactHotbar(who), b = INV.backup[`${who}|${Math.floor(T / 600_000)}`];
   const bs = b && b.available ? b.slots : {};
@@ -6655,6 +6756,98 @@ function ambEffects() {
   }
 }
 // mobs' own particles every tick (their aiStep on the client): blazes smoke, endermen and endermites trail portal specks
+// pieces of a block's or an item's picture (TerrainParticle, BreakingItemParticle: a quarter of the picture each way,
+// from a random place): four pieces a picture, drawn into the atlas once it's loaded
+const AMB_PIECES = new Map();
+const AMB_PARTICLE_TEX = { grass_block: "dirt", podzol: "dirt", mycelium: "dirt", dirt_path: "dirt", farmland: "dirt",
+  snow_block: "snow", crimson_nylium: "netherrack", warped_nylium: "netherrack" };
+function ambPieces(kind, name) {
+  const key = `${kind}:${name}`;
+  if (!AMB_PIECES.has(key)) {
+    const cells = [];
+    for (let j = 0; j < 4; j++) { const i = AMB.cells.size; AMB.cells.set(`${key}#${j}`, i); cells.push(i); }
+    AMB_PIECES.set(key, cells);
+    (kind === "block" ? blockPicture(AMB_PARTICLE_TEX[name] || name) : itemTexture(name)).then(t => {
+      if (!t || !t.image) return;
+      const img = t.image, w = img.width, h = Math.min(img.height, img.width), g = AMB.canvas.getContext("2d");
+      g.imageSmoothingEnabled = false;
+      cells.forEach(i => { const u = Math.floor(R() * 4) * 3, v = Math.floor(R() * 4) * 3;
+        g.clearRect((i % 32) * 16, Math.floor(i / 32) * 16, 16, 16);
+        g.drawImage(img, u * w / 16, v * h / 16, w / 4, h / 4, (i % 32) * 16, Math.floor(i / 32) * 16, 16, 16); });
+      AMB.tex.needsUpdate = true;
+    });
+  }
+  return AMB_PIECES.get(key);
+}
+function groundBlock(x, y, z) {                          // the block under (x, y - 0.2, z) when its top shows: [name, top]
+  const bx = Math.floor(x), by = Math.floor(y - 0.2), bz = Math.floor(z), tk = bx * 65536 + bz;
+  const find = me => { const u = me && me.userData.ups && me.userData.ups.get(tk); if (!u) return null;
+    for (let i = 0; i < u.length; i += 2) if (u[i] === by) return [u[i + 1], by + 1]; return null; };
+  const lc = LIVE.chunks.get(`${bx >> 4},${bz >> 4}`);
+  if (lc) return find(lc.meshes[0]);
+  for (const T0 of REAL.tiles.values()) { const r = find(T0.meshes[0]); if (r) return r; }
+  return null;
+}
+const FOOD_NO_CRUMBS = new Set(["potion", "milk_bucket", "honey_bottle", "ominous_bottle"]);
+const vRotX = (v, a) => { const c = Math.cos(a), s = Math.sin(a); return [v[0], v[1] * c + v[2] * s, v[2] * c - v[1] * s]; };
+const vRotY = (v, a) => { const c = Math.cos(a), s = Math.sin(a); return [v[0] * c + v[2] * s, v[1], v[2] * c - v[0] * s]; };
+function ambPlayers() {
+  // each tick: a sprinting player on the ground kicks up a bit of the block under them (Entity.spawnSprintParticle);
+  // eating, crumbs of the food at their mouth every 4 ticks once a fifth of the way through (5 at a time)
+  const c = camera.position, D = Math.PI / 180;
+  for (const m of Object.values(markers)) {
+    if (!m.group.visible || !m.cur || !m.cur.pos) continue;
+    const p = m.cur.pos, last = m._amb || p; m._amb = p.slice();
+    if (Math.abs(p[0] - c.x) > 48 || Math.abs(p[1] - c.y) > 48 || Math.abs(p[2] - c.z) > 48) continue;
+    const fl = stateAt(m.name, "f", T, 0), pose = stateAt(m.name, "p", T, 0);
+    if ((fl & 8) && !(fl & 0x10) && pose !== 3 && pose !== 2) {
+      const gb = groundBlock(p[0], p[1], p[2]);
+      if (gb && p[1] - gb[1] < 0.05 && p[1] - gb[1] > -0.6) {
+        const vx = p[0] - last[0], vz = p[2] - last[2], b = ambBaseVel(-vx * 4, 1.5, -vz * 4);
+        ambAdd({ x: p[0] + (R() - 0.5) * 0.6, y: p[1] + 0.1, z: p[2] + (R() - 0.5) * 0.6, vx: b[0], vy: b[1], vz: b[2], g: 0.04, fr: 0.98,
+          life: Math.floor(4 / (R() * 0.9 + 0.1)), size: 0.1 * (R() * 0.5 + 0.5), col: [0.6, 0.6, 0.6, 1],
+          frames: ambPieces("block", gb[0]), anim: false, day: true, floor: gb[1] });
+      }
+    }
+    const t0 = fpUseStart(m.name); if (t0 === null) continue;
+    const held = (stateAt(m.name, "eq:mainhand", T, null) || [])[0];
+    if (!held || !FP_FOOD.test(held) || FOOD_NO_CRUMBS.has(held)) continue;
+    const dur = held === "dried_kelp" ? 16 : 32, used = Math.floor((T - t0) / 50), left = dur - used;
+    if (left < 0 || used <= Math.floor(dur * 0.21875) || left % 4 !== 0) continue;
+    const yaw = (m.cur.head ?? m.cur.yaw ?? 0) * D, pitch = (m.cur.pitch || 0) * D, eye = p[1] + (pose === 5 ? 1.27 : 1.62);
+    for (let n = 0; n < 5; n++) {
+      let v = vRotY(vRotX([(R() - 0.5) * 0.1, R() * 0.1 + 0.1, 0], -pitch), -yaw);
+      let q = vRotY(vRotX([(R() - 0.5) * 0.3, -R() * 0.6 - 0.3, 0.6], -pitch), -yaw);
+      const b = ambBaseVel(0, 0, 0);
+      ambAdd({ x: p[0] + q[0], y: eye + q[1], z: p[2] + q[2], vx: b[0] * 0.1 + v[0], vy: b[1] * 0.1 + v[1] + 0.05, vz: b[2] * 0.1 + v[2],
+        g: 0.04, fr: 0.98, life: Math.floor(4 / (R() * 0.9 + 0.1)), size: 0.1 * (R() * 0.5 + 0.5), frames: ambPieces("item", held),
+        anim: false, day: true, floor: eye - 3 });
+    }
+  }
+  // critical hits: the stars burst from them for 3 ticks, 16 tries a tick (CritParticle; enchanted_hit for magic ones)
+  AMB.crits = (AMB.crits || []).filter(e => e.n-- > 0);
+  for (const e of AMB.crits) {
+    const mk = markers[e.who], mob = mk ? null : mobMeshes.get(e.who), o = mk ? (mk.group.visible ? mk.group : null) : mob && mob.mesh;
+    if (!o) continue;
+    const [w, h] = mk ? [0.6, 1.8] : MOB_SIZE[e.who.split("#")[1]] || [0.6, 0.9], P = o.position;
+    for (let i = 0; i < 16; i++) {
+      const dx = R() * 2 - 1, dy = R() * 2 - 1, dz = R() * 2 - 1; if (dx * dx + dy * dy + dz * dz > 1) continue;
+      const b = ambBaseVel(0, 0, 0), k = R() * 0.3 + 0.6;
+      ambAdd({ x: P.x + w * dx / 4, y: P.y + h * (0.5 + dy / 4), z: P.z + w * dz / 4,
+        vx: b[0] * 0.1 + dx * 0.4, vy: b[1] * 0.1 + (dy + 0.2) * 0.4, vz: b[2] * 0.1 + dz * 0.4, g: 0.5 * 0.04, fr: 0.7,
+        life: Math.max(1, Math.floor(6 / (R() * 0.8 + 0.6))), size: 0.1 * (R() * 0.5 + 0.5) * 2 * 0.75,
+        col: e.magic ? [k * 0.3, k * 0.8, k, 1] : [k, k, k, 1], frames: ambFrames(e.magic ? "enchanted_hit" : "crit"), anim: false, day: true });
+    }
+  }
+}
+function ambCrits(t0, t1) {                              // critical hits ("cr") as the time passes them
+  if (!EXACT.on) return;
+  for (const [name, ev] of Object.entries(EXACT.ev)) {
+    if (!ev.cr) continue;
+    for (let i = lower(ev.cr, t0, r => r[0]); i < ev.cr.length && ev.cr[i][0] <= t1; i++)
+      if (ev.cr[i][0] > t0) (AMB.crits = AMB.crits || []).push({ who: name, n: 3, magic: ev.cr[i][1] === 5 });
+  }
+}
 function ambMobs() {
   const c = camera.position;
   for (const [name, o] of mobMeshes) {
@@ -6856,7 +7049,7 @@ function ambGameTick() {
     const p = 667 * (AMB_P16(dx) * AMB_P16(dy) * AMB_P16(dz) + AMB_P32(dx) * AMB_P32(dy) * AMB_P32(dz));
     if (R() < p) ambTick(s);
   }
-  ambEffects(); ambMobs(); ambBiomeTick();
+  ambEffects(); ambMobs(); ambBiomeTick(); ambPlayers();
   // rain: LevelRenderer.tickRain, splashes on the open tops round the camera
   const rain = $("#lFollow").checked && EXACT.on && $("#dim").value === "minecraft:overworld" ? (worldAt("rain", T) ?? 0) : 0;
   for (let i = Math.floor(100 * rain * rain); i > 0; i--) {
@@ -6914,7 +7107,7 @@ function ambStep(now) {
     ambAtlas(); }
   const on = REAL.tiles.size > 0 && $("#dim").value !== undefined;
   if (!on || AMB.lastT === null || T < AMB.lastT || T - AMB.lastT > 3000) { AMB.ps = []; AMB.acc = 0; }
-  else { AMB.acc += (T - AMB.lastT) / 50; if (T > AMB.lastT) { ambEntityEvents(AMB.lastT, T); fireworkBursts(AMB.lastT, T); } }
+  else { AMB.acc += (T - AMB.lastT) / 50; if (T > AMB.lastT) { ambEntityEvents(AMB.lastT, T); fireworkBursts(AMB.lastT, T); ambCrits(AMB.lastT, T); } }
   if (on) ambBiome(now);
   AMB.lastT = T;
   if (on) {

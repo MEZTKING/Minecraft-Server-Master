@@ -1231,6 +1231,8 @@ class TestPosesAndMobs(unittest.TestCase):
             if t == 10:                                   # the player starts sneaking (flags 0x02) and swings
                 recs.append(("game_packet", _vi(101) + _vi(7) + bytes([0]) + _vi(0) + bytes([2]) + b"\xff"))
                 recs.append(("game_packet", _vi(2) + _vi(7) + bytes([0])))
+            if t == 15:                                   # a critical hit on the zombie (animate, action 4)
+                recs.append(("game_packet", _vi(2) + _vi(20) + bytes([4])))
             if t == 12:                                   # rides the zombie (set_passengers 109: vehicle, count, riders)
                 recs.append(("game_packet", _vi(109) + _vi(20) + _vi(1) + _vi(7)))
             if t == 20:                                   # gets off
@@ -1252,6 +1254,7 @@ class TestPosesAndMobs(unittest.TestCase):
             ex = paths.exact_rows(z, os.path.join(tmp, "cache"))
             self.assertIn([10, None, "f", 2], ex["events"])          # sneaking, from tick 10
             self.assertIn([10, None, "s", 0], ex["events"])
+            self.assertIn([15, "#zombie#20", "cr", 4], ex["events"])   # the crit's stars burst from the zombie
             self.assertIn([12, None, "r", "zombie"], ex["events"])  # riding, and what
             self.assertIn([20, None, "r", ""], ex["events"])        # off again          # a main-hand swing
             self.assertEqual(ex["mobs"], {"#zombie#20": "zombie", "#item#21": "item"})   # dropped items too
@@ -4431,6 +4434,30 @@ class TestRealBlocks(unittest.TestCase):
                                 for f in self._faces(r)))      # lit enough to see
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_advancements_from_the_jar(self):
+        """The toasts' icons and frames: each advancement's display (title key, icon item, frame) from the jar's
+        data/minecraft/advancement files; crits in the search's words."""
+        from mcsm import history, search
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            with zipfile.ZipFile(jar, "w") as zf:
+                zf.writestr("data/minecraft/advancement/story/mine_stone.json", json.dumps({"display": {
+                    "title": {"translate": "advancements.story.mine_stone.title"}, "icon": {"id": "minecraft:wooden_pickaxe"}}}))
+                zf.writestr("data/minecraft/advancement/adventure/arbalistic.json", json.dumps({"display": {
+                    "title": {"translate": "advancements.adventure.arbalistic.title"}, "icon": {"id": "minecraft:crossbow"},
+                    "frame": "challenge"}}))
+                zf.writestr("data/minecraft/advancement/recipes/misc/x.json", json.dumps({"criteria": {}}))   # no display
+                zf.writestr("data/minecraft/advancement/broken.json", "{")
+            self.assertEqual(history.read_advancements(jar), {
+                "advancements.story.mine_stone.title": ["wooden_pickaxe", "task"],
+                "advancements.adventure.arbalistic.title": ["crossbow", "challenge"]})
+            self.assertEqual(history.read_advancements(os.path.join(tmp, "missing.jar")), {})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(search.event_text("cr", 4), "critical hit")
+        self.assertEqual(search.event_text("cr", 5), "critical hit (enchanted weapon)")
 
     def test_block_entities(self):
         """The block entities the page draws itself: the enchanting table's book, a lectern's book, bells (and the

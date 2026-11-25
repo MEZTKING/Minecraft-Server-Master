@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 39: books, bells, beacon beams, banners swaying; parity round 38: lightning, fireworks, fishing lines, end crystals; parity round 37: player poses; parity round 36: slimes, bees, phantoms, shulkers; parity round 35: mob moves; parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 40: sprint dust, eating crumbs, crits, death and sleep screens, advancement toasts; parity round 39: books, bells, beacon beams, banners swaying; parity round 38: lightning, fireworks, fishing lines, end crystals; parity round 37: player poses; parity round 36: slimes, bees, phantoms, shulkers; parity round 35: mob moves; parity round 34: the HUD; parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1509,6 +1509,32 @@ pages, the bell's shape, a two-colour beam drawn on their own (the pane was hidd
 conduits, end gateway beams, decorated pots wobbling, the creaking heart, spawners' spinning mob, the enchanting
 book's exact turn rate when several players are near.
 
+**Round 40 (2026-11-25, owner: "Keep going"; audit: client particles and screens).**
+- `paths`: animate actions 4 / 5 (critical hit, magic critical hit) on any player or mob: "cr" (on whom).
+  `EXACT_SUFFIX` 38. Search lines for crits.
+- `history`: `/api/advancements` (`read_advancements`: the jar's `data/minecraft/advancement/**.json` displays,
+  {title key: [icon item, frame]}).
+- `map3d`: each piece keeps `ups` (blocks with a top showing, by column: [y, name, ...]) for what's walked on.
+- Page particles (`ambPlayers`, in the particle tick): sprint dust (Entity.spawnSprintParticle: sprinting, not
+  swimming, on the block at y - 0.2 with its top showing; TerrainParticle with a quarter-size piece of the block's
+  picture, `AMB_PARTICLE_TEX` for blocks whose particle picture is another's (grass -> dirt), colour 0.6, gravity
+  0.04); crumbs (LivingEntity.spawnItemParticles while eating: every 4 ticks once 21.875% of the use time is past,
+  5 BreakingItemParticles at the mouth, turned by their look; none for drinks); crits (`ambCrits`: "cr" makes a
+  3-tick emitter, 16 tries a tick in the unit ball, CritParticle: friction 0.7, gravity 0.5, colour 0.6-0.9;
+  enchanted_hit tinted 0.3 / 0.8). `ambPieces` draws 4 random pieces of a block's or an item's picture into the
+  particle atlas.
+- Page screens (`screensStep`, Relive): `deathAt` (the last "d" until an "hp" over 0; the "sm" death message naming
+  them within 2 s) and #mcDeath (DeathScreen's gradient, title at 2x, message, score only with "xp", buttons
+  disabled for 20 ticks); `sleepTimer` (pose 2: Player.sleepCounter to 100, then 100-110 waking) and #mcSleep
+  (0x101020 at 220/255 x f, the Leave Bed button); #mcToasts (an "sm" chat.type.advancement.* naming them:
+  ToastManager timing 600 / 5000 / 600 ms, up to 5, the toast/advancement sprite, header colour 0xFFFF00 or 0xFF88FF
+  for challenges, the icon from `/api/advancements`). Debug hooks: `relive()`, `screensStep()`, `groundBlock()`,
+  `ambPlayers()`, `ambCrits()`.
+Checked: Vakirath's "Eye Spy" on 1 November 2026 18:14 as a toast (icon, yellow header, name); the death screen and
+the bed's darkness with test events (texts from the game's language file); 426,000 walkable tops kept in 26 pieces.
+No crits in the two recordings read; the dust and crumbs not seen on screen (the pane was mostly hidden). Not done:
+the hardcore title, the chat box beside Leave Bed, recipe and tutorial toasts.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -2227,6 +2253,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 40:** relive Vakirath on 1 November 2026 at 18:14 (the "Eye Spy" toast top right); relive someone
+  dying (the death screen, then gone when they respawn) and sleeping (the screen darkening, Leave Bed); players
+  sprinting on grass (dirt bits at their feet), eating (crumbs), landing critical hits (stars).
 - **Parity round 39:** an enchanting table (the floating book, opening as a player walks up), a lectern with a
   book, a bell being rung in a recording (it should swing away from the side hit), Crow_Shroom's beacon beam from
   near and far (and its colour through any stained glass), banners swaying.
@@ -2476,6 +2505,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 40 (backlog 0zh): sprint dust, eating crumbs, critical-hit stars,
+  the death screen, the bed's darkness, advancement toasts. Tests: `test_advancements_from_the_jar`, crits in the
+  exact-playback test.
 
 - **2026-11-25:** Owner: "Keep going". Parity round 39 (backlog 0zh): enchanting table and lectern books, bells
   swinging when rung (bell rings were misread as chests opening), beacon beams with their glass colours, banners

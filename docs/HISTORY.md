@@ -347,6 +347,19 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**Dust, crumbs and crits.** More of the particles a player's own game makes up: a player sprinting on the ground
+kicks up bits of the block they run on (grass and dirt show dirt, as in the game); someone eating sends crumbs of
+the food from their mouth every few bites; a critical hit (the recordings keep these) bursts stars from whoever was
+hit for a moment, blue-green ones for an enchanted weapon's hit.
+
+**The game's screens in Relive.** When the player you relive dies, the death screen comes up as in the game: red
+over the view, "You Died!", their death message from the recording, and the Respawn and Title Screen buttons (usable
+after a second, as in the game), until they respawn. (The score line shows only where the recording kept their
+experience, which ServerReplay doesn't.) Lying in bed, the screen darkens over five seconds with the Leave Bed button,
+and fades back when they wake. An advancement they make (from the server's message in the recording) slides in at
+the top right as the game's toast: "Advancement Made!", "Goal Reached!" or "Challenge Complete!" with the
+advancement's icon and name, for five seconds.
+
 **Books, bells and beacons.** Block entities the game draws itself are drawn too: an enchanting table's book floats
 over it, slowly turning, and opens and turns towards a recorded player who comes within 3 blocks, its pages
 flipping; a lectern with a book shows it open at a slant; bells hang or stand as placed and swing when someone rings
