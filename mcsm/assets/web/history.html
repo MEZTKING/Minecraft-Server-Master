@@ -2081,6 +2081,7 @@ function fireOn(holder, w, h, on) {
 function mobTint(o, label) {                             // red when hurt or dying, orange when burning (swaps shared materials)
   const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01, died = sinceLast(label, "d", T);
   if (o.model) o.model.visible = !(flagsAt(label, T) & 0x20);          // invisible (a potion, or an invisible armour stand)
+  if (o.model) glowOutline(o.model, !!(flagsAt(label, T) & 0x40));     // glowing
   const sc = stateAt(label, "sc", T, 1);                 // a size set with the scale attribute
   if (o.mesh.scale.x !== sc) o.mesh.scale.setScalar(sc);
   const sz = MOB_SIZE[o.kind] || [0.6, 0.9];
@@ -2546,6 +2547,7 @@ async function setGear(m, slot, v) {
       if (s > 0) g.scale(-1, 1, 1);                     // the left wing is the right one mirrored
       const pivot = new THREE.Group(); pivot.position.set(s * PX, 0, -3 * PX);
       pivot.rotation.set(0.26, 0, s * 0.26);            // folded: tilted back and out, as in the game
+      pivot.userData.side = s; (F.elytra = F.elytra || []).push(pivot);
       const w = new THREE.Mesh(g, material); w.position.set(s * 5 * PX, -10 * PX, 0); pivot.add(w);
       F.parts.body.add(pivot); objs.push(pivot);
     }
@@ -2831,7 +2833,15 @@ function animateFigure(m, now) {
   const sleeping = pose === 2, died = c && c.exact ? sinceLast(m.name, "d", T) : null;
   const dying = pose === 7 || (died !== null && died < 1000);
   m.F.fig.rotation.order = "YXZ";
-  const rx = flat ? Math.PI / 2 : sleeping ? -Math.PI / 2 : 0;
+  if (m.extraRot) { m.F.fig.quaternion.copy(m.extraRot); m.extraRot = null; }   // (last frame's spin or roll taken off)
+  // PlayerRenderer.setupRotations: gliding, the body leans in over the first 10 ticks until it lies along their look
+  // (-90 - pitch); a riptide spins them along their look; swimming in water they lie along their look; crawling, flat
+  const hv0 = c && c.exact ? stateAt(m.name, "h", T, 0) : 0, spin = !!(hv0 & 0x04);
+  const glideMs = (fl & 0x80) ? flagSince(m.name, 0x80) : null, pitchR = c && c.exact ? (c.pitch || 0) * Math.PI / 180 : 0;
+  let rx = flat ? Math.PI / 2 : sleeping ? -Math.PI / 2 : 0;
+  if (spin) rx = Math.PI / 2 + pitchR;
+  else if (glideMs !== null) { const t = glideMs / 50; rx = Math.max(0, Math.min(1, t * t / 100)) * (Math.PI / 2 + pitchR); }
+  else if (flat && (fl & 0x10)) rx = Math.PI / 2 + pitchR;
   m.F.fig.rotation.x += (rx - m.F.fig.rotation.x) * Math.min(1, dt * 10);
   m.F.fig.rotation.z = dying ? deathTilt(died ?? 1000) : 0;   // the game's death: fall sideways
   m.F.fig.position.y = flat ? 0.3 : sleeping ? 0.6 : sneak ? -0.125 : 0;
@@ -2937,7 +2947,51 @@ function animateFigure(m, now) {
   const sc = c && c.exact ? stateAt(m.name, "sc", T, 1) : 1;
   if (m.F.fig.scale.x !== sc) m.F.fig.scale.setScalar(sc);
   fireOn(m.F.fig, 0.6, 1.8, !!(fl & 0x01));
+  // ElytraModel: gliding, the wings spread (closing as they dive); sneaking, folded lower
+  if (m.F.elytra) {
+    let ex = 0.2617994, ez = 0.2617994, ey = 0, py = 0;
+    if (glideMs !== null) {
+      const vy = m.vy || 0, hor = Math.hypot(dx, dz) / dt, len = Math.hypot(vy, hor) || 1;
+      const f4 = vy < 0 ? 1 - Math.pow(Math.min(1, -vy / len), 1.5) : 1;
+      ex = f4 * 0.34906584 + (1 - f4) * ex; ez = f4 * (Math.PI / 2) + (1 - f4) * ez;
+    } else if (sneak) { ex = 0.6981317; ez = Math.PI / 4; ey = 0.08726646; py = 3; }
+    for (const w of m.F.elytra) { const sd = w.userData.side; w.rotation.set(ex, sd * ey, sd * ez); w.position.y = -py * PX; }
+  }
+  m.vy = (p.y - last.y) / dt;
+  // the spin of a riptide (75 degrees a tick about their length) or a glider's bank into the turn, on top
+  let extra = 0;
+  if (spin) extra = -(T / 50) * 75 * Math.PI / 180;
+  else if (glideMs !== null && c && c.exact) {          // the angle between where they fly and where they look
+    const lx = -Math.sin((c.yaw || 0) * Math.PI / 180), lz = Math.cos((c.yaw || 0) * Math.PI / 180), hl = Math.hypot(dx, dz);
+    if (hl > 1e-4) { const d = (dx * lx + dz * lz) / hl, cr = dx * lz - dz * lx; extra = Math.sign(cr) * Math.acos(Math.max(-1, Math.min(1, d))); }
+  }
+  if (extra) { m.extraRot = m.F.fig.quaternion.clone(); m.F.fig.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), extra)); }
+  glowOutline(m.F.fig, !!(fl & 0x40));                 // glowing (spectral arrows, the effect): its outline
   m.last = p.clone(); m.lastT = now;
+}
+// how long a flag has been on without a break (ms), or null
+function flagSince(name, bit) {
+  const f = EXACT.on && EXACT.ev[name] && EXACT.ev[name].f; if (!f) return null;
+  let i = lower(f, T, r => r[0]) - 1; if (i < 0 || !(f[i][1] & bit)) return null;
+  while (i > 0 && (f[i - 1][1] & bit)) i--;
+  return T - f[i][0];
+}
+// the glowing outline: a white shell just outside the model, drawn behind it (the game draws it round the outside,
+// through walls too: here only where the figure can be seen)
+const GLOW_OUTLINE = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide });
+function glowOutline(root, on) {
+  if (!!root.userData.glowOn === on) return;
+  root.userData.glowOn = on;
+  if (!on) { for (const h of root.userData.glowHulls || []) h.parent && h.parent.remove(h); root.userData.glowHulls = []; return; }
+  const hulls = [], meshes = [];
+  root.traverse(o => { if (o.isMesh && !o.userData.glint && !o.userData.isHull && o.geometry && o.geometry.type === "BoxGeometry") meshes.push(o); });
+  for (const o of meshes) {
+    const h = new THREE.Mesh(o.geometry, GLOW_OUTLINE); h.userData.isHull = true;
+    o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox, sz = new THREE.Vector3(); b.getSize(sz);
+    const k = 0.06 / Math.max(0.05, Math.min(sz.x, sz.y, sz.z) || 0.05);   // about 1 pixel round each box
+    h.scale.setScalar(1 + Math.min(0.3, k)); o.add(h); hulls.push(h);
+  }
+  root.userData.glowHulls = hulls;
 }
 // A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
 function setFigure(name, real) {

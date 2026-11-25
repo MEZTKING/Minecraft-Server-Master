@@ -306,7 +306,10 @@ overview paths, about one point a second. The detail for a recording is worked o
 Movement between recorded positions is smoothed like the game smooths other players: a player holds still
 until shortly before the next recorded position, then glides into it, so steps up and jumps don't snap. Legs
 swing with the recorded speed. In that view the players also sneak (the game's pose: bent from the neck, head
-and arms lower, legs back), sprint, swim and fly with elytra (lying forward), and swing their arms
+and arms lower, legs back), sprint, swim (lying along where they look), crawl, glide with an elytra (leaning
+in over the first half second until they lie along their look, banking into turns, the wings spread out and closing
+as they dive; folded lower when they sneak), spin through the water and air with a riptide trident, glow (a white
+outline) under the Glowing effect or after a spectral arrow, and swing their arms
 when they did (in Minecraft 26.3 recordings too, which keep swings in a packet of their own). Mobs, pets, animals, boats and minecarts within 48 blocks of a recorded player are shown, a
 couple of times a second, with the game's own models and textures: creepers, skeletons, zombies, spiders, fish,
 squid, bats, farm animals, villagers, horses, boats and the rest. They walk (legs and arms swing with their
