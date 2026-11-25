@@ -1620,6 +1620,34 @@ function mobMesh(label, kind, look = null) {
     o = { mesh: g, box, kind, dist: 0, last: null }; mobGroup.add(g); mobMeshes.set(label, o);
   }
   if (kind === "item") { if (!o.icon) itemIcon(o); return o; }
+  if (kind === "falling_block" || kind === "tnt") {      // a block on the move: the block itself
+    if (!o.cube) {
+      o.box.visible = false;
+      const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x000000 });
+      o.cube = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.98, 0.98), [mat, mat, mat, mat, mat, mat]);
+      o.cube.position.y = 0.49; o.mesh.add(o.cube);
+      if (kind === "tnt") Promise.all(["block/tnt_side", "block/tnt_top", "block/tnt_bottom"].map(texOnce)).then(([sd, tp, bt]) => {
+        const m = t => new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveIntensity: 0 });
+        o.cube.material = [m(sd), m(sd), m(tp), m(bt), m(sd), m(sd)];
+      });
+    }
+    if (kind === "falling_block") {
+      const b = stateAt(label, "fb", T, null);
+      if (b && o.cubeBlock !== b) { o.cubeBlock = b; blockPicture(b).then(t => { if (t && o.cubeBlock === b) { o.cube.material.forEach(m => { m.map = t; m.needsUpdate = true; }); } }); }
+    }
+    return o;
+  }
+  if (kind === "experience_orb") {                        // the game's orb picture, facing you, bobbing and shimmering
+    if (!o.orb) {
+      o.box.visible = false;
+      const mat = new THREE.SpriteMaterial({ color: 0xffffff, transparent: true, alphaTest: 0.1, depthWrite: false });
+      texOnce("entity/experience_orb").then(t => { if (t) { const tc = t.clone(); tc.repeat.set(0.25, 0.25); tc.offset.set(0, 0.75); tc.needsUpdate = true; mat.map = tc; mat.needsUpdate = true; } });
+      o.orb = new THREE.Sprite(mat); o.orb.scale.set(0.3, 0.3, 1); o.orb.position.y = 0.15; o.mesh.add(o.orb);
+    }
+    const ph = performance.now() / 50 / 2;               // the game's colour: green to yellow and back
+    o.orb.material.color.setRGB((Math.sin(ph) + 1) * 0.5, 1, (Math.sin(ph + 4.19) + 1) * 0.1);
+    return o;
+  }
   if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
     if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]);
       if (kind === "arrow" || kind === "spectral_arrow") arrowModel(kind).then(g => { if (g) { o.arrow = g; o.mesh.add(g); } }); }
@@ -1863,9 +1891,21 @@ function updateMobs() {
       const died = sinceLast(label, "d", T), dying = stateAt(label, "p", T, -1) === 7 || (died !== null && died < 1000);
       o.mesh.rotation.z = dying ? deathTilt(died ?? 1000) : 0;
       if (died !== null && died >= 1000) { o.mesh.visible = false; continue; }              // gone 20 ticks after the death
+      const pick = lastAt(label, "pk");                      // picked up: flies into whoever took it (3 ticks), then gone
+      if (pick && T >= pick[0] && T - pick[0] < 150) {
+        const who = markers[pick[1]] || (mobMeshes.get(pick[1]) ? { group: mobMeshes.get(pick[1]).mesh } : null);
+        const to = who && who.group.visible ? who.group.position : null;
+        if (to) { const f = (T - pick[0]) / 150; o.mesh.position.set(x + (to.x - x) * f, y + (to.y + 0.8 - y) * f, z + (to.z - z) * f); }
+        continue;
+      }
+      if (pick && T - pick[0] >= 150) { o.mesh.visible = false; continue; }
       if (died === null) {                                   // picked up, despawned, killed: gone at once
         const gone = sinceLast(label, "gone", T);
         if (gone !== null && T - gone >= a[0]) { o.mesh.visible = false; continue; }
+      }
+      if (mob.type === "tnt" && o.cube && Array.isArray(o.cube.material)) {   // flashing white as its fuse burns
+        const lit = Math.floor((T - rows[0][0]) / 50 / 5) % 2 === 0;
+        for (const m of o.cube.material) m.emissiveIntensity = lit ? 0.8 : 0;
       }
       if (o.proj !== undefined) {                    // thrown or shot: flown from its launch with the game's physics
         const v = stateAt(label, "v", T, null), ph = PROJ_PHYS[mob.type] || [0.03, 0.99];
@@ -5066,6 +5106,29 @@ function pistonStep() {
     });
   }
 }
+// a totem of undying going off ("totem"): the game's burst of yellow and green sparkles round them, rising, 1.5 s
+function totemStep(want) {
+  if (!EXACT.on) return;
+  for (const [name, ev] of Object.entries(EXACT.ev)) for (const [t, v] of ev.totem || []) {
+    if (t > T || T - t > 1500) continue;
+    const key = `totem|${t}|${name}`; want.add(key);
+    if (BREAK.seen.has(key)) continue;
+    const holder = name.startsWith("#") ? (mobMeshes.get(name) || {}).mesh : markers[name] && markers[name].group;
+    if (!holder) continue;
+    BREAK.seen.add(key);
+    const L = { life: 30 }, g = new THREE.Group(); g.userData = { key, t, bits: [], fx: L }; BREAK.group.add(g); BREAK.parts.push(g);
+    let h = t | 0; const rnd = () => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) & 0xffff) / 0xffff; };
+    const p = holder.position;
+    for (let i = 0; i < 40; i++) {
+      const col = rnd() < 0.5 ? 0xf2e14a : 0x6fd34a, sp = new THREE.Sprite(fxMat("glitter_" + Math.floor(rnd() * 8), col));
+      const size = 0.12 + rnd() * 0.12; sp.scale.set(size, size, 1);
+      const a = rnd() * Math.PI * 2, r = 0.3 + rnd() * 0.5;
+      sp.userData = { p: [p.x + Math.cos(a) * 0.2, p.y + 0.6 + rnd() * 1.0, p.z + Math.sin(a) * 0.2],
+        v: [Math.cos(a) * r * 0.08, 0.05 + rnd() * 0.12, Math.sin(a) * r * 0.08], life: 20 + Math.floor(rnd() * 10), gravity: 0.01 };
+      g.add(sp); g.userData.bits.push(sp);
+    }
+  }
+}
 function breakStep(now) {
   pistonStep();
   if (now - BREAK.last < 33) return; BREAK.last = now;
@@ -5087,7 +5150,7 @@ function breakStep(now) {
   }
   // bursts: built once per break (the same one seen by several recordings: once), flown by the game's physics
   const want = new Set();
-  levelFxStep(want);
+  levelFxStep(want); totemStep(want);
   for (const [t, v] of bursts) {
     const key = `${Math.round(t / 100)}|${v[0]},${v[1]},${v[2]}`; want.add(key);
     if (BREAK.seen.has(key)) continue;

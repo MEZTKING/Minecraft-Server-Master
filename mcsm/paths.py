@@ -109,9 +109,9 @@ CLOCK_PROBE_TICKS = 600     # the world clock's packet is found in the first 30 
 
 
 # entities not worth following (things that fly past, decorations that never move, effects)
-SKIP_ENTITIES = {"item", "experience_orb", "arrow", "spectral_arrow", "trident", "snowball", "egg", "ender_pearl",
-                 "experience_bottle", "potion", "splash_potion", "lingering_potion", "fishing_bobber", "falling_block",
-                 "tnt", "area_effect_cloud", "marker", "interaction", "lightning_bolt", "firework_rocket",
+SKIP_ENTITIES = {"item", "arrow", "spectral_arrow", "trident", "snowball", "egg", "ender_pearl",
+                 "experience_bottle", "potion", "splash_potion", "lingering_potion", "fishing_bobber",
+                 "area_effect_cloud", "marker", "interaction", "lightning_bolt", "firework_rocket",
                  "eye_of_ender", "fireball", "small_fireball", "dragon_fireball", "wither_skull", "shulker_bullet",
                  "llama_spit", "evoker_fangs", "wind_charge", "breeze_wind_charge", "leash_knot", "painting",
                  "item_frame", "glow_item_frame", "ominous_item_spawner", "end_crystal"}
@@ -631,6 +631,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         link_id = pk.get("set_entity_link") if ex_on else None    # i32 tied entity, i32 holder (0: let go)
         bed_id = pk.get("block_entity_data") if ex_on else None   # block pos, type, NBT (signs' text)
         crack_id = pk.get("block_destruction") if ex_on else None   # breaker, block pos, stage 0-9 (else: stopped)
+        take_id = pk.get("take_item_entity") if ex_on else None     # collected, collector, amount
         lev_id = pk.get("level_event") if ex_on else None          # i32 event, block pos, i32 data, bool
         block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
@@ -638,7 +639,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         new_ids = bool(version) and not str(version).startswith("1.")   # 26.x: animals' own data one index on
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
-                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id)
+                             pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -743,6 +744,17 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                         extras["events"].append([tick, name, "v", [round(v, 4) for v in vel]])
                                     except (IndexError, struct.error):
                                         pass
+                                if name.startswith("#falling_block#"):     # which block is falling (the data field)
+                                    try:
+                                        kv = lp_vec3(b, k2 + 24)[1] + 3 if proto is None or proto >= 773 else k2 + 27
+                                        sid = _varint(b, kv)[0]
+                                        if block_names is None:
+                                            from . import protocol as proto_mod3
+                                            block_names = proto_mod3.block_states(tbl) or []
+                                        if 0 <= sid < len(block_names):
+                                            extras["events"].append([tick, name, "fb", block_names[sid].split("[")[0].replace("minecraft:", "")])
+                                    except (IndexError, struct.error):
+                                        pass
                                 others[eid] = name
                                 cur[eid] = {"dim": dim_now, "x": x, "y": y, "z": zz, "yaw": 0.0, "pitch": 0.0, "name": name}
                                 last_move[eid] = tick
@@ -802,6 +814,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if b[k + 4] == 3 and (eid == me or (eid in others and not (others[eid].startswith("#")
                                                   and others[eid].split("#")[1] in PROJECTILES))):
                                 extras["events"].append([tick, None if eid == me else others[eid], "d", 1])
+                            elif b[k + 4] == 35 and (eid == me or eid in others):   # a totem of undying saved them
+                                extras["events"].append([tick, None if eid == me else others[eid], "totem", 1])
+                        elif pid == take_id and size >= 3:   # picked up: the item (or orb), who by
+                            got, kk = _varint(b, k)
+                            by, kk = _varint(b, kk)
+                            if got in others and others[got].startswith("#") and (by == me or by in others):
+                                extras["events"].append([tick, others[got], "pk", None if by == me else others[by]])
                         elif pid == stime_id and size >= 9:   # the time of day (two layouts, see _day_time)
                             dt = _day_time(b, k, i + size)
                             if dt is not None:
@@ -1155,7 +1174,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact21.json.gz"    # 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact22.json.gz"    # 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

@@ -320,6 +320,11 @@ clothes with their job's outfit and level badge (zombie villagers too), **slimes
 the game, when you're within 16 blocks (with *Names* shown under *Show*). When a mob dies it tips over the way the
 game does it, red all the while, and is gone a second later.
 
+**Picking up, falling blocks, TNT, totems.** Items and experience orbs fly into whoever picks them up, as in the
+game. Experience orbs show (green and yellow, shimmering), falling sand, gravel and concrete powder fall as their
+block, lit TNT flashes white as its fuse burns, and a totem of undying going off bursts into yellow and green
+sparkles round the one it saved.
+
 **Mining and breaking.** In close-up playback, a block someone is mining shows the game's cracks growing on it,
 and a block broken (by anyone the recordings saw) bursts into small bits of its own picture that fly out and fall,
 as in the game. Other effects the recordings keep show with the game's particles too: composters filling and bone
