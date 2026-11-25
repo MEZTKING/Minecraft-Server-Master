@@ -449,7 +449,7 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
             out.append([pat.split(":")[-1], DYES[d % 16]])
         return k, out
     if name == "enchantment_glint_override":
-        return k + 1, None
+        return k + 1, ("glint", bool(b[k]))
     if name in ("dyed_color", "map_color"):
         return k + 4, struct.unpack_from(">i", b, k)[0] & 0xFFFFFF
     if name in ("item_model", "tooltip_style"):
@@ -466,7 +466,7 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
         n, k = _varint(b, k)
         for _ in range(n):
             k = _varint(b, _varint(b, k)[1])[1]
-        return k, None
+        return k, ("glint", n > 0)
     if name == "custom_model_data":                     # floats, flags, strings, colours
         n, k = _varint(b, k)
         k += 4 * n
@@ -482,12 +482,15 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
         for _ in range(n):
             k = _varint(b, k)[1]
         return k, None
-    if name == "trim":                                  # two registry holders (0 = written out in full: not read)
-        for _ in range(2):
+    if name == "trim":                                  # material and pattern: registry holders (id + 1; 0 = written out)
+        got = []
+        for reg in ("trim_material", "trim_pattern"):
             h, k = _varint(b, k)
             if h == 0:
                 raise ValueError("inline trim")
-        return k, None
+            names = REGISTRIES.get(reg) or []
+            got.append(names[h - 1].split(":", 1)[-1] if 0 <= h - 1 < len(names) else None)
+        return k, ("trim", got if all(got) else None)
     raise ValueError(name)
 
 
@@ -532,6 +535,13 @@ def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
                 look = {**(look or {}), "base": val}
             elif cname == "banner_patterns" and val:
                 look = {**(look or {}), "patterns": val}
+            elif isinstance(val, tuple) and val[0] == "glint" and cname != "enchantment_glint_override":
+                if val[1] and "glint" not in (look or {}):
+                    look = {**(look or {}), "glint": True}
+            elif isinstance(val, tuple) and val[0] == "glint":
+                look = {**(look or {}), "glint": val[1]}
+            elif isinstance(val, tuple) and val[0] == "trim" and val[1]:
+                look = {**(look or {}), "trim": val[1]}          # [material, pattern]
         for _ in range(rem):
             k = _varint(b, k)[1]
     except (ValueError, IndexError, struct.error):
@@ -681,13 +691,15 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                     aid, i = _varint(b, i)
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
-                    if aid == cf and ex_on and size > 20 and (b"banner_pattern" in b[i:i + 64] or b"_variant" in b[i:i + 64]):
+                    if aid == cf and ex_on and size > 20 and (b"banner_pattern" in b[i:i + 64] or b"_variant" in b[i:i + 64]
+                                                               or b"trim_" in b[i:i + 64]):
                         try:                         # the registry's name: after the packet id, a string
                             ln, kk = _varint(b, i + 1)
                             reg = bytes(b[kk:kk + ln]).decode("utf-8", "replace")
                         except IndexError:
                             reg = ""
-                        if reg.startswith("minecraft:") and (reg.endswith("_variant") or reg.endswith("banner_pattern")):
+                        if reg.startswith("minecraft:") and (reg.endswith("_variant") or reg.endswith("banner_pattern")
+                                                             or reg.endswith(("trim_material", "trim_pattern"))):
                             names = registry_names(bytes(b[i:i + size]), reg)
                             if names:
                                 REGISTRIES[reg.split(":", 1)[1]] = names
@@ -1174,7 +1186,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact22.json.gz"    # 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact23.json.gz"    # 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

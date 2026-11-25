@@ -2267,6 +2267,7 @@ async function setGear(m, slot, v) {
     // our arm pivots at its top middle; the game's hand point is 1 px further in and 2 down (slim arms too)
     const q = await heldItem(item, PX, v[3] || null, { left: slot === "offhand", pivot: 1, tex: v[4] || null });
     if (!q || m.F !== F || F.tok[slot] !== mine) return;
+    if (v[3] && v[3].glint) addGlint(q);                 // enchanted: the game's moving glint over it
     (slot === "mainhand" ? F.parts.rarm : F.parts.larm).add(q); objs.push(q);
   } else if (item === "elytra" && slot === "chest") {   // two wings on the back (the game's 64 x 32 elytra texture)
     const t = (await texOnce("entity/equipment/wings/elytra")) || (await texOnce("entity/elytra"));
@@ -2294,11 +2295,69 @@ async function setGear(m, slot, v) {
     if (!t || m.F !== F || F.tok[slot] !== mine) return;
     const col = mm[1] === "leather" ? new THREE.Color(v[2] != null ? v[2] : 0xA06540) : new THREE.Color(1, 1, 1);
     const material = new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.1, color: col, transparent: false });
+    const look = v[3] || {};
+    const trimTex = look.trim ? await trimTexture(look.trim[1], look.trim[0], slot === "legs", mat) : null;
+    if (m.F !== F || F.tok[slot] !== mine) return;
     for (const [part, g, y] of armourBoxes(slot, { slim: false })) {
       const o = new THREE.Mesh(g, material); o.position.y = y * PX; F.parts[part].add(o); objs.push(o);
+      if (trimTex) {                                    // the trim: on the armour itself
+        const tm = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: trimTex, alphaTest: 0.1, polygonOffset: true,
+          polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+        tm.position.y = y * PX; F.parts[part].add(tm); objs.push(tm);
+      }
+      if (look.glint) { const gm = new THREE.Mesh(g, glintMat()); gm.position.y = y * PX; F.parts[part].add(gm); objs.push(gm); }
     }
   }
   F.gear[slot] = objs;
+}
+// the enchantment glint: the game's glint picture scrolling over the item or armour, added on (purple-white sheen)
+let GLINT = null;
+function glintMat() {
+  if (!GLINT) {
+    GLINT = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    texOnce("misc/enchanted_glint_armor").then(t => t || texOnce("misc/enchanted_glint_item")).then(t => {
+      if (!t) return; const g = t.clone(); g.wrapS = g.wrapT = THREE.RepeatWrapping; g.repeat.set(0.5, 0.5);
+      g.magFilter = THREE.LinearFilter; g.needsUpdate = true; GLINT.map = g; GLINT.needsUpdate = true;
+    });
+  }
+  return GLINT;
+}
+function glintStep() {                                    // the game scrolls it diagonally, slowly
+  if (GLINT && GLINT.map) { const s = performance.now() / 1000; GLINT.map.offset.set((s * 0.16) % 1, (s * 0.1) % 1); }
+}
+function addGlint(obj) {
+  const add = [];
+  obj.traverse(o => { if (o.isMesh && o.material && !o.userData.glint) add.push(o); });
+  for (const o of add) { const g = new THREE.Mesh(o.geometry, glintMat()); g.userData.glint = true; o.add(g); }
+}
+// an armour trim: the trim pattern's grey picture recoloured from the trim palette's 8 shades to the material's (the
+// "darker" palette when the armour is of that material), as the game's paletted atlas does
+const TRIM_TEX = new Map();
+function trimTexture(pattern, material, legs, armour) {
+  const same = { gold: "gold", iron: "iron", diamond: "diamond", netherite: "netherite", copper: "copper" }[armour] === material;
+  const key = `${pattern}|${material}|${legs}|${same}`;
+  if (!TRIM_TEX.has(key)) TRIM_TEX.set(key, (async () => {
+    const load = p => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `blocktex/0/${p}.png`; });
+    const [pat, keyPal, matPal] = await Promise.all([load(`trims/entity/${legs ? "humanoid_leggings" : "humanoid"}/${pattern}`),
+      load("trims/color_palettes/trim_palette"), (async () => (same && await load(`trims/color_palettes/${material}_darker`)) || load(`trims/color_palettes/${material}`))()]);
+    if (!pat || !keyPal || !matPal) return null;
+    const px = im => { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; const g = c.getContext("2d"); g.drawImage(im, 0, 0); return [c, g, g.getImageData(0, 0, im.width, im.height)]; };
+    const [, , kd] = px(keyPal), [, , md] = px(matPal), [cv, g, pd] = px(pat);
+    const map = new Map();
+    for (let i = 0; i < kd.width; i++) map.set(((kd.data[i * 4] << 16) | (kd.data[i * 4 + 1] << 8) | kd.data[i * 4 + 2]) >>> 0, i);
+    for (let i = 0; i < pd.data.length; i += 4) {
+      if (!pd.data[i + 3]) continue;
+      const k = map.get(((pd.data[i] << 16) | (pd.data[i + 1] << 8) | pd.data[i + 2]) >>> 0);
+      if (k === undefined) continue;
+      const j = Math.min(k, md.width - 1) * 4;
+      pd.data[i] = md.data[j]; pd.data[i + 1] = md.data[j + 1]; pd.data[i + 2] = md.data[j + 2];
+    }
+    g.putImageData(pd, 0, 0);
+    const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })());
+  return TRIM_TEX.get(key);
 }
 // how far a bow (20 ticks to full) or crossbow (25) has been drawn: the game's picture 0, 1 or 2, or null (not drawing)
 function pullStage(name, item) {
@@ -2353,6 +2412,7 @@ async function setMobGear(o, slot, v) {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
     const skel = /^(skeleton|stray|wither_skeleton|bogged)$/.test(o.kind);   // their arms hold 1 px further in
     const q = await heldItem(item, MPX, v[3] || null, { left: slot === "offhand", pivot: skel ? [1, 0] : 0 }); if (!q || o.gtok[slot] !== mine) return;
+    if (v[3] && v[3].glint) addGlint(q);                 // enchanted
     arm.g.add(q); o.gear[slot].push(q); return;
   }
   if (slot === "head" && /_banner$/.test(item) && P.head) {
@@ -2376,6 +2436,7 @@ async function setMobGear(o, slot, v) {
     for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * 2);
     g.setAttribute("uv", uv); sk.dispose();
     const b = new THREE.Mesh(g, material); b.position.set(x * MPX, y * MPX, z * MPX); P[part].g.add(b); o.gear[slot].push(b);
+    if (v[3] && v[3].glint) { const gm = new THREE.Mesh(g, glintMat()); gm.position.copy(b.position); P[part].g.add(gm); o.gear[slot].push(gm); }
   }
 }
 // which layer and picture the game draws for a mob's saddle or body slot (equipment/*.json)
@@ -5530,6 +5591,7 @@ function frame(now) {
   signsStep(now);                                      // signs' text
   headsStep(now);                                      // player heads in their skins
   chestsStep(now);                                     // chests' lids opening
+  glintStep();                                         // enchanted things' glint moving
   hangingStep(now);                                    // paintings and item frames
   leadsStep(now);                                      // leads
   breakStep(now);                                      // mining cracks, blocks breaking

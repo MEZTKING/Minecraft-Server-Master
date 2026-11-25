@@ -1326,7 +1326,7 @@ class TestPosesAndMobs(unittest.TestCase):
                 + bytes([0x80 | 1]) + _vi(0)                                       # off hand: empty
                 + bytes([5]) + stack("iron_helmet"))                               # head, the last
         self.assertEqual(paths.equipment(body, 0, len(body), items, comps),
-                         [["mainhand", "diamond_pickaxe", "hsj:aquatic_eye", None],
+                         [["mainhand", "diamond_pickaxe", "hsj:aquatic_eye", None, {"glint": True}],   # enchanted
                           ["chest", "leather_chestplate", "", 0x3366FF],
                           ["offhand", "", "", None], ["head", "iron_helmet", "", None]])
         odd = bytes([0x80]) + stack("bow", _vi(ct("potion_contents")) + b"\x01\x02") + bytes([5]) + stack("iron_helmet")
@@ -3950,6 +3950,26 @@ class TestRealBlocks(unittest.TestCase):
             self.assertEqual(after[(6, 6)], 6)                          # between them: the remaining torch's 14 - 8
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_item_glint_and_trim(self):
+        """An item's look: glint when it has enchantments (or the override says so), and its trim's material and
+        pattern by name from the recording's registries (holders: id + 1)."""
+        from mcsm import paths
+        old = dict(paths.REGISTRIES)
+        try:
+            paths.REGISTRIES["trim_material"] = ["minecraft:amethyst", "minecraft:gold"]
+            paths.REGISTRIES["trim_pattern"] = ["minecraft:bolt", "minecraft:coast", "minecraft:sentry"]
+            items = ["air", "diamond_chestplate"]
+            comps = ["enchantments", "trim", "enchantment_glint_override"]
+            # count 1, item 1, 2 components added, 0 removed; enchantments: 1 entry (id 4, level 3); trim: gold, sentry
+            body = bytes([1, 1, 2, 0, 0, 1, 4, 3, 1, 2, 3])
+            st, _k = paths.item_stack(body, 0, items, comps)
+            self.assertEqual(st[0], "diamond_chestplate")
+            self.assertEqual(st[4], {"glint": True, "trim": ["gold", "sentry"]})
+            body = bytes([1, 1, 1, 0, 2, 0])                    # the glint turned off
+            self.assertEqual(paths.item_stack(body, 0, items, comps)[0][4], {"glint": False})
+        finally:
+            paths.REGISTRIES.clear(); paths.REGISTRIES.update(old)
 
     def test_frame_item_in_entity_data(self):
         """An item frame's entity data (26.x): facing (8, a direction), the item (9, an item stack) and its turn (10)."""

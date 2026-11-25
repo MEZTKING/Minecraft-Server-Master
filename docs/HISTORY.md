@@ -393,7 +393,8 @@ A pose, riding or flag keeps its last value from however long before, so someone
 earlier is still sitting.
 
 Players wear their armour and hold what they held, as the recordings saw it: helmets, chestplates, leggings
-and boots in every material (leather in its dye colour; trims aren't drawn), and the item in each hand as a
+and boots in every material (leather in its dye colour, trims in their pattern and material, enchanted armour and
+items with the game's moving glint), and the item in each hand as a
 solid item held where Minecraft's own third-person view holds it. A block held shows its
 texture. Items from the Hero's Journey datapack show as the plain item they're based on (their own pictures
 come from the server's resource pack, which isn't on this PC). The recorded player's own gear is only listed
