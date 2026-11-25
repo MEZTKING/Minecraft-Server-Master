@@ -288,6 +288,13 @@ def mob_details(kind: str, d: dict, new_ids: bool) -> list[list]:
                 if 0 <= v[1] < len(names):
                     out.append(["variant", names[v[1]].split(":", 1)[-1]])
                 break
+    if kind == "copper_golem":                         # its copper's age: 0 new, 1 exposed, 2 weathered, 3 oxidized
+        for idx in sorted(d):
+            v = d[idx][1]
+            if idx >= 16 and isinstance(v, tuple) and v[0] == "?":
+                if 0 <= v[1] <= 3:
+                    out.append(["weather", v[1]])
+                break
     if kind in ("cat", "wolf"):                        # tamed (0x04; 0x01 sitting) and the collar's dye (default red)
         f = d.get(18 if new_ids else 17)
         if f and f[0] == SER_BYTE:
@@ -766,7 +773,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 who = None if eid == me else others[eid]
                                 if who and who.startswith("#"):          # a mob: baby, wool, size, name tag
                                     mk = who.split("#")[1]
-                                    for ev in mob_details(mk, entity_data_all(b, k, i + size, mk in VARIANT_REG), new_ids):
+                                    for ev in mob_details(mk, entity_data_all(b, k, i + size, mk in VARIANT_REG or mk == "copper_golem"), new_ids):
                                         extras["events"].append([tick, who] + ev)
                                 da = entity_data_all(b, k, i + size)
                                 if da.get(12, (None,))[0] == SER_VARINT and not (who and any(
@@ -1144,7 +1151,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact19.json.gz"    # 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact20.json.gz"    # 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

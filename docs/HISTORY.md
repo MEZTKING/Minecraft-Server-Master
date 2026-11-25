@@ -194,7 +194,7 @@ of that backup's Minecraft version). Every block you could see from outside is t
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
 fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;
-a double chest joins up), signs (with their text, see below), banners (with their patterns, see below), shulker boxes, skulls and mob heads (player heads in their owner's skin, from Mojang's texture server like the
+a double chest joins up), signs (with their text, see below), banners (with their patterns, see below), shulker boxes, skulls and mob heads, copper golem statues (in their pose and their copper's colour; player heads in their owner's skin, from Mojang's texture server like the
 players' own skins), decorated pots. Blocks standing in
 water (waterlogged stairs, slabs, fences...) have their water. Grass, leaves, vines and water take the colour of
 their biome, from the game's own biome files: swamps are murky, badlands and savannas dry, jungles bright. Like the
@@ -313,7 +313,7 @@ something, as in the game. An egg or snowball breaking doesn't count as a death.
 
 What the recordings say about each mob's looks is used too: **babies** are drawn with the game's own baby models
 (big heads, small bodies), **sheep** in their wool colour (and bare when sheared), **horses** in their coat and
-markings, **tamed cats and wolves** with a collar in its dye colour (a tamed wolf's own look too), sitting when they were
+markings, **copper golems** in their copper's age (new, exposed, weathered, oxidized) with glowing eyes, **tamed cats and wolves** with a collar in its dye colour (a tamed wolf's own look too), sitting when they were
 told to sit, **cats, wolves, cows, pigs, chickens and frogs** in their own variant (a siamese cat, a cold cow with
 its long coat, a warm pig...; the variant names come from the recording itself), **villagers** in their biome's
 clothes with their job's outfit and level badge (zombie villagers too), **slimes** and magma cubes at their size, and mobs with a **name tag** show their name above them, as in

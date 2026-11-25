@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1053,8 +1053,17 @@ chest's) as "pi" [x, y, z, out / back, direction, sticky]; the head slides a blo
 horses in diamond, iron and copper armour, saddled horses, donkeys and mules, happy ghasts in black and white
 harnesses, 32 piston moves (Vakirath, 2 June). Boat paddles: no paddle data in 8 recordings (left).
 
-Still different (worst first): copper golems (their weathering) and their statues; boat paddles; blocks pushed by
-pistons sliding (they jump); other particles (not in the recordings); sign text written during a recording (the
+**Round 16 (2026-11-25, owner: "Yes, next batch").** Copper golems: their weathering is entity data index 16 on
+26.x (a registry kind read as one VarInt: 0 new .. 3 oxidized; 17 is their activity), as "weather"; drawn with
+copper_golem[_exposed / _weathered / _oxidized] and the glowing eyes layer (`EXACT_SUFFIX` `.exact20`). Found 13
+golems in the latest backup, 7 in MEZTKING's 18 November recording. Statues: `heads.statues_in_tile` (block
+entities `copper_golem_statue`: pose standing / sitting / running / star, facing, weathering from the block's name)
+with the heads at `/api/heads/...`; drawn with COPPER_GOLEM / _SITTING / _RUNNING / _STAR. Checked: the oxidized
+statue in its star pose at 112, 97, -656. Blocks pushed by pistons still jump (sliding needs the moving blocks'
+states from the block changes; left).
+
+Still different (worst first): boat paddles (no paddle data seen); blocks pushed by pistons sliding (they jump);
+other particles (not in the recordings); sign text written during a recording (the
 backup's is shown); eating and drinking (the game's arm bob in
 first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
 action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
@@ -1777,6 +1786,8 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 16**: copper golems near MEZTKING's base (around 228, 179, -798; one exposed, turning green) on 18
+  November 18:10 UTC; the copper golem statues near 112, 97, -656 and 228-261, 119-147, -595 to -632.
 - **Parity round 15**: horses in armour with saddles (D_HumanCrafter, 12 November 22:08 UTC), happy ghasts in
   harnesses, llamas with carpets; pistons (Vakirath's recording of 2 June around 21:05 UTC near 4733, 64, 336).
 - **Parity round 14**: composters filling and bone meal (green sparkles, e.g. the farmers' composters near 344, 86,
@@ -1968,6 +1979,9 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Yes, next batch". Parity round 16 (backlog 0zh): copper golems in their copper's age with
+  glowing eyes, and copper golem statues in their poses.
 
 - **2026-11-25:** Owner: "Yes, next batch". Parity round 15 (backlog 0zh): saddles, horse armour, llama carpets,
   wolf armour and happy ghast harnesses; pistons pushing out and back.

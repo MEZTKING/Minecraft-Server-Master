@@ -533,10 +533,11 @@ class HistoryMap(TerrainServer):
                 cache = self.__dict__.setdefault("_heads", {})
                 if key not in cache:
                     bw = self.layer_world(int(layer))
-                    cache[key] = hd.heads_in_tile(bw.root, bw.world, "minecraft:" + dim, int(tx), int(tz)) if bw else []
+                    cache[key] = (hd.heads_in_tile(bw.root, bw.world, "minecraft:" + dim, int(tx), int(tz)),
+                                  hd.statues_in_tile(bw.root, bw.world, "minecraft:" + dim, int(tx), int(tz))) if bw else ([], [])
                     while len(cache) > 400:
                         cache.pop(next(iter(cache)))
-                return {"heads": cache[key]}
+                return {"heads": cache[key][0], "statues": cache[key][1]}
             except (ValueError, OSError) as exc:
                 return {"heads": [], "message": str(exc)}
         if path.startswith("/api/signs/"):           # signs and their text: /api/signs/<layer>/<dim>/<tx>/<tz>
@@ -738,7 +739,7 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx")
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather")
                         or slotted) and t < t0:                # (mobs' looks: kept from when they were first seen)
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)

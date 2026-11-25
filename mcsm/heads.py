@@ -44,6 +44,38 @@ def skin_hash(be: dict) -> str | None:
     return None
 
 
+def statues_in_tile(root: str, world: str, dim: str, tx: int, tz: int, size: int = 128) -> list[dict]:
+    """Every copper golem statue in the tile: ``{x, y, z, pose (standing, sitting, running, star), facing, weather
+    (0 new .. 3 oxidized)}`` (the game draws them with the copper golem's own models; the block has none)."""
+    from . import blockmesh as bm
+    from .containers import _chunk, _region
+    out = []
+    c0x, c0z, n = tx * size >> 4, tz * size >> 4, max(1, size >> 4)
+    for cx in range(c0x, c0x + n):
+        for cz in range(c0z, c0z + n):
+            p = _region(root, world, dim, cx << 4, cz << 4)
+            raw = _chunk(p, cx, cz) if p else None
+            if raw is None or b"copper_golem_statue" not in raw:
+                continue
+            ch = bm.Chunk(raw)
+            d = nbt.loads(raw)
+            for e in d.get("block_entities") or []:
+                if not isinstance(e, dict) or "copper_golem_statue" not in str(e.get("id", "")):
+                    continue
+                x, y, z = e.get("x"), e.get("y"), e.get("z")
+                if not all(isinstance(v, int) for v in (x, y, z)):
+                    continue
+                state = ch.state(x & 15, y, z & 15) or ""
+                name = state.split("[")[0].replace("minecraft:", "").replace("waxed_", "")
+                if not name.endswith("copper_golem_statue"):
+                    continue
+                props = dict(kv.split("=", 1) for kv in state[state.index("[") + 1:-1].split(",")) if "[" in state else {}
+                weather = {"": 0, "exposed_": 1, "weathered_": 2, "oxidized_": 3}.get(name[:-len("copper_golem_statue")], 0)
+                out.append({"x": x, "y": y, "z": z, "pose": props.get("copper_golem_pose", "standing"),
+                            "facing": props.get("facing", "north"), "weather": weather})
+    return out
+
+
 def heads_in_tile(root: str, world: str, dim: str, tx: int, tz: int, size: int = 128) -> list[dict]:
     """Every player head with a skin in the tile ``[tx*size, ...)``: ``{x, y, z, wall, facing, rotation, skin}``."""
     from . import blockmesh as bm

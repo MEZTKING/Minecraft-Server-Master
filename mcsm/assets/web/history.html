@@ -1509,6 +1509,7 @@ function mobLook(label, kind) {
   if (VAR_TEX[kind]) look.variant = stateAt(label, "variant", T, null) ?? VAR_DEFAULT[kind] ?? null;
   if (kind === "villager" || kind === "zombie_villager") look.vd = stateAt(label, "vd", T, null);
   if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
+  if (kind === "copper_golem") look.weather = stateAt(label, "weather", T, 0);
   if (kind === "cat" || kind === "wolf") {               // tamed: a collar in its dye (red unless dyed)
     look.tame = stateAt(label, "tame", T, 0) & 4;
     if (look.tame) look.collar = stateAt(label, "collar", T, 14);
@@ -1530,6 +1531,8 @@ async function buildMob(o, label, kind) {
     if (vl && MOBM[vl]) layer = vl;
   }
   if (kind === "armor_stand") { layer = look.flags & 1 && MOBM.ARMOR_STAND_SMALL ? "ARMOR_STAND_SMALL" : "ARMOR_STAND"; tex = "armorstand/armorstand"; }
+  const golemAge = ["", "_exposed", "_weathered", "_oxidized"][look.weather || 0] || "";
+  if (kind === "copper_golem") tex = `copper_golem/copper_golem${golemAge}`;
   let baby = !!(look.baby && MOBM[layer + "_BABY"]);   // the game's own baby model and texture (26.x)
   let L = MOBM[baby ? layer + "_BABY" : layer];
   if (!L) return;                                      // no model: stays a box
@@ -1546,6 +1549,7 @@ async function buildMob(o, label, kind) {
   if (kind === "sheep" && (look.wool & 0x10)) extras.length = 0;         // sheared
   const marks = kind === "horse" && look.variant != null && HORSE_MARKS[(look.variant >> 8) & 255];
   if (marks) extras.push([layer, `horse/horse_markings_${marks}`, false, 1]);
+  if (kind === "copper_golem" && MOBM.COPPER_GOLEM_EYES) extras.push(["COPPER_GOLEM_EYES", `copper_golem/copper_golem_eyes${golemAge}`, false, 1]);
   if (look.tame) extras.push(kind === "cat" ? ["CAT_COLLAR", "cat/cat_collar", false, 0, false, look.collar]
     : [layer, "wolf/wolf_collar", false, 1, false, look.collar]);
   if (look.vd) {                                        // villagers: their biome's clothes, job and level badge on top
@@ -1572,6 +1576,10 @@ async function buildMob(o, label, kind) {
     }
     if (dye != null) {                                  // a collar in its dye colour
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn }; mats.n.color = new THREE.Color(DYE[DYE_ORDER[dye & 15]] ?? 0xffffff);
+    }
+    if (/_eyes/.test(xt)) {                             // eyes that glow (copper golems'): full bright
+      mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
+      mats.n.emissive = new THREE.Color(0xffffff); mats.n.emissiveMap = mats.n.map;
     }
     if (over) {                                         // markings, clothes, badges: drawn on the model itself, in order
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
@@ -5082,6 +5090,23 @@ function headMesh(h) {
   });
   return g;
 }
+// a copper golem statue: the golem's model in its pose (standing, sitting, running, star), in its copper's age,
+// turned to its facing
+function statueMesh(st) {
+  const g = new THREE.Group();
+  const layer = { standing: "COPPER_GOLEM", sitting: "COPPER_GOLEM_SITTING", running: "COPPER_GOLEM_RUNNING", star: "COPPER_GOLEM_STAR" }[st.pose] || "COPPER_GOLEM";
+  const L = MOBM && (MOBM[layer] || MOBM.COPPER_GOLEM); if (!L) return g;
+  const tex = `copper_golem/copper_golem${["", "_exposed", "_weathered", "_oxidized"][st.weather] || ""}`;
+  g.position.set(st.x + 0.5, st.y, st.z + 0.5);
+  g.rotation.y = -({ south: 0, west: 90, north: 180, east: 270 }[st.facing] ?? 180) * Math.PI / 180;
+  mobTexture(tex).then(t => {
+    if (!t) return;
+    const inner = buildPart(L.root, layer, "", L.tw, L.th, mobMaterials(tex, t), {}, "");
+    const wrap = new THREE.Group(); wrap.add(inner); wrap.position.y = 24 * MPX; wrap.scale.setScalar(L.scale || 1);
+    g.add(wrap);
+  });
+  return g;
+}
 function headsStep(now) {
   if (now - HEADS.last < 700) return; HEADS.last = now;
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
@@ -5098,6 +5123,7 @@ function headsStep(now) {
       if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
       const group = new THREE.Group();
       for (const h of r.heads || []) group.add(headMesh(h));
+      for (const st of r.statues || []) group.add(statueMesh(st));
       HEADS.group.add(group); HEADS.tiles.set(k, { id, layer, dim, group });
     }).catch(() => {}).finally(() => HEADS.asking.delete(k));
   }
