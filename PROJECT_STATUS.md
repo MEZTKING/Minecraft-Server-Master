@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 33: first-person camera and screen effects; grey blocks fixed; parity round 32: moving textures, clouds; parity round 31: the off hand in first person; gap audit; parity round 30: shields, using items, spears, sheep eating, glow squids; parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1362,6 +1362,33 @@ looked at on screen (same reason).
 the server's texture cache writers shared one part file, and some pictures failed (grey blocks until the page was
 loaded again). Each writer now has its own part file (`World3D.texture`).
 
+**Round 32 regression, fixed in round 33:** in `buildAtlas` the animation check went between `if (base)` and its
+`else`, so the grey "failed" fill ran for every texture that doesn't move: in round 32 the real blocks were grey
+except water, lava and the like. (The grey blocks seen while checking round 32 were this, not the cache race, which
+was a real but rarer problem and stays fixed.) Seen fixed: textures back, water moving, clouds over D_HumanCrafter's
+base on 26 May.
+
+**Round 33 (2026-11-25, owner: "Keep going"; audit item 3).** Through their eyes:
+- *The view's angle* (`fpCamera`): AbstractClientPlayer.getFieldOfViewModifier: sprinting (flag 0x08) x 1.15 (the
+  speed the sprint gives: (0.13 / 0.1 + 1) / 2), a bow drawn (1 - g^2 x 0.15, g = ticks / 20), a spyglass 0.1;
+  eased half way a tick (GameRenderer.tickFov, 0.1 .. 1.5); x 6/7 with the eyes in water. The spyglass zoom now goes
+  through it. Not done: the speed attribute (potions), creative flying (abilities aren't recorded).
+- *Hurt and death* (`fpHurtRoll`, GameRenderer.bobHurt): after "hurt" a roll of -sin(f^4 x pi) x 14 degrees over 10
+  ticks (the hit's direction isn't kept: no turn towards it); dying (pose 7 after "d"), 40 - 8000 / (t + 200) degrees
+  over 20 ticks. Applied before the bob, to the view and the hand alike.
+- *The eyes' block and light* (`fpEye`): `/api/blockat` for the eye block every 0.4 s when it changes (the backup's
+  block and light, not the moment's).
+- *Overlays* (`#mcFx`): fire (flag 0x01: two `block/fire_1` flames, animated, at the bottom, 90%: ScreenEffectRenderer
+  .renderFire's quads, placed by eye); underwater (`misc/underwater` 4 x 4 over the screen, shifting by yaw / 64 and
+  pitch / 64 of a tile, 10% at the light's brightness; the fog blue and 48 blocks); a carved pumpkin on their head
+  (`misc/pumpkinblur`); freezing (`misc/powder_snow_outline` by frozen ticks / 140: entity data 7, recorded now as
+  "fz"); the vignette (`misc/vignette`, ZERO / ONE_MINUS_SRC_COLOR as a multiplied inverted picture, eased 1% a
+  frame to 1 - brightness, brightness = LightTexture's curve of max(block, sky - darkening)).
+- Recorded now for the HUD next: players' air supply (entity data 1, of 300) as "air". `EXACT_SUFFIX` 32.
+Checked: D_HumanCrafter, 26 May 19:41 UTC: the view widening to 63 degrees while sprinting and easing back, the
+vignette on. Not seen: the hurt roll, fire, water, pumpkin and frost overlays (no moment tried). Not done: the
+in-block view (inside a solid block), nausea and the portal overlay.
+
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
 **The ask:** "if you can use ledger to your advantage too and let me know when to test something".
@@ -2080,6 +2107,9 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 33**: relive through their eyes: the view widening when they sprint, rolling when hit; flames on
+  screen when they burn, the underwater tint, a pumpkin on their head, freezing in powder snow; the darkened edges
+  at night or in caves. And the real blocks' textures again (round 32 had made them grey: fixed).
 - **Parity round 32**: close up, water, lava, fire and nether portals should move as in the game; clouds drifting
   over the overworld at height 192 (white by day, dark at night, grey in rain).
 - **Parity round 31**: relive someone through their eyes (V) holding something in their off hand (a shield, a torch,
@@ -2312,6 +2342,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 33 (backlog 0zh): through their eyes, the view's angle (sprint,
+  bow, water), the hurt and death roll, and the game's screen overlays (fire, water, pumpkin, frost, vignette). Fixed
+  round 32's grey blocks (only moving textures were drawn).
 
 - **2026-11-25:** Owner: "Keep going". Parity round 32 (backlog 0zh): moving block textures (the game's animation
   timing) and the game's clouds; a fix for grey blocks when many pieces load their textures at once.

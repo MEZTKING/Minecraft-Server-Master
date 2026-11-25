@@ -144,6 +144,7 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}, animUr
     const x = (i % N) * C, y = Math.floor(i / N) * C, parts = textures[i].split("+");
     const base = await loadImage(texUrl(parts[0]));
     if (base) g.drawImage(draw(base, tints[parts[0]], parts[0].startsWith("entity/")), x, y);
+    else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
     if (base && animUrl && !parts[1] && !parts[0].startsWith("entity/") && base.height >= base.width * 2) {
       // an animation strip: its frames in order (a number, or {index, time}), each frametime ticks (default 1)
       const n = Math.floor(base.height / base.width);
@@ -154,7 +155,6 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}, animUr
       if (frames.length > 1) anims.push({ x, y, im: base, tint: tints[parts[0]], frames, interp: !!a.interpolate,
         total: frames.reduce((s, f) => s + f.t, 0), shown: "" });
     }
-    else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
     if (parts[1]) {                                          // grass block side: + the overlay the biome colours
       const ov = await loadImage(texUrl(`${parts[0]}_${parts[1]}`));
       if (ov) {

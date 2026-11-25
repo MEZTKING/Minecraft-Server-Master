@@ -113,6 +113,14 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcScope { position: fixed; inset: 0; z-index: 20; pointer-events: none; overflow: hidden; }
 #mcScope img { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); image-rendering: pixelated;
   box-shadow: 0 0 0 200vmax #000; }
+/* through their eyes: what the game lays over the view (ScreenEffectRenderer, Gui) */
+#mcFx { position: fixed; inset: 0; z-index: 19; pointer-events: none; overflow: hidden; }
+#mcFx > * { position: absolute; display: none; }
+#mcFx .fire { width: 50%; height: 50%; bottom: 10%; image-rendering: pixelated; opacity: 0.9; }
+#mcFx .fire.r { left: 37%; } #mcFx .fire.l { left: 13%; }
+#mcFx .water { inset: 0; background-repeat: repeat; image-rendering: pixelated; }
+#mcFx .pumpkin, #mcFx .snow, #mcFx .vignette { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+#mcFx .vignette { filter: invert(1); mix-blend-mode: multiply; }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -164,7 +172,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope, body.clean #mcFx,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -297,7 +305,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -4533,6 +4541,79 @@ function fpMapMatrix(pitch, p) {
   M.multiply(T.makeRotationX(-Math.PI / 2 * 0));          // (the game turns the map to face you: it already does)
   return M;
 }
+// ---------- through their eyes: the camera and the screen (GameRenderer, ScreenEffectRenderer, Gui) ----------
+const FPFX = { mod: 1, at: null, eye: null, eyeAt: 0, eyeKey: "", vb: 0, on: false, fireImg: null, fireN: 1, fogOn: false };
+function fpEye(R, now) {                                 // the block and the light at their eyes (the backup's): every half second
+  const p = R.eye, key = `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
+  if (key === FPFX.eyeKey || now - FPFX.eyeAt < 400) return;
+  FPFX.eyeKey = key; FPFX.eyeAt = now;
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0;
+  fetch(`api/blockat/${layer}/${dim.replace("minecraft:", "")}/${key.split(",").join("/")}`).then(r => r.json())
+    .then(r => { if (FPFX.eyeKey === key) FPFX.eye = r; }).catch(() => {});
+}
+// bobHurt: hit, the view rolls (sin(f^4 x pi) x 14 degrees over the 10 ticks after); dying, it tips over to 40
+function fpHurtRoll(R) {
+  const ev = EXACT.on && EXACT.ev[R.name]; if (!ev) return 0;
+  const last = (k, within) => { const f = ev[k]; if (!f) return null; const i = lower(f, T, r => r[0]) - 1; return i >= 0 && T - f[i][0] < within ? T - f[i][0] : null; };
+  let roll = 0;
+  const dead = last("d", 3000), pose = stateAt(R.name, "p", T, 0);
+  if (dead !== null && pose === 7) roll += 40 - 8000 / (Math.min(dead / 50, 20) + 200);
+  const hurt = last("hurt", 500);
+  if (hurt !== null) { const f = Math.max(0, 10 - hurt / 50) / 10; roll += -Math.sin(f * f * f * f * Math.PI) * 14; }
+  return roll;
+}
+// the view's angle (AbstractClientPlayer.getFieldOfViewModifier, eased half way each tick as GameRenderer.tickFov):
+// sprinting x 1.15 (the speed it gives), drawing a bow narrows it up to 15%, a spyglass to a tenth; under water x 6/7
+function fpCamera(R, on, scoping) {
+  const now = performance.now();
+  const off = () => { if (FPFX.on) { FPFX.on = false; camera.fov = RSET.fov; camera.updateProjectionMatrix(); }
+    for (const el of $("#mcFx").children) el.style.display = "none"; };
+  if (!on) return off();
+  FPFX.on = true; fpEye(R, now);
+  let target = 1;
+  const fl = flagsAt(R.name, T), main = stateAt(R.name, "eq:mainhand", T, null), item = main && main[0];
+  if (fl & 0x08) target *= 1.15;
+  const ut = fpUseStart(R.name);
+  if (ut !== null && item === "bow") { const g = Math.min(1, (T - ut) / 50 / 20); target *= 1 - g * g * 0.15; }
+  if (scoping) target = 0.1;
+  target = Math.max(0.1, Math.min(1.5, target));
+  const ticks = FPFX.at === null ? 10 : Math.min(10, (now - FPFX.at) / 50); FPFX.at = now;
+  FPFX.mod += (target - FPFX.mod) * (1 - Math.pow(0.5, ticks));
+  const st = FPFX.eye && FPFX.eye.state || "", wet = /^minecraft:(water|bubble_column)|waterlogged=true/.test(st);
+  const fov = RSET.fov * FPFX.mod * (wet ? 6 / 7 : 1);
+  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  // the screen: flames while they burn (flag 0x01), the water's tint and fog, a pumpkin's view, frost, the vignette
+  const fx = $("#mcFx"), [fl1, fl2, water, pumpkin, snow, vig] = fx.children;
+  const burning = !!(fl & 0x01) && !scoping;
+  fl1.style.display = fl2.style.display = burning ? "block" : "none";
+  if (burning) {
+    if (!FPFX.fireImg) { FPFX.fireImg = 1; texOnce("block/fire_1").then(t => { if (t && t.image) { FPFX.fireImg = t.image; FPFX.fireN = Math.max(1, Math.floor(t.image.height / t.image.width)); } }); }
+    if (FPFX.fireImg && FPFX.fireImg !== 1) {
+      const im = FPFX.fireImg, fr = Math.floor(now / 50) % FPFX.fireN;
+      for (const c of [fl1, fl2]) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.clearRect(0, 0, 16, 16);
+        g.drawImage(im, 0, fr * im.width, im.width, im.width, 0, 0, 16, 16); }
+    }
+  }
+  const light = FPFX.eye ? Math.max(FPFX.eye.block_light || 0, (FPFX.eye.sky_light || 0) - Math.round((1 - Math.max(0, Math.min(1, ((LIGHTS.day || 1) - 0.2) / 0.8))) * 11)) : 15;
+  const lf = Math.max(0, Math.min(15, light)) / 15, bright = lf / (4 - 3 * lf);   // LightTexture's brightness curve
+  water.style.display = wet ? "block" : "none";
+  if (wet) {                                            // misc/underwater, 4 x 4 over the screen, sliding as they turn
+    water.style.backgroundImage = "url(blocktex/0/misc/underwater.png)";
+    water.style.backgroundSize = "25% 25%";
+    // (its UVs shift by -yaw / 64 and pitch / 64 of a tile: a quarter of the screen each)
+    water.style.backgroundPosition = `${(-R.yaw * 180 / Math.PI / 64) * innerWidth / 4}px ${(R.pitch * 180 / Math.PI / 64) * innerHeight / 4}px`;
+    water.style.opacity = 0.1; water.style.filter = `brightness(${Math.max(0.1, bright)})`;   // its colour x the light, 10% opaque
+    if (scene.fog) { scene.fog.color.setRGB(0.05, 0.15, 0.35).multiplyScalar(0.3 + 0.7 * bright); scene.fog.near = 0; scene.fog.far = 48;
+      scene.background = scene.fog.color; }
+  }
+  const head = stateAt(R.name, "eq:head", T, null);
+  pumpkin.style.display = head && head[0] === "carved_pumpkin" ? "block" : "none";
+  const fz = stateAt(R.name, "fz", T, 0);
+  snow.style.display = fz > 0 ? "block" : "none"; if (fz > 0) snow.style.opacity = Math.min(1, fz / 140);
+  // Gui.renderVignette: the darker it is where they stand, the darker the edges (eased 1% a frame)
+  FPFX.vb += (Math.max(0, Math.min(1, 1 - bright)) - FPFX.vb) * 0.01;
+  vig.style.display = "block"; vig.style.opacity = FPFX.vb;
+}
 // GameRenderer.bobView: walking sways the view (and the hand with it): walkDist grows 0.6 a block walked, bob eases
 // (0.4 a tick) towards the horizontal speed (at most 0.1) on the ground
 const FPB = { walk: 0, bob: 0, last: null, lastT: null, xb: null, yb: null, eqT: -1e9 };
@@ -4595,15 +4676,14 @@ function fpStep() {
   if (FPV.group.parent !== camera) camera.add(FPV.group);
   FPV.group.visible = !!on;
   const scoping = on && markers[R.name] && fpUseStart(R.name) !== null && (stateAt(R.name, "eq:mainhand", T, null) || [])[0] === "spyglass";
-  // a spyglass: the scope over the screen and the view zoomed in to a tenth (the game eases both in)
+  // a spyglass: the scope over the screen (the zoom: fpCamera)
   if (scoping) {
     if (FPB.scope0 == null) FPB.scope0 = performance.now();
     const ticks = (performance.now() - FPB.scope0) / 50, sc = 1.125 - 0.625 * Math.pow(0.5, ticks);
     const img = $("#mcScope img"), side = Math.min(innerWidth, innerHeight) * sc;
     img.style.width = img.style.height = `${side}px`;
-    const fov = RSET.fov * (0.1 + 0.9 * Math.pow(0.5, ticks));
-    if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
-  } else if (FPB.scope0 != null) { FPB.scope0 = null; camera.fov = RSET.fov; camera.updateProjectionMatrix(); }
+  } else FPB.scope0 = null;
+  fpCamera(R, on, scoping);                            // the view's angle; the screen's overlays
   $("#mcScope").hidden = !scoping;
   if (scoping) FPV.group.visible = false;                // (the hand isn't drawn while scoping)
   if (!on || scoping) return;
@@ -4622,7 +4702,8 @@ function fpStep() {
     : `arm|${m.F.mat.map && m.F.mat.map.uuid}`;
   const sw = swingAt(R.name, T), p = sw !== null && sw < 300 ? sw / 300 : 0;
   // the view's bob, and the hand lagging a little behind turns (xBob / yBob: half the way each tick)
-  const B = fpBob(R), D = Math.PI / 180, Q = new THREE.Matrix4();
+  const D = Math.PI / 180, Q = new THREE.Matrix4();
+  const B = new THREE.Matrix4().makeRotationZ(fpHurtRoll(R) * D).multiply(fpBob(R));   // bobHurt, then bobView
   camera.matrixAutoUpdate = true;
   { const e = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); const inv = B.clone().invert();
     camera.updateMatrix(); const C = camera.matrix.clone().multiply(inv); C.decompose(e, q, sc); camera.position.copy(e); camera.quaternion.copy(q); }

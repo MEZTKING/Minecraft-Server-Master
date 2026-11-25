@@ -415,6 +415,11 @@ What the recordings say about each player and mob is shown too:
   thrown trident flies as its model, prongs first. While one is being used it's held the game's way for that: a
   shield raised to block, a trident drawn back to throw (and through their eyes, the shield raised when it's in their
   main hand).
+- **The view itself, through their eyes:** it widens while they sprint and narrows while they draw a bow (and
+  under water), easing as in the game; it rolls when they're hit and tips over when they die. The screen shows what
+  the game lays over it: flames along the bottom while they burn, the underwater tint and the water's fog, the
+  carved pumpkin's view when they wear one, frost when they're freezing in powder snow, and the darkened edges (the
+  vignette) that deepen the darker it is where they stand (from the backup's light there).
 - **The other hand, through their eyes:** what they hold in their off hand shows at the bottom left as the game draws
   it (a shield, a torch, a totem...), swinging when that hand swings and a shield raised while they block with it. A
   map in one hand while the other holds something is held low in that hand over the arm, its picture as it was.
