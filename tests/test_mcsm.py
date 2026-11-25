@@ -3714,6 +3714,47 @@ class TestRealBlocks(unittest.TestCase):
                 zf.writestr(f"assets/minecraft/textures/entity/chest/normal_{half}.png", b"\x89PNG chest")
             zf.writestr("assets/minecraft/textures/colormap/grass.png", TestRealBlocks._png(256, 256, (10, 200, 30)))
 
+    def test_held_item_models(self):
+        """Held items drawn as the game holds them: a trident by its own model (its item definition's special model,
+        held by the base model's display values), a spyglass by its in-hand model's boxes; the hotbar picture stays."""
+        import json as js
+        from mcsm import blockmesh as bm
+        tmp = tempfile.mkdtemp()
+        try:
+            jar = os.path.join(tmp, "client.jar")
+            hand = {"thirdperson_righthand": {"rotation": [0, 60, 0], "translation": [11, 17, -2]}}
+            files = {
+                "items/trident.json": {"model": {"type": "minecraft:select", "property": "minecraft:display_context",
+                    "cases": [{"when": ["gui"], "model": {"type": "minecraft:model", "model": "minecraft:item/trident"}}],
+                    "fallback": {"type": "minecraft:condition", "property": "minecraft:using_item",
+                                 "on_false": {"type": "minecraft:special", "base": "minecraft:item/trident_in_hand",
+                                              "model": {"type": "minecraft:trident"}},
+                                 "on_true": {"type": "minecraft:special", "base": "minecraft:item/trident_throwing",
+                                             "model": {"type": "minecraft:trident"}}}}},
+                "models/item/trident_in_hand.json": {"display": hand},
+                "items/spyglass.json": {"model": {"type": "minecraft:select", "property": "minecraft:display_context",
+                    "cases": [{"when": ["gui"], "model": {"type": "minecraft:model", "model": "minecraft:item/spyglass"}}],
+                    "fallback": {"type": "minecraft:model", "model": "minecraft:item/spyglass_in_hand"}}},
+                "models/item/spyglass_in_hand.json": {"textures": {"spyglass": "item/spyglass_model"}, "elements": [
+                    {"from": [7, 8.5, 7], "to": [9, 13.5, 9], "faces": {"north": {"uv": [0, 2, 2, 7], "texture": "#spyglass"}}}],
+                    "display": {"thirdperson_righthand": {"translation": [0, -2, 0]}}},
+            }
+            with zipfile.ZipFile(jar, "w") as zf:
+                for name, data in files.items():
+                    zf.writestr("assets/minecraft/" + name, js.dumps(data))
+                for t in ("item/trident", "item/spyglass", "item/spyglass_model"):
+                    zf.writestr(f"assets/minecraft/textures/{t}.png", bytes([0x89]) + b"PNG")
+            look = bm.Look(jar)
+            tri = look.item_icon("trident")
+            self.assertEqual((tri["tex"], tri["special"], tri["hand"]["translation"]), ("item/trident", "trident", [11, 17, -2]))
+            spy = look.item_icon("spyglass")
+            self.assertEqual(spy["tex"], "item/spyglass")
+            self.assertEqual(spy["elements"], [{"from": [7, 8.5, 7], "to": [9, 13.5, 9], "rotation": None,
+                                                "faces": {"north": {"uv": [0, 2, 2, 7], "texture": "item/spyglass_model"}}}])
+            self.assertEqual(spy["hand"]["translation"], [0, -2, 0])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     @staticmethod
     def _faces(r):
         from mcsm import blockmesh as bm

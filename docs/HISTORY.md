@@ -339,7 +339,8 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
-Mobs make their own particles too: blazes trail smoke and endermen and endermites trail purple specks, all the time.
+Mobs make their own particles too: blazes trail smoke and endermen and endermites trail purple specks, all the time;
+bees carrying nectar now and then drip a drop.
 When the server tells the game something happened to a mob, the game's particles show it: the puff of smoke when a
 mob's body vanishes after it dies, a mob appearing from a spawner, hearts when animals fall in love or a pet is
 tamed (smoke when taming fails), and villagers' hearts, anger and happiness. In the nether, the air has the
@@ -401,9 +402,16 @@ What the recordings say about each player and mob is shown too:
   bottom right as the game shows it (or their bare arm), swinging when they swing; a map held with the other hand
   free is held up in both hands, showing its picture as it was then. Walking sways the view and the hand with it as
   the game's view bobbing does; the hand lags a little behind turns; a new item comes up from below; food and drink
-  are raised to the mouth and bob while they eat or drink.
-- **Angry wolves:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as the
-  recording said (tamed wolves keep their tame face, as in the game).
+  are raised to the mouth and bob while they eat or drink. Drawing a bow, loading a crossbow and raising a trident to
+  throw show the game's poses (the bow and crossbow with their pulling pictures). Looking through a spyglass shows
+  the scope over the screen and zooms in to a tenth, as the game does (the hand isn't drawn then).
+- **Tridents and spyglasses** in a hand are their 3D models (the trident's own model, the spyglass's tube), and a
+  thrown trident flies as its model, prongs first.
+- **Angry wolves and bees:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as
+  the recording said (tamed wolves keep their tame face, as in the game). Bees show their angry eyes when angry and
+  their pollen when carrying nectar.
+- **Villagers' hats:** a villager's job hat and its biome clothes' hat are shown as the game layers them (a farmer's
+  or fisherman's straw hat hides a snowy or desert villager's own hat), from the game's own texture flags.
 - **Capes:** a player's cape, as their recordings had it, hanging from the shoulders and swinging out as they move
   (not with an elytra on). Capes come from Mojang's texture server like the skins.
 
@@ -457,7 +465,8 @@ furnace's smelting (input turning into output) isn't logged.
 **Text on their screen.** While you relive someone, what the server put on their screen shows where the game shows
 it, from their own recording:
 - **The action bar** just above their hotbar and armour ("You can sleep only at night", "Sleeping through this
-  night", a plugin's or command's messages): three seconds, fading over the last one.
+  night", a plugin's or command's messages): three seconds, fading over the last one. A jukebox starting near them
+  shows "Now Playing: ..." with the song's name there, its colour cycling through the rainbow as in the game.
 - **Boss bars** at the top of the screen (the ender dragon, the wither, raids, a server's own bars): their colour,
   notches, how full and their name, as the server set them.
 - **Titles and subtitles** big in the middle of the screen, fading in and out with the times the server set.

@@ -712,6 +712,26 @@ class Look:
             return {k: disp.get(k, d) for k, d in (("rotation", [0, 0, 0]), ("translation", [0, 0, 0]), ("scale", [1, 1, 1]))}
         return self._display(m["parent"], depth + 1, which) if isinstance(m.get("parent"), str) else None
 
+    def _hand_elements(self, name: str) -> list | None:
+        """An item's in-hand model drawn with boxes (``elements``, no ``layer0``): ``[{from, to, faces: {dir: {uv,
+        texture}}}]``, textures as paths; None for a flat picture."""
+        try:
+            m = self._model(name.replace("minecraft:", ""))
+        except (KeyError, ValueError, OSError):
+            return None
+        tx = m.get("textures") or {}
+        if "layer0" in tx or not m.get("elements"):
+            return None
+        out = []
+        for e in m["elements"][:64]:
+            faces = {}
+            for k, f in (e.get("faces") or {}).items():
+                t = self._tex(tx, f.get("texture"))
+                if t:
+                    faces[k] = {"uv": f.get("uv") or [0, 0, 16, 16], "texture": t.replace("minecraft:", "")}
+            out.append({"from": e.get("from"), "to": e.get("to"), "rotation": e.get("rotation"), "faces": faces})
+        return out
+
     def item_icon(self, item: str) -> dict | None:
         """The picture the game shows for *item* in a hotbar: its item definition (``items/<id>.json``, 1.21.4+:
         the first plain model, through selects and conditions to their fallback) or the older ``models/item/<id>``,
@@ -720,13 +740,16 @@ class Look:
         if not item or not all(c.isalnum() or c in "_-." for c in item):
             return None
 
+        special: dict = {}
+
         def first_model(d, depth=0):
             if not isinstance(d, dict) or depth > 8:
                 return None
             if d.get("type", "").endswith("model") and isinstance(d.get("model"), str):
                 return d["model"]
             if d.get("type", "").endswith("special"):          # drawn by the game's code (shield, bed, chest, head)
-                return "#special"
+                special["type"] = str((d.get("model") or {}).get("type", "")).split(":")[-1]
+                return d.get("base") or "#special"            # (its base model: how it's held)
             for k in ("fallback", "on_false", "on_true", "model"):
                 m = first_model(d.get(k), depth + 1)
                 if m:
@@ -744,7 +767,14 @@ class Look:
         hand_left = self._display(mname, which="thirdperson_lefthand") or hand   # the game's own left-hand values
         fp = self._display(mname, which="firstperson_righthand")                # and in first person
         if self.has_texture(f"item/{item}"):                 # most items: their own picture
-            return {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp}
+            out = {"tex": f"item/{item}", "cube": False, "hand": hand, "hand_left": hand_left, "fp": fp}
+            if special.get("type"):                           # held: drawn by the game's code (a trident's model)
+                out["special"] = special["type"]
+            elif mname.replace("minecraft:", "") != f"item/{item}":   # held: its own 3D model (a spyglass)
+                els = self._hand_elements(mname)
+                if els:
+                    out["elements"] = els
+            return out
         if name == "#special":
             return None
         name = (name or f"item/{item}").replace("minecraft:", "")

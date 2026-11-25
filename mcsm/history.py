@@ -459,6 +459,23 @@ class HistoryMap(TerrainServer):
                     pass
                 self.__dict__["_particletex"] = cache
             return {"particles": cache}
+        if path == "/api/villagerhats":              # villager clothes' hats (their .png.mcmeta): full / partial
+            cache = self.__dict__.get("_vhats")
+            if cache is None:
+                cache = {}
+                try:
+                    import json
+                    from . import blockmesh as bm
+                    with zipfile.ZipFile(bm.find_client_jar(None)) as zf:
+                        for n in zf.namelist():
+                            if n.endswith(".png.mcmeta") and "/textures/entity/" in n and "villager" in n:
+                                hat = (json.loads(zf.read(n)).get("villager") or {}).get("hat")
+                                if hat:
+                                    cache[n.split("/textures/entity/", 1)[1][:-len(".png.mcmeta")]] = hat
+                except (OSError, TypeError, ValueError, KeyError, zipfile.BadZipFile):
+                    pass
+                self.__dict__["_vhats"] = cache
+            return {"hats": cache}
         if path == "/api/lang":                      # the game's English text (translation keys in action bars...)
             return {"lang": self.lang()}
         if path.startswith("/api/search/"):           # dev mode: everything that happened, by text: /api/search/<words>
@@ -776,7 +793,7 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef", "ang", "bo")
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef", "ang", "bo", "bnf")
                         or slotted) and t < t0:                # (mobs' looks: kept from when they were first seen)
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)

@@ -109,6 +109,10 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcBoss .name { position: absolute; left: -200px; right: -200px; top: 6px; text-align: center; color: #fff; font: 16px/16px monospace;
   white-space: pre; --sh: 2px; }
 #mcBoss span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
+/* looking through a spyglass in their eyes: the scope picture in the middle, black round it (Gui.renderSpyglassOverlay) */
+#mcScope { position: fixed; inset: 0; z-index: 20; pointer-events: none; overflow: hidden; }
+#mcScope img { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); image-rendering: pixelated;
+  box-shadow: 0 0 0 200vmax #000; }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
 #mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
@@ -160,7 +164,7 @@ body.relive #invBox { display: none !important; }
 body.relive #mapBox { display: none !important; }
 /* Relive: a moment as a memory (no panels; letterbox, warm haze at the edges, subtitles, a white fade) */
 body.clean #panel, body.clean #timeline, body.clean #help, body.clean #dev, body.clean #hotbar, body.clean #fpsBadge,
-body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss,
+body.clean #storyCard, body.clean #invBox, body.clean #mapBox, body.clean #labels, body.clean #mcHud, body.clean #mcChat, body.clean #mcBar, body.clean #mcTitle, body.clean #mcBoss, body.clean #mcScope,
 body.clean #mcCross, body.clean #relive .hint, body.clean #contBox { display: none !important; }
 #cleanHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; pointer-events: none;
   background: rgba(0,0,0,.5); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 4px; transition: opacity 1s; }
@@ -293,7 +297,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -1305,7 +1309,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -1536,7 +1540,8 @@ function mobLook(label, kind) {
   if (kind === "villager" || kind === "zombie_villager") look.vd = stateAt(label, "vd", T, null);
   if (kind === "armor_stand") look.flags = stateAt(label, "asf", T, 0);
   if (kind === "copper_golem") look.weather = stateAt(label, "weather", T, 0);
-  if (kind === "wolf") {                               // angry: for the ticks the recording said, from then
+  if (kind === "bee") look.nectar = !!(stateAt(label, "bnf", T, 0) & 8);   // carrying pollen
+  if (kind === "wolf" || kind === "bee") {             // angry: for the ticks the recording said, from then
     const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ang, i = ev ? lower(ev, T, r => r[0]) - 1 : -1;
     look.angry = i >= 0 && T - ev[i][0] < ev[i][1] * 50;
   }
@@ -1548,6 +1553,11 @@ function mobLook(label, kind) {
   if (kind === "horse") look.variant = stateAt(label, "variant", T, null);
   if (kind === "slime" || kind === "magma_cube") look.size = stateAt(label, "size", T, null);
   return look;
+}
+let VHATS = null;                                       // villager clothes' hats (/api/villagerhats)
+function villagerHats() {
+  if (!VHATS) VHATS = fetch("api/villagerhats").then(r => r.json()).then(r => r.hats || {}).catch(() => ({}));
+  return VHATS;
 }
 async function buildMob(o, label, kind) {
   if (!MOBM) return;                                   // models not loaded yet: try again next frame
@@ -1568,6 +1578,7 @@ async function buildMob(o, label, kind) {
   if (!L) return;                                      // no model: stays a box
   if (look.tame && kind === "wolf") tex = tex + "_tame";                        // a tamed wolf's own picture
   else if (look.angry && kind === "wolf") tex = tex + "_angry";                 // (WolfRenderer: tame first, then angry)
+  if (kind === "bee") tex = `bee/bee${look.angry ? "_angry" : ""}${look.nectar ? "_nectar" : ""}`;   // BeeRenderer
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
@@ -1587,12 +1598,15 @@ async function buildMob(o, label, kind) {
     const [vt, prof, lv] = look.vd, dir = kind === "zombie_villager" ? "zombie_villager" : "villager";
     if (baby) extras.push([layer, `${dir}/baby/${vt}`, false, 1, true]);
     else {
-      extras.push([layer, `${dir}/type/${vt}`, false, 1]);
+      const hats = await villagerHats(), th = hats[`${dir}/type/${vt}`] || "none";   // (each texture's own flag)
+      const ph = prof && prof !== "none" ? (hats[`${dir}/profession/${prof}`] || "none") : "none";
+      const hatShown = ph === "none" || (ph === "partial" && th !== "full");
+      extras.push([layer, `${dir}/type/${vt}`, false, 1, false, null, hatShown ? null : ["hat"]]);
       if (prof && prof !== "none") extras.push([layer, `${dir}/profession/${prof}`, false, 2]);
       if (prof && prof !== "none" && prof !== "nitwit") extras.push([layer, `${dir}/profession_level/${VILLAGER_LEVEL[Math.max(0, Math.min(4, lv - 1))]}`, false, 3]);
     }
   }
-  for (let [xl, xt, glass, over, babyTex, dye] of extras) {
+  for (let [xl, xt, glass, over, babyTex, dye, hide] of extras) {
     if (babyTex) xl = layer + "_BABY";
     else if (baby) {                                         // SHEEP_WOOL -> SHEEP_BABY_WOOL, sheep_wool -> sheep_wool_baby
       const bl = xl === layer ? layer + "_BABY" : xl.replace(layer + "_", layer + "_BABY_");
@@ -1616,7 +1630,9 @@ async function buildMob(o, label, kind) {
       mats = { n: mats.n.clone(), hurt: mats.hurt, burn: mats.burn };
       mats.n.polygonOffset = true; mats.n.polygonOffsetFactor = -over; mats.n.polygonOffsetUnits = -over;
     }
-    inner.add(buildPart(XL.root, xl, "", XL.tw, XL.th, mats, {}, ""));
+    const pp = {}, part = buildPart(XL.root, xl, "", XL.tw, XL.th, mats, pp, "");
+    for (const n of hide || []) if (pp[n]) pp[n].g.visible = false;   // (the hat's rim is part of the hat)
+    inner.add(part);
   }
   if (o.lookKey !== key || !mobMeshes.has(label)) return;
   if (kind === "tropical_fish") {                      // its colours come from the variant (not recorded): one per fish
@@ -1681,7 +1697,8 @@ function mobMesh(label, kind, look = null) {
   }
   if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
     if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]);
-      if (kind === "arrow" || kind === "spectral_arrow") arrowModel(kind).then(g => { if (g) { o.arrow = g; o.mesh.add(g); } }); }
+      if (kind === "arrow" || kind === "spectral_arrow") arrowModel(kind).then(g => { if (g) { o.arrow = g; o.mesh.add(g); } });
+      if (kind === "trident") tridentModel().then(g => { if (g) { o.arrow = g; o.mesh.add(g); } }); }
     return o;
   }
   if (look) {                                          // its looks changed (grew up, sheared, dyed...): built again
@@ -1699,6 +1716,14 @@ async function arrowModel(kind = "arrow", scale = 0.9, tipAtPoint = false) {
   if (!t) return null;
   const g = new THREE.Group(), inner = buildPart(L.root, "ARROW", "", L.tw, L.th, mobMaterials(tex, t), {}, "");
   inner.scale.setScalar(scale); inner.position.x = (tipAtPoint ? -4 : 4) * MPX * scale;   // the model runs x -12 .. 4
+  g.add(inner); return g;
+}
+// a thrown trident (ThrownTridentRenderer): its model, the prongs ahead along the flight (turned like an arrow: +x)
+async function tridentModel() {
+  const L = MOBM && MOBM.TRIDENT; if (!L) return null;
+  const t = await mobTexture("trident/trident"); if (!t) return null;
+  const g = new THREE.Group(), inner = buildPart(L.root, "TRIDENT", "", L.tw, L.th, mobMaterials("trident/trident", t), {}, "");
+  inner.rotation.z = -Math.PI / 2;                       // its prongs (up in ours) to +x
   g.add(inner); return g;
 }
 // things thrown or shot (entity -> the item drawn; "": not drawn) and their physics per tick: [gravity, drag, at most
@@ -2230,7 +2255,37 @@ async function heldItem(item, px, look = null, opts = {}) {
   }
   const ic = await itemInfo(item);
   let obj;
-  if (ic && ic.cube) {                                  // a block: the block, at the model's size
+  if (ic && ic.special === "trident" && MOBM && MOBM.TRIDENT) {   // the trident's own model (TridentSpecialRenderer)
+    const L = MOBM.TRIDENT, t = await mobTexture("trident/trident");
+    if (t) {
+      // drawn in the item's space at its corner (the game's -0.5), its model turned (x, -y, -z) as buildPart does
+      const w = new THREE.Group(); w.position.set(-0.5, -0.5, -0.5);
+      w.add(buildPart(L.root, "TRIDENT", "", L.tw, L.th, mobMaterials("trident/trident", t), {}, ""));
+      obj = new THREE.Group(); obj.add(w);
+    }
+  } else if (ic && ic.elements) {                       // an in-hand model of boxes (a spyglass)
+    obj = new THREE.Group();
+    const texs = {};
+    for (const e of ic.elements) for (const f of Object.values(e.faces)) texs[f.texture] = texs[f.texture] || texOnce(f.texture);
+    const loaded = {}; for (const [k, pr] of Object.entries(texs)) loaded[k] = await pr;
+    const HIDE = new THREE.MeshBasicMaterial({ visible: false });
+    for (const e of ic.elements) {
+      const [x0, y0, z0] = e.from, [x1, y1, z1] = e.to;
+      const g = new THREE.BoxGeometry(Math.max(1e-3, (x1 - x0) / 16), Math.max(1e-3, (y1 - y0) / 16), Math.max(1e-3, (z1 - z0) / 16)), uv = g.attributes.uv;
+      const mats = ["east", "west", "up", "down", "south", "north"].map((dir, fi) => {
+        const f = e.faces[dir]; if (!f || !loaded[f.texture]) return HIDE;
+        const [u1, v1, u2, v2] = f.uv;
+        const c = [[u1, v1], [u2, v1], [u1, v2], [u2, v2]];
+        for (let k = 0; k < 4; k++) uv.setXY(fi * 4 + k, c[k][0] / 16, 1 - c[k][1] / 16);
+        return new THREE.MeshLambertMaterial({ map: loaded[f.texture], alphaTest: 0.1, emissive: 0xffffff, emissiveMap: loaded[f.texture], emissiveIntensity: 0.25 });
+      });
+      const b = new THREE.Mesh(g, mats);
+      b.position.set((x0 + x1) / 32 - 0.5, (y0 + y1) / 32 - 0.5, (z0 + z1) / 32 - 0.5);
+      obj.add(b);
+    }
+  }
+  if (obj) {
+  } else if (ic && ic.cube) {                                  // a block: the block, at the model's size
     const [side, top, bottom] = await Promise.all([texOnce(ic.tex), texOnce(ic.top || ic.tex), texOnce(ic.bottom || ic.tex)]);
     if (!side) return null;
     const mat = (t, tint) => new THREE.MeshLambertMaterial({ map: t || side, alphaTest: 0.3, color: tint || 0xffffff,
@@ -4381,12 +4436,38 @@ function fpBob(R) {
   return M;
 }
 const FP_FOOD = /^(apple|golden_apple|enchanted_golden_apple|bread|cookie|melon_slice|sweet_berries|glow_berries|carrot|golden_carrot|potato|baked_potato|poisonous_potato|beetroot|beetroot_soup|mushroom_stew|rabbit_stew|suspicious_stew|pumpkin_pie|chorus_fruit|dried_kelp|spider_eye|rotten_flesh|pufferfish|tropical_fish|(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)|cake|honey_bottle|milk_bucket|potion|ominous_bottle)$/;
+function fpUseStart(name) {                              // when they began using what their main hand holds (or null)
+  const hv = EXACT.on && EXACT.ev[name] && EXACT.ev[name].h; if (!hv) return null;
+  let i = lower(hv, T, r => r[0]) - 1; if (i < 0 || !(hv[i][1] & 1) || (hv[i][1] & 2)) return null;
+  while (i > 0 && (hv[i - 1][1] & 1) && !(hv[i - 1][1] & 2)) i--;
+  return hv[i][0];
+}
+// the poses of using an item in first person (ItemInHandRenderer.renderArmWithItem): a bow drawn, a crossbow being
+// loaded, a trident raised to throw; *e* the ticks since they began
+function fpUseMatrix(anim, d, e) {
+  const D = Math.PI / 180, M = new THREE.Matrix4().makeTranslation(0.56, -0.52, -0.72), Q = new THREE.Matrix4();
+  const A = { bow: [-0.2785682, 0.18344387, 0.15731531, -13.935, 35.3], crossbow: [-0.4785682, -0.094387, 0.05731531, -11.935, 65.3],
+    spear: [-0.5, 0.7, 0.1, -55, 35.3] }[anim];
+  M.multiply(Q.makeTranslation(A[0], A[1], A[2]));
+  M.multiply(Q.makeRotationX(A[3] * D)); M.multiply(Q.makeRotationY(A[4] * D)); M.multiply(Q.makeRotationZ(-9.785 * D));
+  let f = anim === "bow" ? e / 20 : anim === "crossbow" ? e / 25 : e / 10;
+  if (anim === "bow") f = (f * f + f * 2) / 3;
+  f = Math.min(1, f);
+  if (f > 0.1) M.multiply(Q.makeTranslation(0, Math.sin((e - 0.1) * 1.3) * (f - 0.1) * 0.004, 0));   // the shake of holding it
+  M.multiply(Q.makeTranslation(0, 0, anim === "spear" ? f * 0.2 : f * 0.04));
+  M.multiply(Q.makeScale(1, 1, 1 + f * 0.2));
+  M.multiply(Q.makeRotationY(-45 * D));
+  const tr = d.translation || [0, 0, 0], ro = d.rotation || [0, 0, 0], sc = d.scale || [1, 1, 1];
+  M.multiply(Q.makeTranslation(tr[0] / 16, tr[1] / 16, tr[2] / 16));
+  M.multiply(Q.makeRotationFromEuler(new THREE.Euler(ro[0] * D, ro[1] * D, ro[2] * D, "XYZ")));
+  M.multiply(Q.makeScale(sc[0], sc[1], sc[2]));
+  return M;
+}
 function fpEat(M, item, R) {                               // applyEatTransform: bobbing at the mouth, then raised to it
   if (!item || !FP_FOOD.test(item)) return;
-  const hv = EXACT.on && EXACT.ev[R.name] && EXACT.ev[R.name].h; if (!hv) return;
-  const i = lower(hv, T, r => r[0]) - 1; if (i < 0 || !(hv[i][1] & 1)) return;
+  const t0 = fpUseStart(R.name); if (t0 === null) return;
   const dur = item === "dried_kelp" ? 16 : item === "honey_bottle" ? 40 : 32;
-  const left = Math.max(0, dur - (T - hv[i][0]) / 50), f = left + 1, gg = f / dur, D = Math.PI / 180, Q = new THREE.Matrix4();
+  const left = Math.max(0, dur - (T - t0) / 50), f = left + 1, gg = f / dur, D = Math.PI / 180, Q = new THREE.Matrix4();
   if (gg < 0.8) M.multiply(Q.makeTranslation(0, Math.abs(Math.cos(f / 4 * Math.PI) * 0.1), 0));
   const k = 1 - Math.pow(gg, 27);
   M.multiply(Q.makeTranslation(k * 0.6, k * -0.5, 0));
@@ -4397,7 +4478,19 @@ function fpStep() {
   if (!camera.parent) scene.add(camera);
   if (FPV.group.parent !== camera) camera.add(FPV.group);
   FPV.group.visible = !!on;
-  if (!on) return;
+  const scoping = on && markers[R.name] && fpUseStart(R.name) !== null && (stateAt(R.name, "eq:mainhand", T, null) || [])[0] === "spyglass";
+  // a spyglass: the scope over the screen and the view zoomed in to a tenth (the game eases both in)
+  if (scoping) {
+    if (FPB.scope0 == null) FPB.scope0 = performance.now();
+    const ticks = (performance.now() - FPB.scope0) / 50, sc = 1.125 - 0.625 * Math.pow(0.5, ticks);
+    const img = $("#mcScope img"), side = Math.min(innerWidth, innerHeight) * sc;
+    img.style.width = img.style.height = `${side}px`;
+    const fov = RSET.fov * (0.1 + 0.9 * Math.pow(0.5, ticks));
+    if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  } else if (FPB.scope0 != null) { FPB.scope0 = null; camera.fov = RSET.fov; camera.updateProjectionMatrix(); }
+  $("#mcScope").hidden = !scoping;
+  if (scoping) FPV.group.visible = false;                // (the hand isn't drawn while scoping)
+  if (!on || scoping) return;
   // the game draws the hand as if seen at 70 degrees whatever the view: across and up scaled to our camera's angle
   const kf = Math.tan(camera.fov * Math.PI / 360) / Math.tan(35 * Math.PI / 180);
   FPV.group.scale.set(kf, kf, 1);
@@ -4405,7 +4498,11 @@ function fpStep() {
   const main = stateAt(R.name, "eq:mainhand", T, null), off = stateAt(R.name, "eq:offhand", T, null);
   const item = main && main[0], look = main && main[3];
   const mapId = item === "filled_map" && look && look.map != null && !(off && off[0]) ? look.map : null;
-  const key = mapId != null ? `map|${mapId}` : item ? `item|${item}|${JSON.stringify(look || {})}` : `arm|${m.F.mat.map && m.F.mat.map.uuid}`;
+  const useT = item ? fpUseStart(R.name) : null;
+  const anim = useT === null ? null : item === "bow" ? "bow" : item === "crossbow" ? "crossbow" : item === "trident" ? "spear" : null;
+  const stage = anim === "bow" || anim === "crossbow" ? pullStage(R.name, item) : null;   // the pulling picture
+  const key = mapId != null ? `map|${mapId}` : item ? `item|${item}|${JSON.stringify(look || {})}${stage !== null ? "|pull" + stage : ""}`
+    : `arm|${m.F.mat.map && m.F.mat.map.uuid}`;
   const sw = swingAt(R.name, T), p = sw !== null && sw < 300 ? sw / 300 : 0;
   // the view's bob, and the hand lagging a little behind turns (xBob / yBob: half the way each tick)
   const B = fpBob(R), D = Math.PI / 180, Q = new THREE.Matrix4();
@@ -4425,7 +4522,7 @@ function fpStep() {
     for (const ch of FPV.group.children.slice()) FPV.group.remove(ch);
     if (mapId != null) { const g = fpMap(mapId); FP_ON_TOP(g); FPV.group.add(g); }
     else if (item) itemInfo(item).then(async ic => {
-      const obj = await heldItem(item, PX, look || null, {});
+      const obj = await heldItem(item, PX, look || null, stage !== null ? { tex: `item/${item}_pulling_${stage}` } : {});
       if (!obj || mine !== FPV.tok) return;
       obj.userData.fp = (ic && ic.fp) || { rotation: [0, -90, 25], translation: [1.13, 3.2, 1.13], scale: [0.68, 0.68, 0.68] };
       if (look && look.glint) addGlint(obj);
@@ -4439,7 +4536,9 @@ function fpStep() {
   const up = Math.min(1, Math.max(0, (T - FPB.eqT) / 50 * 0.4));   // applyItemArmTransform: -0.6 x (1 - equipped)
   const E = new THREE.Matrix4().makeTranslation(0, (1 - up) * -0.6, 0);
   if (mapId != null) g.matrix.copy(E.multiply(fpMapMatrix(c.pitch || 0, p)));
-  else if (item) { const obj = g.children[0]; if (obj) { fpEat(E, item, R); g.matrix.copy(E.multiply(fpItemMatrix(obj.userData.fp, p))); } }
+  else if (item) { const obj = g.children[0]; if (obj) {
+    if (anim) g.matrix.copy(E.multiply(fpUseMatrix(anim, obj.userData.fp, (T - useT) / 50)));   // (no swing while using)
+    else { fpEat(E, item, R); g.matrix.copy(E.multiply(fpItemMatrix(obj.userData.fp, p))); } } }
   else g.matrix.copy(E.multiply(fpArmMatrix(p)));
 }
 $("#reliveBtn").onclick = () => {
@@ -4790,6 +4889,12 @@ function mcStyle(c, st) {
   for (const k of ["bold", "italic", "underlined", "strikethrough"]) if (c[k] != null) o[k] = !!c[k];
   return o;
 }
+function mcHsv(h, sv, v) {                               // Mth.hsvToRgb -> "rrggbb"
+  h = ((h % 1) + 1) % 1; const i = Math.floor(h * 6) % 6, f = h * 6 - Math.floor(h * 6);
+  const p = v * (1 - sv), q = v * (1 - f * sv), t = v * (1 - (1 - f) * sv);
+  const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i];
+  return [r, g, b].map(c => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
+}
 function titleAt(name) {                                 // Gui.setTitle / setSubtitle / setTimes / clear, replayed up to now
   const ev = EXACT.on && EXACT.ev[name]; if (!ev || !ev.ti) return null;
   const all = [];
@@ -4830,9 +4935,17 @@ function screenTextStep() {
   let bar = null;
   const ab = who && EXACT.on && EXACT.ev[who] && EXACT.ev[who].ab;
   if (ab) { const i = lower(ab, T, r => r[0]) - 1; if (i >= 0 && T - ab[i][0] < 3000) bar = [ab[i], Math.min(1, (3000 - (T - ab[i][0])) / 1000)]; }
+  const js = who && EXACT.on && EXACT.ev[who] && EXACT.ev[who].js;
+  let rainbow = null;
+  if (js) { const i = lower(js, T, r => r[0]) - 1;
+    if (i >= 0 && js[i][1][3] && T - js[i][0] < 3000 && (!bar || js[i][0] >= bar[0][0])) {
+      bar = [[js[i][0], { translate: "record.nowPlaying", with: [{ translate: `jukebox_song.minecraft.${js[i][1][3]}` }] }],
+        Math.min(1, (3000 - (T - js[i][0])) / 1000)];
+      rainbow = mcHsv(((3000 - (T - js[i][0])) / 50) / 50, 0.7, 0.6);   // its colour by the ticks left
+    } }
   if (bar && bar[1] * 255 <= 8) bar = null;
-  const bk = bar ? `${bar[0][0]}|${!!MCTEXT.lang}` : "";
-  if (bk !== HUD.barKey) { HUD.barKey = bk; $("#mcBar").replaceChildren(...(bar ? mcText(bar[0][1]) : [])); }
+  const bk = bar ? `${bar[0][0]}|${!!MCTEXT.lang}|${rainbow || ""}` : "";
+  if (bk !== HUD.barKey) { HUD.barKey = bk; $("#mcBar").replaceChildren(...(bar ? mcText(bar[0][1], rainbow ? { color: rainbow } : {}) : [])); }
   $("#mcBar").hidden = !bar; if (bar) $("#mcBar").style.opacity = bar[1];
   const ti = who ? titleAt(who) : null;
   const tk = ti ? `${ti.key}|${JSON.stringify(ti.sub)}|${!!MCTEXT.lang}` : "";
@@ -5790,6 +5903,14 @@ function ambMobs() {
   const c = camera.position;
   for (const [name, o] of mobMeshes) {
     const kind = o.kind || name.split("#")[1];
+    if (kind === "bee") {                                // carrying pollen: now and then a drop or two falls (5% a tick)
+      const m = o.mesh; if (!m || !m.visible || !(stateAt(name, "bnf", T, 0) & 8) || R() >= 0.05) continue;
+      const p = m.position, h = (MOB_SIZE.bee || [0.7, 0.6])[1];
+      for (let i = Math.floor(R() * 2) + 1; i > 0; i--)
+        ambAdd({ x: p.x - 0.3 + R() * 0.6, y: p.y + h * 0.5, z: p.z - 0.3 + R() * 0.6, vx: 0, vy: 0, vz: 0, g: 0.007, fr: 0.98,
+          life: Math.floor(16 / (R() * 0.8 + 0.2)), col: [0.92, 0.782, 0.72, 1], frames: ambFrames("falling_nectar"), anim: false, day: true });
+      continue;
+    }
     if (kind !== "blaze" && kind !== "enderman" && kind !== "endermite") continue;
     const m = o.mesh; if (!m || !m.visible) continue;
     const p = m.position; if (Math.abs(p.x - c.x) > 48 || Math.abs(p.y - c.y) > 48 || Math.abs(p.z - c.z) > 48) continue;

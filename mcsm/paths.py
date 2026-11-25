@@ -240,6 +240,8 @@ HANGING = {"painting", "item_frame", "glow_item_frame"}
 # hearts 12 / anger 13 / happiness 14, an animal in love 18, a mob appearing from a spawner 20, a body vanishing 60
 ENTITY_FX = {6, 7, 12, 13, 14, 18, 20, 60}
 BOSS_COLOURS = ["pink", "blue", "red", "green", "yellow", "purple", "white"]
+# where a neutral mob's anger is in its entity data (1.21.x; 26.x one on): wolves 21, bees 18
+ANGER_INDEX = {"wolf": 21, "bee": 18}
 
 
 def boss_event(b, k: int, end: int, bars: dict) -> bool:
@@ -928,14 +930,14 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                     size = _U32.unpack_from(b, i)[0]
                     i += 4
                     if aid == cf and ex_on and size > 20 and (b"banner_pattern" in b[i:i + 64] or b"_variant" in b[i:i + 64]
-                                                               or b"trim_" in b[i:i + 64]):
+                                                               or b"trim_" in b[i:i + 64] or b"jukebox_song" in b[i:i + 64]):
                         try:                         # the registry's name: after the packet id, a string
                             ln, kk = _varint(b, i + 1)
                             reg = bytes(b[kk:kk + ln]).decode("utf-8", "replace")
                         except IndexError:
                             reg = ""
                         if reg.startswith("minecraft:") and (reg.endswith("_variant") or reg.endswith("banner_pattern")
-                                                             or reg.endswith(("trim_material", "trim_pattern"))):
+                                                             or reg.endswith(("trim_material", "trim_pattern", "jukebox_song"))):
                             names = registry_names(bytes(b[i:i + size]), reg)
                             if names:
                                 REGISTRIES[reg.split(":", 1)[1]] = names
@@ -1041,12 +1043,16 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     md = entity_data_all(b, k, i + size, mk in VARIANT_REG or mk == "copper_golem")
                                     for ev in mob_details(mk, md, new_ids):
                                         extras["events"].append([tick, who] + ev)
-                                    if mk == "wolf":           # angry: 26.x the game time it ends (-1 none); before, ticks left
-                                        an = md.get(22 if new_ids else 21)
+                                    if mk == "bee":            # bees' flags (0x08 carrying nectar; 0x04 has stung)
+                                        bf = md.get(18 if new_ids else 17)
+                                        if bf and bf[0] == SER_BYTE:
+                                            extras["events"].append([tick, who, "bnf", bf[1]])
+                                    if mk in ANGER_INDEX:      # angry: the game time it ends (-1 none) or ticks left
+                                        an = md.get(ANGER_INDEX[mk] + (1 if new_ids else 0))
                                         left = None
                                         if an and an[0] == SER_VARLONG and isinstance(an[1], int):
                                             left = 0 if an[1] < 0 or game_now is None else max(0, an[1] - (game_now[0] + tick - game_now[1]))
-                                        elif an and an[0] == SER_VARINT and not new_ids:
+                                        elif an and an[0] == SER_VARINT:
                                             left = max(0, an[1])
                                         if left is not None:
                                             extras["events"].append([tick, who, "ang", min(left, 1_000_000)])
@@ -1191,6 +1197,12 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                 if nm:
                                     extras["events"].append([tick, None, "bb", list(block_pos(struct.unpack_from(">q", b, k + 4)[0]))
                                                              + [nm.split("[")[0].replace("minecraft:", "")]])
+                            elif ev in (1010, 1011):          # a jukebox starts (data: the song) or stops: "Now Playing"
+                                from .moment import block_pos
+                                songs = REGISTRIES.get("jukebox_song") or []
+                                sid = struct.unpack_from(">i", b, k + 12)[0]
+                                song = (songs[sid].split(":", 1)[-1] if 0 <= sid < len(songs) else None) if ev == 1010 else None
+                                extras["events"].append([tick, None, "js", list(block_pos(struct.unpack_from(">q", b, k + 4)[0])) + [song]])
                             elif LEVEL_FX is None or ev in LEVEL_FX:   # other effects the game shows with particles
                                 from .moment import block_pos
                                 extras["events"].append([tick, None, "le", list(block_pos(struct.unpack_from(">q", b, k + 4)[0]))
@@ -1475,7 +1487,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact29.json.gz"    # 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact30.json.gz"    # 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

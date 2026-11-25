@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 29: tridents, spyglasses, use poses, villager hats, bees, jukebox; parity round 28: boss bars, angry wolves, first-person motion, dev search; parity round 27: action bar, titles, server messages, mob and biome particles; parity round 26: potion swirls; parity round 25: particles the game makes up; parity round 24: the hand in first person, glint masked; parity round 23: maps as they were at the time; parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1239,10 +1239,43 @@ same 5 in the Ledger, 24 May; clicking one goes to 20:13:25 UTC with the camera 
 part ~15 s (2 million rows). 1,574 recordings have never been read in full: "Read them all" starts that. Tests:
 `test_search`.
 
-Still different: villagers' profession hats over other hats; spyglass and trident 3D models; the tab list (only shown
-while Tab is held in the game); the scoreboard (not recorded: `ignore_scoreboard_packets`); a jukebox's "Now playing"
-in rainbow colours (shown plain); particles from other mobs' animations (a bee's nectar, a sheep eating, glow
-squids); bow drawing, shield blocking and the spyglass in first person.
+**Round 29 (2026-11-25, owner: "Keep going").**
+
+*Held items' own models.* `Look.item_icon`: an item definition's special model (a select by display context, then a
+condition) now gives its base model (`trident_in_hand`: how it's held) and `special: "trident"`; an in-hand model
+made of boxes (no layer0, e.g. `spyglass_in_hand`) is sent as `elements` (from, to, faces with uv and texture paths;
+`_hand_elements`). The hotbar picture is unchanged. Page `heldItem`: a trident is the TRIDENT entity model (the
+TridentSpecialRenderer: in item space at the corner, turned (x, -y, -z)); boxes are drawn with their face UVs. A
+thrown trident flies as its model, prongs along its flight (`tridentModel`, ThrownTridentRenderer). Checked:
+Estproguy's enchanted trident in their off hand, 20 November 02:00:53 UTC (prongs forward and up, the shaft back
+through the hand, as the game's third person). Spyglass in hand and a thrown trident not seen. Test:
+`test_held_item_models`.
+
+*First-person use.* `fpUseStart` (when the main hand's use began: flags 0x01 without 0x02, back to the first);
+`fpUseMatrix`: ItemInHandRenderer's BOW, CROSSBOW and SPEAR (trident) poses (their translations and turns, the pull
+f = e/20 (bow: (f^2 + 2f)/3), e/25, e/10, the shake, the stretch, -45 degrees), no swing while using; the bow's and
+crossbow's pulling pictures in first person too (`pullStage`). A spyglass: no hand, `#mcScope` (misc/spyglass_scope
+in the middle, black round it, its size easing from 0.5 to 1.125 of the screen's shorter side) and the view's angle
+easing to a tenth (back when they stop). Eating uses the same start. Not seen here (no moment tried).
+
+*Villager hats.* `/api/villagerhats`: each villager texture's `.png.mcmeta` hat flag (full / partial; 14 in 26.3).
+`buildMob`: VillagerProfessionLayer's rule: the biome clothes' hat drawn only when the job has no hat, or a partial
+one over a biome hat that isn't full (each texture's own flag: zombie villagers' types have none). Checked in the
+mob gallery: a snowy zombie fisherman (the straw hat, not the fur hat).
+
+*Bees.* Entity data: flags (0x08 nectar; 1.21.x index 17, 26.x 18) as "bnf" (carried); anger as for wolves
+(`ANGER_INDEX`: bees 18, wolves 21; 26.x one on; a long: the game time it ends, or an int: ticks left). Page:
+BeeRenderer's texture (bee, _angry, _nectar, _angry_nectar); Bee.tick's falling nectar (5% a tick, one or two drops,
+`ambMobs`). Checked in the gallery: an angry bee with nectar (red eyes, pollen). Drips not seen.
+
+*Jukebox.* Level event 1010 (a jukebox starts; data: the song's id in the synced `jukebox_song` registry, now kept)
+and 1011 (stops) recorded as "js" [x, y, z, song or None] for the recorded player. Page: the action bar shows
+`record.nowPlaying` with `jukebox_song.minecraft.<song>` for 3 s, its colour Mth.hsvToRgb(ticks left / 50, 0.7, 0.6)
+(Gui.setNowPlaying). Not seen here (no jukebox found by search). `EXACT_SUFFIX` 30.
+
+Still different: the tab list (only shown while Tab is held in the game); the scoreboard (not recorded:
+`ignore_scoreboard_packets`); shield blocking in first person (the game's blocking model); particles from other
+mobs' animations (a sheep eating, glow squids); spears (1.21.11's new weapons) held and used.
 
 ### 0zd. Use the Ledger database (raised 2026-11-23)
 
@@ -1962,6 +1995,10 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 29**: someone holding or throwing a trident; a spyglass in a hand, and reliving someone through
+  their eyes while they look through it (the scope); drawing a bow or crossbow, raising a trident, in their eyes;
+  snowy or desert villagers with a farmer's, fisherman's, fletcher's, librarian's or shepherd's hat; bees angry or
+  carrying nectar (and dripping it); a jukebox started near someone ("Now Playing" in rainbow colours).
 - **Parity round 28**: dev mode (the ` key) → "Search what happened": try a block, a player, "died", "angry",
   "Sleeping"; click a line. Relive someone through their eyes while they walk (the view bobs), eat, or switch items;
   an empty hand (their arm from the right). A wild wolf attacking (its angry face). A boss bar if a recording has
@@ -2183,6 +2220,10 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 29 (backlog 0zh): tridents and spyglasses as their 3D models (held
+  and thrown); first-person bow, crossbow and trident poses and the spyglass scope; villagers' hats layered as the
+  game does; bees' looks and nectar; the jukebox's "Now Playing". Tests: `test_held_item_models`.
 
 - **2026-11-25:** Owner: "Keep going", then "add a dev tool so i can search by anything that happens by text also".
   Parity round 28 (backlog 0zh): boss bars from the recordings; angry wolves; view bobbing, the hand's lag, the
