@@ -535,6 +535,9 @@ def _string(b, k: int) -> tuple[str, int]:
 
 def _component(name: str, b, k: int) -> tuple[int, object]:
     """Skip one component value; returns (new position, something worth keeping or None). ValueError if unknown."""
+    if name == "map_id":                                # a filled map's number (its picture)
+        v, k = _varint(b, k)
+        return k, ("map", v)
     if name in _VARINT_COMPONENTS:
         return _varint(b, k)[1], None
     if name in _UNIT_COMPONENTS:
@@ -649,6 +652,8 @@ def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
                     look = {**(look or {}), "glint": True}
             elif isinstance(val, tuple) and val[0] == "glint":
                 look = {**(look or {}), "glint": val[1]}
+            elif isinstance(val, tuple) and val[0] == "map":
+                look = {**(look or {}), "map": val[1]}
             elif isinstance(val, tuple) and val[0] == "trim" and val[1]:
                 look = {**(look or {}), "trim": val[1]}          # [material, pattern]
         for _ in range(rem):
@@ -901,8 +906,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                     it = next((i2 for i2 in sorted(hd) if hd[i2][0] == SER_ITEM_STACK), None)
                                     rot = hd.get(it + 1, (None, None)) if it is not None else (None, None)
                                     if it is not None:
-                                        extras["events"].append([tick, hangs[eid], "hi", [(hd[it][1] or [""])[0],
-                                                                 rot[1] if rot[0] == SER_VARINT else 0]])
+                                        st = hd[it][1] or [""]
+                                        extras["events"].append([tick, hangs[eid], "hi", [st[0], rot[1] if rot[0] == SER_VARINT else 0,
+                                                                 ((st[4] if len(st) > 4 else None) or {}).get("map")]])
                                     elif any(hd[i2][0] == SER_VARINT for i2 in hd if i2 >= 9):   # only turned
                                         r2 = next(hd[i2][1] for i2 in sorted(hd) if i2 >= 9 and hd[i2][0] == SER_VARINT)
                                         extras["events"].append([tick, hangs[eid], "hi", [None, r2]])
@@ -1315,7 +1321,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact25.json.gz"    # 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact26.json.gz"    # 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

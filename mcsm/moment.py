@@ -559,6 +559,74 @@ def world_at(recordings: list[dict], chunks_wanted: set[tuple[int, int]], dim: s
 
 
 _NAMES: dict = {}
+_MAPUPS: dict = {}
+
+
+def map_updates(zip_path: str) -> list[tuple]:
+    """Every map update a recording saw: ``[(tick, map id, x, z, columns, rows, colours)]`` (map_item_data: the map
+    id, scale, locked, optional icons, then optionally a rectangle of new colour bytes). Read once and kept."""
+    if zip_path in _MAPUPS:
+        return _MAPUPS[zip_path]
+    out: list[tuple] = []
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            proto = paths_mod._protocol(z)
+            version = json.loads(z.read("metadata.json")).get("version_string")
+            pid_map = (protocol.table(proto, version) or {}).get("packets", {}).get("map_item_data")
+            if pid_map is None:
+                raise ValueError("no map packet id")
+            tick = 0
+            for cn in paths_mod._chunk_names(z):
+                b = z.read(cn)
+                i = 4
+                count, i = paths_mod._varint(b, i)
+                kinds = []
+                for _ in range(count):
+                    ln, i = paths_mod._varint(b, i)
+                    kinds.append(b[i:i + ln].decode("utf-8", "replace").rsplit("/", 1)[-1])
+                    i += ln
+                i += 4                                   # the snapshot is records like the rest
+                nt = kinds.index("next_tick") if "next_tick" in kinds else -1
+                gp = kinds.index("game_packet") if "game_packet" in kinds else -1
+                while i + 5 <= len(b):
+                    aid, i = paths_mod._varint(b, i)
+                    size = paths_mod._U32.unpack_from(b, i)[0]
+                    i += 4
+                    if aid == nt:
+                        tick += 1
+                    elif aid == gp and size > 4:
+                        p, k = paths_mod._varint(b, i)
+                        if p == pid_map:
+                            up = _map_patch(b, k, i + size)
+                            if up:
+                                out.append((tick,) + up)
+                    i += size
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile, IndexError):
+        pass
+    _remember(_MAPUPS, zip_path, out, 24)
+    return out
+
+
+def _map_patch(b, k: int, end: int) -> tuple | None:
+    """(map id, x, z, columns, rows, colours) from a map_item_data body, or None when it has no colours."""
+    mid, k = paths_mod._varint(b, k)
+    k += 2                                              # scale, locked
+    if b[k]:                                            # icons: type, x, z, rotation, optional name
+        k += 1
+        n, k = paths_mod._varint(b, k)
+        for _ in range(n):
+            k = paths_mod._varint(b, k)[1] + 3
+            k = paths_mod._nbt_skip(b, k + 1) if b[k] else k + 1
+    else:
+        k += 1
+    cols = b[k]
+    if not cols:
+        return None
+    rows, x, z = b[k + 1], b[k + 2], b[k + 3]
+    ln, k = paths_mod._varint(b, k + 4)
+    if k + ln > end or ln != cols * rows:
+        return None
+    return mid, x, z, cols, rows, bytes(b[k:k + ln])
 
 
 def state_names(zip_path: str) -> list[str]:

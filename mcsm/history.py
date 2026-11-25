@@ -561,6 +561,12 @@ class HistoryMap(TerrainServer):
                 return {"heads": cache[key][0], "statues": cache[key][1]}
             except (ValueError, OSError) as exc:
                 return {"heads": [], "message": str(exc)}
+        if path.startswith("/api/mapupdates/"):      # maps being drawn on: /api/mapupdates/<from ms>/<to ms>
+            try:
+                a, b = path[len("/api/mapupdates/"):].split("/")
+                return {"maps": self.map_updates_between(int(a), int(b))}
+            except (ValueError, OSError) as exc:
+                return {"maps": [], "message": str(exc)}
         if path.startswith("/api/signs/"):           # signs and their text: /api/signs/<layer>/<dim>/<tx>/<tz>
             from . import signs as sg
             try:
@@ -881,6 +887,55 @@ class HistoryMap(TerrainServer):
                 return off + paths_mod.game_time(clock, tick) * 50 if off is not None and clock else s_ms + tick * 50
             out.append({"zip": zp, "tick": shot.tick_at(meta, off, s_ms, t), "when": when,
                         "tick_of": lambda ms, meta=meta, off=off, s_ms=s_ms: shot.tick_at(meta, off, s_ms, ms)})
+        return out
+
+    def map_updates_between(self, t0: int, t1: int) -> dict[int, list[int]]:
+        """The maps the recordings running from *t0* to *t1* (ms) had seen by *t1*: ``{map id: [ms of each update]}``
+        (a recording sends each map in view in full when it starts, then what's drawn on it)."""
+        from . import moment
+        out: dict[int, set] = {}
+        seen = set()
+        for rec in self.recordings_at(t0) + self.recordings_at(t1):
+            if rec["zip"] in seen:
+                continue
+            seen.add(rec["zip"])
+            b = rec["tick_of"](t1)
+            for u in moment.map_updates(rec["zip"]):
+                if u[0] <= b:
+                    out.setdefault(u[1], set()).add(int(rec["when"](u[0])) // 1000 * 1000)
+        return {k: sorted(v) for k, v in out.items()}
+
+    def map_live(self, layer: int, mid: int, t: int) -> str | None:
+        """A map as it was at *t* (ms): the backup's map with every update the recordings running then had seen up to
+        *t* laid over it, in order; a PNG file (kept)."""
+        from . import mapart, moment
+        t = t // 1000 * 1000
+        out = os.path.join(self._maps_dir(), "live", f"{layer}-{mid}-{t}.png")
+        if os.path.isfile(out):
+            return out
+        table = mapart.palette(self._maps_dir())
+        if not table:
+            return None
+        bw = self.layer_world(layer)
+        base = None
+        if bw:
+            f = mapart.map_files(bw.world).get(mid)
+            m = mapart.read_map(f) if f else None
+            base = m["colors"] if m else None
+        cols = bytearray(base or bytes(16384))
+        ups = []
+        for rec in self.recordings_at(t):
+            upto = rec["tick_of"](t)
+            ups += [(rec["when"](u[0]),) + u[1:] for u in moment.map_updates(rec["zip"]) if u[1] == mid and u[0] <= upto]
+        for _ms, _id, x, z, w, h, data in sorted(ups, key=lambda u: u[0]):
+            for r in range(h):
+                if 0 <= z + r < 128:
+                    row = data[r * w:(r + 1) * w]
+                    cols[(z + r) * 128 + x:(z + r) * 128 + min(128, x + w)] = row[:128 - x]
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out + ".part", "wb") as fh:
+            fh.write(mapart.png(bytes(cols), table))
+        os.replace(out + ".part", out)
         return out
 
     def moment_changes(self, dim: str, t0: int, t1: int) -> dict:
@@ -1353,6 +1408,12 @@ class HistoryMap(TerrainServer):
             except ValueError:
                 return None
             return bw.texture(name) if bw else None
+        if path.startswith("/maplive/") and path.endswith(".png"):        # /maplive/<layer>/<map id>/<t ms>.png
+            try:
+                layer, mid, t = path[len("/maplive/"):-4].split("/")
+                return self.map_live(int(layer), int(mid), int(t))
+            except (ValueError, OSError):
+                return None
         if path.startswith("/maptex/") and path.endswith(".png"):         # /maptex/<layer>/<map id>.png
             from . import mapart
             layer, _, mid = path[len("/maptex/"):-4].partition("/")

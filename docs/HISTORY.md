@@ -414,7 +414,8 @@ shulker boxes (their lid rises and turns, as in the game). Barrels show open thr
 
 **Paintings and item frames.** Paintings hang in their pictures at their real size, and item frames show their
 birch border and what's in them (turned as it was), from the backup shown. Frames holding a map show the map (see
-Maps). In close-up playback, the paintings and frames the recordings saw are shown instead: ones put up, taken
+Maps). In close-up playback, framed maps show as they were at that moment (the backup's map with everything the
+recordings saw drawn on it since), and the paintings and frames the recordings saw are shown instead: ones put up, taken
 down, turned or given another item during a recording show that from the moment it happened.
 
 **Chests, furnaces and other containers.** While you spectate or relive someone, when they open a chest (the

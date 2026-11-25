@@ -3951,6 +3951,17 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_map_updates(self):
+        """A map_item_data body: id, scale, locked, icons (read past), then a rectangle of colours; and a filled map
+        item's number in its look."""
+        from mcsm import moment, paths
+        icon = bytes([1, 1]) + bytes([3, 10, 20, 4]) + bytes([0])            # icons: one, no name
+        body = bytes([42, 0, 1]) + icon + bytes([2, 3, 5, 7]) + bytes([6]) + bytes([9, 9, 9, 8, 8, 8])
+        self.assertEqual(moment._map_patch(body, 0, len(body)), (42, 5, 7, 2, 3, bytes([9, 9, 9, 8, 8, 8])))
+        self.assertIsNone(moment._map_patch(bytes([42, 0, 0, 0, 0]), 0, 5))        # no colours: nothing to lay
+        st, _k = paths.item_stack(bytes([1, 1, 1, 0, 0, 77]), 0, ["air", "filled_map"], ["map_id"])
+        self.assertEqual(st[4], {"map": 77})
+
     def test_game_modes_and_scale(self):
         """player_info_update: each player's game mode (with the add-player and listed entries read past); and
         update_attributes: the scale attribute with its modifiers applied as the game does."""

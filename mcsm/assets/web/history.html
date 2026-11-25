@@ -1279,7 +1279,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -4943,6 +4943,52 @@ const HANG_REC = { shown: new Map(), last: 0, group: new THREE.Group() };
 scene.add(HANG_REC.group);
 const lastAt = (name, kind) => { const f = EXACT.ev[name] && EXACT.ev[name][kind]; if (!f) return null;
   const i = lower(f, T, r => r[0]); return i ? f[i - 1] : null; };
+// a recorded frame holding a map: the map's picture filling it (as the game draws maps in frames), turned in quarters
+function recMapFrame(f) {
+  const n = new THREE.Vector3(...N3D[f.facing]);
+  const layer = shownLayer[$("#dim").value] ?? 0;
+  const m = new THREE.Mesh(MAP_GEO, new THREE.MeshBasicMaterial({ map: mapTexture(layer, f.map), transparent: true, alphaTest: 0.05,
+    color: f.glow ? 0xffffff : 0xdedede }));
+  const g = new THREE.Group(); g.add(m);
+  const off = 0.5 - 1 / 16 - 0.003;                     // as the backup's framed maps: a pixel off the wall
+  g.position.set(f.x + 0.5 - n.x * off, f.y + 0.5 - n.y * off, f.z + 0.5 - n.z * off); m.renderOrder = 2;
+  if (Math.abs(n.y) > 0.5) g.rotation.x = n.y > 0 ? -Math.PI / 2 : Math.PI / 2;
+  else g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  m.rotation.z = -(f.rot % 4) * Math.PI / 2;
+  g.userData.hang = { x: g.position.x, y: g.position.y, z: g.position.z }; g.userData.mapId = f.map; m.userData.mapId = f.map;
+  return g;
+}
+// maps the recordings saw (/api/mapupdates for the playback window): framed maps show them as they were at the time
+// shown (/maplive/<layer>/<id>/<second>.png: the backup's map with the recordings' updates laid over it)
+const LIVEMAP = { key: "", ids: new Map(), tex: new Map(), last: 0 };
+function liveMapStep(now) {
+  if (now - LIVEMAP.last < 1000) return; LIVEMAP.last = now;
+  if (!EXACT.on) return;
+  const wkey = `${EXACT.lo}|${EXACT.hi}`;
+  if (LIVEMAP.key !== wkey) {
+    LIVEMAP.key = wkey;
+    fetch(`api/mapupdates/${EXACT.lo}/${EXACT.hi}`).then(r => r.json()).then(r => { if (LIVEMAP.key === wkey) LIVEMAP.ids = new Map(Object.entries(r.maps || {}).map(([k, v]) => [+k, v])); }).catch(() => {});
+  }
+  if (!LIVEMAP.ids.size) return;
+  const layer = shownLayer[$("#dim").value] ?? 0;
+  const use = (mesh, id) => {
+    const times = LIVEMAP.ids.get(id); if (!times) return;
+    let sec = null; for (const t of times) { if (t <= T) sec = t; else break; }   // its picture changes only then
+    if (sec === null) return;
+    const k = `${layer}|${id}|${sec}`;
+    if (mesh.userData.liveKey === k) return;
+    mesh.userData.liveKey = k;
+    if (!LIVEMAP.tex.has(k)) {
+      const t = new THREE.TextureLoader().load(`maplive/${layer}/${id}/${sec}.png`);
+      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+      LIVEMAP.tex.set(k, t);
+      if (LIVEMAP.tex.size > 200) { const first = LIVEMAP.tex.keys().next().value; LIVEMAP.tex.get(first).dispose(); LIVEMAP.tex.delete(first); }
+    }
+    mesh.material.map = LIVEMAP.tex.get(k); mesh.material.needsUpdate = true;
+  };
+  for (const m of MAPS.meshes.values()) m.traverse(o => { if (o.isMesh && o.userData.mapId != null) use(o, o.userData.mapId); });
+  for (const e of HANG_REC.shown.values()) e.g.traverse(o => { if (o.isMesh && o.userData.mapId != null) use(o, o.userData.mapId); });
+}
 function hangRecStep(now) {
   if (now - HANG_REC.last < 400) return; HANG_REC.last = now;
   const want = new Map();
@@ -4955,7 +5001,8 @@ function hangRecStep(now) {
     if (kind === "painting" && !v) continue;
     const spec = kind === "painting"
       ? { x, y, z, facing: { 2: 2, 3: 0, 4: 1, 5: 3 }[facing] ?? 0, variant: v, block: true }
-      : { x, y, z, facing, rot: it ? it[1] || 0 : 0, item: it ? it[0] || "" : "", glow: kind === "glow_item_frame", block: true };
+      : { x, y, z, facing, rot: it ? it[1] || 0 : 0, item: it ? it[0] || "" : "", glow: kind === "glow_item_frame", block: true,
+          map: it && it[2] != null ? it[2] : null };
     want.set(name, spec);
   }
   for (const [k, e] of HANG_REC.shown) {
@@ -4963,7 +5010,7 @@ function hangRecStep(now) {
     if (!spec || JSON.stringify(spec) !== e.key) { HANG_REC.group.remove(e.g); HANG_REC.shown.delete(k); }
   }
   for (const [k, spec] of want) if (!HANG_REC.shown.has(k)) {
-    const g = spec.variant ? paintingMesh(spec) : frameMesh(spec);
+    const g = spec.variant ? paintingMesh(spec) : spec.map != null ? recMapFrame(spec) : frameMesh(spec);
     HANG_REC.group.add(g); HANG_REC.shown.set(k, { g, key: JSON.stringify(spec) });
   }
   // the backup's: hidden where the recordings have one, or where a recorded player is close and they don't
@@ -5405,7 +5452,7 @@ function mapFrameMesh(layer, f) {                       // the map's face, on th
   else if (f.facing === 0) m.rotation.set(Math.PI / 2, 0, 0);
   else m.rotation.set(0, { 2: Math.PI, 3: 0, 4: -Math.PI / 2, 5: Math.PI / 2 }[f.facing], 0);
   m.rotateZ(-(f.rot || 0) * Math.PI / 2);               // the map turned in its frame, a quarter at a time
-  m.renderOrder = 2;
+  m.renderOrder = 2; m.userData.mapId = f.map;
   return m;
 }
 async function mapsStep(now) {
@@ -5657,6 +5704,7 @@ function frame(now) {
   glintStep();                                         // enchanted things' glint moving
   hangingStep(now);                                    // paintings and item frames
   leadsStep(now);                                      // leads
+  liveMapStep(now);                                    // maps as they were at the time
   breakStep(now);                                      // mining cracks, blocks breaking
   gfxStep(now);
   renderer.render(scene, camera);
