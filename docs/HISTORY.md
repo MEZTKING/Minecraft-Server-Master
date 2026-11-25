@@ -327,6 +327,12 @@ meal (green sparkles), potions splashing (in the potion's colour), fires put out
 dispensers, spawners, wax put on or scraped off copper. Other particles (smoke from campfires, splashes, potion
 swirls round players) aren't in the recordings, so they can't be shown.
 
+**Saddles and armour on animals.** Horses, donkeys, mules, pigs, striders, camels and nautiluses wear their
+saddles, horses their horse armour (leather in its dye), llamas their carpets, wolves their armour and happy ghasts
+their harnesses, as the recordings saw them; it all moves with the animal.
+
+**Pistons** push out and pull back over the game's two ticks when they did in the recordings.
+
 **Leads.** Animals on a lead are tied as the recordings saw them: a rope sagging like the game's from the animal
 to the player holding it, to a fence knot, or to a wandering trader leading his llamas.
 

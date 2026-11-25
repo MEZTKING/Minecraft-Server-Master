@@ -2267,6 +2267,15 @@ async function setMobGear(o, slot, v) {
   for (const x of (o.gear[slot] || [])) x.parent && x.parent.remove(x);
   o.gear[slot] = [];
   const item = v && v[0], P = o.parts; if (!item || !P) return;
+  if (slot === "saddle" || slot === "body") {          // saddles, horse armour, carpets, harnesses: the game's layer
+    const eq = mobEquipment(o.kind, slot, item, v);
+    if (!eq || !MOBM[eq.layer]) return;
+    const t = await mobTexture(eq.tex); if (!t || o.gtok[slot] !== mine) return;
+    const mats = mobMaterials(eq.tex + (eq.tint != null ? "|" + eq.tint : ""), t);
+    if (eq.tint != null) { mats.n = mats.n.clone(); mats.n.color = new THREE.Color(eq.tint); }
+    o.gear[slot].push(...overlayParts(o, MOBM[eq.layer], `${eq.layer}|${eq.tex}`, mats));
+    return;
+  }
   if (slot === "mainhand" || slot === "offhand") {
     const arm = P[slot === "mainhand" ? "right_arm" : "left_arm"]; if (!arm) return;
     const skel = /^(skeleton|stray|wither_skeleton|bogged)$/.test(o.kind);   // their arms hold 1 px further in
@@ -2296,10 +2305,46 @@ async function setMobGear(o, slot, v) {
     const b = new THREE.Mesh(g, material); b.position.set(x * MPX, y * MPX, z * MPX); P[part].g.add(b); o.gear[slot].push(b);
   }
 }
+// which layer and picture the game draws for a mob's saddle or body slot (equipment/*.json)
+function mobEquipment(kind, slot, item, v) {
+  const K = kind.toUpperCase();
+  if (slot === "saddle" && item === "saddle") return { layer: `${K}_SADDLE`, tex: `equipment/${kind}_saddle/saddle` };
+  let m;
+  if ((m = /^(leather|iron|golden|diamond|copper|netherite)_horse_armor$/.exec(item)) && /horse$/.test(kind))
+    return { layer: kind === "horse" ? "HORSE_ARMOR" : "UNDEAD_HORSE_ARMOR", tex: `equipment/horse_body/${m[1] === "golden" ? "gold" : m[1]}`,
+      tint: m[1] === "leather" ? (v[2] != null ? v[2] : 0xA06540) : null };
+  if ((m = /^(iron|golden|diamond|copper|netherite)_nautilus_armor$/.exec(item)) && kind.endsWith("nautilus"))
+    return { layer: "NAUTILUS_ARMOR", tex: `equipment/nautilus_body/${m[1] === "golden" ? "gold" : m[1]}` };
+  if ((m = /^(\w+)_carpet$/.exec(item)) && /llama$/.test(kind)) return { layer: "LLAMA_DECOR", tex: `equipment/llama_body/${m[1]}` };
+  if ((m = /^(\w+)_harness$/.exec(item)) && kind === "happy_ghast") return { layer: "HAPPY_GHAST_HARNESS", tex: `equipment/happy_ghast_body/${m[1]}_harness` };
+  if (item === "wolf_armor" && kind === "wolf") return { layer: "WOLF_ARMOR", tex: "equipment/wolf_body/armadillo_scute" };
+  return null;
+}
+// an equipment layer's cubes added to the mob's own parts of the same names, so they move with it
+function overlayParts(o, L, key, mats) {
+  const out = [];
+  const walk = (json, path, name, parentGroup) => {
+    const target = name && o.parts[name] ? o.parts[name].g : null;
+    let holder = target;
+    if (!holder) {                                       // a part the mob hasn't got: placed as the layer has it
+      holder = new THREE.Group(); const [x, y, z, xr, yr, zr] = json.pose;
+      holder.position.set(x * MPX, -y * MPX, -z * MPX); holder.rotation.set(xr, -yr, -zr, "ZYX");
+      parentGroup.add(holder); out.push(holder);
+    }
+    json.cubes.forEach((c, i) => {
+      const m = new THREE.Mesh(cubeGeo(`${key}|${path}|${i}`, c, L.tw, L.th), mats.n); m.userData.mobMats = mats;
+      holder.add(m); if (target) out.push(m);
+    });
+    for (const [cn, cj] of Object.entries(json.children)) walk(cj, `${path}/${cn}`, cn, holder);
+  };
+  const root = o.model && o.model.children[0] && o.model.children[0].children[0];
+  if (root) walk(L.root, "", "", root);
+  return out;
+}
 function updateMobGear(o, label) {
   if (!o.parts || !EXACT) return;
   o.gearKeys = o.gearKeys || {};
-  for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet"]) {
+  for (const slot of ["mainhand", "offhand", "head", "chest", "legs", "feet", "body", "saddle"]) {
     const v = stateAt(label, `eq:${slot}`, T, null), key = gearKey(v);
     if (o.gearKeys[slot] !== key) { o.gearKeys[slot] = key; setMobGear(o, slot, v); }
   }
@@ -4921,7 +4966,38 @@ function levelFxStep(want) {
     }
   }
 }
+// pistons ("pi" [x, y, z, 0 out / 1-2 back, direction, sticky]): the head slides a block out or back over the
+// game's 2 ticks (the blocks are as recorded before and after)
+const PISTON = { group: new THREE.Group(), heads: new Map() };
+scene.add(PISTON.group);
+const PISTON_DIR = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+function pistonStep() {
+  const want = new Map();
+  if (EXACT.on) for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.pi || []) {
+    const age = T - t; if (age < 0 || age > 100) continue;
+    const f = age / 100, prog = v[3] === 0 ? f : 1 - f;
+    want.set(`${v[0]},${v[1]},${v[2]}`, { v, prog });
+  }
+  for (const [k, m] of PISTON.heads) if (!want.has(k)) { PISTON.group.remove(m); PISTON.heads.delete(k); }
+  for (const [k, { v, prog }] of want) {
+    let m = PISTON.heads.get(k);
+    if (!m) {
+      m = new THREE.Group();
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1, 0.25, 1), new THREE.MeshLambertMaterial({ color: 0xb8a070 }));
+      texOnce(v[5] ? "block/piston_top_sticky" : "block/piston_top").then(t => { if (t) { head.material.map = t; head.material.color.set(0xffffff); head.material.needsUpdate = true; } });
+      head.position.y = 0.375; m.add(head);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1, 0.25), new THREE.MeshLambertMaterial({ color: 0x9a8a6a }));
+      arm.position.y = -0.25; m.add(arm);
+      const d = new THREE.Vector3(...PISTON_DIR[v[4]]);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+      PISTON.group.add(m); PISTON.heads.set(k, m);
+    }
+    const d = PISTON_DIR[v[4]];
+    m.position.set(v[0] + 0.5 + d[0] * prog, v[1] + 0.5 + d[1] * prog, v[2] + 0.5 + d[2] * prog);
+  }
+}
 function breakStep(now) {
+  pistonStep();
   if (now - BREAK.last < 33) return; BREAK.last = now;
   const cracks = new Map(), bursts = [];
   if (EXACT.on) for (const ev of Object.values(EXACT.ev)) {
