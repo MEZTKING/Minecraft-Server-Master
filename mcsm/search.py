@@ -121,7 +121,7 @@ def event_text(kind: str, value, lang: dict | None = None) -> str | None:
         return "screaming (stared at)" if value else "calm"
     if kind == "gc":
         return "about to shoot" if value else "not shooting"
-    if kind in ("wi", "hf"):
+    if kind in ("wi", "hf", "sha", "spk", "sco"):
         return None
     if kind == "ee":
         return ENTITY_EVENTS.get(value, f"entity event {value}")

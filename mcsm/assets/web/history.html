@@ -1558,6 +1558,7 @@ function mobLook(label, kind) {
   if (kind === "creeper") look.powered = !!stateAt(label, "cp", T, 0);         // struck by lightning: charged
   if (kind === "enderman") { const eb = stateAt(label, "eb", T, null); if (eb && eb !== "?") look.carry = eb; }
   if (kind === "ghast") look.shoot = !!stateAt(label, "gc", T, 0);
+  if (kind === "shulker") look.dye = stateAt(label, "sco", T, 16);
   if (kind === "wolf" || kind === "bee") {             // angry: for the ticks the recording said, from then
     const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].ang, i = ev ? lower(ev, T, r => r[0]) - 1 : -1;
     look.angry = i >= 0 && T - ev[i][0] < ev[i][1] * 50;
@@ -1597,6 +1598,7 @@ async function buildMob(o, label, kind) {
   else if (look.angry && kind === "wolf") tex = tex + "_angry";                 // (WolfRenderer: tame first, then angry)
   if (kind === "bee") tex = `bee/bee${look.angry ? "_angry" : ""}${look.nectar ? "_nectar" : ""}`;   // BeeRenderer
   if (kind === "ghast" && look.shoot) tex = `${tex}_shooting`;                  // GhastRenderer: its mouth open
+  if (kind === "shulker") tex = look.dye != null && look.dye < 16 ? `shulker/shulker_${DYE_ORDER[look.dye]}` : "shulker/shulker";
   let t = baby ? await mobTexture(tex + "_baby") : null;
   if (baby && !t) { baby = false; L = MOBM[layer]; }   // no baby picture: the grown one, smaller
   if (!t) t = await mobTexture(tex);
@@ -1808,6 +1810,47 @@ function mobMoves(o, label, kind) {
     if (P.body) setRot(P.body, Math.PI / 2, 0, body(-0.16));
     if (P.real_tail) setRot(P.real_tail, 0, 0, body(-0.2));
     if (P.tail) setRot(P.tail, o.look && o.look.angry ? 1.5393804 : o.look && o.look.tame ? 0.55 * Math.PI : Math.PI / 5, 0, 0);
+  } else if (kind === "slime" || kind === "magma_cube") {
+    // Slime.tick: landing squashes it (targetSquish -0.5), jumping stretches it (1); squish follows half way a tick
+    // and the target fades (x 0.6; magma cubes 0.9); SlimeRenderer: across x 1 / (squish / (size / 2 + 1) + 1)
+    const S = o.sq || (o.sq = { t: T, y: o.mesh.position.y, ground: true, squish: 0, target: 0 });
+    const ticks = (T - S.t) / 50;
+    if (ticks < 0 || ticks > 40) { S.t = T; S.y = o.mesh.position.y; S.squish = S.target = 0; }
+    else if (ticks >= 1) {
+      const vy = (o.mesh.position.y - S.y) / ticks, ground = Math.abs(vy) < 0.02;
+      if (ground && !S.ground) S.target = -0.5; else if (!ground && S.ground && vy > 0) S.target = 1;
+      S.ground = ground; S.y = o.mesh.position.y; S.t = T;
+      for (let i = 0; i < Math.min(10, Math.floor(ticks)); i++) { S.squish += (S.target - S.squish) * 0.5; S.target *= kind === "slime" ? 0.6 : 0.9; }
+    }
+    const size = (o.look && o.look.size) || 1, f2 = S.squish / (size * 0.5 + 1), f3 = 1 / (f2 + 1), s0 = o.model.userData.s;
+    o.model.scale.set(s0 * f3, s0 / f3, s0 * f3);
+  } else if (kind === "bee") {
+    // BeeModel: flying, the wings beat (cos(age x 120.3 degrees) x 0.15 pi) and the legs hang back; the body bobs
+    const age = T / 50, f = age * 120.32113 * D, w = Math.cos(f) * Math.PI * 0.15;
+    if (P.right_wing) setRot(P.right_wing, 0, 0, w); if (P.left_wing) setRot(P.left_wing, 0, 0, -w);
+    for (const n of ["front_legs", "middle_legs", "back_legs"]) if (P[n]) setRot(P[n], Math.PI / 4, 0, 0);
+    if (P.bone && !(o.look && o.look.angry)) { const c = Math.cos(age * 0.18); setRot(P.bone, 0.1 + c * Math.PI * 0.025, 0, 0);
+      P.bone.g.position.y = -(19 - c * 0.9) * MPX; }
+  } else if (kind === "phantom") {
+    // PhantomModel: the wings (base and tip) beat 16 degrees each way, the tail lifts with them
+    const id = +(label.split("#")[2] || 0), f = (id * 3 + T / 50) * 7.448451 * D, w = Math.cos(f) * 16 * D, t = -(5 + Math.cos(f * 2) * 5) * D;
+    if (P.left_wing_base) setRot(P.left_wing_base, 0, 0, w); if (P.left_wing_tip) setRot(P.left_wing_tip, 0, 0, w);
+    if (P.right_wing_base) setRot(P.right_wing_base, 0, 0, -w); if (P.right_wing_tip) setRot(P.right_wing_tip, 0, 0, -w);
+    if (P.tail_base) setRot(P.tail_base, t, 0, 0); if (P.tail_tip) setRot(P.tail_tip, t, 0, 0);
+  } else if (kind === "shulker") {
+    // ShulkerModel: the lid rises as it peeks (0 .. 100, eased 0.05 a tick) and turns when wide open; it twitches
+    // when fully open. ShulkerRenderer: turned so its base sits on the face it's attached to
+    const target = stateAt(label, "spk", T, 0) / 100, S = o.peek || (o.peek = { a: target, t: T });
+    const ticks = Math.max(0, Math.min(40, (T - S.t) / 50)); S.t = T;
+    S.a += Math.max(-0.05 * ticks, Math.min(0.05 * ticks, target - S.a));
+    const f1 = (0.5 + S.a) * Math.PI, f2 = -1 + Math.sin(f1), f3 = f1 > Math.PI ? Math.sin(T / 50 * 0.1) * 0.7 : 0;
+    if (P.lid) { P.lid.g.position.y = -(16 + Math.sin(f1) * 8 + f3) * MPX;
+      setRot(P.lid, 0, S.a > 0.3 ? f2 * f2 * f2 * f2 * Math.PI * 0.125 : 0, 0); }
+    const face = stateAt(label, "sha", T, 0);       // 0 down (on the floor), 1 up, 2 north, 3 south, 4 west, 5 east
+    const away = [[0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0]][face] || [0, 1, 0];
+    o.mesh.rotation.y = 0;
+    o.model.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...away));
+    o.model.position.set(-away[0] * 0.5, 0.5 - away[1] * 0.5, -away[2] * 0.5);   // (about the block's middle)
   } else if (/^(horse|donkey|mule|skeleton_horse|zombie_horse)$/.test(kind)) {
     // AbstractEquineModel: eating (0x10) the head goes down to the grass and nibbles; rearing (0x20) it stands up
     const hf = stateAt(label, "hf", T, 0), k = 0.25;

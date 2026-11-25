@@ -427,8 +427,10 @@ What the recordings say about each player and mob is shown too:
   an enderman carries the block it picked up, low in front of it with both arms forward, and opens its jaw when
   someone stares at it; an iron golem swings its arms when it attacks and holds out a poppy to villagers; a wolf
   tilts its head when it's interested, shakes itself dry after water or rain, and holds its tail higher when tamed
-  or angry; horses lower their heads to eat grass and rear up; a ghast opens its mouth before it shoots. A sheep's
-  wool and other layers move with the body.
+  or angry; horses lower their heads to eat grass and rear up; a ghast opens its mouth before it shoots; slimes and
+  magma cubes squash when they land and stretch when they jump; bees beat their wings, phantoms flap; a shulker
+  sits on the wall, floor or ceiling it's attached to, in its colour, and lifts its lid to peek out. A sheep's wool
+  and other layers move with the body.
 - **Angry wolves and bees:** a wild wolf angry at someone shows its angry face (bared teeth, red eyes) for as long as
   the recording said (tamed wolves keep their tame face, as in the game). Bees show their angry eyes when angry and
   their pollen when carrying nectar.

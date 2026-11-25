@@ -3995,6 +3995,8 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(paths.mob_anim("wolf", {20: (B, True)}, False, None), [])
         self.assertEqual(paths.mob_anim("horse", {17: (BY, 0x20)}, False, None), [["hf", 0x20]])
         self.assertIn(4, paths.ENTITY_FX)
+        self.assertEqual(paths.mob_anim("shulker", {16: (12, 2), 17: (BY, 100), 18: (BY, 6)}, True, None),
+                         [["sha", 2], ["spk", 100], ["sco", 6]])                 # on a north wall, wide open, pink
 
     def test_mob_details(self):
         """Mobs' looks from entity data: baby (16), sheep wool (17; 26.x 18), horse variant (18; 26.x 19), slime size,
