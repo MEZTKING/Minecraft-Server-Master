@@ -118,7 +118,9 @@ function loadImage(url) {
   if (!IMAGES.has(url)) IMAGES.set(url, new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; }));
   return IMAGES.get(url);
 }
-async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
+// every atlas built, for animating its moving textures (water, lava, fire, portals...: see animateAtlases)
+const ATLASES = [];
+async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}, animUrl = null) {
   // one picture holding every texture; entity textures (chests) need more pixels than block ones
   // cells per row: a power of two, so the atlas (N x C pixels) halves cleanly at every mipmap level and a cell's
   // smaller copies stay inside the cell
@@ -127,20 +129,31 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
   cv.width = cv.height = N * C;
   const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
   const tmp = document.createElement("canvas"); tmp.width = tmp.height = C; const tg = tmp.getContext("2d"); tg.imageSmoothingEnabled = false;
-  const draw = (im, tint, whole = false) => {               // one square frame (animated strips: the first), tinted
+  const draw = (im, tint, whole = false, frame = 0) => {    // one square frame (animated strips: frame *frame*), tinted
     tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, C, C);
     if (whole) tg.drawImage(im, 0, 0, im.width, im.height, 0, 0, C, C);   // entity textures: the whole picture
-    else tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
+    else tg.drawImage(im, 0, frame * im.width, im.width, im.width, 0, 0, C, C);
     if (tint) {
       tg.globalCompositeOperation = "multiply"; tg.fillStyle = `rgb(${tint[0]},${tint[1]},${tint[2]})`; tg.fillRect(0, 0, C, C);
-      tg.globalCompositeOperation = "destination-in"; tg.drawImage(im, 0, 0, im.width, im.width, 0, 0, C, C);
+      tg.globalCompositeOperation = "destination-in"; tg.drawImage(im, 0, frame * im.width, im.width, im.width, 0, 0, C, C);
     }
     return tmp;
   };
+  const anims = [];                                          // the moving ones: their frames and timing (.png.mcmeta)
   for (let i = 0; i < textures.length; i++) {
     const x = (i % N) * C, y = Math.floor(i / N) * C, parts = textures[i].split("+");
     const base = await loadImage(texUrl(parts[0]));
     if (base) g.drawImage(draw(base, tints[parts[0]], parts[0].startsWith("entity/")), x, y);
+    if (base && animUrl && !parts[1] && !parts[0].startsWith("entity/") && base.height >= base.width * 2) {
+      // an animation strip: its frames in order (a number, or {index, time}), each frametime ticks (default 1)
+      const n = Math.floor(base.height / base.width);
+      const meta = await fetch(animUrl(parts[0])).then(r => r.ok ? r.json() : null).catch(() => null);
+      const a = (meta && meta.animation) || {}, ft = a.frametime || 1;
+      const frames = (a.frames || [...Array(n).keys()]).map(f => typeof f === "number" ? { i: f, t: ft } : { i: f.index, t: f.time || ft })
+        .filter(f => f.i >= 0 && f.i < n);
+      if (frames.length > 1) anims.push({ x, y, im: base, tint: tints[parts[0]], frames, interp: !!a.interpolate,
+        total: frames.reduce((s, f) => s + f.t, 0), shown: "" });
+    }
     else { g.fillStyle = "#888"; g.fillRect(x, y, C, C); }
     if (parts[1]) {                                          // grass block side: + the overlay the biome colours
       const ov = await loadImage(texUrl(`${parts[0]}_${parts[1]}`));
@@ -161,7 +174,32 @@ async function buildAtlas(textures, tints, texUrl = URLS.tex, sizes = {}) {
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestMipmapLinearFilter; tex.generateMipmaps = true;
   tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
-  return { tex, N, C };
+  const atlas = { tex, N, C, anims, g, draw };
+  if (anims.length) ATLASES.push(atlas);
+  return atlas;
+}
+// The game's TextureAtlasSprite animation: each tick a strip's frame by its timing; "interpolate" ones (magma,
+// prismarine, sea lanterns' kin) blend into the next frame across each frame's time. Drawn into the atlas only
+// when the frame shown changes.
+function animateAtlases(tick) {
+  for (const at of ATLASES) {
+    let changed = false;
+    for (const a of at.anims) {
+      let t = ((tick % a.total) + a.total) % a.total, k = 0;
+      while (t >= a.frames[k].t) { t -= a.frames[k].t; k++; }
+      const frac = a.interp ? t / a.frames[k].t : 0, key = a.interp ? `${k}|${Math.round(frac * 8)}` : `${k}`;
+      if (key === a.shown) continue;
+      a.shown = key; changed = true;
+      at.g.clearRect(a.x, a.y, at.C, at.C);
+      at.g.drawImage(at.draw(a.im, a.tint, false, a.frames[k].i), a.x, a.y);
+      if (frac > 0) {                                      // blended into the next frame
+        at.g.globalAlpha = Math.round(frac * 8) / 8;
+        at.g.drawImage(at.draw(a.im, a.tint, false, a.frames[(k + 1) % a.frames.length].i), a.x, a.y);
+        at.g.globalAlpha = 1;
+      }
+    }
+    if (changed) at.tex.needsUpdate = true;
+  }
 }
 // How the real blocks are lit (changed live by the page's light controls): Minecraft's own light levels (sky light
 // times daylight, or block light from torches), its side shading and smooth-lighting corners, and the sun.
@@ -508,5 +546,5 @@ function renderFree(players, marks = []) {           // the world through the fr
   controls.update();
   renderer.render(scene, camMap);
 }
-export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, blockMeshes, setLight, LIGHT, revealIn,
+export { init, loadTerrain, loadBlocks, resize, render, clearWorld, lookFrom, view, renderFree, buildAtlas, animateAtlases, blockMeshes, setLight, LIGHT, revealIn,
          GFX, GLOW_MAT, setGraphics, applyGraphics };

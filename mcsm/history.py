@@ -459,6 +459,13 @@ class HistoryMap(TerrainServer):
                     pass
                 self.__dict__["_particletex"] = cache
             return {"particles": cache}
+        if path.startswith("/api/texanim/"):          # an animated texture's timing: /api/texanim/<layer>/<name>
+            layer, _, name = path[len("/api/texanim/"):].partition("/")
+            try:
+                bw = self.layer_world(int(layer))
+            except ValueError:
+                return {}
+            return bw.texture_meta(name) if bw else {}
         if path == "/api/villagerhats":              # villager clothes' hats (their .png.mcmeta): full / partial
             cache = self.__dict__.get("_vhats")
             if cache is None:

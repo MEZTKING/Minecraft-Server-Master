@@ -592,7 +592,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
+import { buildAtlas, animateAtlases, blockMeshes, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -1157,7 +1157,7 @@ async function realStep(now) {
     const T = { x0: tx * REAL_TILE, z0: tz * REAL_TILE, meshes: [], mt: mtx, moment: !!info.moment, edits: info.edits || 0 };
     if (info.faces) {
       const akey = layer + "|" + info.jar + "|" + info.textures.join("|");        // each backup's own game textures
-      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
+      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}, n => `api/texanim/${layer}/${n}`));
       REAL.note = info.exact_jar === false && info.mc ? `real blocks: the backup is Minecraft ${info.mc}, whose game files aren't on this PC; textures from ${info.jar}` : "";
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       if (REAL.key !== key) return;
@@ -1234,7 +1234,7 @@ async function liveStep(now) {
         let meshes = [];
         if (info.faces) {
           const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
-          if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
+          if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}, n => `api/texanim/${layer}/${n}`));
           const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
           meshes = blockMeshes(info, buf, atlas);
           for (const m of meshes) { if (!m.isPoints) m.material.map = atlas.tex; }
@@ -1281,7 +1281,7 @@ async function caveStep(now) {
     const T0 = { key, meshes: [] };
     if (info.faces) {
       const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
-      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}));
+      if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}, n => `api/texanim/${layer}/${n}`));
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       T0.meshes = blockMeshes(info, buf, atlas);
       for (const m of T0.meshes) { if (!m.isPoints) m.material.map = atlas.tex; m.visible = false; scene.add(m); }
@@ -3927,6 +3927,59 @@ const RAIN = (() => {
   o.visible = false; o.frustumCulled = false; scene.add(o); return o;
 })();
 let lastWorld = 0;
+// ---------- clouds (the game's CloudRenderer, Fancy) ----------
+// environment/clouds.png: each opaque pixel a cloud cell 12 blocks across and 4 thick, at y 192.33, the pattern
+// repeating every 256 cells and drifting 0.03 blocks a tick towards +x; tops full bright, undersides 0.7, sides 0.9
+// (along x) and 0.8 (along z); 80% opaque; the cloud colour follows the day and greys in rain. Overworld only.
+const CLOUDS = { g: new THREE.Group(), cells: null, key: "", asked: false, mat: null, mesh: null };
+scene.add(CLOUDS.g);
+function cloudsStep() {
+  const on = $("#dim").value === "minecraft:overworld";
+  CLOUDS.g.visible = on; if (!on) return;
+  if (!CLOUDS.asked) {
+    CLOUDS.asked = true;
+    texOnce("environment/clouds").then(t => {
+      if (!t || !t.image) return;
+      const c = document.createElement("canvas"); c.width = t.image.width; c.height = t.image.height;
+      const g = c.getContext("2d"); g.drawImage(t.image, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data, w = c.width, h = c.height, cells = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) cells[i] = d[i * 4 + 3] > 10 ? 1 : 0;
+      CLOUDS.cells = { a: cells, w, h };
+    });
+    CLOUDS.mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.8, fog: true, side: THREE.DoubleSide });
+  }
+  if (!CLOUDS.cells) return;
+  const { a, w, h } = CLOUDS.cells, off = (performance.now() / 50) * 0.03;
+  const cx = Math.floor((camera.position.x + off) / 12), cz = Math.floor((camera.position.z + 3.96) / 12), R = 24;
+  const key = `${cx},${cz}`;
+  CLOUDS.g.position.set(-off, 192.33, -3.96);             // cloud space -> the world (drifting along x)
+  if (key !== CLOUDS.key) {
+    CLOUDS.key = key;
+    const at = (x, z) => a[(((z % h) + h) % h) * w + (((x % w) + w) % w)];
+    const pos = [], col = [], quad = (pts, sh) => { for (const i of [0, 1, 2, 0, 2, 3]) { pos.push(...pts[i]); col.push(sh, sh, sh); } };
+    for (let x = cx - R; x <= cx + R; x++) for (let z = cz - R; z <= cz + R; z++) {
+      if (!at(x, z)) continue;
+      const x0 = x * 12, x1 = x0 + 12, z0 = z * 12, z1 = z0 + 12, y0 = 0, y1 = 4;
+      quad([[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]], 1.0);          // top
+      quad([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], 0.7);          // underside
+      if (!at(x - 1, z)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], 0.9);
+      if (!at(x + 1, z)) quad([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], 0.9);
+      if (!at(x, z - 1)) quad([[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]], 0.8);
+      if (!at(x, z + 1)) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 0.8);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    if (CLOUDS.mesh) { CLOUDS.g.remove(CLOUDS.mesh); CLOUDS.mesh.geometry.dispose(); }
+    CLOUDS.mesh = new THREE.Mesh(geo, CLOUDS.mat); CLOUDS.mesh.frustumCulled = false; CLOUDS.mesh.renderOrder = 3;
+    CLOUDS.g.add(CLOUDS.mesh);
+  }
+  // ClientLevel.getCloudColor: white times the day's light (0.1 .. 1), greyed by rain and darker in thunder
+  const day = Math.max(0, Math.min(1, ((LIGHTS.day || 1) - 0.2) / 0.8)), rain = LIGHTS.rain || 0, th = LIGHTS.thunder || 0;
+  let v = day * 0.9 + 0.1;
+  const grey = v * 0.6; v = v * (1 - rain * 0.95) + grey * rain * 0.95; v = v * (1 - th * 0.95) + v * 0.2 * th * 0.95;
+  CLOUDS.mat.color.setRGB(v, v, v * (0.85 + 0.15 * day));
+}
 function worldStep(now, dt) {
   const follow = $("#lFollow").checked && EXACT.on;
   const rain = follow ? (worldAt("rain", T) ?? 0) : 0;
@@ -6679,6 +6732,7 @@ function frame(now) {
   if (RELIVE.on) { /* the memory camera: below, after the sky */ } else if (shotStep()) { /* previewing a shot: the camera follows it */ } else if (SPEC.name) specStep(); else if (FREE.on) freeStep(dt); else controls.update();
   devUpdate(now);
   worldStep(now, dt);
+  cloudsStep();                                        // the clouds drifting over
   if (RELIVE.on) reliveStep(dt);
   invStep(now);                                        // the hotbar and inventory of who you watch
   jobsStep(now);                                       // the Activity card
@@ -6696,6 +6750,7 @@ function frame(now) {
   hangingStep(now);                                    // paintings and item frames
   leadsStep(now);                                      // leads
   liveMapStep(now);                                    // maps as they were at the time
+  animateAtlases(Math.floor(performance.now() / 50));  // water, lava, fire, portals... moving (the game's client ticks)
   breakStep(now);                                      // mining cracks, blocks breaking
   ambStep(now);                                        // particles the player's game makes up (torches, smoke, rain...)
   gfxStep(now);

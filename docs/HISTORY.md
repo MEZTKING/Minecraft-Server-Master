@@ -190,7 +190,11 @@ filter (*celebrations*, *sad moments*):
 
 **Real blocks close up.** With **Real blocks** ticked (next to *Terrain*, on at first), zooming in shows the
 real blocks of the backup on the map, with Minecraft's own textures and shapes (from the game installed on this PC,
-of that backup's Minecraft version). Every block you could see from outside is there, not just the top layer:
+of that backup's Minecraft version). Textures that move in the game move here too, at the game's pace: water,
+lava, fire, nether portals, sea lanterns, magma, kelp, prismarine and the rest, with the frames in the game's own
+order and timing, smoothly blended where the game blends them. Clouds drift over the overworld as the game's
+(Fancy) clouds do: blocky, 4 blocks thick, at height 192, in the game's own pattern, white by day, dark at night and
+grey in rain. Every block you could see from outside is there, not just the top layer:
 inside houses (through doors and windows), under roofs and overhangs, cliffs to their full height, and caves near
 the surface (down to 40 blocks under the ground). Blocks have their real shape and direction: stairs, slabs,
 fences, walls, doors, trapdoors, torches, lanterns, rails, carpets, flowers, beds, chests (with their texture;

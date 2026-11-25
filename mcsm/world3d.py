@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import array
 import hashlib
+import json
 import os
 import sys
+import threading
 
 from . import blockmesh as bm, terrain
 
@@ -231,6 +233,16 @@ class BuildWorld:
     def blocks_file(self) -> str:
         return os.path.join(self.cache, f"blocks-{self.key}.bin")
 
+    def texture_meta(self, name: str) -> dict:
+        """A texture's ``.png.mcmeta`` (an animated one: ``{"animation": {frametime, frames, interpolate}}``), or {}."""
+        if not name or ".." in name or not all(c.isalnum() or c in "_/-." for c in name):
+            return {}
+        look = self.look()
+        try:
+            return json.loads(look.zf.read(f"assets/minecraft/textures/{name}.png.mcmeta")) if look.zf else {}
+        except (KeyError, ValueError):
+            return {}
+
     def texture(self, name: str) -> str | None:
         if not name or ".." in name or not all(c.isalnum() or c in "_/-." for c in name):
             return None
@@ -240,10 +252,17 @@ class BuildWorld:
         out = os.path.join(self.cache, "textures", os.path.splitext(os.path.basename(self.jar or "jar"))[0],
                            *name.split("/")) + ".png"
         if not os.path.exists(out):
+            # (several pieces ask for the same picture at once: each writes its own part file, the last one wins)
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            with open(out + ".part", "wb") as fh:
+            part = f"{out}.{os.getpid()}.{threading.get_ident()}.part"
+            with open(part, "wb") as fh:
                 fh.write(data)
-            os.replace(out + ".part", out)
+            try:
+                os.replace(part, out)
+            except OSError:                             # (Windows: another writer has it open right now)
+                if not os.path.exists(out):
+                    raise
+                os.remove(part)
         return out
 
 
