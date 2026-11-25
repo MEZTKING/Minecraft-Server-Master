@@ -2,7 +2,7 @@
 
 **This is the hand-off document.** Any session (human or Claude) picking up this project
 should read it first and must **update it after every completed change** (see
-`CLAUDE.md`). Last updated: 2026-11-25 (parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
+`CLAUDE.md`). Last updated: 2026-11-25 (parity round 22: particles the server sent; parity round 21: spectators, sizes from the scale attribute; parity round 20: enchantment glint, armour trims; parity round 19: picking up, experience orbs, falling blocks, lit TNT, totems; parity round 18: blocks sliding with pistons; parity round 17: boats placed and turned as the game does, paddles rowing; parity round 16: copper golems' weathering and their statues; parity round 15: saddles, horse armour, carpets, harnesses; pistons; parity round 14: particles from level events; parity round 13: mining cracks, blocks breaking into bits; parity round 12: capes, invisibility, fire on burning entities; parity round 11: paintings and item frames from the recordings; parity round 10: leads, sign text written during recordings; parity round 9: shulker boxes opening, paintings, item frames with their items; parity round 8: chests opening; parity round 7: light removed with its block, sitting pets, player heads in their skin; parity round 6: sign text, signs shaped as the game's, collars on tamed cats and wolves; parity round 5: smooth lighting, light from blocks placed since the backup; parity round 4: mob variants, villager outfits, armour stands, arrow model, arrows stuck in players; parity round 3: babies, sheep wool, horse coats, slime sizes, name tags, the game's death, item arm poses, body turning, moon phases; parity round 2: items held as the game holds them, bow drawing, water shapes, see-through glass, the game's light map, 26.3 swings, mob head turns, illager arms, shield textures; 3D held and dropped items, shields, thrown things; Watch in Flashback; explosions from Ledger; game HUD in Relive; F1 hide UI and F2 pictures; mipmaps; Relive loading bar and real blocks only; Play follows the moment's player; cherry leaves; fine scrubbing; export progress, short named copies, Open Flashback; rendering settings and FPS cap; patterned shields and held banners; banners with their patterns; containers in Relive; parity check; under water; held blocks; health and food; maps and map art in the viewer; Relive a moment; build-in effect; inventory and hotbar; mob gear and elytra; no light lines between blocks; caves underground; deeper Fancy water; still figures when paused; go to a day and time; activity heatmap from Ledger; griefing and accident finder from Ledger; who built what from Ledger; blocks at any moment from Ledger; water colour fix; Ledger and one-recording ideas; flaky test fix; year in review v2: pictures and export; year in review v1; year-in-review design; chat bubbles; dropped items; live block changes; blocks at the moment; textured mobs; held items and armour; real blocks with real shapes, insides and Minecraft light; Light panel; player figures; biome finds).
 
 ## What this project is
 
@@ -1039,8 +1039,9 @@ May 19:41:00 UTC. These are the only particles the recordings keep (ServerReplay
 aren't in the known 1.21 list: left out. Checked: a farmer's composter filling at 344, 86, -2297 on 10 April
 18:13:54 UTC (green sparkles).
 
-ServerReplay settings (owner asked): nothing needs turning on for what's built. Particle packets aren't in the
-recordings and the config has no setting for them; sounds (`ignore_sound_packets`) and light updates
+ServerReplay settings (owner asked): nothing needs turning on for what's built. Particles: the ones the server
+sends are recorded (`level_particles`; corrected in round 22: an earlier sample had none); the ones a player's own
+game makes up (campfire smoke, rain splashes, potion swirls) never reach the server; sounds (`ignore_sound_packets`) and light updates
 (`ignore_light_packets`) are left out by choice: the viewer works light out itself, and plays no sound.
 
 **Round 15 (2026-11-25, owner: "Yes, next batch").** The saddle and body slots (already in "eq") drawn with the
@@ -1102,7 +1103,17 @@ Spectators (mode 3) show as just a see-through head (no body, gear or cape); "sc
 Checked: game modes read for everyone in 10 recordings (all survival); no spectator, creative or resized player in
 26 recordings (tests cover reading both).
 
-Still different: other particles (not in the recordings); sign text written during a recording (the
+**Round 22 (2026-11-25, owner: "Keep going").** A fresh comparison: every packet kind counted in 30 recordings
+(script in the session's scratchpad). Not yet used and worth showing: `level_particles` (2,508 in 13 recordings;
+fishing wake, splashes, bubbles, block dust, sword sweeps, damage hearts) and `map_item_data` (12,130 in 18: maps
+being drawn as players explore). The protocol tables now carry each version's particle list and these ids.
+Particles (`paths.particles_sent`: place, spread, speed, count, type; colour for dust / effects; the block for
+block dust) as "pt" (`EXACT_SUFFIX` `.exact25`); drawn as the game spawns them (count 0: one along the spread x
+speed; else gaussian), with their pictures (`/api/particletex`: particles/<name>.json in the newest jar),
+animated ones (sweeps, smoke, explosions) through their frames. Checked: MEZTKING fishing on 24 May 19:42 UTC.
+
+Still different: maps being drawn live (`map_item_data`, next); particles a player's own game makes up (not in
+the recordings); sign text written during a recording (the
 backup's is shown); eating and drinking (the game's arm bob in
 first person only); tamed wolves' and cats' collars, angry wolves; villagers' profession hats over other hats;
 action-bar messages; item frames, paintings, leads; spyglass and trident 3D models; particles.
@@ -1825,6 +1836,7 @@ format fully researched; see `docs/FLASHBACK.md`). Both await a real-Flashback t
 ## Ready for the owner to test
 
 Things built and checked here that need a look in the real game or by eye (newest first):
+- **Parity round 22**: fishing (splashes, the bobber's wake), sword sweeps and the hearts when someone hits a mob.
 - **Parity round 21**: an admin in spectator mode (just a see-through head); anyone resized with /attribute.
 - **Parity round 20**: enchanted armour and tools shimmering (players' and mobs'); armour trims if anyone wears them.
 - **Parity round 19**: items flying into players as they pick them up; experience orbs; sand or gravel falling; lit
@@ -2026,6 +2038,9 @@ Confirmed by the owner:
 - Log times have 1-second resolution.
 
 ## Changelog
+
+- **2026-11-25:** Owner: "Keep going". Parity round 22 (backlog 0zh): a count of every packet in 30 recordings;
+  particles the server sent (fishing, sweeps, damage hearts, block dust...) drawn as the game does.
 
 - **2026-11-25:** Owner: "Keep going". Parity round 21 (backlog 0zh): spectators shown as the game shows them, and
   players and mobs at their size from the scale attribute. Tests: `test_game_modes_and_scale`.

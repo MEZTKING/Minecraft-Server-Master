@@ -329,7 +329,9 @@ sparkles round the one it saved.
 and a block broken (by anyone the recordings saw) bursts into small bits of its own picture that fly out and fall,
 as in the game. Other effects the recordings keep show with the game's particles too: composters filling and bone
 meal (green sparkles), potions splashing (in the potion's colour), fires put out, lava fizzing, smoke from
-dispensers, spawners, wax put on or scraped off copper. Other particles (smoke from campfires, splashes, potion
+dispensers, spawners, wax put on or scraped off copper. Particles the server sends are drawn as well, with the
+game's pictures: fishing (the bobber's wake, splashes, bubbles), sword sweeps, the hearts from a hit, block dust and
+others. Particles a player's own game makes up by itself (smoke from campfires and torches, rain splashes, potion
 swirls round players) aren't in the recordings, so they can't be shown.
 
 **Saddles and armour on animals.** Horses, donkeys, mules, pigs, striders, camels and nautiluses wear their

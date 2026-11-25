@@ -436,6 +436,27 @@ class HistoryMap(TerrainServer):
             from . import mobmodels
             m = mobmodels.cached_models()
             return {"jar": m.get("jar"), "layers": m.get("layers", {})}
+        if path == "/api/particletex":                # each particle's pictures (particles/<name>.json in the newest jar)
+            cache = self.__dict__.get("_particletex")
+            if cache is None:
+                cache = {}
+                try:
+                    import json
+                    import zipfile as zf_mod
+                    from . import blockmesh as bm
+                    jar = bm.find_client_jar(None)
+                    with zf_mod.ZipFile(jar) as zf:
+                        for n in zf.namelist():
+                            if n.startswith("assets/minecraft/particles/") and n.endswith(".json"):
+                                try:
+                                    tex = json.loads(zf.read(n)).get("textures") or []
+                                except ValueError:
+                                    continue
+                                cache[n.rsplit("/", 1)[-1][:-5]] = [str(t).split(":", 1)[-1] for t in tex]
+                except (OSError, TypeError, ValueError):
+                    pass
+                self.__dict__["_particletex"] = cache
+            return {"particles": cache}
         if path == "/api/skintimeline":               # the skin each player had in each recording
             return self.skin_timeline()
         if path.startswith("/api/skin/"):            # a player's real skin from Mojang: /api/skin/<uuid>

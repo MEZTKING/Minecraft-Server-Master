@@ -5203,6 +5203,52 @@ function totemStep(want) {
     }
   }
 }
+// particles the server sent ("pt" [x, y, z, spread x y z, speed, count, particle, colour or block]): as the game spawns
+// them (count 0: one, moving along the spread times the speed; else that many, spread out gaussian, moving at random
+// up to the speed), with the particle's own pictures (particles/<name>.json) and roughly its life, size and fall
+const PT_TEX = { map: null, asked: false };
+const PT_LOOK = { fishing: { life: 10, g: 0, size: 0.1 }, splash: { life: 15, g: 0.06, size: 0.1 },
+  bubble: { life: 20, g: -0.004, size: 0.08 }, block: { life: 14, g: 0.04, size: 0.1 },
+  sweep_attack: { life: 4, g: 0, size: 1.0, anim: true }, damage_indicator: { life: 20, g: -0.01, size: 0.15 },
+  crit: { life: 12, g: 0.02, size: 0.1 }, enchanted_hit: { life: 12, g: 0.02, size: 0.1 },
+  heart: { life: 16, g: -0.01, size: 0.15 }, angry_villager: { life: 16, g: -0.01, size: 0.15 },
+  happy_villager: { life: 20, g: 0, size: 0.1 }, smoke: { life: 16, g: -0.004, size: 0.12, anim: true },
+  large_smoke: { life: 20, g: -0.004, size: 0.25, anim: true }, explosion: { life: 8, g: 0, size: 1.0, anim: true },
+  poof: { life: 12, g: -0.004, size: 0.15, anim: true }, cloud: { life: 16, g: -0.004, size: 0.2, anim: true },
+  note: { life: 6, g: 0, size: 0.15 }, portal: { life: 30, g: 0, size: 0.06 }, flame: { life: 12, g: 0, size: 0.08 },
+  dust: { life: 12, g: 0, size: 0.1 }, entity_effect: { life: 16, g: -0.01, size: 0.1, anim: true } };
+function particleStep(want) {
+  if (!EXACT.on) return;
+  if (!PT_TEX.asked) { PT_TEX.asked = true; fetch("api/particletex").then(r => r.json()).then(r => { PT_TEX.map = r.particles || {}; }).catch(() => { PT_TEX.map = {}; }); }
+  if (!PT_TEX.map) return;
+  for (const ev of Object.values(EXACT.ev)) for (const [t, v] of ev.pt || []) {
+    const L = PT_LOOK[v[8]] || { life: 15, g: 0.01, size: 0.12 };
+    if (t > T || T - t > L.life * 50) continue;
+    const key = `pt|${t}|${v[0]},${v[1]},${v[2]}|${v[8]}`; want.add(key);
+    if (BREAK.seen.has(key)) continue;
+    BREAK.seen.add(key);
+    const g = new THREE.Group(); g.userData = { key, t, bits: [], fx: L, anim: L.anim ? v[8] : null }; BREAK.group.add(g); BREAK.parts.push(g);
+    let h = (t ^ (v[0] * 73856093) ^ (v[2] * 83492791)) | 0;
+    const rnd = () => { h = (h * 1103515245 + 12345) | 0; return ((h >>> 8) & 0xffff) / 0xffff; };
+    const gauss = () => { let s = 0; for (let i = 0; i < 6; i++) s += rnd(); return (s - 3) / 1.5; };
+    const texs = PT_TEX.map[v[8]] || [];
+    const block = /^(block|falling_dust|block_marker|dust_pillar|block_crumble)$/.test(v[8]) ? v[9] : null;
+    const col = !block && typeof v[9] === "number" ? v[9] : 0xffffff;
+    const n = v[7] === 0 ? 1 : Math.min(v[7], 60);
+    for (let i = 0; i < n; i++) {
+      const tex = texs.length ? texs[Math.floor(rnd() * texs.length) % texs.length] : "generic_0";
+      const mat = block ? null : fxMat(L.anim && texs.length ? texs[0] : tex, col);
+      const sp = new THREE.Sprite(mat || new THREE.SpriteMaterial({ transparent: true, alphaTest: 0.1, depthWrite: false }));
+      if (block) blockPicture(block).then(bt => { if (bt) { sp.material.map = bt; sp.material.needsUpdate = true; } });
+      const size = L.size * (0.6 + rnd() * 0.8); sp.scale.set(size, size, 1);
+      let p, vel;
+      if (v[7] === 0) { p = [v[0], v[1], v[2]]; vel = [v[3] * v[6], v[4] * v[6], v[5] * v[6]]; }
+      else { p = [v[0] + gauss() * v[3], v[1] + gauss() * v[4], v[2] + gauss() * v[5]]; vel = [gauss() * v[6], gauss() * v[6], gauss() * v[6]]; }
+      sp.userData = { p, v: vel, life: Math.max(2, Math.floor(L.life * (0.6 + rnd() * 0.6))), gravity: L.g, frames: L.anim ? texs : null };
+      g.add(sp); g.userData.bits.push(sp);
+    }
+  }
+}
 function breakStep(now) {
   pistonStep();
   if (now - BREAK.last < 33) return; BREAK.last = now;
@@ -5224,7 +5270,7 @@ function breakStep(now) {
   }
   // bursts: built once per break (the same one seen by several recordings: once), flown by the game's physics
   const want = new Set();
-  levelFxStep(want); totemStep(want);
+  levelFxStep(want); totemStep(want); particleStep(want);
   for (const [t, v] of bursts) {
     const key = `${Math.round(t / 100)}|${v[0]},${v[1]},${v[2]}`; want.add(key);
     if (BREAK.seen.has(key)) continue;
@@ -5262,6 +5308,10 @@ function breakStep(now) {
       const gr = d.gravity ?? 0.04;
       for (let n = 0; n < Math.floor(age); n++) { x += vx; y += vy; z += vz; vy -= gr; vx *= 0.98; vy *= 0.98; vz *= 0.98; }
       q.position.set(x, y, z); if (!q.isSprite) q.quaternion.copy(camera.quaternion);
+      if (d.frames && d.frames.length > 1) {              // animated ones: the picture for this point of its life
+        const fr = d.frames[Math.min(d.frames.length - 1, Math.floor(age / d.life * d.frames.length))];
+        const mm = fxMat(fr, q.material.color.getHex()); if (q.material !== mm) q.material = mm;
+      }
     }
   }
 }

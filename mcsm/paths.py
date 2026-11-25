@@ -263,6 +263,36 @@ def sign_written(body: bytes) -> list | None:
     return list(block_pos(pos)) + [txt["front"], txt["back"]]
 
 
+def particles_sent(body: bytes, names: list, blocks: list | None = None) -> list | None:
+    """``[x, y, z, spread x, y, z, speed, count, particle, colour or None]`` from a level_particles body: two flags
+    (override limiter, always show), the place (doubles), the spread and speed (floats), the count (int), then the
+    particle type (and its options: a colour for dust and entity effects)."""
+    try:
+        if len(body) < 2 + 24 + 16 + 4 + 1:
+            return None
+        k = 2
+        x, y, z = struct.unpack_from(">ddd", body, k)
+        k += 24
+        dx, dy, dz, sp = struct.unpack_from(">ffff", body, k)
+        k += 16
+        n = struct.unpack_from(">i", body, k)[0]
+        k += 4
+        t, k = _varint(body, k)
+        name = names[t] if 0 <= t < len(names) else ""
+        col = None
+        if name in ("block", "falling_dust", "block_marker", "dust_pillar", "block_crumble") and blocks is not None:
+            sid = _varint(body, k)[0]                    # which block (its state): the dust is its picture
+            col = blocks[sid].split("[")[0].replace("minecraft:", "") if 0 <= sid < len(blocks) else None
+        elif name in ("dust", "entity_effect", "tinted_leaves", "flash") and k + 4 <= len(body):
+            col = struct.unpack_from(">i", body, k)[0] & 0xFFFFFF
+        elif name == "dust_color_transition" and k + 4 <= len(body):
+            col = struct.unpack_from(">i", body, k)[0] & 0xFFFFFF
+        return [round(x, 3), round(y, 3), round(z, 3), round(dx, 3), round(dy, 3), round(dz, 3), round(sp, 4),
+                max(0, min(n, 200)), name, col]
+    except (IndexError, ValueError, struct.error):
+        return None
+
+
 def game_modes(body: bytes) -> list[tuple[bytes, str | None, int]]:
     """``[(UUID, name or None, game mode)]`` from a player_info_update body: an action set (one byte: add player,
     chat session, game mode, listed, latency, display name, list order, hat), then each player's UUID and the data of
@@ -723,6 +753,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         take_id = pk.get("take_item_entity") if ex_on else None     # collected, collector, amount
         attr_id = pk.get("update_attributes") if ex_on and (tbl or {}).get("attributes") else None   # sizes
         info_id = pk.get("player_info_update") if ex_on else None    # game modes
+        part_id = pk.get("level_particles") if ex_on and (tbl or {}).get("particles") else None   # particles
         lev_id = pk.get("level_event") if ex_on else None          # i32 event, block pos, i32 data, bool
         block_names: list | None = None                           # block state ids -> names (blocks broken)
         knots: dict[int, tuple] = {}                              # leash knots on fences: where they are
@@ -731,7 +762,7 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
         items_of, comps_of = (tbl or {}).get("items") or [], (tbl or {}).get("components") or []
         watch = {x for x in (add_id, remove_id, data_id, anim_id, event_id, stime_id, game_id, pass_id, equip_id,
                              pinv_id, held_id, bev_id, hp_id, swing_id, link_id, bed_id, crack_id, lev_id, take_id,
-                             attr_id, info_id)
+                             attr_id, info_id, part_id)
                  if x is not None} | hurt_ids
         kinds_of: dict[int, str] = {}        # every entity's type (vehicles: boats, horses, the sit datapack's seat...)
         riders: dict[int, set] = {}          # vehicle -> who rides it
@@ -914,6 +945,13 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             sc = scale_of(bytes(b[k:i + size]), tbl["attributes"])
                             if sc and (sc[0] == me or sc[0] in others):
                                 extras["events"].append([tick, None if sc[0] == me else others[sc[0]], "sc", sc[1]])
+                        elif pid == part_id and size >= 48:  # particles the server sent (hits, potions, commands...)
+                            if block_names is None:
+                                from . import protocol as proto_mod4
+                                block_names = proto_mod4.block_states(tbl) or []
+                            pt = particles_sent(bytes(b[k:i + size]), tbl["particles"], block_names)
+                            if pt and pt[8]:
+                                extras["events"].append([tick, None, "pt", pt])
                         elif pid == info_id and size >= 3:   # the tab list: game modes (3 = spectator)
                             for uid, nm, mode in game_modes(bytes(b[k:i + size])):
                                 who = players.get(uid) or nm
@@ -1277,7 +1315,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact24.json.gz"    # 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact25.json.gz"    # 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,
