@@ -349,7 +349,11 @@ What the recordings say about each player and mob is shown too:
 - **Turning:** the body follows the way they walk and turns after the head, never more than 75 degrees from it,
   as the game works it out (the recordings keep where they look, not the body).
 - **Hurt:** a short red flash.
-- **Burning:** an orange flicker.
+- **Burning:** the game's fire around them (and an orange flicker on mobs).
+- **Invisible** (a potion of invisibility, or an invisible armour stand): only their armour and what they hold
+  show, as in the game.
+- **Capes:** a player's cape, as their recordings had it, hanging from the shoulders and swinging out as they move
+  (not with an elytra on). Capes come from Mojang's texture server like the skins.
 
 The pose comes from the game's own pose value when the recording has one, otherwise from the flags.
 

@@ -141,8 +141,8 @@ _HASH = re.compile(r"^[0-9a-f]{20,80}$")
 
 
 def recording_skins(zip_path: str) -> list[dict]:
-    """The skins in a Flashback recording, as recorded: ``[{"uuid", "name", "hash", "slim"}]`` (from the player
-    profiles the game sent, which carry Mojang's texture properties)."""
+    """The skins in a Flashback recording, as recorded: ``[{"uuid", "name", "hash", "slim", "cape"}]`` (from the
+    player profiles the game sent, which carry Mojang's texture properties; cape: its texture hash or None)."""
     import zipfile
     try:
         with zipfile.ZipFile(zip_path) as z, z.open("c0.flashback") as fh:
@@ -160,10 +160,12 @@ def recording_skins(zip_path: str) -> list[dict]:
                 skin = j["textures"]["SKIN"]
                 h = re.search(r"/texture/([0-9a-f]+)$", str(skin.get("url") or ""))
                 uuid = clean_uuid(j.get("profileId"))
+                cape = re.search(r"/texture/([0-9a-f]+)$", str((j["textures"].get("CAPE") or {}).get("url") or ""))
                 if h and uuid and (uuid, h.group(1)) not in seen:
                     seen.add((uuid, h.group(1)))
                     out.append({"uuid": uuid, "name": j.get("profileName") or "", "hash": h.group(1),
-                                "slim": (skin.get("metadata") or {}).get("model") == "slim"})
+                                "slim": (skin.get("metadata") or {}).get("model") == "slim",
+                                "cape": cape.group(1) if cape else None})
             except (ValueError, KeyError, TypeError, UnicodeDecodeError):
                 pass
         pos = head.find(b"textures", pos + 8)
@@ -171,8 +173,8 @@ def recording_skins(zip_path: str) -> list[dict]:
 
 
 def timeline(replays, replay_file, name_of, folder: str | None = None, progress=None) -> dict:
-    """Each player's skins over time, from the recordings: ``{name: [[start_ms, hash, slim], ...]}`` (oldest first,
-    a new entry only when the skin changed). Read once per recording and kept in ``recordings.json``."""
+    """Each player's skins over time, from the recordings: ``{name: [[start_ms, hash, slim, cape], ...]}`` (oldest
+    first, a new entry only when the skin or cape changed). Read once per recording and kept in ``recordings.json``."""
     folder = folder or cache_dir()
     path = os.path.join(folder, "recordings.json")
     try:
@@ -190,7 +192,7 @@ def timeline(replays, replay_file, name_of, folder: str | None = None, progress=
             st = os.stat(f)
         except (OSError, ValueError):
             continue
-        key = f"{os.path.abspath(f)}|{st.st_size}|{int(st.st_mtime)}"
+        key = f"v2|{os.path.abspath(f)}|{st.st_size}|{int(st.st_mtime)}"      # (v2: with capes)
         if key not in known:
             known[key] = recording_skins(f)
             changed = True
@@ -198,17 +200,17 @@ def timeline(replays, replay_file, name_of, folder: str | None = None, progress=
         for s in known[key]:
             who = name_of(s["uuid"]) or s["name"]
             if who:
-                rows.append((t, who, s["hash"], bool(s["slim"])))
+                rows.append((t, who, s["hash"], bool(s["slim"]), s.get("cape")))
     if changed:
         os.makedirs(folder, exist_ok=True)
         with open(path + ".part", "w", encoding="utf-8") as fh:
             json.dump(known, fh)
         os.replace(path + ".part", path)
     out: dict[str, list] = {}
-    for t, who, h, slim in sorted(rows):
+    for t, who, h, slim, cape in sorted(rows, key=lambda r: r[:4]):
         lst = out.setdefault(who, [])
-        if not lst or lst[-1][1] != h:
-            lst.append([t, h, slim])
+        if not lst or lst[-1][1] != h or lst[-1][3] != cape:
+            lst.append([t, h, slim, cape])
     return out
 
 

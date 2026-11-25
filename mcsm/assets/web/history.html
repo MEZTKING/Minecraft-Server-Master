@@ -1774,8 +1774,36 @@ function mobNameTag(o, label) {
 }
 // the game's death: tipping over sideways, sqrt(ticks / 20 x 1.6) of 90 degrees, red all the while, gone after 20 ticks
 const deathTilt = ms => Math.min(1, Math.sqrt(Math.max(0, ms / 50) / 20 * 1.6)) * Math.PI / 2;
+// burning: the game's fire around the entity (two crossed sheets of the animated fire picture, a little wider than
+// it and as tall), all fires showing the same frame
+const FIRE = { tex: null, frames: 1, mat: null, asked: false };
+function fireOn(holder, w, h, on) {
+  let f = holder.userData.fire;
+  if (!on) { if (f) f.visible = false; return; }
+  if (!FIRE.asked) {                                     // the fire picture, the first time something burns
+    FIRE.asked = true;
+    texOnce("block/fire_0").then(t => {
+      if (!t) return;
+      FIRE.frames = Math.max(1, Math.round(t.image.height / t.image.width));
+      t.repeat.set(1, 1 / FIRE.frames); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      FIRE.tex = t; FIRE.mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide, depthWrite: false });
+    });
+  }
+  if (!FIRE.mat) return;
+  if (!f) {
+    f = new THREE.Group();
+    const geo = new THREE.PlaneGeometry(w * 1.4, h * 1.2);
+    for (const a of [Math.PI / 4, -Math.PI / 4]) { const q = new THREE.Mesh(geo, FIRE.mat); q.rotation.y = a; q.position.y = h * 0.6; f.add(q); }
+    holder.add(f); holder.userData.fire = f;
+  }
+  f.visible = true;
+  FIRE.tex.offset.y = 1 - (Math.floor(performance.now() / 50) % FIRE.frames + 1) / FIRE.frames;   // a frame a tick
+}
 function mobTint(o, label) {                             // red when hurt or dying, orange when burning (swaps shared materials)
   const h = sinceLast(label, "hurt", T), burn = flagsAt(label, T) & 0x01, died = sinceLast(label, "d", T);
+  if (o.model) o.model.visible = !(flagsAt(label, T) & 0x20);          // invisible (a potion, or an invisible armour stand)
+  const sz = MOB_SIZE[o.kind] || [0.6, 0.9];
+  fireOn(o.mesh, sz[0], sz[1], !!burn && !(died !== null && died >= 1000));
   const st = (h !== null && h < 500) || (died !== null && died < 1000) ? "hurt" : burn ? "burn" : "n";
   if (!o.model) { o.base = o.base || o.box.material.color.clone(); hurtTint(o.box.material, label, o.base); return; }
   if (st === o.state) return;
@@ -1968,6 +1996,15 @@ function playerFigure(name, colour, real = null) {
     layer(parts.larm, sb(aw, 12, 4, 48, 48, 0.5), -6);
     layer(parts.rleg, sb(4, 12, 4, 0, 32, 0.5), -6);
     layer(parts.lleg, sb(4, 12, 4, 0, 48, 0.5), -6);
+  }
+  if (real && real.cape) {                             // the game's cape: 10 x 16 x 1 from the shoulders, behind the body
+    const cg = skinBox(10, 16, 1, 0, 0);
+    { const a = cg.attributes.uv, h = real.cape.image ? real.cape.image.height / real.cape.image.width * 64 : 32;
+      for (let i = 0; i < a.count; i++) a.setY(i, 1 - (1 - a.getY(i)) * 64 / h); }
+    const cm = new THREE.Mesh(cg, new THREE.MeshLambertMaterial({ map: real.cape, transparent: true, alphaTest: 0.1 }));
+    cm.position.set(0, -8 * PX, -0.5 * PX); cm.rotation.y = Math.PI;    // its outside (the picture's front) faces back
+    const pivot = new THREE.Group(); pivot.position.set(0, 0, -2 * PX); pivot.add(cm);
+    parts.body.add(pivot); parts.cape = pivot;
   }
   // a ring in the player's colour at their feet, to tell them apart
   fig.traverse(x => { if (x.isMesh) x.castShadow = GFX.mode !== "off"; });
@@ -2402,6 +2439,16 @@ function animateFigure(m, now) {
     P.rarm.rotation.x = rx - (m.swing || 0) * 1.6; P.rarm.rotation.y = ry;
     P.larm.rotation.x = lx; P.larm.rotation.y = ly;
   }
+  if (P.cape) {                                         // the cape swings out as they move; not with an elytra on
+    const el = ((m.gearKeys && m.gearKeys.chest) || "").startsWith("elytra|");
+    P.cape.visible = !el;
+    const want = 0.1 + Math.min(1, m.speed || 0) * 0.9 + (sneak ? 0.3 : 0);
+    P.cape.rotation.x += (want - P.cape.rotation.x) * Math.min(1, dt * 6);
+  }
+  // invisible (flag 0x20, a potion): the game draws only their armour and what they hold
+  const inv = !!(fl & 0x20);
+  m.F.mat.visible = !inv; if (P.cape) P.cape.visible = P.cape.visible && !inv;
+  fireOn(m.F.fig, 0.6, 1.8, !!(fl & 0x01));
   m.last = p.clone(); m.lastT = now;
 }
 // A player's own skin (from Mojang through the app, kept on this PC); the default skin stays until it's here.
@@ -2434,10 +2481,12 @@ function skinAt(name, t) {
 function updateSkin(name, m) {
   if (!SKINLINE || !$("#realSkins").checked) return;
   const s = skinAt(name, T);
-  if (!s || m.skinKey === s[1]) return;
-  m.skinKey = s[1];
-  skinFromHash(s[1]).then(tex => {
-    if (tex && m.skinKey === s[1] && $("#realSkins").checked) setFigure(name, { tex, slim: s[2], legacy: tex.image && tex.image.height === 32 });
+  const key = s && s[1] + "|" + (s[3] || "");
+  if (!s || m.skinKey === key) return;
+  m.skinKey = key;
+  Promise.all([skinFromHash(s[1]), s[3] ? skinFromHash(s[3]) : null]).then(([tex, cape]) => {
+    if (tex && m.skinKey === key && $("#realSkins").checked)
+      setFigure(name, { tex, slim: s[2], legacy: tex.image && tex.image.height === 32, cape });
   });
 }
 async function loadSkinLine() {
