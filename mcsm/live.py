@@ -577,7 +577,7 @@ def _make_handler(live: LiveMap):
             try:
                 if path in ("/", "/index.html"):
                     return self._static(live.PAGE)
-                if path.startswith("/vendor/") or path == "/map3d.js":
+                if path.startswith("/vendor/") or path in ("/map3d.js", "/meshcore.js", "/meshworker.js"):
                     return self._static(path.lstrip("/"))
                 if path == "/api/info":
                     return self._json(live.info())

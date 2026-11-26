@@ -347,8 +347,10 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
-**Speed.** Real blocks are turned into the 3D picture about three and a half times faster than before, so frames
-stutter far less while pieces of the world load around you. (For checking where time goes, the browser console's
+**Speed.** Real blocks are turned into the 3D picture in the background (about three and a half times faster than
+before, and off the page's own work, so frames don't stall while pieces load). The server builds several pieces at
+once, one per processor core, and the page asks for three at a time. Moving textures (water, lava, fire, portals)
+send only the squares that changed to the graphics card each tick, not the whole texture sheet. (For checking where time goes, the browser console's
 `__history.prof(true)` starts a timer of each step of a frame and `__history.prof()` shows the milliseconds each
 takes a frame.)
 

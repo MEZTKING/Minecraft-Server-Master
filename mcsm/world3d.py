@@ -21,6 +21,30 @@ MAX_TILES = 25
 BLOCK_MARGIN = 40.0          # real blocks this far around the build's area
 
 
+# Pieces of real blocks built in worker processes (the history viewer: several at once, each on its own core; in
+# threads they'd take turns, Python running one at a time). Each process opens the client jar once.
+_POOL = None
+_POOL_LOCK = threading.Lock()
+_LOOKS: dict = {}
+POOL_ERRORS: list = []                                  # why a piece was built here instead (the last few)
+
+
+def _build_pool():
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            from concurrent.futures import ProcessPoolExecutor
+            _POOL = ProcessPoolExecutor(max_workers=max(1, min(4, (os.cpu_count() or 2) - 1)))
+        return _POOL
+
+
+def _build_job(jar, root, world, dim, only, overrides, patches, slab):
+    look = _LOOKS.get(jar)
+    if look is None:
+        look = _LOOKS[jar] = bm.Look(jar)
+    return bm.build(root, world, [], look, dimension=dim, only=only, overrides=overrides, patches=patches, slab=slab)
+
+
 def cache_dir() -> str:
     base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
     return os.path.join(base, "mcsm", "build-view")
@@ -40,6 +64,7 @@ class BuildWorld:
         self._regions: dict[tuple[int, int], str] | None = None
         self._look = None
         self._blocks: dict | None = None
+        self.processes = False                          # build pieces in worker processes (the history viewer)
 
     def regions(self) -> dict[tuple[int, int], str]:
         if self._regions is None:
@@ -188,8 +213,17 @@ class BuildWorld:
             return {"faces": 0, "message": "no Minecraft client jar found on this PC (for the block textures)"}
         if only is None:
             only = {(tx * n + i, tz * n + j) for i in range(n) for j in range(n)}
-        r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides, patches=patches,
-                     slab=slab)
+        r = None
+        if self.processes:
+            try:
+                r = _build_pool().submit(_build_job, self.jar, self.root, self.world, dim, only, overrides, patches,
+                                         slab).result()
+            except Exception as exc:                    # noqa: BLE001 (a broken pool, something not picklable...)
+                POOL_ERRORS[:] = (POOL_ERRORS + [repr(exc)[:300]])[-5:]
+                r = None                                # built here instead
+        if r is None:
+            r = bm.build(self.root, self.world, [], look, dimension=dim, only=only, overrides=overrides,
+                         patches=patches, slab=slab)
         os.makedirs(os.path.dirname(base), exist_ok=True)
         if r["faces"]:
             with open(base + ".bin.part", "wb") as fh:

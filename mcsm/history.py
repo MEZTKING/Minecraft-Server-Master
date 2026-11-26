@@ -787,6 +787,8 @@ class HistoryMap(TerrainServer):
                     versions = [r.mc_version for r in self.data.replays if r.mc_version]
                     mc = max(set(versions), key=versions.count) if versions else None
             cache[layer] = world3d.BuildWorld(found[0], found[1], mc=mc, label=str(layer)) if found else None
+            if cache[layer] is not None:
+                cache[layer].processes = True          # pieces built several at once, in worker processes
             return cache[layer]
 
     def exact(self, t0: int, t1: int) -> dict:
@@ -1208,7 +1210,7 @@ class HistoryMap(TerrainServer):
             return done[key]
         jobs = self.__dict__.setdefault("_moment_jobs", set())
         lock = self.__dict__.setdefault("_moment_lock", threading.Lock())
-        slots = self.__dict__.setdefault("_moment_slots", threading.Semaphore(2))
+        slots = self.__dict__.setdefault("_moment_slots", threading.Semaphore(4))   # (built in worker processes)
         with lock:
             if key in jobs or len(jobs) >= 8:              # (a slider dragged fast: ask again later)
                 return {"pending": True}

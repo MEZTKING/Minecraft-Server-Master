@@ -626,7 +626,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { buildAtlas, animateAtlases, blockMeshes as blockMeshes0, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
+import { buildAtlas, animateAtlases, blockMeshesAsync, setLight, LIGHT, GFX, GLOW_MAT, setGraphics, applyGraphics, revealIn } from "./map3d.js";
 
 const $ = s => document.querySelector(s);
 // Fine-tuning: Ctrl + mouse wheel over a slider or number box moves it one step (Ctrl+Shift: ten steps);
@@ -1038,7 +1038,7 @@ function fillTerrainMenu() {
 $("#terrainSel").onchange = () => { terrainMode = $("#terrainSel").value; loadTerrain($("#dim").value); };
 
 // ---------- real blocks close up: 128 x 128 pieces of the backup shown, loaded around where you look ----------
-const REAL = { tiles: new Map(), busy: false, key: "", last: 0, atlases: new Map(), failed: new Set(), wait: new Map(), mfail: new Map() };
+const REAL = { tiles: new Map(), flying: new Set(), get busy() { return this.flying.size > 0; }, key: "", last: 0, atlases: new Map(), failed: new Set(), wait: new Map(), mfail: new Map() };
 // blocks at the moment (exact playback): the nearest pieces come from the recordings' chunk data at a time rounded
 // to MOMENT_STEP, so a piece is rebuilt every 30 s of playback (and when you jump)
 const MOMENT_STEP = 30_000, MOMENT_TILES = 9;
@@ -1157,7 +1157,8 @@ function realWanted() {
   return out.sort((a, b) => a[2] - b[2]);
 }
 async function realStep(now) {
-  if (REAL.busy || now - REAL.last < 300) return;
+  // up to 3 pieces asked for at once (the server builds them side by side, each in its own process)
+  if (REAL.flying.size >= 3 || now - REAL.last < 150) return;
   REAL.last = now;
   const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, key = `${dim}|${layer}`;
   if (key !== REAL.key) { realClear(); REAL.key = key; }      // another backup or dimension: start again
@@ -1171,16 +1172,16 @@ async function realStep(now) {
   const wantMt = new Map(want.map(([x, z], i) => { let m = mtOf(i);
     if (m !== null && (REAL.mfail.get(`${x},${z}|${m}`) || 0) > now) m = null;
     return [`${x},${z}`, m]; }));
-  let next = want.find(([x, z]) => !REAL.tiles.has(`${x},${z}`) && !REAL.failed.has(`${key}|${x},${z}`));
+  let next = want.find(([x, z]) => !REAL.tiles.has(`${x},${z}`) && !REAL.flying.has(`${x},${z}`) && !REAL.failed.has(`${key}|${x},${z}`));
   if (!next) next = want.find(([x, z]) => {                 // a piece shown at another moment (or the backup's)
     const id = `${x},${z}`, T0 = REAL.tiles.get(id), w = wantMt.get(id);
-    return T0 && (T0.mt ?? null) !== w && !(REAL.wait.get(`${id}|${w}`) > now) && !REAL.failed.has(`${key}|${id}|${w}`);
+    return T0 && !REAL.flying.has(id) && (T0.mt ?? null) !== w && !(REAL.wait.get(`${id}|${w}`) > now) && !REAL.failed.has(`${key}|${id}|${w}`);
   });
   const shownAt = [...REAL.tiles.values()].find(t => t.moment)?.mt;     // say which moment the blocks are from
   $("#momentAt").textContent = shownAt ? ` (${new Date(shownAt).toLocaleTimeString()})` : "";
   if (!next) { realClip(); return; }
-  REAL.busy = true;
   const [tx, tz] = next, id = `${tx},${tz}`, mtx = wantMt.get(id) ?? null;
+  REAL.flying.add(id);
   try {
     const url = mtx === null ? `api/blocktile/${layer}/${dim.replace("minecraft:", "")}/${tx}/${tz}`
       : `api/momenttile/${layer}/${dim.replace("minecraft:", "")}/${tx}/${tz}/${mtx}`;
@@ -1195,14 +1196,15 @@ async function realStep(now) {
       REAL.note = info.exact_jar === false && info.mc ? `real blocks: the backup is Minecraft ${info.mc}, whose game files aren't on this PC; textures from ${info.jar}` : "";
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
       if (REAL.key !== key) return;
-      T.meshes = blockMeshes(info, buf, atlas);                // in the current graphics mode
+      T.meshes = await blockMeshes(info, buf, atlas);          // in the current graphics mode
+      if (REAL.key !== key) { for (const m of T.meshes) m.geometry.dispose(); return; }
       for (const m of T.meshes) { if (!m.isPoints) m.material.map = atlas.tex; scene.add(m); }
       if (!old && !RELIVE.on && $("#buildIn").checked) revealIn(T.meshes);   // new here: it builds in (not a moment update)
     } else if (info.message) { if (mtx === null) REAL.failed.add(`${key}|${id}`); else REAL.mfail.set(`${id}|${mtx}`, now + 20_000); }
     if (old && old !== T) for (const m of old.meshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
     REAL.tiles.set(id, T); realClip();
   } catch (e) { if (mtx === null) REAL.failed.add(`${key}|${id}`); else REAL.mfail.set(`${id}|${mtx}`, now + 20_000); }
-  finally { REAL.busy = false; }
+  finally { REAL.flying.delete(id); }
 }
 // ---------- live block changes (exact playback, blocks as at the moment) ----------
 // The moment pieces are rebuilt every 30 s; in between, each chunk where the recordings saw blocks placed or broken
@@ -1270,7 +1272,7 @@ async function liveStep(now) {
           const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
           if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}, n => `api/texanim/${layer}/${n}`));
           const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
-          meshes = blockMeshes(info, buf, atlas);
+          meshes = await blockMeshes(info, buf, atlas);
           for (const m of meshes) { if (!m.isPoints) m.material.map = atlas.tex; }
         }
         const t2 = REAL.tiles.get(tileId);
@@ -1317,7 +1319,7 @@ async function caveStep(now) {
       const akey = layer + "|" + info.jar + "|" + info.textures.join("|");
       if (!REAL.atlases.has(akey)) REAL.atlases.set(akey, buildAtlas(info.textures, info.tints, n => `blocktex/${layer}/${n}.png`, info.sizes || {}, n => `api/texanim/${layer}/${n}`));
       const [buf, atlas] = await Promise.all([fetch(info.url).then(r => r.arrayBuffer()), REAL.atlases.get(akey)]);
-      T0.meshes = blockMeshes(info, buf, atlas);
+      T0.meshes = await blockMeshes(info, buf, atlas);
       for (const m of T0.meshes) { if (!m.isPoints) m.material.map = atlas.tex; m.visible = false; scene.add(m); }
       if (!old && $("#buildIn").checked) revealIn(T0.meshes);
     }
@@ -1343,8 +1345,8 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.frames = 0; return "on"; }
-    const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+    const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
 // ---------- data ----------
@@ -7473,13 +7475,14 @@ addEventListener("keydown", e => {
 const tmp = new THREE.Vector3();
 let lastLayerCheck = 0;
 const FPSC = { last: 0, n: 0, t0: 0 };
-// building pieces' meshes (main thread): how long, how many, how many faces
+// building pieces' meshes (in workers; the page keeps drawing): how long each took to come back, how many, faces
 const BMT = { ms: 0, n: 0, faces: 0, max: 0 };
-function blockMeshes(info, buf, atlas) { const t = performance.now(), r = blockMeshes0(info, buf, atlas), d = performance.now() - t;
-  BMT.ms += d; BMT.n++; BMT.faces += buf.byteLength / 20; BMT.max = Math.max(BMT.max, d); return r; }
+async function blockMeshes(info, buf, atlas) { const t = performance.now(), faces = buf.byteLength / 20, r = await blockMeshesAsync(info, buf, atlas),
+  d = performance.now() - t; BMT.ms += d; BMT.n++; BMT.faces += faces; BMT.max = Math.max(BMT.max, d); return r; }
 // a timer for each step of the frame (window.__history.prof(true) starts it; prof() reads the average ms a frame)
-const PROF = { on: false, t: {}, frames: 0 };
-function prof(k, f) { if (!PROF.on) return f(); const a = performance.now(); const r = f(); PROF.t[k] = (PROF.t[k] || 0) + performance.now() - a; return r; }
+const PROF = { on: false, t: {}, max: {}, frames: 0 };
+function prof(k, f) { if (!PROF.on) return f(); const a = performance.now(); const r = f(), d = performance.now() - a;
+  PROF.t[k] = (PROF.t[k] || 0) + d; if (d > (PROF.max[k] || 0)) PROF.max[k] = d; return r; }
 function frame(now) {
   requestAnimationFrame(frame);
   if (RSET.fps > 0 && now - FPSC.last < 1000 / RSET.fps - 2) return;      // the FPS cap: skip this screen refresh
@@ -7561,7 +7564,7 @@ function frame(now) {
   prof("hangingStep", () => hangingStep(now));// paintings and item frames
   prof("leadsStep", () => leadsStep(now));// leads
   prof("liveMapStep", () => liveMapStep(now));// maps as they were at the time
-  prof("animateAtlases", () => animateAtlases(Math.floor(performance.now() / 50)));// water, lava, fire, portals... moving (the game's client ticks)
+  prof("animateAtlases", () => animateAtlases(Math.floor(performance.now() / 50), renderer));// water, lava, fire, portals... moving (the game's client ticks)
   prof("breakStep", () => breakStep(now));// mining cracks, blocks breaking
   prof("boltStep", () => boltStep()); prof("bobberStep", () => bobberStep());// lightning; fishing lines
   prof("blockEntitiesStep", () => blockEntitiesStep());// books, bells, beacon beams

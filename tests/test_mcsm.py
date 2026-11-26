@@ -4435,6 +4435,14 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_pieces_built_in_processes(self):
+        """The history viewer builds pieces of real blocks in worker processes: the job can be sent to one (it's a
+        module-level function), and BuildWorld builds in-process unless told otherwise."""
+        import pickle
+        from mcsm import world3d
+        self.assertIs(pickle.loads(pickle.dumps(world3d._build_job)), world3d._build_job)
+        self.assertFalse(world3d.BuildWorld(".", "./world").processes)
+
     def test_advancements_from_the_jar(self):
         """The toasts' icons and frames: each advancement's display (title key, icon item, frame) from the jar's
         data/minecraft/advancement files; crits in the search's words."""
