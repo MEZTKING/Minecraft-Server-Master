@@ -1400,7 +1400,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), signMesh: sg => signMesh(sg), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
     const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -6301,19 +6301,80 @@ scene.add(SIGNS.group);
 const SIGN_TEXT_COL = { white: 0xFFFFFF, orange: 0xFF681F, magenta: 0xFF00FF, light_blue: 0x9AC0CD, yellow: 0xFFFF00,
   lime: 0xBFFF00, pink: 0xFF69B4, gray: 0x808080, light_gray: 0xD3D3D3, cyan: 0x00FFFF, purple: 0xA020F0, blue: 0x0000FF,
   brown: 0xA52A2A, green: 0x00FF00, red: 0xFF0000, black: 0x000000 };
-function signTextMesh(side, hanging) {
-  const fpx = hanging ? 0.9 / 64 : 1 / 96, lineH = hanging ? 9 : 10, wpx = hanging ? 60 : 90, k = 6;   // k canvas px a font px
-  const cv = document.createElement("canvas"); cv.width = (wpx + 8) * k; cv.height = (4 * lineH + 4) * k;
-  const g = cv.getContext("2d"), col = SIGN_TEXT_COL[side.color] ?? 0;
-  const dark = c => (Math.round(((c >> 16) & 255) * 0.4) << 16) | (Math.round(((c >> 8) & 255) * 0.4) << 8) | Math.round((c & 255) * 0.4);
-  const hex = c => "#" + c.toString(16).padStart(6, "0");
-  g.font = `bold ${8 * k}px "Minecraft", "Courier New", monospace`; g.textAlign = "center"; g.textBaseline = "middle";
-  side.lines.forEach((line, i) => {
-    const y = (2 + i * lineH + lineH / 2) * k, x = cv.width / 2;
-    if (side.glow) { g.strokeStyle = hex(col === 0 ? 0xF0EBCC : dark(col)); g.lineWidth = k * 1.4; g.strokeText(line, x, y, wpx * k); }
-    g.fillStyle = hex(side.glow ? col : dark(col)); g.fillText(line, x, y, wpx * k);
+// The game's own lettering (textures/font/ascii.png: 16 x 16 glyphs, 8 font pixels each), not a system font (a
+// "Minecraft" font installed on the PC drew signs in big capitals): each glyph's advance from its pixels as the
+// game measures it (its last column with any pixel + 1, then 1 apart), a space 4; anything else in a plain font
+const MCFONT = { p: null };
+function mcFont() {
+  if (!MCFONT.p) MCFONT.p = new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      const c = im.width / 16, cv = document.createElement("canvas"); cv.width = im.width; cv.height = im.height;
+      const g = cv.getContext("2d"); g.drawImage(im, 0, 0);
+      const px = g.getImageData(0, 0, im.width, im.height).data, adv = new Array(256).fill(0);
+      for (let ch = 0; ch < 256; ch++) {
+        const cx = (ch & 15) * c, cy = (ch >> 4) * c; let w = 0;
+        for (let x = c - 1; x >= 0 && !w; x--) for (let y = 0; y < c; y++) if (px[((cy + y) * im.width + cx + x) * 4 + 3] > 0) { w = x + 1; break; }
+        adv[ch] = w ? Math.round(w * 8 / c) + 1 : 0;
+      }
+      adv[32] = 4;
+      res({ cv, c, adv, tints: new Map() });
+    };
+    im.onerror = () => res(null); im.src = "blocktex/0/font/ascii.png";
   });
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return MCFONT.p;
+}
+function mcGlyphs(F, col) {                              // the glyph sheet in one colour
+  if (!F.tints.has(col)) {
+    const t = document.createElement("canvas"); t.width = F.cv.width; t.height = F.cv.height;
+    const g = t.getContext("2d"); g.drawImage(F.cv, 0, 0); g.globalCompositeOperation = "source-in";
+    g.fillStyle = "#" + col.toString(16).padStart(6, "0"); g.fillRect(0, 0, t.width, t.height);
+    F.tints.set(col, t);
+  }
+  return F.tints.get(col);
+}
+function mcTextWidth(F, g, text, k) {                    // in font pixels
+  let w = 0;
+  for (const ch of text) { const n = ch.codePointAt(0);
+    if (n < 256 && F.adv[n]) w += F.adv[n]; else { g.font = `${8 * k}px sans-serif`; w += g.measureText(ch).width / k + 1; } }
+  return w;
+}
+function mcDrawText(F, g, text, x, y, k, col) {          // x, y: the top left, in canvas pixels
+  const sheet = mcGlyphs(F, col);
+  for (const ch of text) {
+    const n = ch.codePointAt(0);
+    if (n < 256 && F.adv[n]) {
+      if (n !== 32) g.drawImage(sheet, (n & 15) * F.c, (n >> 4) * F.c, F.c, F.c, x, y, 8 * k, 8 * k);
+      x += F.adv[n] * k;
+    } else {
+      g.font = `${8 * k}px sans-serif`; g.textBaseline = "top"; g.fillStyle = "#" + col.toString(16).padStart(6, "0");
+      g.fillText(ch, x, y); x += g.measureText(ch).width + k;
+    }
+  }
+}
+function signTextMesh(side, hanging) {
+  // SignRenderer: lines 10 font pixels apart (hanging 9), their tops at line x 10 - 20 from the middle, each line
+  // centred; long lines run over the board as in the game (the canvas leaves room)
+  const fpx = hanging ? 0.9 / 64 : 1 / 96, lineH = hanging ? 9 : 10, wpx = hanging ? 100 : 140, k = 6;   // k canvas px a font px
+  const cv = document.createElement("canvas"); cv.width = (wpx + 8) * k; cv.height = (4 * lineH + 4) * k;
+  const col = SIGN_TEXT_COL[side.color] ?? 0;
+  const dark = c => (Math.round(((c >> 16) & 255) * 0.4) << 16) | (Math.round(((c >> 8) & 255) * 0.4) << 8) | Math.round((c & 255) * 0.4);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.magFilter = THREE.NearestFilter;
+  mcFont().then(F => {
+    const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
+    side.lines.forEach((line, i) => {
+      if (!line) return;
+      const y = (2 + i * lineH) * k;
+      if (!F) { g.font = `${8 * k}px sans-serif`; g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = "#" + dark(col).toString(16).padStart(6, "0"); g.fillText(line, cv.width / 2, y); return; }
+      const x = cv.width / 2 - mcTextWidth(F, g, line, k) * k / 2;
+      if (side.glow) {                                   // the 8-way outline, then the text at full colour
+        const oc = col === 0 ? 0xF0EBCC : dark(col);
+        for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) mcDrawText(F, g, line, x + dx * k, y + dy * k, k, oc);
+        mcDrawText(F, g, line, x, y, k, col);
+      } else mcDrawText(F, g, line, x, y, k, dark(col));
+    });
+    t.needsUpdate = true;
+  });
   const m = new THREE.Mesh(new THREE.PlaneGeometry(cv.width / k * fpx, cv.height / k * fpx),
     side.glow ? new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.1, depthWrite: false })   // glowing: full bright
       : new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.1, depthWrite: false }));        // lit like the board

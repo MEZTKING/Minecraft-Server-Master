@@ -220,6 +220,9 @@ map's big flat polygons; each piece of real blocks then rises up out of the grou
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
 
+**Sign text** is drawn in the game's own lettering (from your Minecraft files) at the game's size, in the sign's
+colour, glowing text with its outline.
+
 **Banners** show their real patterns, as saved in the backup shown: each flag is painted from the game's own
 pattern pictures in the game's dye colours, layer by layer (any number of layers, as with your Limitless Banners
 mod), and hangs at its exact angle (standing banners turn in sixteenths of a circle, as in the game). Flags sway
