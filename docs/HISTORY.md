@@ -347,6 +347,11 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**Parrots, armadillos, sniffers.** A parrot sitting on someone's shoulder rides there in its colour, as in the
+game, and parrots everywhere have their own colours. Armadillos roll up into a ball when scared. Sniffers put
+their nose to the ground when digging and lift their head to sniff (simplified versions of the game's animations).
+Rearing horses splay their hind legs too.
+
 **Sky and the last mob details.** In Fancy and Ultra the night sky has the game's own stars, the same ones in the
 same places, turning with the sky through the night and fading at dawn and in rain. The End has its own dark,
 speckled sky. Guardians attacking someone show their beam from the eye to their target, purple at first and

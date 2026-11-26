@@ -1235,6 +1235,8 @@ class TestPosesAndMobs(unittest.TestCase):
                 recs.append(("game_packet", _fb_add_player(22, "00000000-0000-4000-8000-000000000022", 6.0, 64.0, 6.0,
                                                            protocol.table(777)["entity_types"].index("guardian"))))
                 recs.append(("game_packet", _vi(101) + _vi(22) + bytes([17]) + _vi(1) + _vi(7) + bytes([0xFF])))
+            if t == 17:                                   # a parrot lands on the player's left shoulder (19: colour 2 + 1)
+                recs.append(("game_packet", _vi(101) + _vi(7) + bytes([19]) + _vi(19) + _vi(3) + bytes([0xFF])))
             if t == 15:                                   # a critical hit on the zombie (animate, action 4)
                 recs.append(("game_packet", _vi(2) + _vi(20) + bytes([4])))
             if t == 12:                                   # rides the zombie (set_passengers 109: vehicle, count, riders)
@@ -1260,6 +1262,7 @@ class TestPosesAndMobs(unittest.TestCase):
             self.assertIn([10, None, "s", 0], ex["events"])
             self.assertIn([15, "#zombie#20", "cr", 4], ex["events"])   # the crit's stars burst from the zombie
             self.assertIn([16, "#guardian#22", "gt", None], ex["events"])   # its beam on the recording's player
+            self.assertIn([17, None, "shl", 2], ex["events"])                 # a green parrot on the left shoulder
             self.assertIn([12, None, "r", "zombie"], ex["events"])  # riding, and what
             self.assertIn([20, None, "r", ""], ex["events"])        # off again          # a main-hand swing
             self.assertEqual(ex["mobs"], {"#zombie#20": "zombie", "#item#21": "item", "#guardian#22": "guardian"})   # dropped items too
@@ -4447,6 +4450,15 @@ class TestRealBlocks(unittest.TestCase):
         from mcsm import world3d
         self.assertIs(pickle.loads(pickle.dumps(world3d._build_job)), world3d._build_job)
         self.assertFalse(world3d.BuildWorld(".", "./world").processes)
+
+    def test_armadillo_sniffer_parrot_data(self):
+        """Armadillos' and sniffers' states (their own enum kinds, read as their first number), parrots' colours."""
+        from mcsm import paths
+        self.assertEqual(paths.mob_anim("armadillo", {18: (36, ("?", 2))}, True, None), [["ast", 2]])
+        self.assertEqual(paths.mob_anim("sniffer", {17: (34, ("?", 5))}, False, None), [["sst", 5]])
+        self.assertEqual(paths.mob_anim("sniffer", {18: (35, ("?", 99))}, True, None), [])
+        self.assertIn(["variant", "green"], paths.mob_details("parrot", {20: (paths.SER_VARINT, 2)}, True))
+        self.assertIn(["variant", "red_blue"], paths.mob_details("parrot", {19: (paths.SER_VARINT, 0)}, False))
 
     def test_advancements_from_the_jar(self):
         """The toasts' icons and frames: each advancement's display (title key, icon item, frame) from the jar's

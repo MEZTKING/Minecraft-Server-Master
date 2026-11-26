@@ -1395,7 +1395,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
     const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -1613,7 +1613,7 @@ const DYE_ORDER = ["white", "orange", "magenta", "light_blue", "yellow", "lime",
 const HORSE_COAT = ["white", "creamy", "chestnut", "brown", "black", "gray", "darkbrown"];
 const HORSE_MARKS = [null, "white", "whitefield", "whitedots", "blackdots"];
 // variants (registry entries from the recording; missing: the game's default) -> texture, and their own models
-const VAR_TEX = { cat: v => `cat/cat_${v}`, wolf: v => v === "pale" ? "wolf/wolf" : `wolf/wolf_${v}`, cow: v => `cow/cow_${v}`,
+const VAR_TEX = { parrot: v => `parrot/parrot_${v === "gray" ? "grey" : v}`, cat: v => `cat/cat_${v}`, wolf: v => v === "pale" ? "wolf/wolf" : `wolf/wolf_${v}`, cow: v => `cow/cow_${v}`,
   pig: v => `pig/pig_${v}`, chicken: v => `chicken/chicken_${v}`, frog: v => `frog/frog_${v}` };
 const VAR_DEFAULT = { wolf: "pale", cow: "temperate", pig: "temperate", chicken: "temperate", frog: "temperate" };
 const VAR_LAYER = { cow: { cold: "COLD_COW", warm: "WARM_COW" }, chicken: { cold: "COLD_CHICKEN" }, pig: { cold: "COLD_PIG" } };
@@ -1932,6 +1932,35 @@ function blockEntitiesStep() {
     }
   }
 }
+// ---------- parrots on players' shoulders (ParrotOnShoulderLayer): "shl" / "shr", the parrot's colour; sitting
+// on the shoulder 0.4 out from the middle, folded up as when sitting ----------
+const PARROT_COLOURS = ["red_blue", "blue", "green", "yellow_blue", "gray"];
+const SHOULDER = new Map();                              // "name|side|colour" -> {o, F, label}
+function shoulderStep() {
+  const want = new Set();
+  if (EXACT.on) for (const m of Object.values(markers)) {
+    if (!m.group.visible || !m.F || !m.F.parts || !m.F.parts.body) continue;
+    for (const [k, side] of [["shl", 1], ["shr", -1]]) {
+      const v = stateAt(m.name, k, T, -1); if (!(v >= 0 && v < PARROT_COLOURS.length)) continue;
+      const key = `${m.name}|${k}|${v}`; want.add(key);
+      let e = SHOULDER.get(key);
+      if (e && e.F !== m.F) { if (e.o.mesh.parent) e.o.mesh.parent.remove(e.o.mesh); mobMeshes.delete(e.label); SHOULDER.delete(key); e = null; }
+      if (!e) {
+        const label = `#shoulder#${m.name}#${k}#${v}`, o = mobMesh(label, "parrot", { variant: PARROT_COLOURS[v] });
+        mobGroup.remove(o.mesh); m.F.parts.body.add(o.mesh);
+        o.mesh.position.set(side * 0.4, 0, 0); o.mesh.rotation.set(0, 0, 0); o.mesh.visible = true;
+        e = { o, F: m.F, label }; SHOULDER.set(key, e);
+      }
+      mobMesh(e.label, "parrot", { variant: PARROT_COLOURS[v] });   // (builds its model once the models are here)
+      if (e.o.mesh.parent !== m.F.parts.body) { mobGroup.remove(e.o.mesh); m.F.parts.body.add(e.o.mesh); }
+      e.o.mesh.visible = true;
+      const P = e.o.parts;                               // ParrotModel ON_SHOULDER: legs folded, tail down
+      if (P) { for (const n of ["left_leg", "right_leg"]) if (P[n]) setRot(P[n], Math.PI / 2, 0, 0);
+        if (P.tail) setRot(P.tail, P.tail.x + Math.PI / 6, 0, 0); }
+    }
+  }
+  for (const [key, e] of SHOULDER) if (!want.has(key)) { if (e.o.mesh.parent) e.o.mesh.parent.remove(e.o.mesh); mobMeshes.delete(e.label); SHOULDER.delete(key); }
+}
 // ---------- guardians' beams (GuardianRenderer): from its eye to whom it attacks ("gt"), its colour going from
 // purple to yellow-white over the attack (80 ticks, elder ones 60), the beam picture sliding along it ----------
 const GBEAM = { g: new THREE.Group(), list: new Map(), tex: null };
@@ -2199,6 +2228,26 @@ function mobMoves(o, label, kind) {
     o.mesh.rotation.y = 0;
     o.model.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...away));
     o.model.position.set(-away[0] * 0.5, 0.5 - away[1] * 0.5, -away[2] * 0.5);   // (about the block's middle)
+  } else if (kind === "armadillo") {
+    // ArmadilloModel: rolled up (state 1 rolling, 2 scared) only the ball ("cube") shows; otherwise the ball is
+    // hidden (it used to be drawn through its body)
+    const s = stateAt(label, "ast", T, 0), rolled = s === 1 || s === 2;
+    if (P.cube) P.cube.g.visible = rolled;
+    for (const n of ["left_hind_leg", "right_hind_leg", "left_front_leg", "right_front_leg", "tail"]) if (P[n]) P[n].g.visible = !rolled;
+    if (P.body) for (const ch of P.body.g.children) if (ch.isMesh) ch.visible = !rolled;
+    if (P.head) P.head.g.visible = !rolled;              // (tucked inside the ball)
+  } else if (kind === "sniffer") {
+    // SnifferModel's keyframed moves, simplified: digging (5) nose down in the ground, bobbing; sniffing and scenting
+    // (3, 2) the head up and turning; searching (4) the nose low; rising (6) the head up; happy (1) the head wagging
+    const s = stateAt(label, "sst", T, 0), age = T / 50;
+    let hx = 0, hy = 0, by = 0;
+    if (s === 5) { hx = 0.9 + Math.sin(age * 0.8) * 0.12; by = -2 + Math.sin(age * 0.8); }
+    else if (s === 3 || s === 2) { hx = -0.35 + Math.sin(age * 0.5) * 0.1; hy = Math.sin(age * 0.25) * 0.4; }
+    else if (s === 4) { hx = 0.45 + Math.sin(age * 0.3) * 0.08; }
+    else if (s === 6) { hx = -0.5; }
+    else if (s === 1) { hy = Math.sin(age * 0.9) * 0.35; }
+    if (P.head) setRot(P.head, P.head.x + hx, hy, 0);
+    if (P.bone) P.bone.g.position.y = P.bone.p.y - by * MPX;
   } else if (/^(horse|donkey|mule|skeleton_horse|zombie_horse)$/.test(kind)) {
     // AbstractEquineModel: eating (0x10) the head goes down to the grass and nibbles; rearing (0x20) it stands up
     const hf = stateAt(label, "hf", T, 0), k = 0.25;
@@ -2212,6 +2261,9 @@ function mobMoves(o, label, kind) {
       q.g.position.z = -(st * -4 + e * -12 + rest * m[2]) * MPX;
     } else if (P.head_parts) { P.head_parts.g.position.copy(P.head_parts.p); }
     if (P.body) P.body.g.rotation.x = st * (-Math.PI / 4) + (1 - st) * P.body.x;
+    // the hind legs splay a little as it stands (AbstractEquineModel: +-15 degrees x standing)
+    for (const [n, s] of [["left_hind_leg", 1], ["right_hind_leg", -1]]) if (P[n] && st > 0.01)
+      P[n].g.rotation.x = s * 0.2617994 * st + (1 - st) * P[n].g.rotation.x;
     for (const n of ["left_front_leg", "right_front_leg"]) if (P[n] && st > 0.01) {
       const q = P[n]; q.g.position.y = -(2 * st + 14 * (1 - st)) * MPX; q.g.position.z = -(-6 * st - 10 * (1 - st)) * MPX;
       q.g.rotation.x = (-Math.PI / 3 + (n.startsWith("left") ? 1 : -1) * Math.cos(age * 0.6 + Math.PI) * 0.2) * st + (1 - st) * q.g.rotation.x;
@@ -2529,6 +2581,7 @@ function updateMobs() {
   for (const [label, o] of mobMeshes) if (o.tag && (!shown.has(label) || !o.mesh.visible)) o.tag.style.display = "none";
   for (const [label, o] of mobMeshes) if (!shown.has(label)) {
     if (label.startsWith("#gallery#")) { animateMob(o, label, 2); continue; }
+    if (label.startsWith("#shoulder#")) continue;        // parrots on players' shoulders: shoulderStep
     if (mobMeshes.size > 600) {                          // only the box is the mob's own: models share geometry
       mobGroup.remove(o.mesh); o.box.geometry.dispose(); o.box.material.dispose(); mobMeshes.delete(label);
     } else o.mesh.visible = false;
@@ -7667,6 +7720,7 @@ function frame(now) {
   prof("boltStep", () => boltStep()); prof("bobberStep", () => bobberStep());// lightning; fishing lines
   prof("blockEntitiesStep", () => blockEntitiesStep());// books, bells, beacon beams
   prof("guardianBeamsStep", () => guardianBeamsStep());// guardians' beams
+  prof("shoulderStep", () => shoulderStep());           // parrots on shoulders
   prof("ambStep", () => ambStep(now));// particles the player's game makes up (torches, smoke, rain...)
   prof("gfxStep", () => gfxStep(now)); prof("skyStep", () => skyStep());
   prof("render", () => renderer.render(scene, camera));
