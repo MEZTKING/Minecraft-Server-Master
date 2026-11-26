@@ -347,9 +347,14 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**The game's own mob animations.** Mobs the game animates with keyframes move with the game's exact animations,
+read from your Minecraft files: sniffers digging, sniffing and standing up; armadillos rolling up and out; camels
+sitting down and getting up; frogs croaking and jumping; bats flapping; wardens roaring, sniffing, emerging and
+attacking; breezes shooting and jumping.
+
 **Parrots, armadillos, sniffers.** A parrot sitting on someone's shoulder rides there in its colour, as in the
-game, and parrots everywhere have their own colours. Armadillos roll up into a ball when scared. Sniffers put
-their nose to the ground when digging and lift their head to sniff (simplified versions of the game's animations).
+game, and parrots everywhere have their own colours. Armadillos roll up into a ball when scared. Sniffers dig and
+sniff with the game's animations (below).
 Rearing horses splay their hind legs too.
 
 **Sky and the last mob details.** In Fancy and Ultra the night sky has the game's own stars, the same ones in the

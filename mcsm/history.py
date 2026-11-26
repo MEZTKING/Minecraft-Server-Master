@@ -503,6 +503,16 @@ class HistoryMap(TerrainServer):
                     cache = {}
                 self.__dict__["_effects"] = cache
             return {"effects": cache}
+        if path == "/api/mobanims":                  # the game's keyframed mob animations (mcsm.mobanims)
+            cache = self.__dict__.get("_mobanims")
+            if cache is None:
+                from . import blockmesh as bm, mobanims
+                try:
+                    cache = mobanims.read_animations(bm.find_client_jar(None))
+                except (OSError, TypeError, ValueError):
+                    cache = {}
+                self.__dict__["_mobanims"] = cache
+            return {"animations": cache}
         if path == "/api/advancements":              # each advancement's icon and frame, by its title's key
             cache = self.__dict__.get("_advs")
             if cache is None:

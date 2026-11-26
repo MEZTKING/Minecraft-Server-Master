@@ -3977,6 +3977,28 @@ class TestRealBlocks(unittest.TestCase):
         body = bytes([22, paths.SER_VARLONG]) + bytes([0xFF] * 9) + bytes([1]) + bytes([0xFF])
         self.assertEqual(paths.entity_data_all(body, 0, len(body))[22], (paths.SER_VARLONG, -1))
 
+    def test_mob_animations_from_the_jar(self):
+        """The game's keyframed mob animations run out of the jar's animation classes (skipped without a jar here):
+        lengths, looping, keyframes with their times, values (degrees as radians) and blending."""
+        import math
+        from mcsm import blockmesh as bm, mobanims
+        self.assertEqual(mobanims.read_animations(None), {})
+        jar = bm.find_client_jar(None)
+        if not jar:
+            self.skipTest("no Minecraft client jar on this PC")
+        a = mobanims.read_animations(jar)
+        if "SnifferAnimation" not in a:
+            self.skipTest("this jar's animation classes can't be read (obfuscated)")
+        dig = a["SnifferAnimation"]["SNIFFER_DIG"]
+        self.assertEqual((dig["length"], dig["loop"]), (8.0, False))
+        target, keys = dig["bones"]["body"][0]
+        self.assertEqual(target, "rotation")
+        self.assertEqual(keys[0], [0.0, [0.0, 0.0, 0.0], "linear"])
+        self.assertAlmostEqual(keys[1][1][0], math.radians(1.5), places=4)
+        self.assertTrue(a["BatAnimation"]["BAT_FLYING"]["loop"])
+        for cls in ("ArmadilloAnimation", "CamelAnimation", "BreezeAnimation", "WardenAnimation", "FrogAnimation"):
+            self.assertIn(cls, a)
+
     def test_effects_from_the_jar(self):
         """Potion effects' colours and kinds read from the game's MobEffects class (skipped without a jar here)."""
         from mcsm import blockmesh as bm, effects
