@@ -358,7 +358,8 @@ game, and parrots everywhere have their own colours. Armadillos roll up into a b
 sniff with the game's animations (below).
 Rearing horses splay their hind legs too.
 
-**Sky and the last mob details.** In Fancy and Ultra the night sky has the game's own stars, the same ones in the
+**Sky and the last mob details.** The Overworld's sky (its colours through the day, the sun, the moon) shows in every graphics mode, whatever
+the page's theme; the night sky has the game's own stars, the same ones in the
 same places, turning with the sky through the night and fading at dawn and in rain. The End has its own dark,
 speckled sky. Guardians attacking someone show their beam from the eye to their target, purple at first and
 turning yellow-white as the attack builds. An iron golem offering a poppy holds the flower out in its hand.
