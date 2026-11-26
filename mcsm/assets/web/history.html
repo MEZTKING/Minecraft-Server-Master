@@ -786,7 +786,6 @@ SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMa
           if (abs(q.x) < 1.0 && abs(q.y) < 1.0) col += texture2D(uMoonTex, q * 0.5 + 0.5).rgb * (1.0 - uRain);
         }
       } else col = mix(col, vec3(0.85, 0.88, 0.95), smoothstep(0.9995, 0.9998, md) * (1.0 - uRain));   // the moon
-      if (hash(floor(vDir * 420.0)) > 0.9982 && vDir.y > 0.0) col += vec3(0.9) * (1.0 - uDay) * (1.0 - uRain);   // stars
       col = mix(col, vec3(0.36, 0.38, 0.42) * (0.25 + 0.75 * uDay), uRain * 0.85);           // rain clouds
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
@@ -794,6 +793,57 @@ SKY = new THREE.Mesh(new THREE.SphereGeometry(20000, 32, 16), new THREE.ShaderMa
     }`,
 }));
 SKY.frustumCulled = false; SKY.renderOrder = -10; SKY.visible = false; scene.add(SKY);
+// The game's stars (SkyRenderer): 1500 tries from Java's Random with seed 10842, each a small square (0.15-0.25 at
+// 100 away, turned at random) on the sphere, turning with the sun; brightest at midnight, gone by day and in rain.
+function javaRandomSource(seed) {
+  let s = (BigInt(seed) ^ 0x5DEECE66Dn) & ((1n << 48n) - 1n);
+  const next = bits => { s = (s * 0x5DEECE66Dn + 0xBn) & ((1n << 48n) - 1n); return Number(s >> BigInt(48 - bits)); };
+  return { nextFloat: () => next(24) / (1 << 24), nextDouble: () => (next(26) * 134217728 + next(27)) / 9007199254740992 };
+}
+const STARS = (() => {
+  const rnd = javaRandomSource(10842), pos = [], R0 = 100, K = 19000 / R0;
+  for (let i = 0; i < 1500; i++) {
+    const x = rnd.nextFloat() * 2 - 1, y = rnd.nextFloat() * 2 - 1, z = rnd.nextFloat() * 2 - 1, s = 0.15 + rnd.nextFloat() * 0.1;
+    const l2 = x * x + y * y + z * z;
+    if (l2 <= 0.010000001 || l2 >= 1) continue;
+    const L = Math.sqrt(l2), v = [x / L * R0, y / L * R0, z / L * R0];
+    const ang = Math.fround(rnd.nextDouble() * Math.fround(Math.PI) * 2);
+    // Matrix3f.rotateTowards(-v, up): columns left = up x dir, up' = dir x left, dir; then rotateZ(-ang)
+    const d = [-x / L, -y / L, -z / L], lf = [d[2], 0, -d[0]], ll = Math.hypot(...lf) || 1; lf[0] /= ll; lf[2] /= ll;
+    const up = [d[1] * lf[2] - d[2] * lf[1], d[2] * lf[0] - d[0] * lf[2], d[0] * lf[1] - d[1] * lf[0]];
+    const c = Math.cos(-ang), sn = Math.sin(-ang);
+    const corner = (cx, cy) => { const a = cx * c - cy * sn, b = cx * sn + cy * c;
+      return [(v[0] + lf[0] * a + up[0] * b) * K, (v[1] + lf[1] * a + up[1] * b) * K, (v[2] + lf[2] * a + up[2] * b) * K]; };
+    const q = [corner(s, -s), corner(s, s), corner(-s, s), corner(-s, -s)];
+    pos.push(...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3]);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+  m.frustumCulled = false; m.renderOrder = -9; m.rotation.order = "YXZ"; m.visible = false; scene.add(m);
+  return m;
+})();
+// The End's sky (SkyRenderer.renderEndSky): its picture on the inside of a box round you, 16 times across each side,
+// dimmed to 40/255; no sun, moon or stars there
+const END_SKY = (() => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(38000, 38000, 38000), new THREE.MeshBasicMaterial({ color: 0x282828,
+    side: THREE.BackSide, depthWrite: false, fog: false }));
+  new THREE.TextureLoader().load("blocktex/0/environment/end_sky.png", t => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16, 16); t.magFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+    m.material.map = t; m.material.needsUpdate = true; });
+  m.frustumCulled = false; m.renderOrder = -10; m.visible = false; scene.add(m);
+  return m;
+})();
+function skyStep() {
+  const d = $("#dim").value, over = d === "minecraft:overworld", fancy = GFX.mode !== "off";
+  SKY.visible = fancy && over;
+  END_SKY.visible = d === "minecraft:the_end"; END_SKY.position.copy(camera.position);
+  // the stars turn with the sun: Y -90 degrees, then X by the time of day (0 at noon)
+  const a = (LIGHTS.time - 6) / 24 * Math.PI * 2, th = a - Math.PI / 2;
+  const f1 = Math.min(1, Math.max(0, 1 - (Math.cos(th) * 2 + 0.25))), b = f1 * f1 * 0.5 * (1 - (LIGHTS.rain || 0));
+  STARS.visible = fancy && over && b > 0.003;
+  if (STARS.visible) { STARS.position.copy(camera.position); STARS.rotation.set(th, -Math.PI / 2, 0); STARS.material.opacity = b; }
+}
 // the moon's phase: the day number (day time / 24000) mod 8, from full (0) to new (4) and back
 const MOON_PHASES = ["full_moon", "waning_gibbous", "third_quarter", "waning_crescent", "new_moon", "waxing_crescent",
   "first_quarter", "waxing_gibbous"];
@@ -1345,7 +1395,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
     const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -1882,6 +1932,42 @@ function blockEntitiesStep() {
     }
   }
 }
+// ---------- guardians' beams (GuardianRenderer): from its eye to whom it attacks ("gt"), its colour going from
+// purple to yellow-white over the attack (80 ticks, elder ones 60), the beam picture sliding along it ----------
+const GBEAM = { g: new THREE.Group(), list: new Map(), tex: null };
+scene.add(GBEAM.g);
+function guardianBeamsStep() {
+  const seen = new Set();
+  if (EXACT.on) for (const [label, ev] of Object.entries(EXACT.ev)) {
+    if (!ev.gt) continue;
+    const o = mobMeshes.get(label), kind = o && (o.kind || label.split("#")[1]);
+    if (kind !== "guardian" && kind !== "elder_guardian") continue;
+    const i = lower(ev.gt, T, r => r[0]) - 1; if (i < 0 || !ev.gt[i][1]) continue;
+    const who = ev.gt[i][1], m = o.mesh; if (!m || !m.visible) continue;
+    const mk = markers[who], tg = mk ? (mk.group.visible ? mk.group : null) : (mobMeshes.get(who) || {}).mesh;
+    if (!tg) continue;
+    seen.add(label);
+    let b = GBEAM.list.get(label);
+    if (!b) {
+      if (!GBEAM.tex) GBEAM.tex = mobTexture("guardian/guardian_beam").then(t => { if (t) t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; });
+      const mat = new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false });
+      GBEAM.tex.then(t => { if (t) { mat.map = t.clone(); mat.map.needsUpdate = true; mat.needsUpdate = true; } });
+      b = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * Math.SQRT2, 0.2 * Math.SQRT2, 1, 4, 1, true), mat);
+      GBEAM.g.add(b); GBEAM.list.set(label, b);
+    }
+    const elder = kind === "elder_guardian", dur = elder ? 60 : 80, k = Math.min(1, (T - ev.gt[i][0]) / 50 / dur), f2 = k * k;
+    b.material.color.setRGB((64 + f2 * 191) / 255, (32 + f2 * 191) / 255, (128 - f2 * 64) / 255);
+    const [, h] = MOB_SIZE[elder ? "elder_guardian" : "guardian"] || [0.85, 0.85], sc = elder ? 2.35 : 1;
+    const from = m.position.clone(); from.y += h * sc * 0.5;
+    const to = tg.position.clone(); to.y += mk ? 0.9 : 0.4;
+    const dir = to.clone().sub(from), len = dir.length(); if (len < 0.01) continue;
+    b.position.copy(from).addScaledVector(dir, 0.5); b.scale.set(1, len, 1);
+    b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    b.rotateY((T / 50) * 0.05 * -1.5);                 // it turns as it goes
+    if (b.material.map) { b.material.map.repeat.set(1, len / 2); b.material.map.offset.y = -((T / 50) * 0.05 * 0.5 % 1); }
+  }
+  for (const [label, b] of GBEAM.list) if (!seen.has(label)) { GBEAM.g.remove(b); b.geometry.dispose(); b.material.dispose(); GBEAM.list.delete(label); }
+}
 // ---------- lightning (LightningBoltRenderer), fireworks (FireworkParticles), fishing lines (FishingHookRenderer) ----------
 // A strike ("lb", where it hit): the game's bolt, 8 steps of 16 blocks up from the ground, each wandering up to 5
 // blocks across (branches up to 15) from its seed, in four ever wider glowing layers; it shows for 2 ticks, then
@@ -2040,6 +2126,18 @@ function mobMoves(o, label, kind) {
       if (P.right_arm) setRot(P.right_arm, x, 0, 0); if (P.left_arm) setRot(P.left_arm, x, 0, 0); }
     else if (fl !== null && (put === null || put > fl)) { const a = 400 - fl / 50;
       if (P.right_arm) setRot(P.right_arm, -0.8 + 0.025 * TRI(a, 70), 0, 0); if (P.left_arm) setRot(P.left_arm, 0, 0, 0); }
+    // IronGolemFlowerLayer: the poppy itself in that hand (crossed, as the block is drawn)
+    const holding = (at === null || at >= 500) && fl !== null && (put === null || put > fl);
+    if (P.right_arm && (holding || o.poppy)) {
+      if (!o.poppy) {
+        o.poppy = new THREE.Group(); const mat = new THREE.MeshLambertMaterial({ transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
+        texOnce("block/poppy").then(t => { if (t) { mat.map = t; mat.needsUpdate = true; } });
+        for (const r of [Math.PI / 4, -Math.PI / 4]) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.75), mat); q.rotation.y = r; o.poppy.add(q); }
+        o.poppy.position.set(-11 * MPX, -27 * MPX, 6 * MPX); o.poppy.rotation.x = Math.PI / 2;
+        P.right_arm.g.add(o.poppy);
+      }
+      o.poppy.visible = holding;
+    }
   } else if (kind === "wolf") {
     // WolfModel: interested, the head tilts (0.15 pi); shaking itself dry (event 8, 2 s) the body rolls, each part
     // a little after the one before; the tail high when tamed, higher when angry
@@ -7568,8 +7666,9 @@ function frame(now) {
   prof("breakStep", () => breakStep(now));// mining cracks, blocks breaking
   prof("boltStep", () => boltStep()); prof("bobberStep", () => bobberStep());// lightning; fishing lines
   prof("blockEntitiesStep", () => blockEntitiesStep());// books, bells, beacon beams
+  prof("guardianBeamsStep", () => guardianBeamsStep());// guardians' beams
   prof("ambStep", () => ambStep(now));// particles the player's game makes up (torches, smoke, rain...)
-  prof("gfxStep", () => gfxStep(now));
+  prof("gfxStep", () => gfxStep(now)); prof("skyStep", () => skyStep());
   prof("render", () => renderer.render(scene, camera));
 }
 

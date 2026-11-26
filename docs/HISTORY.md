@@ -347,6 +347,11 @@ rods and leaves falling (cherry petals, pale oak and the rest), and rain splashi
 block makes them as often as in the game (the nearest most often), so they look alike but not the same specks as the
 player saw.
 
+**Sky and the last mob details.** In Fancy and Ultra the night sky has the game's own stars, the same ones in the
+same places, turning with the sky through the night and fading at dawn and in rain. The End has its own dark,
+speckled sky. Guardians attacking someone show their beam from the eye to their target, purple at first and
+turning yellow-white as the attack builds. An iron golem offering a poppy holds the flower out in its hand.
+
 **Speed.** Real blocks are turned into the 3D picture in the background (about three and a half times faster than
 before, and off the page's own work, so frames don't stall while pieces load). The server builds several pieces at
 once, one per processor core, and the page asks for three at a time. Moving textures (water, lava, fire, portals)

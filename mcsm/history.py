@@ -839,6 +839,8 @@ class HistoryMap(TerrainServer):
                 # states (flags, pose, hand use, riding): the last one before t0 however long ago, and changes;
                 # moments (swing, hurt, death) only in the window
                 name = w if w and w.startswith("#") else aliases.get(w or r.recorded_player, w or r.recorded_player)
+                if kind == "gt" and value is None:              # a guardian's beam on the recording's own player
+                    value = aliases.get(r.recorded_player, r.recorded_player)
                 if kind == "fo" and not value:                  # the recording's own player's fishing line
                     value = aliases.get(r.recorded_player, r.recorded_player)
                 if kind == "pk" and not value:                  # picked up by the recording's own player: their name
@@ -848,7 +850,7 @@ class HistoryMap(TerrainServer):
                 if kind in ("eq", "hb"):                  # one state per slot: "eq:mainhand", "hb:0" (hotbar)...
                     kind, value = f"{kind}:{value[0]}", value[1:]
                 slotted = kind.startswith(("eq:", "hb:"))
-                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef", "ang", "bo", "bnf", "air", "fz", "xp", "eff", "cp", "eb", "ec", "gc", "wi", "hf", "sha", "spk", "sco", "fo", "fwx")
+                if (kind in ("f", "p", "h", "r", "it", "hs", "hp", "baby", "wool", "variant", "size", "name", "vd", "ar", "ig", "asf", "asp", "tame", "collar", "lead", "hg", "hv", "hi", "hgx", "weather", "pl", "pr", "fb", "gm", "sc", "ef", "ang", "bo", "bnf", "air", "fz", "xp", "eff", "cp", "eb", "ec", "gc", "wi", "hf", "sha", "spk", "sco", "fo", "fwx", "gt")
                         or slotted) and t < t0:                # (mobs' looks: kept from when they were first seen)
                     if (name, kind) not in state_before or state_before[(name, kind)][0] < t:
                         state_before[(name, kind)] = (t, value)

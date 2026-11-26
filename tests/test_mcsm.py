@@ -1231,6 +1231,10 @@ class TestPosesAndMobs(unittest.TestCase):
             if t == 10:                                   # the player starts sneaking (flags 0x02) and swings
                 recs.append(("game_packet", _vi(101) + _vi(7) + bytes([0]) + _vi(0) + bytes([2]) + b"\xff"))
                 recs.append(("game_packet", _vi(2) + _vi(7) + bytes([0])))
+            if t == 16:                                   # a guardian comes into view and aims its beam at the player
+                recs.append(("game_packet", _fb_add_player(22, "00000000-0000-4000-8000-000000000022", 6.0, 64.0, 6.0,
+                                                           protocol.table(777)["entity_types"].index("guardian"))))
+                recs.append(("game_packet", _vi(101) + _vi(22) + bytes([17]) + _vi(1) + _vi(7) + bytes([0xFF])))
             if t == 15:                                   # a critical hit on the zombie (animate, action 4)
                 recs.append(("game_packet", _vi(2) + _vi(20) + bytes([4])))
             if t == 12:                                   # rides the zombie (set_passengers 109: vehicle, count, riders)
@@ -1255,9 +1259,10 @@ class TestPosesAndMobs(unittest.TestCase):
             self.assertIn([10, None, "f", 2], ex["events"])          # sneaking, from tick 10
             self.assertIn([10, None, "s", 0], ex["events"])
             self.assertIn([15, "#zombie#20", "cr", 4], ex["events"])   # the crit's stars burst from the zombie
+            self.assertIn([16, "#guardian#22", "gt", None], ex["events"])   # its beam on the recording's player
             self.assertIn([12, None, "r", "zombie"], ex["events"])  # riding, and what
             self.assertIn([20, None, "r", ""], ex["events"])        # off again          # a main-hand swing
-            self.assertEqual(ex["mobs"], {"#zombie#20": "zombie", "#item#21": "item"})   # dropped items too
+            self.assertEqual(ex["mobs"], {"#zombie#20": "zombie", "#item#21": "item", "#guardian#22": "guardian"})   # dropped items too
             self.assertIn([7, "#item#21", "it", "wheat"], ex["events"])
             self.assertIn([30, "#item#21", "gone", 1], ex["events"])
             self.assertIn("#zombie#20", ex["who"])
@@ -4465,6 +4470,7 @@ class TestRealBlocks(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         self.assertEqual(search.event_text("cr", 4), "critical hit")
+        self.assertEqual(search.event_text("gt", "Steve"), "guardian beam on Steve")
         self.assertEqual(search.event_text("cr", 5), "critical hit (enchanted weapon)")
 
     def test_block_entities(self):
