@@ -220,6 +220,16 @@ map's big flat polygons; each piece of real blocks then rises up out of the grou
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
 
+**Playing a memory like a video.** While reliving, a bar in the black band at the bottom (it shows when you move
+the mouse or pause) has play / pause, back and on 5 seconds, a seek bar over the whole memory, the time, and the
+speed (0.25x to 4x). Keys work as in a video player: Space or K pauses, the arrow keys go back and on 5 seconds, J
+and L 10 seconds, comma and full stop one game tick at a time, Home and End jump to the start and the end. Once
+you've used them the memory waits at its end instead of fading out, so you can go back.
+
+**The game's lettering.** Text the game shows on screen in Relive (chat, the action bar, titles, boss bars, item
+names, the death screen, advancement toasts) uses Minecraft's own letters, made into a font from your Minecraft
+files.
+
 **Sign text** is drawn in the game's own lettering (from your Minecraft files) at the game's size, in the sign's
 colour, glowing text with its outline.
 

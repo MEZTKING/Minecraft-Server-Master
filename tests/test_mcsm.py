@@ -3977,6 +3977,33 @@ class TestRealBlocks(unittest.TestCase):
         body = bytes([22, paths.SER_VARLONG]) + bytes([0xFF] * 9) + bytes([1]) + bytes([0xFF])
         self.assertEqual(paths.entity_data_all(body, 0, len(body))[22], (paths.SER_VARLONG, -1))
 
+    def test_game_font(self):
+        """The game's lettering as a TrueType font: glyph widths measured from a (1-bit palette) font picture as the
+        game measures them, a space 4; the font file's tables in order, its whole-file checksum as TrueType wants."""
+        import zlib
+        from mcsm import mcfont
+
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        # 16 x 8 pixels, 1 bit a pixel: two glyphs of 8 x 8; "A" lit in columns 0-4 of its first row, "B" all empty
+        rows = [bytes([0b11111000, 0b00000000])] + [bytes([0, 0])] * 7
+        raw = b"".join(bytes([0]) + r for r in rows)
+        png = (bytes([0x89]) + b"PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 8, 1, 3, 0, 0, 0))
+               + chunk(b"PLTE", bytes([255] * 6)) + chunk(b"tRNS", bytes([0])) + chunk(b"IDAT", zlib.compress(raw))
+               + chunk(b"IEND", b""))
+        g = mcfont.glyphs_from(png, ["AB"])
+        self.assertEqual(g[ord("A")][0], 6)              # 5 lit columns + 1
+        self.assertEqual(g[ord("A")][1], [(0.0, 5.0, 0.0, 1.0)])
+        self.assertEqual(g[ord("B")], (0, []))
+        self.assertEqual(g[32], (4, []))
+        ttf = mcfont.build_ttf(g)
+        n = struct.unpack_from(">H", ttf, 4)[0]
+        tags = [ttf[12 + 16 * i:16 + 16 * i] for i in range(n)]
+        self.assertEqual(tags, sorted(tags))
+        self.assertEqual(set(tags), {b"OS/2", b"cmap", b"glyf", b"head", b"hhea", b"hmtx", b"loca", b"maxp", b"name",
+                                     b"post"})
+        self.assertEqual(mcfont._checksum(ttf), 0xB1B0AFBA)
+
     def test_mob_animations_from_the_jar(self):
         """The game's keyframed mob animations run out of the jar's animation classes (skipped without a jar here):
         lengths, looping, keyframes with their times, values (degrees as radians) and blending."""

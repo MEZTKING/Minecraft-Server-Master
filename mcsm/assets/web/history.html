@@ -89,24 +89,24 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcHud { position: fixed; left: 50%; bottom: calc(9vh + 2px); transform: translateX(-50%); width: 364px; height: 110px;
   z-index: 21; pointer-events: none; image-rendering: pixelated; }
 #mcHud img { position: absolute; image-rendering: pixelated; }
-#mcHud .n { position: absolute; color: #fff; font: 700 14px/1 monospace; text-shadow: 2px 2px 0 #3f3f3f; }
-#mcHud .lvl { position: absolute; left: 0; right: 0; text-align: center; color: #80ff20; font: 700 14px/1 monospace;
+#mcHud .n { position: absolute; color: #fff; font: 700 14px/1 "mcsm game", monospace; text-shadow: 2px 2px 0 #3f3f3f; }
+#mcHud .lvl { position: absolute; left: 0; right: 0; text-align: center; color: #80ff20; font: 700 14px/1 "mcsm game", monospace;
   text-shadow: 2px 0 #000, -2px 0 #000, 0 2px #000, 0 -2px #000; }
 #mcCross { position: fixed; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; z-index: 21;
   image-rendering: pixelated; pointer-events: none; mix-blend-mode: difference; }
 /* the action bar (just above the hotbar, GUI scale 2) and titles (4x and 2x, the middle of the screen) */
 #mcBar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(9vh + 2px + 128px); z-index: 21;
-  pointer-events: none; color: #fff; font: 16px/16px monospace; white-space: pre; --sh: 2px; }
+  pointer-events: none; color: #fff; font: 16px/16px "mcsm game", monospace; white-space: pre; --sh: 2px; }
 #mcTitle { position: fixed; left: 0; right: 0; top: 50%; z-index: 21; pointer-events: none; text-align: center;
   white-space: pre; color: #fff; }
-#mcTitle .t { position: absolute; left: 0; right: 0; top: -80px; font: 64px/64px monospace; --sh: 8px; }
-#mcTitle .s { position: absolute; left: 0; right: 0; top: 20px; font: 32px/32px monospace; --sh: 4px; }
+#mcTitle .t { position: absolute; left: 0; right: 0; top: -80px; font: 64px/64px "mcsm game", monospace; --sh: 8px; }
+#mcTitle .s { position: absolute; left: 0; right: 0; top: 20px; font: 32px/32px "mcsm game", monospace; --sh: 4px; }
 #mcBar span, #mcTitle span, #mcChat span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
 /* boss bars: the top of the screen, 182 x 5 game pixels each, 19 apart, the name over each */
 #mcBoss { position: fixed; left: 50%; top: 0; transform: translateX(-50%); width: 364px; z-index: 21; pointer-events: none; }
 #mcBoss .bar { position: relative; height: 38px; }
 #mcBoss .bar img { position: absolute; left: 0; top: 24px; height: 10px; image-rendering: pixelated; object-fit: cover; object-position: left; }
-#mcBoss .name { position: absolute; left: -200px; right: -200px; top: 6px; text-align: center; color: #fff; font: 16px/16px monospace;
+#mcBoss .name { position: absolute; left: -200px; right: -200px; top: 6px; text-align: center; color: #fff; font: 16px/16px "mcsm game", monospace;
   white-space: pre; --sh: 2px; }
 #mcBoss span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
 /* looking through a spyglass in their eyes: the scope picture in the middle, black round it (Gui.renderSpyglassOverlay) */
@@ -121,16 +121,18 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcFx .water { inset: 0; background-repeat: repeat; image-rendering: pixelated; }
 #mcFx .pumpkin, #mcFx .snow, #mcFx .vignette { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 #mcFx .vignette { filter: invert(1); mix-blend-mode: multiply; }
+/* the game's own lettering (/gamefont.ttf: made from the game's font picture by mcsm.mcfont) for its text on screen */
+@font-face { font-family: "mcsm game"; src: url(gamefont.ttf) format("truetype"); font-display: swap; }
 /* the death screen (DeathScreen: red over the view, "You Died!" twice the size, the cause, the score, two buttons),
    lying in bed (Gui's sleep darkness, the Leave Bed button), advancement toasts (top right, sliding in) */
 #mcDeath { position: fixed; inset: 0; z-index: 22; pointer-events: none; text-align: center; color: #fff; white-space: pre;
   background: linear-gradient(rgba(80, 0, 0, 0.376), rgba(128, 48, 48, 0.627)); }
-#mcDeath .t { position: absolute; left: 0; right: 0; top: 120px; font: 32px/32px monospace; --sh: 4px; }
-#mcDeath .m { position: absolute; left: 0; right: 0; top: 170px; font: 16px/16px monospace; }
-#mcDeath .s { position: absolute; left: 0; right: 0; top: 200px; font: 16px/16px monospace; }
+#mcDeath .t { position: absolute; left: 0; right: 0; top: 120px; font: 32px/32px "mcsm game", monospace; --sh: 4px; }
+#mcDeath .m { position: absolute; left: 0; right: 0; top: 170px; font: 16px/16px "mcsm game", monospace; }
+#mcDeath .s { position: absolute; left: 0; right: 0; top: 200px; font: 16px/16px "mcsm game", monospace; }
 #mcDeath span, #mcSleep span, #mcToasts span { text-shadow: var(--sh, 2px) var(--sh, 2px) 0 var(--shc, #3f3f3f); }
 .mcBtn { position: absolute; left: 50%; width: 400px; height: 40px; margin-left: -200px; image-rendering: pixelated;
-  background: url(blocktex/0/gui/sprites/widget/button.png) 0 0 / 100% 100%; font: 16px/40px monospace; color: #fff; text-align: center; }
+  background: url(blocktex/0/gui/sprites/widget/button.png) 0 0 / 100% 100%; font: 16px/40px "mcsm game", monospace; color: #fff; text-align: center; }
 .mcBtn.off { background-image: url(blocktex/0/gui/sprites/widget/button_disabled.png); color: #a0a0a0; }
 #mcDeath .b1 { top: calc(25% + 144px); } #mcDeath .b2 { top: calc(25% + 192px); }
 #mcSleep { position: fixed; inset: 0; z-index: 18; pointer-events: none; background: #101020; }
@@ -139,16 +141,16 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcToasts .toast { position: relative; width: 320px; height: 64px; image-rendering: pixelated; white-space: pre; overflow: hidden;
   background: url(blocktex/0/gui/sprites/toast/advancement.png) 0 0 / 100% 100%; }
 #mcToasts .toast img { position: absolute; left: 16px; top: 16px; width: 32px; height: 32px; image-rendering: pixelated; }
-#mcToasts .toast .h { position: absolute; left: 60px; top: 14px; font: 16px/16px monospace; }
-#mcToasts .toast .n { position: absolute; left: 60px; top: 36px; font: 16px/16px monospace; }
+#mcToasts .toast .h { position: absolute; left: 60px; top: 14px; font: 16px/16px "mcsm game", monospace; }
+#mcToasts .toast .n { position: absolute; left: 60px; top: 36px; font: 16px/16px "mcsm game", monospace; }
 /* their effects' icons, top right (Gui.renderEffects, GUI scale 2), and the held item's name over the hotbar */
 #mcEff { position: fixed; top: 2px; right: 0; z-index: 21; pointer-events: none; }
 #mcEff img { position: absolute; image-rendering: pixelated; }
 #mcName { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(9vh + 2px + 118px - 16px); z-index: 21;
-  pointer-events: none; color: #fff; font: 16px/16px monospace; white-space: pre; text-shadow: 2px 2px 0 #3f3f3f; }
+  pointer-events: none; color: #fff; font: 16px/16px "mcsm game", monospace; white-space: pre; text-shadow: 2px 2px 0 #3f3f3f; }
 #skyFlash { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #dfe6ff; mix-blend-mode: screen; opacity: 0; }
 #mcChat { position: fixed; left: 8px; bottom: calc(9vh + 90px); z-index: 21; pointer-events: none; max-width: 640px; }
-#mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 15px/1.5 monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
+#mcChat div { background: rgba(0,0,0,.5); color: #fff; font: 16px/18px "mcsm game", monospace; padding: 0 6px; text-shadow: 2px 2px 0 #3f3f3f;
   transition: opacity .8s; }
 body.relive #hotbar { bottom: calc(9vh + 54px); }
 #hotbar .stats { display: flex; justify-content: space-between; width: 370px; margin: 0 auto 3px; }
@@ -222,6 +224,18 @@ body.relive #relive .sub { display: none; }
 #rlLoadFill { height: 100%; width: 0; background: rgba(74,63,51,.55); transition: width .5s; }
 #rlLoad .msg { font-size: 12px; color: rgba(74,63,51,.7); margin-top: 6px; }
 #relive .hint { position: absolute; right: 16px; bottom: calc(9vh + 8px); color: rgba(255,255,255,.55); font-size: 12px; }
+/* playing a memory like a video: in the black bar at the bottom, shown while the mouse moves or it's paused */
+#rlCtl { position: absolute; left: 50%; bottom: calc(4.5vh - 17px); transform: translateX(-50%); width: min(860px, 94vw);
+  display: flex; align-items: center; gap: 8px; pointer-events: auto; color: #ddd; font: 13px/1 system-ui, sans-serif;
+  transition: opacity .35s; }
+#rlCtl.idle { opacity: 0; }
+#rlCtl button { background: rgba(255,255,255,.12); color: #fff; border: 0; border-radius: 4px; padding: 6px 10px;
+  font: 13px/1 system-ui, sans-serif; cursor: pointer; min-width: 34px; }
+#rlCtl button:hover { background: rgba(255,255,255,.25); }
+#rlCtl input[type=range] { flex: 1; accent-color: #ffd27a; cursor: pointer; }
+#rlCtl select { background: rgba(255,255,255,.12); color: #fff; border: 0; border-radius: 4px; padding: 4px; }
+#rlCtl select option { color: #000; }
+#rlTime { min-width: 92px; text-align: center; font-variant-numeric: tabular-nums; }
 .label { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;
   background: rgba(11,11,11,.72); color: #fff; white-space: nowrap; }
 .label.stale { opacity: .55; font-style: italic; }
@@ -336,7 +350,14 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
     <div id="rlLoad"><div class="bar"><div id="rlLoadFill"></div></div><div class="msg" id="rlLoadMsg"></div></div></div>
-  <div class="hint" id="rlHint">V: change view · Esc to leave</div></div>
+  <div class="hint" id="rlHint">Space: pause · ← →: 5 s · V: change view · Esc to leave</div>
+  <div id="rlCtl"><button id="rlPlay" type="button" title="Play / pause (Space or K)">❚❚</button>
+    <button id="rlBack" type="button" title="Back 5 seconds (←; J: 10 s; , one tick when paused)">−5 s</button>
+    <button id="rlFwd" type="button" title="On 5 seconds (→; L: 10 s; . one tick when paused)">+5 s</button>
+    <input id="rlSeek" type="range" min="0" max="1000" step="1" value="0" title="Move through the memory">
+    <span id="rlTime">0:00 / 0:00</span>
+    <select id="rlRate" title="Speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div></div>
 
 <aside id="panel" class="card">
   <div class="head row" style="margin-top:0;justify-content:space-between">
@@ -4979,6 +5000,7 @@ function relive(name, start, end, key = null) {
     cam: camera.position.clone(), target: controls.target.clone(), near: camera.near };
   if (SPEC.name) setSpec(""); if (FREE.on) setFree(false); if (DEV.on) setDev(false);
   Object.assign(RELIVE, { on: true, name, start, end, key, phase: "load", since: performance.now(), e: 0,
+    paused: false, rate: 1, touched: false, ctlAt: performance.now(), uiAt: 0,
     eye: null, fogObj: null, fog0: null, wall: Infinity, wallS: undefined, rayT: 0, maxPending: 0 });
   $("#rlLoad").hidden = false; $("#rlLoadFill").style.width = "0%";
   CLIP.nLoad = 0; if (CLIP.uniforms) CLIP.uniforms.uLoadN.value = 0;   // never the loading grid in a memory
@@ -4998,6 +5020,40 @@ function reliveCaption(t) {
     && Math.hypot(o.cur.pos[0] - c.pos[0], o.cur.pos[2] - c.pos[2]) < 48).map(([n]) => n) : [];
   $("#rlWho").textContent = near.length ? `${RELIVE.name} with ${near.join(", ")}` : RELIVE.name;
 }
+// ---------- playing a memory like a video: pause, back and on, the seek bar, speed ----------
+function reliveSeek(t) {
+  const R = RELIVE; if (!R.on || R.phase === "load") return;
+  R.touched = true; R.ctlAt = performance.now();
+  T = Math.max(R.start, Math.min(R.end, t));
+  if (R.phase !== "play") {                              // seeking out of the fade in or out: straight into the memory
+    R.phase = "play"; $("#rlWhite").style.opacity = 0; $("#rlCap").style.opacity = 0; renderer.domElement.style.filter = "";
+  }
+  if (T >= R.end) R.paused = true;
+  reliveUi(true);
+}
+function relivePause(p = !RELIVE.paused) {
+  const R = RELIVE; if (!R.on) return;
+  R.touched = true; R.ctlAt = performance.now();
+  if (!p && T >= R.end) T = R.start;                     // play at the end: from the start again
+  R.paused = p; reliveUi(true);
+}
+const mmss = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function reliveUi(force) {
+  const R = RELIVE, now = performance.now();
+  if (!force && now - R.uiAt < 100) return; R.uiAt = now;
+  const len = Math.max(1, R.end - R.start), f = (T - R.start) / len;
+  if (!R.dragging) $("#rlSeek").value = String(Math.round(Math.max(0, Math.min(1, f)) * 1000));
+  $("#rlTime").textContent = `${mmss(T - R.start)} / ${mmss(len)}`;
+  $("#rlPlay").textContent = R.paused ? "▶" : "❚❚";
+  $("#rlCtl").classList.toggle("idle", !R.paused && now - R.ctlAt > 2500 && !R.dragging);
+}
+$("#rlPlay").onclick = e => { relivePause(); e.currentTarget.blur(); };   // (so Space goes to the memory)
+$("#rlBack").onclick = e => { reliveSeek(T - 5000); e.currentTarget.blur(); };
+$("#rlFwd").onclick = e => { reliveSeek(T + 5000); e.currentTarget.blur(); };
+$("#rlSeek").addEventListener("input", e => { RELIVE.dragging = true; reliveSeek(RELIVE.start + (RELIVE.end - RELIVE.start) * (+e.target.value / 1000)); });
+$("#rlSeek").addEventListener("change", e => { RELIVE.dragging = false; e.target.blur(); });
+$("#rlRate").onchange = e => { RELIVE.rate = +e.target.value; RELIVE.touched = true; e.target.blur(); };
+addEventListener("mousemove", () => { if (RELIVE.on) RELIVE.ctlAt = performance.now(); });
 function reliveExit() {
   const p = RELIVE.prev || {};
   RELIVE.on = false; document.body.classList.remove("relive"); $("#relive").hidden = true;
@@ -5048,9 +5104,13 @@ function reliveTick(now, dt) {
   if (R.phase === "in" || R.phase === "play") {
     const fade = Math.min(1, age / 2.2);
     if (R.phase === "in") { $("#rlWhite").style.opacity = 1 - fade; $("#rlCap").style.opacity = 1 - fade; if (fade >= 1) R.phase = "play"; }
-    const slow = R.key != null && Math.abs(T - R.key) < 1800 ? 0.35 : 1;
-    T += dt * slow; R.e += dt / 1000;
-    if (T >= R.end) { T = R.end; R.phase = "out"; R.since = now; reliveCaption(R.key ?? R.start); }
+    const slow = R.key != null && Math.abs(T - R.key) < 1800 && !R.touched ? 0.35 : 1;
+    if (!R.paused) { T += dt * slow * R.rate; R.e += dt / 1000; }
+    if (T >= R.end) {
+      T = R.end;
+      if (R.touched) R.paused = true;                    // played like a video: it stops at the end (rewind, or Esc)
+      else { R.phase = "out"; R.since = now; reliveCaption(R.key ?? R.start); }
+    }
   } else if (R.phase === "out") {
     const f = Math.min(1, age / 2.5);
     $("#rlWhite").style.opacity = f; $("#rlCap").style.opacity = Math.max(0, (age - 1) / 1.5);
@@ -5059,6 +5119,7 @@ function reliveTick(now, dt) {
   }
   if (T > view[1] || T < view[0]) setView();
   update(now, false);
+  reliveUi(false);
   // subtitles: what anyone near said, with their name
   const lines = [];
   for (const [n, list] of Object.entries(chatBy)) {
@@ -7793,6 +7854,14 @@ addEventListener("keydown", e => {
   if (e.code === "Escape" && document.body.classList.contains("clean")) { setClean(false); return; }
   if (e.code === "Escape" && RELIVE.on) { reliveExit(); return; }
   if (RELIVE.on && (e.code === "KeyV" || e.code === "F5")) { e.preventDefault(); reliveView(); return; }
+  if (RELIVE.on) {                                                          // like a video player
+    const sk = { ArrowLeft: -5000, ArrowRight: 5000, KeyJ: -10000, KeyL: 10000 }[e.code];
+    if (e.code === "Space" || e.code === "KeyK") { e.preventDefault(); relivePause(); return; }
+    if (sk) { e.preventDefault(); reliveSeek(T + sk); return; }
+    if (e.code === "Comma" || e.code === "Period") { e.preventDefault(); relivePause(true); reliveSeek(T + (e.code === "Comma" ? -50 : 50)); return; }
+    if (e.code === "Home") { e.preventDefault(); reliveSeek(RELIVE.start); return; }
+    if (e.code === "End") { e.preventDefault(); reliveSeek(RELIVE.end); return; }
+  }
   if (RELIVE.on && e.code !== "Backquote") return;                         // a memory plays on its own
   if (e.code === "Escape" && SHOT.preview) { SHOT.preview = false; setPlaying(false); controls.enabled = true; toastStatus("Preview stopped."); return; }
   if (e.code === "Escape" && SPEC.name) { setSpec(""); for (const m of Object.values(markers)) m.F.fig.visible = true; return; }

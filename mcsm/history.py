@@ -1591,6 +1591,21 @@ class HistoryMap(TerrainServer):
         """Files of the build's 3D world: /tl3d/<id>/tile/<rx>/<rz>/<step>, blocks-<key>.bin, tex/<name>.png;
         and the real blocks close up: /blocktile/<layer>/<key>.bin, /blocktex/<name>.png; the year in review's
         page: /review, /review/<year>, /review/<year>/<player>."""
+        if path == "/gamefont.ttf":                  # the game's lettering as a font (mcsm.mcfont), made once
+            from . import blockmesh as bm, mcfont
+            jar = bm.find_client_jar(None)
+            if not jar:
+                return None
+            out = os.path.join(paths_mod.default_cache_dir(), f"gamefont-{mcfont.VERSION}-{os.path.basename(jar)}.ttf")
+            if not os.path.isfile(out):
+                data = mcfont.game_font(jar)
+                if not data:
+                    return None
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                with open(out + ".part", "wb") as fh:
+                    fh.write(data)
+                os.replace(out + ".part", out)
+            return out
         if path == "/review" or path.startswith("/review/"):
             return os.path.join(os.path.dirname(__file__), "assets", "web", "review.html")
         if path.startswith("/blocktile/") and path.endswith(".bin"):
