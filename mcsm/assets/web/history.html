@@ -1422,7 +1422,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), spawnerMob: sp => spawnerMob(sp), spawnersStep: () => spawnersStep(performance.now()), signMesh: sg => signMesh(sg), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), fangsStep: () => fangsStep(), spawnerMob: sp => spawnerMob(sp), spawnersStep: () => spawnersStep(performance.now()), signMesh: sg => signMesh(sg), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
     const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -1839,7 +1839,11 @@ function mobMesh(label, kind, look = null) {
   if (PROJ[kind] !== undefined) {                       // something thrown or shot: its item, flying
     if (!o.icon) { itemIcon(o); o.icon.position.y = 0; o.proj = PROJ[kind]; if (PROJ[kind]) setItemIcon(o, PROJ[kind]);
       if (kind === "arrow" || kind === "spectral_arrow") arrowModel(kind).then(g => { if (g) { o.arrow = g; o.mesh.add(g); } });
-      if (kind === "trident") tridentModel().then(g => { if (g) { o.arrow = g; o.mesh.add(g); } }); }
+      if (kind === "trident") tridentModel().then(g => { if (g) { o.arrow = g; o.mesh.add(g); } });
+      const pm = PROJ_MODEL[kind];                      // drawn as their own models (ShulkerBulletRenderer...)
+      if (pm && MOBM && MOBM[pm[0]]) { const raw = rawModel(pm[0], pm[1]); const g = new THREE.Group(); g.scale.set(-pm[2], -pm[2], pm[2]);
+        g.add(raw); o.arrow = g; o.projSpin = kind === "shulker_bullet"; o.mesh.add(g); } }
+    if (o.projSpin && o.arrow) { const a = performance.now() / 50; o.arrow.rotation.set(Math.sin(a * 0.1) * Math.PI, Math.cos(a * 0.1) * Math.PI, Math.sin(a * 0.15) * Math.PI); }
     return o;
   }
   if (look) {                                          // its looks changed (grew up, sheared, dyed...): built again
@@ -1988,6 +1992,43 @@ function shoulderStep() {
   }
   for (const [key, e] of SHOULDER) if (!want.has(key)) { if (e.o.mesh.parent) e.o.mesh.parent.remove(e.o.mesh); mobMeshes.delete(e.label); SHOULDER.delete(key); }
 }
+// ---------- evoker fangs ("fang" [x, y, z], in the order the evoker made them): each bites after its warm-up (the n-th
+// of the same tick n ticks later, as the evoker's line of 16), then EvokerFangsRenderer over 22 ticks: the jaws rise
+// out of the ground and snap shut (EvokerFangsModel), shrinking away at the end ----------
+const FANGS = { g: new THREE.Group(), shown: new Map() };
+scene.add(FANGS.g);
+function fangsStep() {
+  const want = new Map();
+  if (EXACT.on && MOBM && MOBM.EVOKER_FANGS) for (const ev of Object.values(EXACT.ev)) {
+    const L = ev.fang; if (!L) continue;
+    let i = lower(L, T - 3000, r => r[0]), n = 0, lastT = null;
+    for (; i < L.length && L[i][0] <= T; i++) {
+      n = L[i][0] === lastT ? n + 1 : 0; lastT = L[i][0];
+      const start = L[i][0] + Math.min(n, 15) * 50, ticks = (T - start) / 50;
+      if (ticks < 0 || ticks > 22) continue;
+      const v = L[i][1], key = `${v[0]},${v[1]},${v[2]}|${Math.round(L[i][0] / 100)}`;
+      if (!want.has(key)) want.set(key, { v, ticks });
+    }
+  }
+  for (const [k, o] of FANGS.shown) if (!want.has(k)) { FANGS.g.remove(o); FANGS.shown.delete(k); }
+  for (const [k, e] of want) {
+    let o = FANGS.shown.get(k);
+    if (!o) {
+      o = new THREE.Group(); const flip = new THREE.Group(), inner = new THREE.Group(), raw = rawModel("EVOKER_FANGS", "illager/evoker_fangs");
+      inner.position.y = -0.626; inner.scale.setScalar(0.5); inner.add(raw); flip.add(inner); o.add(flip);
+      o.position.set(e.v[0], e.v[1], e.v[2]); o.rotation.y = (90 - (e.v[0] * 37 + e.v[2] * 13) % 360) * Math.PI / 180;
+      o.userData = { flip, raw }; FANGS.g.add(o); FANGS.shown.set(k, o);
+    }
+    const f = Math.min(1, e.ticks / 20), f1 = f > 0.9 ? 2 * (1 - f) / 0.1 : 2;
+    o.userData.flip.scale.set(-f1, -f1, f1);
+    const P = o.userData.raw.userData.parts;
+    let j = Math.min(f * 2, 1); j = 1 - j * j * j;
+    const y = 24 - (f + Math.sin(f * 2.7)) * 0.6 * 12;
+    if (P.upper_jaw) { P.upper_jaw.g.rotation.z = -(Math.PI - j * 0.35 * Math.PI); P.upper_jaw.g.position.y = -y * MPX; }
+    if (P.lower_jaw) { P.lower_jaw.g.rotation.z = -(Math.PI + j * 0.35 * Math.PI); P.lower_jaw.g.position.y = -y * MPX; }
+    if (P.base) P.base.g.position.y = -y * MPX;
+  }
+}
 // ---------- guardians' beams (GuardianRenderer): from its eye to whom it attacks ("gt"), its colour going from
 // purple to yellow-white over the attack (80 ticks, elder ones 60), the beam picture sliding along it ----------
 const GBEAM = { g: new THREE.Group(), list: new Map(), tex: null };
@@ -2083,6 +2124,11 @@ function boltStep() {
 // A firework bursting ("fwb", where; its explosions from "fwx"): FireworkParticles.Starter's shapes (small and
 // large balls, a burst; stars and creeper faces as large balls here) of sparks in its colours fading to its fade
 // colours, with trails and twinkling, and the white flash.
+// FireworkParticles.Starter's outlines for a star and a creeper's face
+const FW_STAR = [[0, 1], [0.3455, 0.309], [0.9511, 0.309], [0.477, -0.1545], [0.7939, -0.809], [0, -0.359], [-0.7939, -0.809],
+  [-0.477, -0.1545], [-0.9511, 0.309], [-0.3455, 0.309], [0, 1]];
+const FW_CREEPER = [[0, 0.2], [0.2, 0.2], [0.2, 0.6], [0.6, 0.6], [0.6, 0.2], [0.2, 0.2], [0.2, 0], [0.4, 0], [0.4, -0.6],
+  [0.2, -0.6], [0.2, -0.4], [0, -0.4]];
 function fireworkBursts(t0, t1) {
   if (!EXACT.on) return;
   for (const [name, ev] of Object.entries(EXACT.ev)) {
@@ -2097,7 +2143,22 @@ function fireworkBursts(t0, t1) {
             col: [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1], fade: fd, bright: true,
             frames: ambFrames("firework"), twinkle, trail, spark: true });
         };
-        if (shape === 4) {                              // a burst: up and out
+        if (shape === 2 || shape === 3) {               // a star or a creeper's face: createParticleShape(0.5, ...)
+          const pts = shape === 2 ? FW_STAR : FW_CREEPER, sp = 0.5, creeper = shape === 3;
+          let [d4, d5] = pts[0]; spark(d4 * sp, d5 * sp, 0);
+          const f = R() * Math.PI, d2 = creeper ? 0.034 : 0.34;
+          for (let i2 = 0; i2 < 3; i2++) {
+            const d3 = f + i2 * Math.PI * d2; [d4, d5] = pts[0];
+            for (let j = 1; j < pts.length; j++) {
+              const [d6, d7] = pts[j];
+              for (let d8 = 0.25; d8 <= 1; d8 += 0.25) {
+                let d9 = (d4 + (d6 - d4) * d8) * sp; const d10 = (d5 + (d7 - d5) * d8) * sp, d11 = d9 * Math.sin(d3); d9 *= Math.cos(d3);
+                for (const d12 of [-1, 1]) spark(d9 * d12, d10, d11 * d12);
+              }
+              d4 = d6; d5 = d7;
+            }
+          }
+        } else if (shape === 4) {                       // a burst: up and out
           const d0 = GAUSS() * 0.05, d1 = GAUSS() * 0.05;
           for (let n = 0; n < 70; n++) spark(GAUSS() * 0.15 + d0, R() * 0.5, GAUSS() * 0.15 + d1);
         } else {                                        // a ball: small (0.25, 2) or large (0.5, 4)
@@ -2442,6 +2503,8 @@ const PROJ = { egg: "egg", snowball: "snowball", ender_pearl: "ender_pearl", arr
   potion: "splash_potion", fireball: "fire_charge", small_fireball: "fire_charge", wind_charge: "wind_charge",
   breeze_wind_charge: "wind_charge", firework_rocket: "firework_rocket", eye_of_ender: "ender_eye", dragon_fireball: "",
   wither_skull: "", llama_spit: "", shulker_bullet: "", fishing_bobber: "" };   // (a bobber: its hook and line, see bobberStep)
+// thrown things drawn as the game's models: [layer, texture, scale]
+const PROJ_MODEL = { shulker_bullet: ["SHULKER_BULLET", "shulker/spark", 0.5], llama_spit: ["LLAMA_SPIT", "llama/llama_spit", 1] };
 const PROJ_PHYS = { arrow: [0.05, 0.99, 60], spectral_arrow: [0.05, 0.99, 60], trident: [0.05, 0.99, 60],
   splash_potion: [0.05, 0.99], lingering_potion: [0.05, 0.99], potion: [0.05, 0.99], experience_bottle: [0.07, 0.99],
   fireball: [0, 1], small_fireball: [0, 1], wind_charge: [0, 1], breeze_wind_charge: [0, 1], firework_rocket: [-0.04, 1, 40] };
@@ -8075,6 +8138,7 @@ function frame(now) {
   prof("blockEntitiesStep", () => blockEntitiesStep());// books, bells, beacon beams
   prof("guardianBeamsStep", () => guardianBeamsStep());// guardians' beams
   prof("shoulderStep", () => shoulderStep());           // parrots on shoulders
+  prof("fangsStep", () => fangsStep());                 // evoker fangs
   prof("ambStep", () => ambStep(now));// particles the player's game makes up (torches, smoke, rain...)
   prof("gfxStep", () => gfxStep(now)); prof("skyStep", () => skyStep());
   prof("render", () => renderer.render(scene, camera));

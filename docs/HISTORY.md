@@ -220,6 +220,9 @@ map's big flat polygons; each piece of real blocks then rises up out of the grou
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
 
+**Rarer sights.** Star- and creeper-shaped fireworks burst in their shapes; an evoker's fangs come up out of the
+ground and snap, one after another along the line; shulker bullets and llama spit fly as their own models.
+
 **Wear, absorption, spawners, portals.** In Relive the hotbar shows worn tools' and armour's durability bars,
 and absorption (a golden apple) adds golden hearts above the red ones. Monster spawners show the little mob they
 make turning inside the cage when someone is near. Walking into a nether portal through someone's eyes, the

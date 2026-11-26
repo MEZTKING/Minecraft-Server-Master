@@ -21,7 +21,7 @@ import os
 import re
 
 # kinds whose value starts with x, y, z (a line for them takes the camera to the place)
-POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc", "lb", "fwb", "bl"}
+POSITIONED = {"bb", "sg", "ce", "pi", "le", "pt", "mc", "lb", "fwb", "bl", "fang"}
 # event kinds not worth a line: they change many times a second (flags, swings, the held slot, health, hand use,
 # boats' paddles, arrows in the ground, mining stages) or say nothing on their own (left view)
 NOISY = {"f", "s", "hs", "hp", "h", "pl", "pr", "ig", "asp", "gone", "mc", "ar", "air", "fz"}
@@ -117,6 +117,8 @@ def event_text(kind: str, value, lang: dict | None = None) -> str | None:
         return "critical hit" + (" (enchanted weapon)" if value == 5 else "")
     if kind == "bl":
         return "bell rung"
+    if kind == "fang":
+        return "evoker fangs at " + " ".join(str(round(v)) for v in value)
     if kind == "lb":
         return "lightning struck at " + " ".join(str(round(v)) for v in value)
     if kind == "fwb":

@@ -4541,6 +4541,7 @@ class TestRealBlocks(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
         self.assertEqual(search.event_text("cr", 4), "critical hit")
         self.assertEqual(search.event_text("gt", "Steve"), "guardian beam on Steve")
+        self.assertEqual(search.event_text("fang", [1.4, 64.0, -3.6]), "evoker fangs at 1 64 -4")
         self.assertEqual(search.event_text("cr", 5), "critical hit (enchanted weapon)")
 
     def test_block_entities(self):
