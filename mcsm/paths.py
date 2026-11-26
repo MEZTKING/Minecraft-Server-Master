@@ -714,6 +714,9 @@ def _component(name: str, b, k: int) -> tuple[int, object]:
     if name == "map_id":                                # a filled map's number (its picture)
         v, k = _varint(b, k)
         return k, ("map", v)
+    if name in ("damage", "max_damage"):                # wear: the durability bar
+        v, k = _varint(b, k)
+        return k, (name, v)
     if name in _VARINT_COMPONENTS:
         return _varint(b, k)[1], None
     if name in _UNIT_COMPONENTS:
@@ -850,6 +853,8 @@ def item_stack(b, k: int, items: list, comps: list) -> tuple[list, int]:
                 look = {**(look or {}), "map": val[1]}
             elif isinstance(val, tuple) and val[0] == "fw":
                 look = {**(look or {}), "fw": val[1]}
+            elif isinstance(val, tuple) and val[0] in ("damage", "max_damage"):
+                look = {**(look or {}), val[0]: val[1]}
             elif isinstance(val, tuple) and val[0] == "trim" and val[1]:
                 look = {**(look or {}), "trim": val[1]}          # [material, pattern]
         for _ in range(rem):
@@ -1187,6 +1192,8 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                                         extras["events"].append([tick, who, "air", da[1][1]])
                                     if da.get(7, (None,))[0] == SER_VARINT:
                                         extras["events"].append([tick, who, "fz", da[7][1]])
+                                    if da.get(17, (None,))[0] == SER_FLOAT:    # absorption (golden hearts)
+                                        extras["events"].append([tick, who, "abs", round(da[17][1], 1)])
                                     for si, sk in ((19, "shl"), (20, "shr")):   # a parrot on a shoulder: its colour, -1 none
                                         if da.get(si, (None,))[0] == SER_OPT_UINT:
                                             extras["events"].append([tick, who, sk, da[si][1] - 1])
@@ -1305,7 +1312,9 @@ def decode_entities(zip_path: str, players: dict[bytes, str] | None = None, ever
                             if 0 <= slot < 9:
                                 cnt = _varint(b, k)[0]
                                 st, _ = item_stack(b, k, items_of, comps_of)
-                                extras["events"].append([tick, None, "hb", [slot, st[0], st[1], st[2], max(0, cnt)]])
+                                lk = st[4] or {}
+                                dur = [lk.get("damage", 0), lk.get("max_damage")] if lk.get("damage") else None
+                                extras["events"].append([tick, None, "hb", [slot, st[0], st[1], st[2], max(0, cnt), dur]])
                         elif pid == bev_id and size >= 11:   # block pos, action, parameter, block: action 1 = viewers
                             pos = struct.unpack_from(">q", b, k)[0]
                             bid = _varint(b, k + 10)[0] if k + 10 < i + size else -1
@@ -1643,7 +1652,7 @@ def tracks_from_replays(data: m.ServerData, replay_file: Callable[[m.Replay], st
     return files, warns
 
 
-EXACT_SUFFIX = ".exact41.json.gz"    # 41: bats resting ("bres"), copper golems' state ("cgs"), rabbits hopping ("ee" 1); 40: parrots on shoulders ("shl", "shr": the parrot's colour, -1 none), parrots' colours ("variant"), armadillos' and sniffers' states ("ast", "sst"); 39: guardians' beams ("gt": whom, "" none); 38: critical hits ("cr" 4, magic 5, on whom they landed); 37: bells rung ("bl" [x, y, z, direction]; were taken for chests); 36: lightning ("lb"), fireworks ("fwx" explosions, "fwb" bursts), bobbers' owners ("fo"), end crystals followed; 35: shulkers ("sha" face, "spk" peek, "sco" dye); 34: mobs' moves ("cs", "cp", "eb", "ec", "gc", "wi", "hf"; "ee" 4 / 8 / 11 / 34); 33: experience ("xp" [bar, level, total]), effects ("eff" [[name, amplifier, duration ticks (-1 for ever), flags, from tick], ...]); 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
+EXACT_SUFFIX = ".exact42.json.gz"    # 42: items' wear in the hotbar ("hb" [..., [damage, max or None]]), absorption ("abs"); 41: bats resting ("bres"), copper golems' state ("cgs"), rabbits hopping ("ee" 1); 40: parrots on shoulders ("shl", "shr": the parrot's colour, -1 none), parrots' colours ("variant"), armadillos' and sniffers' states ("ast", "sst"); 39: guardians' beams ("gt": whom, "" none); 38: critical hits ("cr" 4, magic 5, on whom they landed); 37: bells rung ("bl" [x, y, z, direction]; were taken for chests); 36: lightning ("lb"), fireworks ("fwx" explosions, "fwb" bursts), bobbers' owners ("fo"), end crystals followed; 35: shulkers ("sha" face, "spk" peek, "sco" dye); 34: mobs' moves ("cs", "cp", "eb", "ec", "gc", "wi", "hf"; "ee" 4 / 8 / 11 / 34); 33: experience ("xp" [bar, level, total]), effects ("eff" [[name, amplifier, duration ticks (-1 for ever), flags, from tick], ...]); 32: players' air ("air", of 300) and frozen ticks ("fz"); 31: sheep eating grass (entity event 10 in "ee"); 30: bees' flags ("bnf"), bees' anger, jukebox songs ("js"); 29: boss bars ("bo", all shown), wolves' anger ("ang", ticks left); (28 also: entity events with particles, "ee"); 28: the action bar ("ab"), titles ("ti", "st", "ta", "tc"), system messages ("sm"); 27: potion swirls ("ef" [[particle, ARGB], ...], faint); 26: maps in recorded item frames (their number); 25: particles the server sent ("pt"); 24: game modes ("gm"), sizes ("sc"); 23: enchantment glint and armour trims in items' looks; 22: falling blocks ("fb"), TNT, experience orbs, pick-ups ("pk"), totems; 21: boats' paddles ("pl", "pr"); 20: copper golems' weathering ("weather"); 19: pistons ("pi"); 18: level events with particles ("le"); 17: mining cracks ("mc"), blocks broken ("bb"); 16: paintings and item frames ("hg", "hv", "hi", "hgx"); 15: leads ("lead"), signs written ("sg"); 14: tamed cats and wolves, collar colours; 13: mob variants (cat, wolf, cow...), villagers' type, job, level; 12: mobs' looks (baby, wool, horse variant, slime size, name); 11: 26.3 swings (swing_animation), named mobs read on, eggs breaking aren't deaths; 10: things thrown or shot, every tick; 9: shields' and banners' patterns in "eq"; 8: chests opening ("ce" [x, y, z, viewers]), health and food ("hp"); 7: mobs' held items and armour, the recorded player's hotbar ("hb", "hs"); 6: dropped items ("it", "gone"); 5: held items and armour; 4: riding
 
 
 def exact_rows(zip_path: str, cache_dir: str | None, players: dict[bytes, str] | None = None,

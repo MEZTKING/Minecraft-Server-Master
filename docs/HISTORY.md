@@ -220,6 +220,11 @@ map's big flat polygons; each piece of real blocks then rises up out of the grou
 a glowing block grid, in about a second and a half. Pieces updated to another moment just change. Untick it to
 have them simply appear.
 
+**Wear, absorption, spawners, portals.** In Relive the hotbar shows worn tools' and armour's durability bars,
+and absorption (a golden apple) adds golden hearts above the red ones. Monster spawners show the little mob they
+make turning inside the cage when someone is near. Walking into a nether portal through someone's eyes, the
+portal's purple swirl spreads over the screen as in the game.
+
 **Playing a memory like a video.** While reliving, a bar in the black band at the bottom (it shows when you move
 the mouse or pause) has play / pause, back and on 5 seconds, a seek bar over the whole memory, the time, and the
 speed (0.25x to 4x). Keys work as in a video player: Space or K pauses, the arrow keys go back and on 5 seconds, J

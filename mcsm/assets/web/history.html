@@ -121,6 +121,7 @@ body.relive #hotbar { display: none; }                 /* in a memory: the game'
 #mcFx .water { inset: 0; background-repeat: repeat; image-rendering: pixelated; }
 #mcFx .pumpkin, #mcFx .snow, #mcFx .vignette { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 #mcFx .vignette { filter: invert(1); mix-blend-mode: multiply; }
+#mcFx .portal { inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 /* the game's own lettering (/gamefont.ttf: made from the game's font picture by mcsm.mcfont) for its text on screen */
 @font-face { font-family: "mcsm game"; src: url(gamefont.ttf) format("truetype"); font-display: swap; }
 /* the death screen (DeathScreen: red over the view, "You Died!" twice the size, the cause, the score, two buttons),
@@ -345,7 +346,7 @@ body.relive #jobs, body.clean #jobs { display: none !important; }
 </div>
 <div id="jobs" class="card" hidden><div class="h">Working on</div><div id="jobList"></div></div>
 <div id="cleanHint" hidden>UI hidden · F1 or Esc to show it · F2 for a picture</div><div id="shotFlash"></div>
-<div id="mcHud" hidden></div><div id="skyFlash"></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcSleep" hidden><div class="mcBtn"></div></div><div id="mcDeath" hidden><div class="t"></div><div class="m"></div><div class="s"></div><div class="mcBtn b1"></div><div class="mcBtn b2"></div></div><div id="mcToasts"></div><div id="mcChat" hidden></div>
+<div id="mcHud" hidden></div><div id="skyFlash"></div><div id="mcFx"><canvas class="fire l" width="16" height="16"></canvas><canvas class="fire r" width="16" height="16"></canvas><div class="water"></div><img class="pumpkin" alt="" src="blocktex/0/misc/pumpkinblur.png"><img class="snow" alt="" src="blocktex/0/misc/powder_snow_outline.png"><img class="vignette" alt="" src="blocktex/0/misc/vignette.png"><canvas class="portal" width="16" height="16"></canvas></div><div id="mcScope" hidden><img alt="" src="blocktex/0/misc/spyglass_scope.png"></div><div id="mcBar" hidden></div><div id="mcEff" hidden></div><div id="mcName" hidden></div><div id="mcBoss" hidden></div><div id="mcTitle" hidden><div class="t"></div><div class="s"></div></div><img id="mcCross" hidden alt=""><div id="mcSleep" hidden><div class="mcBtn"></div></div><div id="mcDeath" hidden><div class="t"></div><div class="m"></div><div class="s"></div><div class="mcBtn b1"></div><div class="mcBtn b2"></div></div><div id="mcToasts"></div><div id="mcChat" hidden></div>
 <div id="relive" hidden><div class="vig"></div><div class="bar top"></div><div class="bar bot"></div>
   <div class="sub" id="rlSub"></div><div class="white" id="rlWhite"></div>
   <div class="cap" id="rlCap"><div class="big" id="rlWhen"></div><div id="rlWhere"></div><div id="rlWho"></div>
@@ -1421,7 +1422,7 @@ $("#realOn").onchange = () => { store.set("mcsm-real", $("#realOn").checked ? "1
 $("#realOn").checked = store.get("mcsm-real") !== "0";
 $("#momentOn").checked = store.get("mcsm-moment") !== "0";
 $("#momentOn").onchange = () => store.set("mcsm-moment", $("#momentOn").checked ? "1" : "0");
-window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), signMesh: sg => signMesh(sg), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
+window.__history = { renderer, LIGHT, hemi, sun, get DEV() { return DEV; }, devState: () => devState(), viewLink: () => viewLink(), camera, controls, scene, REAL, focusOn: (...a) => focusOn(...a), THREE, seek: t => seek(t, false), get markers() { return markers; }, LIGHTS, applyLight: () => applyLight(false), get EXACT() { return EXACT; }, get MAPS() { return MAPS; }, get EXPL() { return EXPL; }, get LIVEMAP() { return LIVEMAP; }, get AMB() { return AMB; }, get BE() { return BE; }, beStep: () => blockEntitiesStep(), beamsStep: () => guardianBeamsStep(), spawnerMob: sp => spawnerMob(sp), spawnersStep: () => spawnersStep(performance.now()), signMesh: sg => signMesh(sg), shoulderStep: () => shoulderStep(), prof: start => { if (start) { PROF.on = true; PROF.t = {}; PROF.max = {}; PROF.frames = 0; return "on"; }
     const n = Math.max(1, PROF.frames); return Object.fromEntries([["frames", PROF.frames], ["meshes", { ...BMT }], ["worst", Object.fromEntries(Object.entries(PROF.max).filter(e => e[1] > 8).map(([k, v]) => [k, Math.round(v)]))], ...Object.entries(PROF.t).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, typeof v === "number" && k !== "frames" ? +(v / n).toFixed(2) : v])]); }, relive: (...a) => relive(...a), groundBlock: (...a) => groundBlock(...a), ambPlayers: () => ambPlayers(), ambCrits: (...a) => ambCrits(...a), screensStep: w => screensStep(w), beamMesh: (...a) => beamMesh(...a), get mobMeshes() { return mobMeshes; }, get FPV() { return FPV; }, get FPB() { return FPB; }, get RELIVE() { return RELIVE; }, mobMesh: (...a) => mobMesh(...a), mobLook: (...a) => mobLook(...a), mobMoves: (...a) => { mobMoves(...a); syncExtras(a[0]); mobTint(a[0], a[1]); }, ambTick: (s, n = 1) => { for (let i = 0; i < n; i++) ambTick(s); }, ambCode: c => ambCode(c), get T() { return T; },
   mobGallery: (...a) => mobGallery(...a) };   // for checking the view
 
@@ -2728,7 +2729,7 @@ function updateMobs() {
   for (const [label, o] of mobMeshes) if (o.tag && (!shown.has(label) || !o.mesh.visible)) o.tag.style.display = "none";
   for (const [label, o] of mobMeshes) if (!shown.has(label)) {
     if (label.startsWith("#gallery#")) { animateMob(o, label, 2); continue; }
-    if (label.startsWith("#shoulder#")) continue;        // parrots on players' shoulders: shoulderStep
+    if (label.startsWith("#shoulder#") || label.startsWith("#spawner#")) continue;   // (shoulderStep, spawnersStep)
     if (mobMeshes.size > 600) {                          // only the box is the mob's own: models share geometry
       mobGroup.remove(o.mesh); o.box.geometry.dispose(); o.box.material.dispose(); mobMeshes.delete(label);
     } else o.mesh.visible = false;
@@ -5360,7 +5361,7 @@ function fpCamera(R, on, scoping) {
   const fov = RSET.fov * FPFX.mod * (wet ? 6 / 7 : 1);
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   // the screen: flames while they burn (flag 0x01), the water's tint and fog, a pumpkin's view, frost, the vignette
-  const fx = $("#mcFx"), [fl1, fl2, water, pumpkin, snow, vig] = fx.children;
+  const fx = $("#mcFx"), [fl1, fl2, water, pumpkin, snow, vig, portal] = fx.children;
   const burning = !!(fl & 0x01) && !scoping;
   fl1.style.display = fl2.style.display = burning ? "block" : "none";
   if (burning) {
@@ -5390,6 +5391,22 @@ function fpCamera(R, on, scoping) {
   // Gui.renderVignette: the darker it is where they stand, the darker the edges (eased 1% a frame)
   FPFX.vb += (Math.max(0, Math.min(1, 1 - bright)) - FPFX.vb) * 0.01;
   vig.style.display = "block"; vig.style.opacity = FPFX.vb;
+  // standing in a nether portal (the block at their eyes): LocalPlayer's spinning effect grows 0.0125 a tick inside,
+  // falls 0.05 a tick outside; Gui.renderPortalOverlay draws the portal's picture over the screen, its alpha a^4 x
+  // 0.8 + 0.2 until full
+  const inPortal = /^minecraft:nether_portal/.test(st), pt = FPFX.portalAt == null ? 0 : Math.min(20, Math.max(0, (T - FPFX.portalAt) / 50));
+  FPFX.portalAt = T;
+  FPFX.portal = Math.max(0, Math.min(1, (FPFX.portal || 0) + (inPortal ? 0.0125 : -0.05) * pt));
+  portal.style.display = FPFX.portal > 0 ? "block" : "none";
+  if (FPFX.portal > 0) {
+    let a = FPFX.portal; if (a < 1) { a = a * a; a = a * a; a = a * 0.8 + 0.2; }
+    portal.style.opacity = a.toFixed(3);
+    if (!FPFX.portalImg) { FPFX.portalImg = 1; texOnce("block/nether_portal").then(t => { if (t && t.image) { FPFX.portalImg = t.image; FPFX.portalN = Math.max(1, Math.floor(t.image.height / t.image.width)); } }); }
+    if (FPFX.portalImg && FPFX.portalImg !== 1) {
+      const im = FPFX.portalImg, fr = Math.floor(T / 50) % FPFX.portalN, g = portal.getContext("2d");
+      g.imageSmoothingEnabled = false; g.clearRect(0, 0, 16, 16); g.drawImage(im, 0, fr * im.width, im.width, im.width, 0, 0, 16, 16);
+    }
+  }
 }
 // GameRenderer.bobView: walking sways the view (and the hand with it): walkDist grows 0.6 a block walked, bob eases
 // (0.4 a tick) towards the horizontal speed (at most 0.1) on the ground
@@ -5627,9 +5644,23 @@ async function invBackup(who, t) {                      // the nearest backup's 
   finally { INV.busy = false; }
   return INV.backup[key];
 }
+// items' durability when the recording didn't say (the game's defaults: max_damage isn't sent unless changed)
+const DUR_TOOLS = { wooden: 59, stone: 131, copper: 190, iron: 250, golden: 32, diamond: 1561, netherite: 2031 };
+const DUR_ARMOUR = { leather: [55, 80, 75, 65], chainmail: [165, 240, 225, 195], iron: [165, 240, 225, 195],
+  copper: [121, 176, 165, 143], golden: [77, 112, 105, 91], diamond: [363, 528, 495, 429], netherite: [407, 592, 555, 481] };
+const DUR_OTHER = { bow: 384, crossbow: 465, trident: 250, shield: 336, elytra: 432, fishing_rod: 64, shears: 238,
+  flint_and_steel: 64, carrot_on_a_stick: 25, warped_fungus_on_a_stick: 100, brush: 64, mace: 500, wolf_armor: 64,
+  turtle_helmet: 275 };
+function maxDurability(item) {
+  if (DUR_OTHER[item]) return DUR_OTHER[item];
+  let m = /^(\w+?)_(sword|pickaxe|axe|shovel|hoe|spear)$/.exec(item); if (m && DUR_TOOLS[m[1]]) return DUR_TOOLS[m[1]];
+  m = /^(\w+?)_(helmet|chestplate|leggings|boots)$/.exec(item);
+  if (m && DUR_ARMOUR[m[1]]) return DUR_ARMOUR[m[1]][["helmet", "chestplate", "leggings", "boots"].indexOf(m[2])];
+  return 0;
+}
 function exactHotbar(who) {                             // [9 x [item, count] | undefined], selected, any exact?
   const out = [], hasAny = EXACT.on && EXACT.ev[who] && Object.keys(EXACT.ev[who]).some(k => k.startsWith("hb:"));
-  for (let i = 0; i < 9; i++) { const v = hasAny ? stateAt(who, `hb:${i}`, T, null) : null; out.push(v ? [v[0], v[3] || 1] : (hasAny ? null : undefined)); }
+  for (let i = 0; i < 9; i++) { const v = hasAny ? stateAt(who, `hb:${i}`, T, null) : null; out.push(v ? [v[0], v[3] || 1, v[4] || null] : (hasAny ? null : undefined)); }
   return { slots: out, sel: hasAny ? stateAt(who, "hs", T, null) : null, any: hasAny };
 }
 const ago = ms => { const h = Math.abs(ms) / 3_600_000; return h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`; };
@@ -6141,7 +6172,8 @@ function hudStep(now) {
   const heartKind = has("poison") ? "poisoned_" : has("wither") ? "withered_" : fz >= 140 ? "frozen_" : "";
   const blink = hudBlink(who), xp = stateAt(who, "xp", T, null);
   const tick = Math.floor(T / 50), low = hp && Math.ceil(hp[0]) <= 4, regen = has("regeneration");
-  const key = JSON.stringify([slots, sel, hp, armor, b && b.xp_level, heartKind, blink, air, xp, low || regen ? tick : 0]);
+  const absorb = Math.ceil(stateAt(who, "abs", T, 0) || 0), rows = Math.ceil((20 + absorb) / 2 / 10), rowH = Math.max(10 - (rows - 2), 3);
+  const key = JSON.stringify([slots, sel, hp, armor, b && b.xp_level, heartKind, blink, air, xp, low || regen ? tick : 0, absorb]);
   if (key !== HUD.key) {
     HUD.key = key;
     const els = [], img = (src, x, y, w, h) => { const im = document.createElement("img"); im.src = src;
@@ -6156,6 +6188,14 @@ function hudStep(now) {
       if (!v || !v[0]) return;
       const im = img(iconSrc(v[0]), 6 + i * 40, Y + 6, 32, 32); im.dataset.item = v[0];
       im.style.objectFit = "cover"; im.style.objectPosition = "top";
+      const dur = v[2], mx = dur ? dur[1] || maxDurability(v[0]) : 0;
+      if (dur && dur[0] > 0 && mx) {                    // ItemStack bar: 13 wide, its colour from green to red by wear
+        const w = Math.round(13 - dur[0] * 13 / mx), c = mcHsv(Math.max(0, (mx - dur[0]) / mx) / 3, 1, 1);
+        const bg = document.createElement("div"), fg = document.createElement("div");
+        Object.assign(bg.style, { position: "absolute", left: `${6 + i * 40 + 4}px`, top: `${Y + 6 + 26}px`, width: "26px", height: "4px", background: "#000" });
+        Object.assign(fg.style, { position: "absolute", left: `${6 + i * 40 + 4}px`, top: `${Y + 6 + 26}px`, width: `${Math.max(0, w) * 2}px`, height: "2px", background: "#" + c });
+        els.push(bg, fg);
+      }
       if (v[1] > 1) { const n = document.createElement("span"); n.className = "n"; n.textContent = v[1];
         Object.assign(n.style, { left: `${6 + i * 40}px`, top: `${Y + 26}px`, width: "34px", textAlign: "right" }); els.push(n); }
     });
@@ -6183,6 +6223,12 @@ function hudStep(now) {
         if (h >= 2 * i + 1) img(hudSprite(`heart/${heartKind}${h >= 2 * i + 2 ? "full" : "half"}`), i * 16, y, 18, 18);
         img(hudSprite(f >= 2 * i + 2 ? "food_full" : f === 2 * i + 1 ? "food_half" : "food_empty"), 346 - i * 16, RY, 18, 18);
       }
+      // absorption: golden hearts after the 10, rows of 10 going up, each row nearer as they stack (Gui.renderHearts)
+      if (absorb > 0) for (let j = 0; j < Math.ceil(absorb / 2); j++) {
+        const n = 10 + j, row = Math.floor(n / 10), x = (n % 10) * 16, y = RY - row * rowH * 2;
+        img(hudSprite("heart/container"), x, y, 18, 18);
+        img(hudSprite(absorb >= 2 * j + 2 ? "heart/absorbing_full" : "heart/absorbing_half"), x, y, 18, 18);
+      }
     }
     // Gui.renderAirBubbles: above the food while under water or short of air (of 300): full, one bursting, empty
     if (air < 300) {
@@ -6190,8 +6236,8 @@ function hudStep(now) {
       for (let i = 0; i < 10; i++)
         img(hudSprite(i < full ? "air" : i < full + pop ? "air_bursting" : "air_empty"), 346 - i * 16, RY - 20, 18, 18);
     }
-    if (armor > 0) for (let i = 0; i < 10; i++)          // armour above the hearts
-      img(hudSprite(armor >= 2 * i + 2 ? "armor_full" : armor === 2 * i + 1 ? "armor_half" : "armor_empty"), i * 16, RY - 20, 18, 18);
+    if (armor > 0) for (let i = 0; i < 10; i++)          // armour above the hearts (and any golden ones)
+      img(hudSprite(armor >= 2 * i + 2 ? "armor_full" : armor === 2 * i + 1 ? "armor_half" : "armor_empty"), i * 16, RY - 20 - (rows - 1) * rowH * 2, 18, 18);
     $("#mcHud").replaceChildren(...els);
   }
   hudEffectIcons(effs);
@@ -7671,6 +7717,56 @@ function headsStep(now) {
   }
 }
 
+// ---------- spawners: the mob they make, small, turning inside the cage (SpawnerRenderer) ----------
+// From the backup shown (/api/spawners): 0.53 blocks over the mob's largest size (when that's over 1), 0.4 up, turned,
+// 0.2 down, tilted 30 degrees; turning (BaseSpawner: 1000 / (delay + 200) a tick, x 10 degrees; the delay taken as
+// 400) only while a player is within 16 blocks, as the game ticks it
+const SPAWN = { tiles: new Map(), asking: new Set(), last: 0, group: new THREE.Group(), list: [] };
+scene.add(SPAWN.group);
+function spawnerMob(sp) {
+  const holder = new THREE.Group(), spin = new THREE.Group(), tilt = new THREE.Group();
+  holder.position.set(sp.x + 0.5, sp.y + 0.4, sp.z + 0.5); tilt.position.y = -0.2; tilt.rotation.x = -30 * Math.PI / 180;
+  const [w, h] = MOB_SIZE[sp.mob] || [0.6, 0.9], big = Math.max(w, h);
+  tilt.scale.setScalar(big > 1 ? 0.53125 / big : 0.53125);
+  holder.add(spin); spin.add(tilt);
+  holder.userData = { sp, spin, tilt, label: `#spawner#${sp.x},${sp.y},${sp.z}` };
+  SPAWN.list.push(holder);
+  return holder;
+}
+function spawnersStep(now) {
+  // each frame: the mob in place (its model once the models are here), turning while someone's near
+  for (const hld of SPAWN.list) {
+    if (!hld.parent || !hld.parent.parent) continue;
+    const u = hld.userData, o = mobMesh(u.label, u.sp.mob);
+    if (o.mesh.parent !== u.tilt) { mobGroup.remove(o.mesh); u.tilt.add(o.mesh); o.mesh.position.set(0, 0, 0); o.mesh.rotation.set(0, 0, 0); }
+    o.mesh.visible = true;
+    let near = false;
+    for (const m of Object.values(markers)) if (m.group.visible && m.group.position.distanceToSquared(hld.position) < 256) { near = true; break; }
+    if (near) u.spin.rotation.y = ((T / 50) * (1000 / 600) * 10 % 360) * Math.PI / 180;
+  }
+  if (now - SPAWN.last < 700) return; SPAWN.last = now;
+  SPAWN.list = SPAWN.list.filter(h => h.parent && h.parent.parent);
+  const dim = $("#dim").value, layer = shownLayer[dim] ?? 0, d = dim.replace("minecraft:", "");
+  for (const [k, e] of SPAWN.tiles) {
+    if (!REAL.tiles.has(e.id) || e.layer !== layer || e.dim !== dim) {
+      SPAWN.group.remove(e.group); SPAWN.tiles.delete(k);
+      e.group.traverse(x => { if (x.userData && x.userData.label) mobMeshes.delete(x.userData.label); });
+    }
+  }
+  for (const id of REAL.tiles.keys()) {
+    const k = `${layer}|${dim}|${id}`;
+    if (SPAWN.tiles.has(k) || SPAWN.asking.has(k)) continue;
+    SPAWN.asking.add(k);
+    const [tx, tz] = id.split(",");
+    fetch(`api/spawners/${layer}/${d}/${tx}/${tz}`).then(r => r.json()).then(r => {
+      if ((shownLayer[$("#dim").value] ?? 0) !== layer || $("#dim").value !== dim) return;
+      const group = new THREE.Group();
+      for (const sp of r.spawners || []) group.add(spawnerMob(sp));
+      SPAWN.group.add(group); SPAWN.tiles.set(k, { id, layer, dim, group });
+    }).catch(() => {}).finally(() => SPAWN.asking.delete(k));
+  }
+}
+
 // ---------- maps: every map of the backup shown, and maps on their item frames ----------
 // The maps and frames come from the backup of the terrain layer shown (/api/maps/<layer>: worked out once in the
 // background). In the world, each framed map is a picture on its wall where the real blocks are loaded; the
@@ -7967,6 +8063,7 @@ function frame(now) {
   prof("bannersStep", () => bannersStep(now));// banners' flags where the real blocks are
   prof("signsStep", () => signsStep(now));// signs' text
   prof("headsStep", () => headsStep(now));// player heads in their skins
+  prof("spawnersStep", () => spawnersStep(now));      // the mob turning inside each spawner
   prof("chestsStep", () => chestsStep(now));// chests' lids opening
   prof("glintStep", () => glintStep());// enchanted things' glint moving
   prof("hangingStep", () => hangingStep(now));// paintings and item frames

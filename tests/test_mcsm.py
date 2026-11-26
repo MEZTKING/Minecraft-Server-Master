@@ -1486,9 +1486,9 @@ class TestPosesAndMobs(unittest.TestCase):
                 zf.writestr("metadata.json", json.dumps({"protocol_version": 777, "version_string": "26.3"}))
                 zf.writestr("c0.flashback", _fb_chunk(recs))
             ev = [e for e in paths.exact_rows(z, os.path.join(tmp, "cache"), {})["events"] if e[2] in ("hb", "hs")]
-            self.assertEqual(ev, [[1, None, "hb", [0, "diamond_sword", "", None, 1]],
-                                  [1, None, "hb", [8, "cobblestone", "", None, 25]],
-                                  [4, None, "hs", 8], [4, None, "hb", [8, "", "", None, 0]]])
+            self.assertEqual(ev, [[1, None, "hb", [0, "diamond_sword", "", None, 1, None]],
+                                  [1, None, "hb", [8, "cobblestone", "", None, 25, None]],
+                                  [4, None, "hs", 8], [4, None, "hb", [8, "", "", None, 0, None]]])   # (the last: wear)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         new = history._inventory_of({"Inventory": [{"Slot": 0, "id": "minecraft:bow", "count": 1},
@@ -3976,6 +3976,12 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(bars, {})
         body = bytes([22, paths.SER_VARLONG]) + bytes([0xFF] * 9) + bytes([1]) + bytes([0xFF])
         self.assertEqual(paths.entity_data_all(body, 0, len(body))[22], (paths.SER_VARLONG, -1))
+
+    def test_item_wear(self):
+        """An item's wear (damage, and max_damage when it was changed) kept with it, for the hotbar's durability bar."""
+        from mcsm import paths
+        self.assertEqual(paths._component("damage", bytes([0xAC, 0x02]), 0), (2, ("damage", 300)))
+        self.assertEqual(paths._component("max_damage", bytes([0x05]), 0), (1, ("max_damage", 5)))
 
     def test_game_font(self):
         """The game's lettering as a TrueType font: glyph widths measured from a (1-bit palette) font picture as the

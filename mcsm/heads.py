@@ -76,6 +76,31 @@ def statues_in_tile(root: str, world: str, dim: str, tx: int, tz: int, size: int
     return out
 
 
+def spawners_in_tile(root: str, world: str, dim: str, tx: int, tz: int, size: int = 128) -> list[dict]:
+    """Every monster spawner in the tile and the mob it makes: ``{x, y, z, mob}`` (its ``SpawnData.entity.id``; the
+    game draws that mob turning inside the cage)."""
+    from .containers import _chunk, _region
+    out = []
+    c0x, c0z, n = tx * size >> 4, tz * size >> 4, max(1, size >> 4)
+    for cx in range(c0x, c0x + n):
+        for cz in range(c0z, c0z + n):
+            p = _region(root, world, dim, cx << 4, cz << 4)
+            raw = _chunk(p, cx, cz) if p else None
+            if raw is None or b"mob_spawner" not in raw:
+                continue
+            d = nbt.loads(raw)
+            for e in d.get("block_entities") or (d.get("Level") or {}).get("TileEntities") or []:
+                if not isinstance(e, dict) or not str(e.get("id", "")).lower().endswith("mob_spawner"):
+                    continue
+                x, y, z = e.get("x"), e.get("y"), e.get("z")
+                sd = e.get("SpawnData") if isinstance(e.get("SpawnData"), dict) else {}
+                ent = sd.get("entity") if isinstance(sd.get("entity"), dict) else sd
+                mob = str((ent or {}).get("id", "")).replace("minecraft:", "")
+                if all(isinstance(v, int) for v in (x, y, z)) and mob:
+                    out.append({"x": x, "y": y, "z": z, "mob": mob})
+    return out
+
+
 def heads_in_tile(root: str, world: str, dim: str, tx: int, tz: int, size: int = 128) -> list[dict]:
     """Every player head with a skin in the tile ``[tx*size, ...)``: ``{x, y, z, wall, facing, rotation, skin}``."""
     from . import blockmesh as bm
