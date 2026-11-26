@@ -4480,6 +4480,9 @@ class TestRealBlocks(unittest.TestCase):
         self.assertEqual(paths.mob_anim("sniffer", {17: (34, ("?", 5))}, False, None), [["sst", 5]])
         self.assertEqual(paths.mob_anim("sniffer", {18: (35, ("?", 99))}, True, None), [])
         self.assertIn(["variant", "green"], paths.mob_details("parrot", {20: (paths.SER_VARINT, 2)}, True))
+        self.assertEqual(paths.mob_anim("bat", {16: (paths.SER_BYTE, 1)}, True, None), [["bres", 1]])
+        self.assertEqual(paths.mob_details("copper_golem", {17: (38, ("?", 2)), 18: (37, ("?", 3))}, True),
+                         [["weather", 2], ["cgs", 3]])     # weathered, dropping an item
         self.assertIn(["variant", "red_blue"], paths.mob_details("parrot", {19: (paths.SER_VARINT, 0)}, False))
 
     def test_advancements_from_the_jar(self):

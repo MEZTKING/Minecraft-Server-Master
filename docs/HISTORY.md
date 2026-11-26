@@ -349,7 +349,8 @@ player saw.
 
 **The game's own mob animations.** Mobs the game animates with keyframes move with the game's exact animations,
 read from your Minecraft files: sniffers digging, sniffing and standing up; armadillos rolling up and out; camels
-sitting down and getting up; frogs croaking and jumping; bats flapping; wardens roaring, sniffing, emerging and
+sitting down and getting up; frogs croaking and jumping; bats flapping, or hanging upside down asleep; rabbits hopping and tilting their heads; copper golems walking
+and sorting items into chests; nautiluses swimming; wardens roaring, sniffing, emerging and
 attacking; breezes shooting and jumping.
 
 **Parrots, armadillos, sniffers.** A parrot sitting on someone's shoulder rides there in its colour, as in the

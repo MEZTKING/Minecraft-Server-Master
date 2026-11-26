@@ -2169,7 +2169,15 @@ const kfWalk = (acc, P, o, def, maxSpeed, scaleFactor) => {
   const pos = (o.dist || 0) * 4, sp = Math.min(1, (o.speedNow || 0) / 20 * 4);
   if (sp > 0.01) kfAdd(acc, P, def, pos * 50 * maxSpeed / 1000, Math.min(sp * scaleFactor, 1));
 };
-const KF_KINDS = new Set(["sniffer", "armadillo", "camel", "breeze", "warden", "frog", "bat"]);
+const KF_KINDS = new Set(["sniffer", "armadillo", "camel", "breeze", "warden", "frog", "bat", "rabbit", "copper_golem",
+  "nautilus", "creaking"]);
+// an idle animation the game starts at random every so often: here at a steady pace of the mob's own (from its
+// label), between min and min + spread ticks; the seconds into the current one
+function kfIdle(label, min, spread) {
+  let h = 0; for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  const period = min + Math.abs(h) % spread, tk = T / 50 + (Math.abs(h >> 8) % period);
+  return (tk % period) / 20;
+}
 function kfMob(o, label, kind) {
   if (!KF_KINDS.has(kind)) return false;
   const A = kfAnims(), P = o.parts; if (!A || !P) return false;
@@ -2194,6 +2202,7 @@ function kfMob(o, label, kind) {
       kfWalk(acc, P, o, S[pre + "WALK"], 2, 2.5);
       const ev = EXACT.on && EXACT.ev[label] && EXACT.ev[label].p, i = ev ? lower(ev, T, r => r[0]) - 1 : -1;
       if (i > 0 && ev[i - 1][1] === 10 && since(ev[i][0]) < 2.6) kfAdd(acc, P, S[pre + "STANDUP"], since(ev[i][0]));
+      else if ((o.speedNow || 0) < 0.2) kfAdd(acc, P, S[pre + "IDLE"], kfIdle(label, 80, 40));   // (Camel: every 80-120 ticks)
     }
   } else if (kind === "breeze") {                       // BreezeModel: always its idle swirl; shooting, jumping, inhaling, sliding
     const S = A.BreezeAnimation || {}, [p, t0] = stateSince(label, "p", 0);
@@ -2212,8 +2221,27 @@ function kfMob(o, label, kind) {
     kfWalk(acc, P, o, S.FROG_WALK, 1.5, 2.5);
     const by = { 6: "FROG_JUMP", 8: "FROG_CROAK", 9: "FROG_TONGUE" }[p];
     if (by) kfAdd(acc, P, S[by], since(t0));
-  } else if (kind === "bat") {                          // BatModel: flying (its wings beating, looping)
-    kfAdd(acc, P, (A.BatAnimation || {}).BAT_FLYING, T / 1000);
+  } else if (kind === "bat") {                          // BatModel: flying, or hanging and resting (flags 0x01)
+    const S = A.BatAnimation || {};
+    kfAdd(acc, P, stateAt(label, "bres", T, 0) ? S.BAT_RESTING : S.BAT_FLYING, T / 1000);
+  } else if (kind === "rabbit") {                       // RabbitModel: a hop (entity event 1); now and then its head tilts
+    const S = (baby ? A.BabyRabbitAnimation : A.RabbitAnimation) || {}, hop = sinceEvent(label, 1, 750);
+    if (hop !== null) kfAdd(acc, P, S.HOP, hop / 1000);
+    else kfAdd(acc, P, S.IDLE_HEAD_TILT, kfIdle(label, 160, 160));
+  } else if (kind === "copper_golem") {                 // CopperGolemModel: walking (with an item or not), idle, chest work
+    const S = A.CopperGolemAnimation || {}, held = (stateAt(label, "eq:mainhand", T, null) || [])[0];
+    kfWalk(acc, P, o, held ? S.COPPER_GOLEM_WALK_ITEM : S.COPPER_GOLEM_WALK, 2, 2.5);
+    const [st, t0] = stateSince(label, "cgs", 0);
+    const by = { 1: "COPPER_GOLEM_CHEST_INTERACTION_NOITEM_GET", 2: "COPPER_GOLEM_CHEST_INTERACTION_NOITEM_NOGET",
+      3: "COPPER_GOLEM_CHEST_INTERACTION_ITEM_DROP", 4: "COPPER_GOLEM_CHEST_INTERACTION_ITEM_NODROP" }[st];
+    if (by) kfAdd(acc, P, S[by], since(t0));
+    else if ((o.speedNow || 0) < 0.2) kfAdd(acc, P, S.COPPER_GOLEM_IDLE, kfIdle(label, 200, 200));
+  } else if (kind === "nautilus") {                     // NautilusModel: swimming as it goes
+    kfWalk(acc, P, o, (A.NautilusAnimation || {}).SWIMMING, 2, 3);
+  } else if (kind === "creaking") {                     // CreakingModel: walking, attacking (event 4)
+    const S = A.CreakingAnimation || {};
+    kfWalk(acc, P, o, S.CREAKING_WALK, 1, 1);
+    const at = sinceEvent(label, 4, 800); if (at !== null) kfAdd(acc, P, S.CREAKING_ATTACK, at / 1000);
   }
   kfApply(P, acc, head, kind === "warden");
   return true;
@@ -7141,6 +7169,7 @@ function ambPoof(x, y, z, vx, vy, vz) {                   // ExplodeParticle (po
     g: -0.1 * 0.04, fr: 0.9, life: Math.floor(16 / (R() * 0.8 + 0.2)) + 2, size: 0.1 * (R() * R() * 6 + 1) * 2,
     col: [c, c, c, 1], frames: ambFrames("poof"), day: true });
 }
+const AMB_EE_FX = new Set([6, 7, 12, 13, 14, 18, 20, 60]);   // the entity events that make particles
 function ambEntityEvents(t0, t1) {
   if (!EXACT.on) return;
   for (const [name, ev] of Object.entries(EXACT.ev)) {
@@ -7150,7 +7179,7 @@ function ambEntityEvents(t0, t1) {
     const RX = () => p.x + w * (2 * R() - 1), RY = () => p.y + h * R(), RZ = () => p.z + w * (2 * R() - 1);
     for (let i = lower(ev.ee, t0, r => r[0]); i < ev.ee.length && ev.ee[i][0] <= t1; i++) {
       const st = ev.ee[i][1];
-      if (st === 10) continue;                                            // (a sheep eating: its head, not particles)
+      if (!AMB_EE_FX.has(st)) continue;                                  // (moves, not particles: a sheep eating, attacks...)
       if (st === 60 || st === 20) for (let n = 0; n < 20; n++) {          // a body vanishing / a mob appearing
         const d = GAUSS() * 0.02, e = GAUSS() * 0.02, f = GAUSS() * 0.02;
         if (st === 60) ambPoof(RX(), RY(), RZ(), d, e, f); else ambPoof(RX() - d * 10, RY() - e * 10, RZ() - f * 10, d, e, f);
